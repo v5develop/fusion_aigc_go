@@ -6,13 +6,42 @@ package handler
 import (
 	"net/http"
 
+	common "aigc-life/app/gateway/api/internal/handler/common"
 	copywriting "aigc-life/app/gateway/api/internal/handler/copywriting"
+	digitalhuman "aigc-life/app/gateway/api/internal/handler/digitalhuman"
 	"aigc-life/app/gateway/api/internal/svc"
 
 	"github.com/zeromicro/go-zero/rest"
 )
 
 func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
+	server.AddRoutes(
+		rest.WithMiddlewares(
+			[]rest.Middleware{serverCtx.Auth},
+			[]rest.Route{
+				{
+					// AIGC 功能使用约定：是否已同意当前版本
+					Method:  http.MethodGet,
+					Path:    "/agreements/aigc",
+					Handler: common.GetAgreementHandler(serverCtx),
+				},
+				{
+					// 同意 AIGC 功能使用约定
+					Method:  http.MethodPost,
+					Path:    "/agreements/aigc/accept",
+					Handler: common.AcceptAgreementHandler(serverCtx),
+				},
+				{
+					// 上传照片（multipart 字段 file），返回公网地址
+					Method:  http.MethodPost,
+					Path:    "/upload",
+					Handler: common.UploadHandler(serverCtx),
+				},
+			}...,
+		),
+		rest.WithPrefix("/api/v1"),
+	)
+
 	server.AddRoutes(
 		rest.WithMiddlewares(
 			[]rest.Middleware{serverCtx.Auth},
@@ -76,6 +105,81 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 					Method:  http.MethodGet,
 					Path:    "/copywriting/options",
 					Handler: copywriting.OptionsHandler(serverCtx),
+				},
+			}...,
+		),
+		rest.WithPrefix("/api/v1"),
+	)
+
+	server.AddRoutes(
+		rest.WithMiddlewares(
+			[]rest.Middleware{serverCtx.Auth},
+			[]rest.Route{
+				{
+					// 开始生成数字人
+					Method:  http.MethodPost,
+					Path:    "/digital-humans",
+					Handler: digitalhuman.CreateHandler(serverCtx),
+				},
+				{
+					// 我的数字人列表
+					Method:  http.MethodGet,
+					Path:    "/digital-humans",
+					Handler: digitalhuman.ListHandler(serverCtx),
+				},
+				{
+					// 数字人详情（生成中轮询此接口）
+					Method:  http.MethodGet,
+					Path:    "/digital-humans/:id",
+					Handler: digitalhuman.GetHandler(serverCtx),
+				},
+				{
+					// 删除数字人
+					Method:  http.MethodDelete,
+					Path:    "/digital-humans/:id",
+					Handler: digitalhuman.RemoveHandler(serverCtx),
+				},
+				{
+					// AI 定制选项：性别/年龄/肤色/职业角色
+					Method:  http.MethodGet,
+					Path:    "/digital-humans/options",
+					Handler: digitalhuman.OptionsHandler(serverCtx),
+				},
+				{
+					// AI 定制形象：提交生成（4 张 9:16 图）
+					Method:  http.MethodPost,
+					Path:    "/digital-humans/portraits",
+					Handler: digitalhuman.CreatePortraitHandler(serverCtx),
+				},
+				{
+					// AI 定制形象：查询（生成中轮询此接口）
+					Method:  http.MethodGet,
+					Path:    "/digital-humans/portraits/:id",
+					Handler: digitalhuman.GetPortraitHandler(serverCtx),
+				},
+				{
+					// AI 定制形象：重新生成
+					Method:  http.MethodPost,
+					Path:    "/digital-humans/portraits/:id/regenerate",
+					Handler: digitalhuman.RegeneratePortraitHandler(serverCtx),
+				},
+				{
+					// 公共数字人列表
+					Method:  http.MethodGet,
+					Path:    "/digital-humans/public",
+					Handler: digitalhuman.ListPublicHandler(serverCtx),
+				},
+				{
+					// 系统音色列表
+					Method:  http.MethodGet,
+					Path:    "/voices",
+					Handler: digitalhuman.ListVoicesHandler(serverCtx),
+				},
+				{
+					// 系统音色分类
+					Method:  http.MethodGet,
+					Path:    "/voices/categories",
+					Handler: digitalhuman.VoiceCategoriesHandler(serverCtx),
 				},
 			}...,
 		),

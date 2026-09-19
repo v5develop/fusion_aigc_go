@@ -77,7 +77,7 @@ message OptionsResp {
 
 message AiWriteReq {
   int64 user_id = 1;
-  string scene = 2;             // topic-主题补写 / selling_point-商品卖点优化
+  string scene = 2;             // topic-主题补写 / selling_point-商品卖点优化 / dh_script-数字人配音内容
   string content_type = 3;
   string industry = 4;
   string context = 5;           // 用户已输入内容

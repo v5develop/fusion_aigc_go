@@ -28,6 +28,48 @@ type CopywritingListResp struct {
 	Total int64         `json:"total"`
 }
 
+type DhOptionListReq struct {
+	OptionType string `form:"option_type,optional,options=AGE|SKIN_TONE|ROLE|VOICE_CATEGORY|PROMPT"`
+}
+
+type DhSaveOptionReq struct {
+	Id         int64  `path:"id,optional"`
+	OptionType string `json:"option_type,options=AGE|SKIN_TONE|ROLE|VOICE_CATEGORY|PROMPT"`
+	Code       string `json:"code"`
+	Label      string `json:"label"`
+	Value      string `json:"value,optional"`
+	SortOrder  int32  `json:"sort_order,optional"`
+	Status     int32  `json:"status,options=0|1"`
+}
+
+type DigitalHuman struct {
+	Id             int64  `json:"id"`
+	UserId         int64  `json:"user_id"`
+	Name           string `json:"name"`
+	PortraitSource string `json:"portrait_source"`
+	ImageUrl       string `json:"image_url"`
+	VoiceId        int64  `json:"voice_id"`
+	VoiceName      string `json:"voice_name"`
+	Script         string `json:"script"`
+	VideoUrl       string `json:"video_url"`
+	Duration       int32  `json:"duration"`
+	Status         int32  `json:"status"`
+	FailReason     string `json:"fail_reason"`
+	CreateTime     int64  `json:"create_time"`
+}
+
+type DigitalHumanListReq struct {
+	UserId   int64 `form:"user_id,optional"`
+	Status   int32 `form:"status,optional,default=-1"`
+	Page     int64 `form:"page,optional,default=1"`
+	PageSize int64 `form:"page_size,optional,default=20"`
+}
+
+type DigitalHumanListResp struct {
+	List  []DigitalHuman `json:"list"`
+	Total int64          `json:"total"`
+}
+
 type EmptyResp struct {
 }
 
@@ -68,4 +110,36 @@ type SaveOptionReq struct {
 	Value      string `json:"value,optional"`
 	SortOrder  int32  `json:"sort_order,optional"`
 	Status     int32  `json:"status,options=0|1"`
+}
+
+type SaveVoiceReq struct {
+	Id         int64    `path:"id,optional"`
+	Name       string   `json:"name"`
+	Voice      string   `json:"voice"`
+	Gender     string   `json:"gender,options=female|male"`
+	Style      string   `json:"style,optional"`
+	Categories []string `json:"categories,optional"`
+	PreviewUrl string   `json:"preview_url,optional"`
+	SortOrder  int32    `json:"sort_order,optional"`
+	Status     int32    `json:"status,options=0|1"`
+}
+
+type Voice struct {
+	Id         int64    `json:"id"`
+	Name       string   `json:"name"`
+	Voice      string   `json:"voice"`
+	Gender     string   `json:"gender"`
+	Style      string   `json:"style"`
+	Categories []string `json:"categories"`
+	PreviewUrl string   `json:"preview_url"`
+	SortOrder  int32    `json:"sort_order"`
+	Status     int32    `json:"status"`
+}
+
+type VoiceListReq struct {
+	Category string `form:"category,optional"`
+}
+
+type VoiceListResp struct {
+	List []Voice `json:"list"`
 }

@@ -3,8 +3,14 @@
 
 package types
 
+type AgreementResp struct {
+	Code     string `json:"code"`
+	Version  int32  `json:"version"`
+	Accepted bool   `json:"accepted"`
+}
+
 type AiWriteReq struct {
-	Scene       string `json:"scene,options=topic|selling_point"`
+	Scene       string `json:"scene,options=topic|selling_point|dh_script"`
 	ContentType string `json:"content_type,optional"`
 	Industry    string `json:"industry,optional"`
 	Context     string `json:"context"`
@@ -30,6 +36,27 @@ type Copywriting struct {
 	Status           int32  `json:"status"`
 	FailReason       string `json:"fail_reason"`
 	CreateTime       int64  `json:"create_time"`
+}
+
+type CreateDigitalHumanReq struct {
+	RequestId      string `header:"X-Request-Id"`
+	Name           string `json:"name,optional"`
+	PortraitSource string `json:"portrait_source,options=UPLOAD|PUBLIC|AI"`
+	ImageUrl       string `json:"image_url,optional"`
+	PublicId       int64  `json:"public_id,optional"`
+	PortraitId     int64  `json:"portrait_id,optional"`
+	ImageIndex     int32  `json:"image_index,optional"`
+	VoiceId        int64  `json:"voice_id"`
+	Script         string `json:"script"`
+}
+
+type CreatePortraitReq struct {
+	RequestId   string `header:"X-Request-Id"`
+	Gender      string `json:"gender,options=female|male"`
+	Age         string `json:"age"`
+	SkinTone    string `json:"skin_tone"`
+	Role        string `json:"role,optional"`
+	Description string `json:"description,optional"`
 }
 
 type CreateReq struct {
@@ -58,6 +85,36 @@ type DerivativesResp struct {
 	Total int64        `json:"total"`
 }
 
+type DhOptionsResp struct {
+	Genders           []Option `json:"genders"`
+	Ages              []Option `json:"ages"`
+	SkinTones         []Option `json:"skin_tones"`
+	Roles             []Option `json:"roles"`
+	MaxDescriptionLen int32    `json:"max_description_len"`
+	MaxScriptLen      int32    `json:"max_script_len"`
+}
+
+type DigitalHuman struct {
+	Id             int64  `json:"id"`
+	Name           string `json:"name"`
+	PortraitSource string `json:"portrait_source"`
+	ImageUrl       string `json:"image_url"`
+	VoiceId        int64  `json:"voice_id"`
+	VoiceName      string `json:"voice_name"`
+	Script         string `json:"script"`
+	VideoUrl       string `json:"video_url"`
+	CoverUrl       string `json:"cover_url"`
+	Duration       int32  `json:"duration"`
+	Status         int32  `json:"status"`
+	FailReason     string `json:"fail_reason"`
+	CreateTime     int64  `json:"create_time"`
+}
+
+type DigitalHumanListResp struct {
+	List  []DigitalHuman `json:"list"`
+	Total int64          `json:"total"`
+}
+
 type EmptyResp struct {
 }
 
@@ -77,6 +134,12 @@ type IdPath struct {
 	Id int64 `path:"id"`
 }
 
+type ListDigitalHumansReq struct {
+	Status   int32 `form:"status,optional,default=-1"`
+	Page     int64 `form:"page,optional,default=1"`
+	PageSize int64 `form:"page_size,optional,default=20"`
+}
+
 type ListReq struct {
 	Keyword     string `form:"keyword,optional"`
 	ContentType string `form:"content_type,optional"`
@@ -87,6 +150,10 @@ type ListReq struct {
 type ListResp struct {
 	List  []Copywriting `json:"list"`
 	Total int64         `json:"total"`
+}
+
+type ListVoicesReq struct {
+	Category string `form:"category,optional"`
 }
 
 type ModelInfo struct {
@@ -110,6 +177,31 @@ type OptionsResp struct {
 	MaxReferenceLen int32     `json:"max_reference_len"`
 }
 
+type Portrait struct {
+	Id          int64    `json:"id"`
+	Gender      string   `json:"gender"`
+	Age         string   `json:"age"`
+	SkinTone    string   `json:"skin_tone"`
+	Role        string   `json:"role"`
+	Description string   `json:"description"`
+	Status      int32    `json:"status"`
+	ImageUrls   []string `json:"image_urls"`
+	FailReason  string   `json:"fail_reason"`
+	CreateTime  int64    `json:"create_time"`
+}
+
+type PublicDigitalHuman struct {
+	Id        int64  `json:"id"`
+	Name      string `json:"name"`
+	RoleLabel string `json:"role_label"`
+	ImageUrl  string `json:"image_url"`
+	AvatarUrl string `json:"avatar_url"`
+}
+
+type PublicListResp struct {
+	List []PublicDigitalHuman `json:"list"`
+}
+
 type RegenerateReq struct {
 	RequestId string `header:"X-Request-Id"`
 	Id        int64  `path:"id"`
@@ -119,4 +211,27 @@ type UpdateReq struct {
 	Id    int64  `path:"id"`
 	Title string `json:"title,optional"`
 	Body  string `json:"body"`
+}
+
+type UploadResp struct {
+	Url         string `json:"url"`
+	Size        int64  `json:"size"`
+	ContentType string `json:"content_type"`
+}
+
+type Voice struct {
+	Id         int64    `json:"id"`
+	Name       string   `json:"name"`
+	Gender     string   `json:"gender"`
+	Style      string   `json:"style"`
+	Categories []string `json:"categories"`
+	PreviewUrl string   `json:"preview_url"`
+}
+
+type VoiceCategoriesResp struct {
+	List []Option `json:"list"`
+}
+
+type VoiceListResp struct {
+	List []Voice `json:"list"`
 }

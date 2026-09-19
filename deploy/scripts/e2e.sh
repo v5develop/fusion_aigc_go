@@ -84,7 +84,7 @@ admin DELETE "/copywriting/options/$WID" > /dev/null
 check "删掉词后恢复正常" "$(api_code POST /copywriting/ai-write '{"scene":"topic","context":"正常的咖啡店文案"}')" 0
 
 echo "== 提示词模板"
-check "提示词有 5 条" "$(admin GET '/copywriting/options?option_type=PROMPT' | jq '.list|length')" 5
+check "提示词有 6 条（含数字人配音）" "$(admin GET '/copywriting/options?option_type=PROMPT' | jq '.list|length')" 6
 PID=$(admin GET '/copywriting/options?option_type=PROMPT' | jq -r '.list[]|select(.code=="generate_suffix")|.id')
 check "模板内容非空" "$([[ -n $(admin GET '/copywriting/options?option_type=PROMPT' | jq -r '.list[0].value') ]] && echo yes)" yes
 
@@ -146,7 +146,7 @@ check "删除后列表 4 条" "$(api GET '/copywriting' | jq '.total')" 4
 echo "== 运营后台"
 check "后台未登录" "$(curl -sS "$ADMIN/copywriting/options" | jq -r .code)" 1002
 check "后台模型只读" "$(admin GET /copywriting/model | jq -r .code)" qwen3-vl-plus
-check "后台选项全量 23 条" "$(admin GET /copywriting/options | jq '.list|length')" 23
+check "后台选项全量 24 条" "$(admin GET /copywriting/options | jq '.list|length')" 24
 check "按类型筛选" "$(admin GET '/copywriting/options?option_type=STYLE' | jq '.list|length')" 5
 NO=$(admin POST /copywriting/options '{"option_type":"INDUSTRY","code":"pet","label":"宠物","value":"宠物门店场景","sort_order":9,"status":0}')
 NID=$(jq -r .id <<<"$NO")

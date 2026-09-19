@@ -20,6 +20,7 @@ const (
 	promptTopic          = "ai_write_topic"
 	promptSellingPoint   = "ai_write_selling_point"
 	promptGenerateSuffix = "generate_suffix"
+	promptDhScript       = "ai_write_dh_script"
 )
 
 var fallbackPrompts = map[string]string{
@@ -28,6 +29,7 @@ var fallbackPrompts = map[string]string{
 	promptTopic:          "你帮商家把粗略想法补写成一句清晰的文案主题，20 字以内，只输出主题本身。",
 	promptSellingPoint:   "你帮商家把商品卖点整理得更有吸引力，保留原有事实（价格、时间、地点等），只输出整理后的卖点文本。",
 	promptGenerateSuffix: "先输出一行标题，再空一行输出正文。标题不超过 30 字，不要加「标题：」这类前缀。",
+	promptDhScript:       "你帮商家写数字人口播的配音文案：口语化、亲切自然，适合直接念出来，一到两句话，不要表情符号和话题标签，只输出配音文案本身。",
 }
 
 // prompt 取模板：库里有且非空就用库里的，否则用内置。

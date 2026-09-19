@@ -1,7 +1,7 @@
 syntax = "v1"
 
 info (
-	title:   "AI文案 App 网关"
+	title:   "AIGC 本地生活 App 网关"
 	version: "v1"
 )
 
@@ -29,7 +29,7 @@ type (
 		MaxReferenceLen int32     `json:"max_reference_len"`
 	}
 	AiWriteReq {
-		Scene       string `json:"scene,options=topic|selling_point"`
+		Scene       string `json:"scene,options=topic|selling_point|dh_script"`
 		ContentType string `json:"content_type,optional"`
 		Industry    string `json:"industry,optional"`
 		Context     string `json:"context"`
@@ -153,5 +153,179 @@ service gateway-api {
 	@doc "生成历史：该文案衍生出的内容（TODO 本版不交付，前端暂不接）"
 	@handler derivatives
 	get /copywriting/:id/derivatives (DerivativesReq) returns (DerivativesResp)
+}
+
+// ---------------- AI 数字人 ----------------
+type (
+	AgreementResp {
+		Code     string `json:"code"`
+		Version  int32  `json:"version"`
+		Accepted bool   `json:"accepted"`
+	}
+	UploadResp {
+		Url         string `json:"url"`
+		Size        int64  `json:"size"`
+		ContentType string `json:"content_type"`
+	}
+	PublicDigitalHuman {
+		Id        int64  `json:"id"`
+		Name      string `json:"name"`
+		RoleLabel string `json:"role_label"`
+		ImageUrl  string `json:"image_url"`
+		AvatarUrl string `json:"avatar_url"`
+	}
+	PublicListResp {
+		List []PublicDigitalHuman `json:"list"`
+	}
+	DhOptionsResp {
+		Genders           []Option `json:"genders"`
+		Ages              []Option `json:"ages"`
+		SkinTones         []Option `json:"skin_tones"`
+		Roles             []Option `json:"roles"`
+		MaxDescriptionLen int32    `json:"max_description_len"`
+		MaxScriptLen      int32    `json:"max_script_len"`
+	}
+	CreatePortraitReq {
+		RequestId   string `header:"X-Request-Id"`
+		Gender      string `json:"gender,options=female|male"`
+		Age         string `json:"age"`
+		SkinTone    string `json:"skin_tone"`
+		Role        string `json:"role,optional"`
+		Description string `json:"description,optional"`
+	}
+	Portrait {
+		Id          int64    `json:"id"`
+		Gender      string   `json:"gender"`
+		Age         string   `json:"age"`
+		SkinTone    string   `json:"skin_tone"`
+		Role        string   `json:"role"`
+		Description string   `json:"description"`
+		Status      int32    `json:"status"`
+		ImageUrls   []string `json:"image_urls"`
+		FailReason  string   `json:"fail_reason"`
+		CreateTime  int64    `json:"create_time"`
+	}
+	VoiceCategoriesResp {
+		List []Option `json:"list"`
+	}
+	ListVoicesReq {
+		Category string `form:"category,optional"`
+	}
+	Voice {
+		Id         int64    `json:"id"`
+		Name       string   `json:"name"`
+		Gender     string   `json:"gender"`
+		Style      string   `json:"style"`
+		Categories []string `json:"categories"`
+		PreviewUrl string   `json:"preview_url"`
+	}
+	VoiceListResp {
+		List []Voice `json:"list"`
+	}
+	CreateDigitalHumanReq {
+		RequestId      string `header:"X-Request-Id"`
+		Name           string `json:"name,optional"`
+		PortraitSource string `json:"portrait_source,options=UPLOAD|PUBLIC|AI"`
+		ImageUrl       string `json:"image_url,optional"`
+		PublicId       int64  `json:"public_id,optional"`
+		PortraitId     int64  `json:"portrait_id,optional"`
+		ImageIndex     int32  `json:"image_index,optional"`
+		VoiceId        int64  `json:"voice_id"`
+		Script         string `json:"script"`
+	}
+	DigitalHuman {
+		Id             int64  `json:"id"`
+		Name           string `json:"name"`
+		PortraitSource string `json:"portrait_source"`
+		ImageUrl       string `json:"image_url"`
+		VoiceId        int64  `json:"voice_id"`
+		VoiceName      string `json:"voice_name"`
+		Script         string `json:"script"`
+		VideoUrl       string `json:"video_url"`
+		CoverUrl       string `json:"cover_url"`
+		Duration       int32  `json:"duration"`
+		Status         int32  `json:"status"`
+		FailReason     string `json:"fail_reason"`
+		CreateTime     int64  `json:"create_time"`
+	}
+	ListDigitalHumansReq {
+		Status   int32 `form:"status,optional,default=-1"`
+		Page     int64 `form:"page,optional,default=1"`
+		PageSize int64 `form:"page_size,optional,default=20"`
+	}
+	DigitalHumanListResp {
+		List  []DigitalHuman `json:"list"`
+		Total int64          `json:"total"`
+	}
+)
+
+@server (
+	prefix:     /api/v1
+	middleware: Auth
+	group:      common
+)
+service gateway-api {
+	@doc "AIGC 功能使用约定：是否已同意当前版本"
+	@handler getAgreement
+	get /agreements/aigc returns (AgreementResp)
+
+	@doc "同意 AIGC 功能使用约定"
+	@handler acceptAgreement
+	post /agreements/aigc/accept returns (AgreementResp)
+
+	@doc "上传照片（multipart 字段 file），返回公网地址"
+	@handler upload
+	post /upload returns (UploadResp)
+}
+
+@server (
+	prefix:     /api/v1
+	middleware: Auth
+	group:      digitalhuman
+)
+service gateway-api {
+	@doc "公共数字人列表"
+	@handler listPublic
+	get /digital-humans/public returns (PublicListResp)
+
+	@doc "AI 定制选项：性别/年龄/肤色/职业角色"
+	@handler options
+	get /digital-humans/options returns (DhOptionsResp)
+
+	@doc "AI 定制形象：提交生成（4 张 9:16 图）"
+	@handler createPortrait
+	post /digital-humans/portraits (CreatePortraitReq) returns (Portrait)
+
+	@doc "AI 定制形象：查询（生成中轮询此接口）"
+	@handler getPortrait
+	get /digital-humans/portraits/:id (IdPath) returns (Portrait)
+
+	@doc "AI 定制形象：重新生成"
+	@handler regeneratePortrait
+	post /digital-humans/portraits/:id/regenerate (RegenerateReq) returns (Portrait)
+
+	@doc "系统音色分类"
+	@handler voiceCategories
+	get /voices/categories returns (VoiceCategoriesResp)
+
+	@doc "系统音色列表"
+	@handler listVoices
+	get /voices (ListVoicesReq) returns (VoiceListResp)
+
+	@doc "开始生成数字人"
+	@handler create
+	post /digital-humans (CreateDigitalHumanReq) returns (DigitalHuman)
+
+	@doc "我的数字人列表"
+	@handler list
+	get /digital-humans (ListDigitalHumansReq) returns (DigitalHumanListResp)
+
+	@doc "数字人详情（生成中轮询此接口）"
+	@handler get
+	get /digital-humans/:id (IdPath) returns (DigitalHuman)
+
+	@doc "删除数字人"
+	@handler remove
+	delete /digital-humans/:id (IdPath) returns (EmptyResp)
 }
 

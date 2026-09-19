@@ -2,11 +2,15 @@ Name: admin-api
 Host: 0.0.0.0
 Port: 8889
 Mode: dev
-Timeout: 15000
+Timeout: 60000   # 生成试听为同步合成
 Log:
   Encoding: plain
 Auth:
   Mode: dev
 CopywritingRpc:
   Etcd: {Hosts: [127.0.0.1:2379], Key: copywriting.rpc}
+  NonBlock: true
+DigitalHumanRpc:
+  Etcd: {Hosts: [127.0.0.1:2379], Key: digitalhuman.rpc}
+  Timeout: 60000        # 生成试听为同步合成
   NonBlock: true

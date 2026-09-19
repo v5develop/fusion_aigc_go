@@ -27,13 +27,22 @@ func NewAiWriteLogic(ctx context.Context, svcCtx *svc.ServiceContext) *AiWriteLo
 	}
 }
 
-// AI 帮写 / AI 优化（同步）
+// dhScriptMaxLen 数字人配音内容上限，与 digitalhuman-rpc 的 Limits.MaxScriptLen 一致
+const dhScriptMaxLen = 50
+
 // AI 帮写 / AI 优化（同步）
 func (l *AiWriteLogic) AiWrite(in *pb.AiWriteReq) (*pb.AiWriteResp, error) {
 	code := promptTopic
-	if in.Scene == "selling_point" {
+	switch in.Scene {
+	case "", "topic":
+	case "selling_point":
 		code = promptSellingPoint
-	} else if in.Scene != "" && in.Scene != "topic" {
+	case "dh_script": // 数字人配音内容，默认 50 字以内
+		code = promptDhScript
+		if in.MaxLen <= 0 {
+			in.MaxLen = dhScriptMaxLen
+		}
+	default:
 		return nil, xerr.Newf(xerr.ParamError, "不支持的场景 %s", in.Scene)
 	}
 	if runeLen(in.Context) > l.svcCtx.Config.Generate.MaxTopicLen {

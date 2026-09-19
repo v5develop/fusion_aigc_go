@@ -1,0 +1,44 @@
+Name: digitalhuman.rpc
+ListenOn: 0.0.0.0:9202
+Mode: dev
+Timeout: 60000   # 后台「生成试听」为同步合成
+Etcd:
+  Hosts: [127.0.0.1:2379]
+  Key: digitalhuman.rpc
+Log:
+  Encoding: plain
+# 现有系统库；TTS 模型与密钥、OSS 配置都从库里读，不写在这里
+DataSource: root:123456@tcp(127.0.0.1:3306)/fusion_aigc?charset=utf8mb4&parseTime=true&loc=Asia%2FShanghai&time_zone=%27%2B08%3A00%27
+# AIGC 执行面（数字人视频 85、AI 定制出图 75）。正式地址待提供，本地先指向 mock-aigc（make run-all 会启动）；
+# 置空则这两个功能返回「暂未开放」
+Aigc:
+  Endpoint: http://127.0.0.1:5055   # 正式：http://<aigc_server>:5000
+  TimeoutSeconds: 10
+Storage:
+  Mode: local           # local 仅开发用（执行面访问不到）；oss 写现有公有桶 xx-shop-img
+  Prefix: aigc-life
+  LocalDir: data/files
+  LocalBaseUrl: http://127.0.0.1:8888/files
+TaskIDPrefix: aigclife
+Agreement:
+  AigcVersion: 1        # 条款改版后 +1，用户需重新同意
+Portrait:
+  Count: 4
+  Size: "9:16"
+  Model: mini
+  TimeoutMinutes: 10
+Video:
+  AspectRatio: "9:16"   # 设计稿不给选，固定
+  Resolution: 720p
+  TimeoutMinutes: 30
+TTS:
+  TimeoutSeconds: 60
+Poll:
+  IntervalSeconds: 5
+Moderation:
+  Mode: keyword         # 与 AI文案共用 BLOCKWORD 词库
+# 公共数字人：复用现有模板素材，运营在现有后台「模板」里维护（本服务只读）
+PublicModel:
+  BizType: localLife
+  Module: digitalHuman
+  Slot: publicModel

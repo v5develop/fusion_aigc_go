@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	copywriting "aigc-life/app/admin/api/internal/handler/copywriting"
+	digitalhuman "aigc-life/app/admin/api/internal/handler/digitalhuman"
 	"aigc-life/app/admin/api/internal/svc"
 
 	"github.com/zeromicro/go-zero/rest"
@@ -58,6 +59,81 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 					Method:  http.MethodDelete,
 					Path:    "/copywriting/options/:id",
 					Handler: copywriting.DeleteOptionHandler(serverCtx),
+				},
+			}...,
+		),
+		rest.WithPrefix("/admin/v1"),
+	)
+
+	server.AddRoutes(
+		rest.WithMiddlewares(
+			[]rest.Middleware{serverCtx.AdminAuth},
+			[]rest.Route{
+				{
+					// 用户数字人列表
+					Method:  http.MethodGet,
+					Path:    "/digital-humans",
+					Handler: digitalhuman.ListHandler(serverCtx),
+				},
+				{
+					// 数字人选项列表（年龄/肤色/职业/音色分类/提示词）
+					Method:  http.MethodGet,
+					Path:    "/digital-humans/options",
+					Handler: digitalhuman.ListOptionsHandler(serverCtx),
+				},
+				{
+					// 新增数字人选项
+					Method:  http.MethodPost,
+					Path:    "/digital-humans/options",
+					Handler: digitalhuman.CreateOptionHandler(serverCtx),
+				},
+				{
+					// 编辑数字人选项
+					Method:  http.MethodPut,
+					Path:    "/digital-humans/options/:id",
+					Handler: digitalhuman.UpdateOptionHandler(serverCtx),
+				},
+				{
+					// 删除数字人选项
+					Method:  http.MethodDelete,
+					Path:    "/digital-humans/options/:id",
+					Handler: digitalhuman.DeleteOptionHandler(serverCtx),
+				},
+				{
+					// 当前配音模型（只读）
+					Method:  http.MethodGet,
+					Path:    "/digital-humans/tts-model",
+					Handler: digitalhuman.GetTTSModelHandler(serverCtx),
+				},
+				{
+					// 系统音色列表
+					Method:  http.MethodGet,
+					Path:    "/digital-humans/voices",
+					Handler: digitalhuman.ListVoicesHandler(serverCtx),
+				},
+				{
+					// 新增系统音色
+					Method:  http.MethodPost,
+					Path:    "/digital-humans/voices",
+					Handler: digitalhuman.CreateVoiceHandler(serverCtx),
+				},
+				{
+					// 编辑系统音色
+					Method:  http.MethodPut,
+					Path:    "/digital-humans/voices/:id",
+					Handler: digitalhuman.UpdateVoiceHandler(serverCtx),
+				},
+				{
+					// 删除系统音色
+					Method:  http.MethodDelete,
+					Path:    "/digital-humans/voices/:id",
+					Handler: digitalhuman.DeleteVoiceHandler(serverCtx),
+				},
+				{
+					// 生成试听：用该音色合成一句固定文案
+					Method:  http.MethodPost,
+					Path:    "/digital-humans/voices/:id/preview",
+					Handler: digitalhuman.GenerateVoicePreviewHandler(serverCtx),
 				},
 			}...,
 		),

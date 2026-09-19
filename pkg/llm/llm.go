@@ -6,8 +6,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -54,16 +56,22 @@ func (c *Client) Chat(ctx context.Context, ep Endpoint, system, user string) (st
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, chatURL(ep), bytes.NewReader(body))
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+ep.APIKey)
-
-	resp, err := c.hc.Do(req)
-	if err != nil {
-		return "", err
+	var resp *http.Response
+	for attempt := 0; ; attempt++ {
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, chatURL(ep), bytes.NewReader(body))
+		if err != nil {
+			return "", err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+ep.APIKey)
+		if resp, err = c.hc.Do(req); err == nil {
+			break
+		}
+		// 连接、TLS 握手等网络抖动重试一次，整体仍受 timeout 约束
+		var ne net.Error
+		if attempt > 0 || !errors.As(err, &ne) || ctx.Err() != nil {
+			return "", err
+		}
 	}
 	defer resp.Body.Close()
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))

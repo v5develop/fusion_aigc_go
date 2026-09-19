@@ -1,0 +1,206 @@
+syntax = "proto3";
+
+package digitalhuman;
+option go_package = "./pb";
+
+// AI 数字人。本版只做系统音色，「我的音色」（录音复刻）不做。
+service DigitalHuman {
+  // ---- App ----
+  // AIGC 功能使用约定：是否已同意当前版本 / 同意
+  rpc GetAgreement(AgreementReq) returns (AgreementInfo);
+  rpc AcceptAgreement(AgreementReq) returns (AgreementInfo);
+  // 公共数字人：复用现有模板素材（afv_public_template_*），运营在现有后台维护，这里只读
+  rpc ListPublic(Empty) returns (PublicList);
+  // AI 定制表单选项：性别 / 年龄 / 肤色 / 职业角色
+  rpc Options(Empty) returns (OptionsResp);
+  // AI 定制形象：异步出 4 张 9:16 图（执行面 75），轮询 GetPortrait
+  rpc CreatePortrait(CreatePortraitReq) returns (PortraitInfo);
+  rpc GetPortrait(IdUserReq) returns (PortraitInfo);
+  rpc RegeneratePortrait(RegenerateReq) returns (PortraitInfo);
+  rpc VoiceCategories(Empty) returns (OptionList);
+  rpc ListVoices(ListVoicesReq) returns (VoiceList);
+  // 开始生成：配音（百炼 TTS）→ 口播视频（执行面 85），轮询 Get
+  rpc Create(CreateReq) returns (DigitalHumanInfo);
+  rpc Get(IdUserReq) returns (DigitalHumanInfo);
+  rpc List(ListReq) returns (DigitalHumanList);
+  rpc Delete(IdUserReq) returns (Empty);
+
+  // ---- 运营后台 ----
+  rpc AdminListOptions(AdminListOptionsReq) returns (OptionList);
+  rpc AdminSaveOption(OptionInfo) returns (OptionInfo);
+  rpc AdminDeleteOption(IdReq) returns (Empty);
+  rpc AdminListVoices(ListVoicesReq) returns (VoiceList);
+  rpc AdminSaveVoice(VoiceInfo) returns (VoiceInfo);
+  rpc AdminDeleteVoice(IdReq) returns (Empty);
+  // 用该音色合成一句固定文案作为试听音频
+  rpc AdminGenerateVoicePreview(IdReq) returns (VoiceInfo);
+  rpc AdminList(AdminListReq) returns (DigitalHumanList);
+  // 当前配音模型（只读，来自 afv_system_config + afv_ai_model）
+  rpc AdminGetTTSModel(Empty) returns (ModelInfo);
+}
+
+message Empty {}
+
+message IdReq {
+  int64 id = 1;
+}
+
+message IdUserReq {
+  int64 id = 1;
+  int64 user_id = 2;
+}
+
+message AgreementReq {
+  int64 user_id = 1;
+  string code = 2;              // aigc
+}
+
+message AgreementInfo {
+  string code = 1;
+  int32 version = 2;            // 当前版本
+  bool accepted = 3;            // 是否已同意当前版本
+}
+
+message PublicInfo {
+  int64 id = 1;                 // afv_public_template_assets.id
+  string name = 2;
+  string role_label = 3;
+  string image_url = 4;
+  string avatar_url = 5;
+}
+
+message PublicList {
+  repeated PublicInfo list = 1;
+}
+
+message OptionInfo {
+  int64 id = 1;
+  string option_type = 2;       // AGE / SKIN_TONE / ROLE / VOICE_CATEGORY / PROMPT
+  string code = 3;
+  string label = 4;
+  string value = 5;
+  int32 sort_order = 6;
+  int32 status = 7;
+}
+
+message OptionList {
+  repeated OptionInfo list = 1;
+}
+
+message AdminListOptionsReq {
+  string option_type = 1;
+}
+
+message OptionsResp {
+  repeated OptionInfo genders = 1;
+  repeated OptionInfo ages = 2;
+  repeated OptionInfo skin_tones = 3;
+  repeated OptionInfo roles = 4;
+  int32 max_description_len = 5;
+  int32 max_script_len = 6;
+}
+
+message CreatePortraitReq {
+  int64 user_id = 1;
+  string gender = 2;            // female / male
+  string age = 3;
+  string skin_tone = 4;
+  string role = 5;
+  string description = 6;
+  string request_id = 7;        // 幂等
+}
+
+message RegenerateReq {
+  int64 id = 1;
+  int64 user_id = 2;
+  string request_id = 3;
+}
+
+message PortraitInfo {
+  int64 id = 1;
+  string gender = 2;
+  string age = 3;
+  string skin_tone = 4;
+  string role = 5;
+  string description = 6;
+  int32 status = 7;             // 0-生成中 1-已完成 2-失败
+  repeated string image_urls = 8;
+  string fail_reason = 9;
+  int64 create_time = 10;       // unix 毫秒
+}
+
+message VoiceInfo {
+  int64 id = 1;
+  string name = 2;
+  string voice = 3;             // TTS 音色参数值（App 端不返回）
+  string gender = 4;
+  string style = 5;
+  repeated string categories = 6;
+  string preview_url = 7;
+  int32 sort_order = 8;
+  int32 status = 9;
+}
+
+message ListVoicesReq {
+  string category = 1;          // 空表示全部
+}
+
+message VoiceList {
+  repeated VoiceInfo list = 1;
+}
+
+message CreateReq {
+  int64 user_id = 1;
+  string name = 2;              // 选填
+  string portrait_source = 3;   // UPLOAD / PUBLIC / AI
+  string image_url = 4;         // UPLOAD：上传接口返回的地址
+  int64 public_id = 5;          // PUBLIC：公共数字人（模板素材 id）
+  int64 portrait_id = 6;        // AI：定制形象记录
+  int32 image_index = 7;        // AI：选中第几张（0 起）
+  int64 voice_id = 8;
+  string script = 9;
+  string request_id = 10;       // 幂等
+}
+
+message DigitalHumanInfo {
+  int64 id = 1;
+  int64 user_id = 2;
+  string name = 3;
+  string portrait_source = 4;
+  string image_url = 5;
+  int64 voice_id = 6;
+  string voice_name = 7;
+  string script = 8;
+  string video_url = 9;
+  string cover_url = 10;
+  int32 duration = 11;
+  int32 status = 12;            // 0-配音中 1-视频生成中 2-已完成 3-失败
+  string fail_reason = 13;
+  int64 create_time = 14;
+}
+
+message ListReq {
+  int64 user_id = 1;
+  int32 status = 2;             // -1 表示全部
+  int64 page = 3;
+  int64 page_size = 4;
+}
+
+message AdminListReq {
+  int64 user_id = 1;
+  int32 status = 2;             // -1 表示全部
+  int64 page = 3;
+  int64 page_size = 4;
+}
+
+message DigitalHumanList {
+  repeated DigitalHumanInfo list = 1;
+  int64 total = 2;
+}
+
+message ModelInfo {
+  int64 id = 1;
+  string name = 2;
+  string code = 3;
+  string platform = 4;
+}

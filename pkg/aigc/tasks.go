@@ -1,0 +1,225 @@
+package aigc
+
+import (
+	"errors"
+	"fmt"
+)
+
+// 任务类型
+const (
+	TypeMotionDrive  = 9  // 动作驱动
+	TypeNoteScript   = 74 // 图文笔记文案
+	TypeNoteImages   = 75 // 图文笔记出图
+	TypeLongImage    = 76 // 长图
+	TypePoster       = 78 // 海报
+	TypeVoiceClone   = 84 // TTS 声音复刻
+	TypeDigitalHuman = 85 // AI 数字人
+
+	// 路由后才会出现的类型，只在返回值里看到
+	TypeDigitalHumanLite = 45 // 85 + model=lite
+	TypeMotionDriveV2    = 86 // 9 + model=doubao-seedance-2-0-260128
+)
+
+// DigitalHuman 85 AI 数字人：图+音频→视频。产物 GeneratedImagePath（mp4）。
+type DigitalHuman struct {
+	// ImagePath / AudioPath 公网 URL；Model=lite 时须为 OSS key
+	ImagePath   string `json:"image_path"`
+	AudioPath   string `json:"audio_path"`
+	AspectRatio string `json:"aspectRatio"` // 9:16 / 16:9
+	Resolution  string `json:"resolution"`  // 480p / 720p / 1080p
+	Duration    int    `json:"duration"`    // 秒，4–30
+	// Model 默认 doubao-seedance-2-5-260628；lite 路由到 45（≤25s）
+	Model         string `json:"model,omitempty"`
+	Prompt        string `json:"prompt,omitempty"`
+	GenerateAudio *bool  `json:"generate_audio,omitempty"`
+}
+
+func (DigitalHuman) TaskType() int { return TypeDigitalHuman }
+
+func (t DigitalHuman) Validate() error {
+	return first(
+		required("image_path", t.ImagePath),
+		required("audio_path", t.AudioPath),
+		oneOf("aspectRatio", t.AspectRatio, "9:16", "16:9"),
+		oneOf("resolution", t.Resolution, "480p", "720p", "1080p"),
+		rangeInt("duration", t.Duration, 4, 30),
+	)
+}
+
+// MotionDrive 9 动作驱动：参考视频+参考图→视频。产物 GeneratedImagePath（mp4）。
+type MotionDrive struct {
+	// InputVideo / ReferenceImage 公网 URL 或 OSS key；Model 为 seedance 2.0 时必须是公网 URL
+	InputVideo     string `json:"input_video"`
+	ReferenceImage string `json:"reference_image"`
+	// Model doubao-seedance-2-0-260128 → 路由到 86；不传或 lite → 本地 GPU
+	Model  string `json:"model,omitempty"`
+	Prompt string `json:"prompt,omitempty"` // 默认 跳舞
+	// 以下走 86 时生效，默认 15 / 720p / 9:16
+	Duration    int    `json:"duration,omitempty"`
+	Resolution  string `json:"resolution,omitempty"`
+	AspectRatio string `json:"aspectRatio,omitempty"`
+}
+
+func (MotionDrive) TaskType() int { return TypeMotionDrive }
+
+func (t MotionDrive) Validate() error {
+	return first(
+		required("input_video", t.InputVideo),
+		required("reference_image", t.ReferenceImage),
+	)
+}
+
+// NoteScript 74 图文笔记文案（LLM）。产物在 Result.Script。
+type NoteScript struct {
+	UserText     string   `json:"user_text"`
+	NoteType     string   `json:"note_type,omitempty"`
+	MaterialURLs []string `json:"material_urls,omitempty"` // ≤4
+	PersonURL    string   `json:"person_url,omitempty"`
+	ImageCount   int      `json:"image_count,omitempty"` // 默认 1
+}
+
+func (NoteScript) TaskType() int { return TypeNoteScript }
+
+func (t NoteScript) Validate() error {
+	return first(
+		required("user_text", t.UserText),
+		maxLen("material_urls", len(t.MaterialURLs), 4),
+	)
+}
+
+// NoteImages 75 图文笔记出图：每项 Images 出一张。产物 Result.ImagePaths，顺序与 Images 一致。
+type NoteImages struct {
+	Images    []NoteImage `json:"images"`
+	ImageURLs []string    `json:"image_urls,omitempty"`
+	Model     string      `json:"model,omitempty"` // mini(默认) / plus / max
+	Size      string      `json:"size,omitempty"`  // 默认 3:4
+}
+
+type NoteImage struct {
+	ImagePrompt string `json:"image_prompt"`
+	// ReferenceMaterials ImageURLs 的 1 起下标；空 = 纯文生图，最多 4 张
+	ReferenceMaterials []int `json:"reference_materials"`
+}
+
+func (NoteImages) TaskType() int { return TypeNoteImages }
+
+func (t NoteImages) Validate() error {
+	if len(t.Images) == 0 {
+		return errors.New("缺少 images")
+	}
+	for i, img := range t.Images {
+		if img.ImagePrompt == "" {
+			return fmt.Errorf("images[%d] 缺少 image_prompt", i)
+		}
+		if len(img.ReferenceMaterials) > 4 {
+			return fmt.Errorf("images[%d].reference_materials 最多 4 张", i)
+		}
+		for _, n := range img.ReferenceMaterials {
+			if n < 1 || n > len(t.ImageURLs) {
+				return fmt.Errorf("images[%d].reference_materials 下标 %d 超出 image_urls 范围", i, n)
+			}
+		}
+	}
+	return nil
+}
+
+// VoiceClone 84 TTS 声音复刻。AudioURL / Voice 二选一，Voice 优先。产物 GeneratedImagePath（wav）。
+// 注意：执行面不回传新建的 voice id。
+type VoiceClone struct {
+	Text        string `json:"text"`
+	AudioURL    string `json:"audio_url,omitempty"`
+	Voice       string `json:"voice,omitempty"`
+	Prefix      string `json:"prefix,omitempty"`       // 默认 myvoice
+	TargetModel string `json:"target_model,omitempty"` // 默认 cosyvoice-v3-plus
+	Format      string `json:"format,omitempty"`       // 默认 wav
+	SampleRate  int    `json:"sample_rate,omitempty"`  // 默认 24000
+}
+
+func (VoiceClone) TaskType() int { return TypeVoiceClone }
+
+func (t VoiceClone) Validate() error {
+	if t.AudioURL == "" && t.Voice == "" {
+		return errors.New("audio_url 与 voice 至少给一个")
+	}
+	return required("text", t.Text)
+}
+
+// LongImage 76 长图。产物 GeneratedImagePath。
+type LongImage struct {
+	UserText     string   `json:"user_text"`
+	TemplateURL  string   `json:"template_url,omitempty"`
+	MaterialURLs []string `json:"material_urls,omitempty"`
+	Size         string   `json:"size,omitempty"` // 默认 1:4
+}
+
+func (LongImage) TaskType() int { return TypeLongImage }
+
+func (t LongImage) Validate() error {
+	n := len(t.MaterialURLs)
+	if t.TemplateURL != "" {
+		n++
+	}
+	return first(
+		required("user_text", t.UserText),
+		maxLen("template_url + material_urls", n, 4),
+	)
+}
+
+// Poster 78 海报。产物 GeneratedImagePath。
+type Poster struct {
+	Template    string   `json:"template"`
+	Materials   []string `json:"materials"` // 1–3 张，超出取前 3
+	UserText    string   `json:"user_text,omitempty"`
+	PosterStyle string   `json:"poster_style,omitempty"`
+	PosterType  string   `json:"poster_type,omitempty"`
+	Size        string   `json:"size,omitempty"`  // 默认 2:3
+	Model       string   `json:"model,omitempty"` // mini / plus / max(默认)
+}
+
+func (Poster) TaskType() int { return TypePoster }
+
+func (t Poster) Validate() error {
+	if len(t.Materials) == 0 {
+		return errors.New("缺少 materials")
+	}
+	return required("template", t.Template)
+}
+
+func first(errs ...error) error {
+	for _, e := range errs {
+		if e != nil {
+			return e
+		}
+	}
+	return nil
+}
+
+func required(name, v string) error {
+	if v == "" {
+		return fmt.Errorf("缺少 %s", name)
+	}
+	return nil
+}
+
+func oneOf(name, v string, allowed ...string) error {
+	for _, a := range allowed {
+		if v == a {
+			return nil
+		}
+	}
+	return fmt.Errorf("%s 须为 %v 之一，当前 %q", name, allowed, v)
+}
+
+func rangeInt(name string, v, lo, hi int) error {
+	if v < lo || v > hi {
+		return fmt.Errorf("%s 须在 %d–%d 之间，当前 %d", name, lo, hi, v)
+	}
+	return nil
+}
+
+func maxLen(name string, n, max int) error {
+	if n > max {
+		return fmt.Errorf("%s 最多 %d 个，当前 %d", name, max, n)
+	}
+	return nil
+}
