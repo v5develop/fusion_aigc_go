@@ -1,0 +1,45 @@
+package config
+
+import "github.com/zeromicro/go-zero/zrpc"
+
+type Config struct {
+	zrpc.RpcServerConf
+	// DataSource fusion_aigc 库
+	DataSource string
+	// Generate 生成相关的限制
+	Generate GenerateConf
+	// Task 写入 afv_creation_task 的取值。枚举值待数据库负责人确认，确认前 Enabled=false。
+	Task TaskConf
+	// Billing 计费接入。等 entry_code / offer / 定价确认后打开。
+	Billing BillingConf
+	// Moderation 内容审核：keyword-关键词过滤（词库见 afv_copywriting_option 的 BLOCKWORD）、off-不审核
+	Moderation struct {
+		Mode string `json:",default=keyword,options=keyword|off"`
+		// LogToDb 是否把命中记录写进现有的 afv_moderation_log。
+		// 默认关闭：写现有表需数据库负责人确认 provider 取值与 task_id 约定。
+		LogToDb bool `json:",default=false"`
+	}
+}
+
+type GenerateConf struct {
+	MaxTopicLen     int `json:",default=500"`
+	MaxReferenceLen int `json:",default=5000"`
+	DefaultWords    int `json:",default=200"`
+	TimeoutSeconds  int `json:",default=120"`
+}
+
+type TaskConf struct {
+	Enabled     bool   `json:",default=false"`
+	Type        string `json:",default=copywriting"`
+	EntryCode   string `json:",default=aiCopywriting"`
+	FeatureCode string `json:",default=locallife_text_gen"`
+	// Mode 已定：0 = 非 AIGC 执行面任务。AI文案直接调模型，不走 AIGC 编排，故无模式可填。
+	// 以后若接入 AIGC 执行面，需向 AIGC 同事申请正式值。
+	Mode int `json:",default=0"`
+}
+
+type BillingConf struct {
+	Enabled     bool   `json:",default=false"`
+	VariantCode string `json:",optional"`
+	PricePoints int64  `json:",default=100"`
+}

@@ -1,0 +1,190 @@
+syntax = "proto3";
+
+package copywriting;
+option go_package = "./pb";
+
+// AI 文案
+service Copywriting {
+  // ---- App ----
+  rpc Options(Empty) returns (OptionsResp);
+  // AI 帮写 / AI 优化（同步）
+  rpc AiWrite(AiWriteReq) returns (AiWriteResp);
+  // AI帮写、爆款仿写：提交生成（异步，轮询 Get）
+  rpc Generate(GenerateReq) returns (CopywritingInfo);
+  // 重新生成：用原参数再来一次
+  rpc Regenerate(RegenerateReq) returns (CopywritingInfo);
+  // 自主撰写：直接保存
+  rpc Create(CreateReq) returns (CopywritingInfo);
+  rpc Get(IdUserReq) returns (CopywritingInfo);
+  rpc List(ListReq) returns (CopywritingList);
+  rpc Update(UpdateReq) returns (CopywritingInfo);
+  rpc Delete(IdUserReq) returns (Empty);
+  // TODO 本版不交付：生成历史 / 已生成的内容。代码已实现但未启用，
+  // 待「各标签对应 afv_asset.type」和「下游模块写 external_ref」确认后再开放。
+  rpc Derivatives(DerivativesReq) returns (DerivativeList);
+
+  // ---- 运营后台 ----
+  rpc AdminListOptions(AdminListOptionsReq) returns (OptionList);
+  rpc AdminSaveOption(OptionInfo) returns (OptionInfo);
+  rpc AdminDeleteOption(IdReq) returns (Empty);
+  rpc AdminListCopywriting(AdminListReq) returns (CopywritingList);
+  rpc AdminDeleteCopywriting(IdReq) returns (Empty);
+  // 当前写作模型（只读，来自 afv_system_config + afv_ai_model）
+  rpc AdminGetModel(Empty) returns (ModelInfo);
+}
+
+message Empty {}
+
+message IdReq {
+  int64 id = 1;
+}
+
+message IdUserReq {
+  int64 id = 1;
+  int64 user_id = 2;
+}
+
+message OptionInfo {
+  int64 id = 1;
+  string option_type = 2;   // CONTENT_TYPE / STYLE / INDUSTRY / WORD_COUNT
+  string code = 3;
+  string label = 4;
+  string value = 5;
+  int32 sort_order = 6;
+  int32 status = 7;
+}
+
+message OptionList {
+  repeated OptionInfo list = 1;
+}
+
+message ModelInfo {
+  int64 id = 1;
+  string name = 2;
+  string code = 3;
+  string platform = 4;
+}
+
+message OptionsResp {
+  repeated OptionInfo content_types = 1;
+  repeated OptionInfo styles = 2;
+  repeated OptionInfo industries = 3;
+  repeated OptionInfo word_counts = 4;
+  ModelInfo model = 5;
+  int32 max_topic_len = 6;      // 主题输入上限（AI帮写 500 / 仿写 100）
+  int32 max_reference_len = 7;
+}
+
+message AiWriteReq {
+  int64 user_id = 1;
+  string scene = 2;             // topic-主题补写 / selling_point-商品卖点优化
+  string content_type = 3;
+  string industry = 4;
+  string context = 5;           // 用户已输入内容
+  int32 max_len = 6;
+}
+
+message AiWriteResp {
+  string text = 1;
+}
+
+message GenerateReq {
+  int64 user_id = 1;
+  int64 owner_type = 2;
+  int64 owner_id = 3;
+  string source = 4;            // AI_WRITE / IMITATE
+  string content_type = 5;
+  string style = 6;
+  string industry = 7;
+  string topic = 8;             // 主题 / 商品卖点
+  string reference_text = 9;    // 爆款仿写的范文
+  int32 target_words = 10;
+  int64 shop_profile_id = 11;
+  string request_id = 12;       // 幂等
+}
+
+message RegenerateReq {
+  int64 id = 1;
+  int64 user_id = 2;
+  string request_id = 3;
+}
+
+message CreateReq {
+  int64 user_id = 1;
+  int64 owner_type = 2;
+  int64 owner_id = 3;
+  string title = 4;
+  string body = 5;
+}
+
+message UpdateReq {
+  int64 id = 1;
+  int64 user_id = 2;
+  string title = 3;
+  string body = 4;
+}
+
+message CopywritingInfo {
+  int64 id = 1;
+  string source = 2;
+  string content_type = 3;
+  string content_type_label = 4;
+  string style = 5;
+  string industry = 6;
+  string title = 7;
+  string body = 8;
+  int32 word_count = 9;
+  string topic = 10;
+  int32 target_words = 11;
+  int64 shop_profile_id = 12;
+  int32 status = 13;            // 0-生成中 1-已完成 2-生成失败
+  string fail_reason = 14;
+  int64 create_time = 15;       // unix 毫秒
+}
+
+message ListReq {
+  int64 user_id = 1;
+  string keyword = 2;
+  string content_type = 3;
+  int64 page = 4;
+  int64 page_size = 5;
+}
+
+message CopywritingList {
+  repeated CopywritingInfo list = 1;
+  int64 total = 2;
+}
+
+message AdminListReq {
+  int64 page = 1;
+  int64 page_size = 2;
+  int64 user_id = 3;
+  string keyword = 4;
+}
+
+message AdminListOptionsReq {
+  string option_type = 1;
+}
+
+message DerivativesReq {
+  int64 user_id = 1;
+  int64 copywriting_id = 2;
+  string kind = 3;              // all / note / digital_human / explore_video / promo_drama
+  int64 page = 4;
+  int64 page_size = 5;
+}
+
+message Derivative {
+  int64 id = 1;
+  string kind = 2;
+  string asset_type = 3;        // afv_asset.type 原值
+  string cover_url = 4;
+  string result_url = 5;
+  bool is_video = 6;
+  int64 create_time = 7;
+}
+
+message DerivativeList {
+  repeated Derivative list = 1;
+  int64 total = 2;
+}

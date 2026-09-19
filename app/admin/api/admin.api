@@ -1,0 +1,101 @@
+syntax = "v1"
+
+info (
+	title:   "AI文案 运营后台网关"
+	version: "v1"
+)
+
+type (
+	IdPath {
+		Id int64 `path:"id"`
+	}
+	EmptyResp  {}
+	Option {
+		Id         int64  `json:"id"`
+		OptionType string `json:"option_type"`
+		Code       string `json:"code"`
+		Label      string `json:"label"`
+		Value      string `json:"value"`
+		SortOrder  int32  `json:"sort_order"`
+		Status     int32  `json:"status"`
+	}
+	OptionListReq {
+		OptionType string `form:"option_type,optional,options=CONTENT_TYPE|STYLE|INDUSTRY|WORD_COUNT|PROMPT|BLOCKWORD"`
+	}
+	OptionListResp {
+		List []Option `json:"list"`
+	}
+	SaveOptionReq {
+		Id         int64  `path:"id,optional"`
+		OptionType string `json:"option_type,options=CONTENT_TYPE|STYLE|INDUSTRY|WORD_COUNT|PROMPT|BLOCKWORD"`
+		Code       string `json:"code"`
+		Label      string `json:"label"`
+		Value      string `json:"value,optional"`
+		SortOrder  int32  `json:"sort_order,optional"`
+		Status     int32  `json:"status,options=0|1"`
+	}
+	ModelResp {
+		Id       int64  `json:"id"`
+		Name     string `json:"name"`
+		Code     string `json:"code"`
+		Platform string `json:"platform"`
+	}
+	CopywritingListReq {
+		Page     int64  `form:"page,optional,default=1"`
+		PageSize int64  `form:"page_size,optional,default=20"`
+		UserId   int64  `form:"user_id,optional"`
+		Keyword  string `form:"keyword,optional"`
+	}
+	Copywriting {
+		Id               int64  `json:"id"`
+		Source           string `json:"source"`
+		ContentType      string `json:"content_type"`
+		ContentTypeLabel string `json:"content_type_label"`
+		Title            string `json:"title"`
+		Body             string `json:"body"`
+		WordCount        int32  `json:"word_count"`
+		Status           int32  `json:"status"`
+		FailReason       string `json:"fail_reason"`
+		CreateTime       int64  `json:"create_time"`
+	}
+	CopywritingListResp {
+		List  []Copywriting `json:"list"`
+		Total int64         `json:"total"`
+	}
+)
+
+@server (
+	prefix:     /admin/v1
+	middleware: AdminAuth
+	group:      copywriting
+)
+service admin-api {
+	@doc "选项列表"
+	@handler listOptions
+	get /copywriting/options (OptionListReq) returns (OptionListResp)
+
+	@doc "新增选项"
+	@handler createOption
+	post /copywriting/options (SaveOptionReq) returns (Option)
+
+	@doc "编辑选项"
+	@handler updateOption
+	put /copywriting/options/:id (SaveOptionReq) returns (Option)
+
+	@doc "删除选项"
+	@handler deleteOption
+	delete /copywriting/options/:id (IdPath) returns (EmptyResp)
+
+	@doc "当前写作模型（只读）"
+	@handler getModel
+	get /copywriting/model returns (ModelResp)
+
+	@doc "用户文案列表"
+	@handler listCopywriting
+	get /copywriting (CopywritingListReq) returns (CopywritingListResp)
+
+	@doc "删除用户文案"
+	@handler deleteCopywriting
+	delete /copywriting/:id (IdPath) returns (EmptyResp)
+}
+

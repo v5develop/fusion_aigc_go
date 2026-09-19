@@ -1,0 +1,9 @@
+# 本地开发只需要 etcd（MySQL 用现有的 fusion_aigc 容器 mysql-8.0.36）
+services:
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.21
+    ports: ["2379:2379"]
+    command:
+      - /usr/local/bin/etcd
+      - --advertise-client-urls=http://127.0.0.1:2379
+      - --listen-client-urls=http://0.0.0.0:2379

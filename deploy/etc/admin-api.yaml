@@ -1,0 +1,12 @@
+Name: admin-api
+Host: 0.0.0.0
+Port: 8889
+Mode: dev
+Timeout: 15000
+Log:
+  Encoding: plain
+Auth:
+  Mode: dev
+CopywritingRpc:
+  Etcd: {Hosts: [127.0.0.1:2379], Key: copywriting.rpc}
+  NonBlock: true

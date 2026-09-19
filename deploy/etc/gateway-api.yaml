@@ -1,0 +1,13 @@
+Name: gateway-api
+Host: 0.0.0.0
+Port: 8888
+Mode: dev
+Timeout: 60000
+Log:
+  Encoding: plain
+Auth:
+  Mode: dev
+CopywritingRpc:
+  Etcd: {Hosts: [127.0.0.1:2379], Key: copywriting.rpc}
+  Timeout: 60000
+  NonBlock: true

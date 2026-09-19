@@ -1,0 +1,30 @@
+Name: copywriting.rpc
+ListenOn: 0.0.0.0:9201
+Mode: dev
+Timeout: 60000   # AI帮写为同步调用
+Etcd:
+  Hosts: [127.0.0.1:2379]
+  Key: copywriting.rpc
+Log:
+  Encoding: plain
+# 现有系统库；模型与密钥从库里读，不写在这里
+DataSource: root:123456@tcp(127.0.0.1:3306)/fusion_aigc?charset=utf8mb4&parseTime=true&loc=Asia%2FShanghai&time_zone=%27%2B08%3A00%27
+Generate:
+  MaxTopicLen: 500
+  MaxReferenceLen: 5000
+  DefaultWords: 200
+  TimeoutSeconds: 120
+Moderation:
+  Mode: keyword        # keyword-关键词过滤（词库见选项表 BLOCKWORD）/ off-不审核
+  LogToDb: false       # 写 afv_moderation_log 需先确认 provider 取值与 task_id 约定
+# 以下两块等数据库负责人确认枚举取值后开启
+Task:
+  Enabled: false       # 待 entry_code / feature_code 确认后开启
+  Type: copywriting
+  EntryCode: aiCopywriting
+  FeatureCode: locallife_text_gen
+  Mode: 0              # 已定：0 = 非 AIGC 执行面任务（不调 AIGC 同事的接口，无模式可填）
+Billing:
+  Enabled: false
+  VariantCode: ai_copywriting_std
+  PricePoints: 100

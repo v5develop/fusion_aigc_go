@@ -1,0 +1,157 @@
+syntax = "v1"
+
+info (
+	title:   "AI文案 App 网关"
+	version: "v1"
+)
+
+type (
+	IdPath {
+		Id int64 `path:"id"`
+	}
+	EmptyResp  {}
+	Option {
+		Code  string `json:"code"`
+		Label string `json:"label"`
+		Value string `json:"value"`
+	}
+	ModelInfo {
+		Name string `json:"name"`
+		Code string `json:"code"`
+	}
+	OptionsResp {
+		ContentTypes    []Option  `json:"content_types"`
+		Styles          []Option  `json:"styles"`
+		Industries      []Option  `json:"industries"`
+		WordCounts      []Option  `json:"word_counts"`
+		Model           ModelInfo `json:"model"`
+		MaxTopicLen     int32     `json:"max_topic_len"`
+		MaxReferenceLen int32     `json:"max_reference_len"`
+	}
+	AiWriteReq {
+		Scene       string `json:"scene,options=topic|selling_point"`
+		ContentType string `json:"content_type,optional"`
+		Industry    string `json:"industry,optional"`
+		Context     string `json:"context"`
+		MaxLen      int32  `json:"max_len,optional"`
+	}
+	AiWriteResp {
+		Text string `json:"text"`
+	}
+	Copywriting {
+		Id               int64  `json:"id"`
+		Source           string `json:"source"`
+		ContentType      string `json:"content_type"`
+		ContentTypeLabel string `json:"content_type_label"`
+		Style            string `json:"style"`
+		Industry         string `json:"industry"`
+		Title            string `json:"title"`
+		Body             string `json:"body"`
+		WordCount        int32  `json:"word_count"`
+		Topic            string `json:"topic"`
+		TargetWords      int32  `json:"target_words"`
+		Status           int32  `json:"status"`
+		FailReason       string `json:"fail_reason"`
+		CreateTime       int64  `json:"create_time"`
+	}
+	GenerateReq {
+		RequestId     string `header:"X-Request-Id"`
+		Source        string `json:"source,options=AI_WRITE|IMITATE"`
+		ContentType   string `json:"content_type,optional"`
+		Style         string `json:"style,optional"`
+		Industry      string `json:"industry,optional"`
+		Topic         string `json:"topic,optional"`
+		ReferenceText string `json:"reference_text,optional"`
+		TargetWords   int32  `json:"target_words,optional"`
+		ShopProfileId int64  `json:"shop_profile_id,optional"`
+	}
+	RegenerateReq {
+		RequestId string `header:"X-Request-Id"`
+		Id        int64  `path:"id"`
+	}
+	CreateReq {
+		Title string `json:"title,optional"`
+		Body  string `json:"body"`
+	}
+	UpdateReq {
+		Id    int64  `path:"id"`
+		Title string `json:"title,optional"`
+		Body  string `json:"body"`
+	}
+	ListReq {
+		Keyword     string `form:"keyword,optional"`
+		ContentType string `form:"content_type,optional"`
+		Page        int64  `form:"page,optional,default=1"`
+		PageSize    int64  `form:"page_size,optional,default=20"`
+	}
+	ListResp {
+		List  []Copywriting `json:"list"`
+		Total int64         `json:"total"`
+	}
+	DerivativesReq {
+		Id       int64  `path:"id"`
+		Kind     string `form:"kind,optional,options=all|note|digital_human|explore_video|promo_drama"`
+		Page     int64  `form:"page,optional,default=1"`
+		PageSize int64  `form:"page_size,optional,default=20"`
+	}
+	Derivative {
+		Id         int64  `json:"id"`
+		Kind       string `json:"kind"`
+		CoverUrl   string `json:"cover_url"`
+		ResultUrl  string `json:"result_url"`
+		IsVideo    bool   `json:"is_video"`
+		CreateTime int64  `json:"create_time"`
+	}
+	DerivativesResp {
+		List  []Derivative `json:"list"`
+		Total int64        `json:"total"`
+	}
+)
+
+@server (
+	prefix:     /api/v1
+	middleware: Auth
+	group:      copywriting
+)
+service gateway-api {
+	@doc "文案选项：内容类型/风格/行业/字数 + 当前模型"
+	@handler options
+	get /copywriting/options returns (OptionsResp)
+
+	@doc "AI帮写 / AI优化（同步）"
+	@handler aiWrite
+	post /copywriting/ai-write (AiWriteReq) returns (AiWriteResp)
+
+	@doc "AI帮写或爆款仿写：提交生成"
+	@handler generate
+	post /copywriting/generate (GenerateReq) returns (Copywriting)
+
+	@doc "重新生成"
+	@handler regenerate
+	post /copywriting/:id/regenerate (RegenerateReq) returns (Copywriting)
+
+	@doc "自主撰写：保存文案"
+	@handler create
+	post /copywriting (CreateReq) returns (Copywriting)
+
+	@doc "文案列表（含搜索）"
+	@handler list
+	get /copywriting (ListReq) returns (ListResp)
+
+	@doc "文案详情（生成中轮询此接口）"
+	@handler get
+	get /copywriting/:id (IdPath) returns (Copywriting)
+
+	@doc "编辑文案"
+	@handler update
+	put /copywriting/:id (UpdateReq) returns (Copywriting)
+
+	@doc "删除文案"
+	@handler remove
+	delete /copywriting/:id (IdPath) returns (EmptyResp)
+
+	@doc "生成历史：该文案衍生出的内容（TODO 本版不交付，前端暂不接）"
+	@handler derivatives
+	get /copywriting/:id/derivatives (DerivativesReq) returns (DerivativesResp)
+}
+

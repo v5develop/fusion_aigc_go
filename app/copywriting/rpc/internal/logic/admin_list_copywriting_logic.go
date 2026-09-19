@@ -1,0 +1,43 @@
+package logic
+
+import (
+	"context"
+	"strings"
+
+	"aigc-life/app/copywriting/model"
+	"aigc-life/app/copywriting/rpc/internal/svc"
+	"aigc-life/app/copywriting/rpc/pb"
+	"aigc-life/pkg/pagex"
+
+	"github.com/zeromicro/go-zero/core/logx"
+)
+
+type AdminListCopywritingLogic struct {
+	ctx    context.Context
+	svcCtx *svc.ServiceContext
+	logx.Logger
+}
+
+func NewAdminListCopywritingLogic(ctx context.Context, svcCtx *svc.ServiceContext) *AdminListCopywritingLogic {
+	return &AdminListCopywritingLogic{
+		ctx:    ctx,
+		svcCtx: svcCtx,
+		Logger: logx.WithContext(ctx),
+	}
+}
+
+func (l *AdminListCopywritingLogic) AdminListCopywriting(in *pb.AdminListReq) (*pb.CopywritingList, error) {
+	limit, offset := pagex.Offset(in.Page, in.PageSize)
+	list, total, err := l.svcCtx.Copywriting.ListByUser(l.ctx, model.ListFilter{
+		UserID: in.UserId, Keyword: strings.TrimSpace(in.Keyword), Limit: limit, Offset: offset,
+	})
+	if err != nil {
+		return nil, err
+	}
+	labels := contentTypeLabels(l.ctx, l.svcCtx)
+	resp := &pb.CopywritingList{Total: total, List: make([]*pb.CopywritingInfo, 0, len(list))}
+	for _, c := range list {
+		resp.List = append(resp.List, toInfo(c, labels))
+	}
+	return resp, nil
+}
