@@ -16,6 +16,10 @@ DigitalHumanRpc:
   Etcd: {Hosts: [127.0.0.1:2379], Key: digitalhuman.rpc}
   Timeout: 60000
   NonBlock: true
+NoteRpc:
+  Etcd: {Hosts: [127.0.0.1:2379], Key: note.rpc}
+  Timeout: 30000
+  NonBlock: true
 # 仅 Storage.Mode=oss 时需要（读 afv_system_config 的公有桶配置）
 DataSource: root:123456@tcp(127.0.0.1:3306)/fusion_aigc?charset=utf8mb4&parseTime=true&loc=Asia%2FShanghai&time_zone=%27%2B08%3A00%27
 Storage:                # 须与 digitalhuman-rpc 一致

@@ -9,6 +9,7 @@ import (
 	common "aigc-life/app/gateway/api/internal/handler/common"
 	copywriting "aigc-life/app/gateway/api/internal/handler/copywriting"
 	digitalhuman "aigc-life/app/gateway/api/internal/handler/digitalhuman"
+	note "aigc-life/app/gateway/api/internal/handler/note"
 	"aigc-life/app/gateway/api/internal/svc"
 
 	"github.com/zeromicro/go-zero/rest"
@@ -180,6 +181,63 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 					Method:  http.MethodGet,
 					Path:    "/voices/categories",
 					Handler: digitalhuman.VoiceCategoriesHandler(serverCtx),
+				},
+			}...,
+		),
+		rest.WithPrefix("/api/v1"),
+	)
+
+	server.AddRoutes(
+		rest.WithMiddlewares(
+			[]rest.Middleware{serverCtx.Auth},
+			[]rest.Route{
+				{
+					// 笔记列表（素材库接入前使用）
+					Method:  http.MethodGet,
+					Path:    "/notes",
+					Handler: note.ListHandler(serverCtx),
+				},
+				{
+					// 笔记详情（构思中/生成中轮询此接口）
+					Method:  http.MethodGet,
+					Path:    "/notes/:id",
+					Handler: note.GetHandler(serverCtx),
+				},
+				{
+					// 编辑笔记：标题、正文、话题、图片
+					Method:  http.MethodPut,
+					Path:    "/notes/:id",
+					Handler: note.UpdateHandler(serverCtx),
+				},
+				{
+					// 删除笔记
+					Method:  http.MethodDelete,
+					Path:    "/notes/:id",
+					Handler: note.RemoveHandler(serverCtx),
+				},
+				{
+					// 确认开始生成；生成失败后再次调用即重新生成
+					Method:  http.MethodPost,
+					Path:    "/notes/:id/generate",
+					Handler: note.GenerateHandler(serverCtx),
+				},
+				{
+					// 规划页「重新生成」：重新构思
+					Method:  http.MethodPost,
+					Path:    "/notes/:id/replan",
+					Handler: note.ReplanHandler(serverCtx),
+				},
+				{
+					// 图文笔记表单配置：笔记类型、素材与套图上限
+					Method:  http.MethodGet,
+					Path:    "/notes/options",
+					Handler: note.OptionsHandler(serverCtx),
+				},
+				{
+					// 开始构思笔记（异步，轮询详情；完成后进入规划页）
+					Method:  http.MethodPost,
+					Path:    "/notes/plan",
+					Handler: note.PlanHandler(serverCtx),
 				},
 			}...,
 		),

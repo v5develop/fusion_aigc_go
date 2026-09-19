@@ -3,7 +3,8 @@
 //	POST /aigc/generate        提交任务
 //	GET  /aigc/getRes/<id>     轮询：第 1 次 waiting、第 2 次 running、之后 success
 //
-// 请求参数里含 "mock-fail" 的任务返回 failed，用来测试失败流程。
+// 请求参数里含 "mock-fail" 的任务返回 failed，用来测试失败流程；
+// 含 "mock-fail-<task_type>"（如 mock-fail-75）的只让该类型失败，方便测多步流程中的某一步。
 package main
 
 import (
@@ -12,6 +13,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"regexp"
 	"strings"
 	"sync"
 )
@@ -22,6 +24,7 @@ type task struct {
 	Images int
 	Fail   bool
 	Polls  int
+	Body   map[string]any
 }
 
 var (
@@ -35,6 +38,7 @@ func main() {
 	flag.Parse()
 	http.HandleFunc("/aigc/generate", generate)
 	http.HandleFunc("/aigc/getRes/", getRes)
+	http.HandleFunc("/mock/task/", taskBody) // 仅测试用：查看某任务收到的请求体
 	log.Printf("mock aigc listening on %s", *addr)
 	log.Fatal(http.ListenAndServe(*addr, nil))
 }
@@ -53,7 +57,7 @@ func generate(w http.ResponseWriter, r *http.Request) {
 	}
 	raw, _ := json.Marshal(body)
 	tt, _ := body["task_type"].(float64)
-	t := &task{Type: int(tt), Fail: strings.Contains(string(raw), "mock-fail")}
+	t := &task{Type: int(tt), Fail: shouldFail(string(raw), int(tt)), Body: body}
 	switch t.Type {
 	case 85:
 		for _, k := range []string{"image_path", "audio_path", "aspectRatio", "resolution", "duration"} {
@@ -62,11 +66,28 @@ func generate(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+	case 74:
+		if s, _ := body["user_text"].(string); s == "" {
+			writeJSON(w, 400, map[string]any{"code": 400, "message": "task_type=74 缺少 user_text", "success": false})
+			return
+		}
 	case 75:
 		imgs, _ := body["images"].([]any)
 		if len(imgs) == 0 {
 			writeJSON(w, 400, map[string]any{"code": 400, "message": "task_type=75 缺少 images", "success": false})
 			return
+		}
+		// 与真实交互一致：参考图字段为 images_url，reference_materials 是它的 1 起下标
+		refs, _ := body["images_url"].([]any)
+		for _, im := range imgs {
+			m, _ := im.(map[string]any)
+			rm, _ := m["reference_materials"].([]any)
+			for _, r := range rm {
+				if n, _ := r.(float64); int(n) < 1 || int(n) > len(refs) {
+					writeJSON(w, 400, map[string]any{"code": 400, "message": "task_type=75 reference_materials 超出 images_url", "success": false})
+					return
+				}
+			}
 		}
 		t.Images = len(imgs)
 	}
@@ -103,6 +124,9 @@ func getRes(w http.ResponseWriter, r *http.Request) {
 	case t.Fail:
 		writeJSON(w, 200, map[string]any{"task_id": id, "task_type": t.Type, "status": "failed",
 			"error_msg": "mock: 模拟生成失败", "error_code": nil, "upstream": nil, "pool": "platform", "cost": 0})
+	case t.Type == 74:
+		writeJSON(w, 200, map[string]any{"task_id": id, "task_type": 74, "status": "success",
+			"generated_image_path": nil, "pool": "platform", "cost": 0, "script": mockScript(id, t.Body)})
 	case t.Type == 75:
 		paths := make([]string, t.Images)
 		for i := range paths {
@@ -114,4 +138,73 @@ func getRes(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{"task_id": id, "task_type": t.Type, "status": "success",
 			"generated_image_path": fmt.Sprintf("https://mock-oss.example.com/aigc/%s.mp4", id), "pool": "platform", "cost": 0})
 	}
+}
+
+// mockScript 按 AIGC 同事给的 74 真实返回结构造一份：note{title,content,tags} + images[] + images_url[]。
+// images_url 依次为 person_url、material_urls（与真实行为一致：参考图拼进 images_url）。
+func mockScript(id string, body map[string]any) map[string]any {
+	var refs []string
+	if p, _ := body["person_url"].(string); p != "" {
+		refs = append(refs, p)
+	}
+	if ms, ok := body["material_urls"].([]any); ok {
+		for _, m := range ms {
+			if s, _ := m.(string); s != "" {
+				refs = append(refs, fmt.Sprintf("https://mock-oss.example.com/aigc_temp/%s_%d.jpg", id, len(refs)+1))
+				_ = s
+			}
+		}
+	}
+	n := 1
+	if c, ok := body["image_count"].(float64); ok && c > 0 {
+		n = int(c)
+	}
+	images := make([]map[string]any, n)
+	for i := range images {
+		ref := []int{}
+		for j := range refs {
+			if j < 4 {
+				ref = append(ref, j+1)
+			}
+		}
+		images[i] = map[string]any{"index": i + 1, "image_prompt": fmt.Sprintf("mock 第 %d 张：%v", i+1, body["user_text"]), "reference_materials": ref}
+	}
+	if refs == nil {
+		refs = []string{}
+	}
+	return map[string]any{
+		"images":     images,
+		"images_url": refs,
+		"note": map[string]any{
+			"title":   fmt.Sprintf("%v｜mock 标题", body["note_type"]),
+			"content": fmt.Sprintf("mock 正文：%v\n\n第二段。", body["user_text"]),
+			"tags":    []string{"#本地探店", "#周末去哪儿", "本地探店"},
+		},
+	}
+}
+
+var (
+	failRe    = regexp.MustCompile(`mock-fail(?:-(\d+))?`)
+	taskTypes = map[string]bool{"9": true, "45": true, "74": true, "75": true, "76": true, "78": true, "84": true, "85": true, "86": true}
+)
+
+// shouldFail "mock-fail-<任务号>" 只让该类型失败；其余 "mock-fail…"（包括后面跟的不是任务号）让所有类型失败。
+func shouldFail(raw string, taskType int) bool {
+	for _, m := range failRe.FindAllStringSubmatch(raw, -1) {
+		if !taskTypes[m[1]] || m[1] == fmt.Sprint(taskType) {
+			return true
+		}
+	}
+	return false
+}
+
+func taskBody(w http.ResponseWriter, r *http.Request) {
+	mu.Lock()
+	t, ok := tasks[strings.TrimPrefix(r.URL.Path, "/mock/task/")]
+	mu.Unlock()
+	if !ok {
+		writeJSON(w, 404, map[string]any{"message": "not found"})
+		return
+	}
+	writeJSON(w, 200, t.Body)
 }

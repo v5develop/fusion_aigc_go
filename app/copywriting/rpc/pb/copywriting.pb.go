@@ -7,12 +7,11 @@
 package pb
 
 import (
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
-
-	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
-	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 )
 
 const (
@@ -453,11 +452,12 @@ func (x *OptionsResp) GetMaxReferenceLen() int32 {
 type AiWriteReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
-	Scene         string                 `protobuf:"bytes,2,opt,name=scene,proto3" json:"scene,omitempty"` // topic-主题补写 / selling_point-商品卖点优化
+	Scene         string                 `protobuf:"bytes,2,opt,name=scene,proto3" json:"scene,omitempty"` // topic-主题补写 / selling_point-商品卖点优化 / dh_script-数字人配音内容 / note_topic-图文笔记主题
 	ContentType   string                 `protobuf:"bytes,3,opt,name=content_type,json=contentType,proto3" json:"content_type,omitempty"`
 	Industry      string                 `protobuf:"bytes,4,opt,name=industry,proto3" json:"industry,omitempty"`
 	Context       string                 `protobuf:"bytes,5,opt,name=context,proto3" json:"context,omitempty"` // 用户已输入内容
 	MaxLen        int32                  `protobuf:"varint,6,opt,name=max_len,json=maxLen,proto3" json:"max_len,omitempty"`
+	NoteType      string                 `protobuf:"bytes,7,opt,name=note_type,json=noteType,proto3" json:"note_type,omitempty"` // note_topic 场景：笔记类型展示名（探店/种草/情感/知识）
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -532,6 +532,13 @@ func (x *AiWriteReq) GetMaxLen() int32 {
 		return x.MaxLen
 	}
 	return 0
+}
+
+func (x *AiWriteReq) GetNoteType() string {
+	if x != nil {
+		return x.NoteType
+	}
+	return ""
 }
 
 type AiWriteResp struct {
@@ -1570,7 +1577,7 @@ const file_copywriting_proto_rawDesc = "" +
 	"wordCounts\x12,\n" +
 	"\x05model\x18\x05 \x01(\v2\x16.copywriting.ModelInfoR\x05model\x12\"\n" +
 	"\rmax_topic_len\x18\x06 \x01(\x05R\vmaxTopicLen\x12*\n" +
-	"\x11max_reference_len\x18\a \x01(\x05R\x0fmaxReferenceLen\"\xad\x01\n" +
+	"\x11max_reference_len\x18\a \x01(\x05R\x0fmaxReferenceLen\"\xca\x01\n" +
 	"\n" +
 	"AiWriteReq\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x14\n" +
@@ -1578,7 +1585,8 @@ const file_copywriting_proto_rawDesc = "" +
 	"\fcontent_type\x18\x03 \x01(\tR\vcontentType\x12\x1a\n" +
 	"\bindustry\x18\x04 \x01(\tR\bindustry\x12\x18\n" +
 	"\acontext\x18\x05 \x01(\tR\acontext\x12\x17\n" +
-	"\amax_len\x18\x06 \x01(\x05R\x06maxLen\"!\n" +
+	"\amax_len\x18\x06 \x01(\x05R\x06maxLen\x12\x1b\n" +
+	"\tnote_type\x18\a \x01(\tR\bnoteType\"!\n" +
 	"\vAiWriteResp\x12\x12\n" +
 	"\x04text\x18\x01 \x01(\tR\x04text\"\xf4\x02\n" +
 	"\vGenerateReq\x12\x17\n" +

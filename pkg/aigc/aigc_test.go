@@ -140,3 +140,22 @@ func TestValidate(t *testing.T) {
 		}
 	}
 }
+
+// 75 的请求体以真实 74→75 交互为准：参考图字段是 images_url，images 带 index。
+func TestNoteImagesBody(t *testing.T) {
+	b, err := buildBody("t_1", NoteImages{
+		Images:    []NoteImage{{Index: 1, ImagePrompt: "p", ReferenceMaterials: []int{1, 2}}},
+		ImageURLs: []string{"u1", "u2", "u3"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]any
+	_ = json.Unmarshal(b, &m)
+	if _, ok := m["images_url"]; !ok || m["image_urls"] != nil || m["model"] != nil || m["size"] != nil || m["task_type"] != float64(75) {
+		t.Fatalf("body %s", b)
+	}
+	if img := m["images"].([]any)[0].(map[string]any); img["index"] != float64(1) {
+		t.Fatalf("image %v", img)
+	}
+}

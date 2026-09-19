@@ -1,0 +1,112 @@
+syntax = "proto3";
+
+package note;
+option go_package = "./pb";
+
+// AI 图文笔记：构思（执行面 74）→ 规划页确认 → 出图（执行面 75）
+service Note {
+  // ---- App ----
+  // 表单配置：笔记类型、素材与套图上限
+  rpc Options(Empty) returns (OptionsResp);
+  // 开始构思（异步，轮询 Get；完成后进入规划页）
+  rpc Plan(PlanReq) returns (NoteInfo);
+  // 规划页「重新生成」：用原表单重新构思
+  rpc Replan(ReplanReq) returns (NoteInfo);
+  // 确认开始生成；生成失败后再次调用即重新生成
+  rpc Generate(GenerateReq) returns (NoteInfo);
+  rpc Get(IdUserReq) returns (NoteInfo);
+  rpc List(ListReq) returns (NoteList);
+  // 编辑已完成的笔记：标题、正文、话题、图片（增删）
+  rpc Update(UpdateReq) returns (NoteInfo);
+  rpc Delete(IdUserReq) returns (Empty);
+
+  // ---- 运营后台 ----
+  rpc AdminList(ListReq) returns (NoteList);
+}
+
+message Empty {}
+
+message IdUserReq {
+  int64 id = 1;
+  int64 user_id = 2;
+}
+
+message NoteType {
+  string code = 1;              // explore / seeding / emotion / knowledge
+  string label = 2;             // 探店 / 种草 / 情感 / 知识
+  string material_label = 3;    // 上传区标题，如「上传门店素材」
+  string material_hint = 4;     // 上传区提示
+}
+
+message OptionsResp {
+  repeated NoteType types = 1;
+  int32 max_materials = 2;      // 上传素材上限（3）
+  int32 default_images = 3;     // 套图数量默认值；套图数量不设上限，以前端传入为准
+  int32 max_edit_images = 4;    // 编辑时图片上限（3；生成张数更多时以生成张数为准）
+  int32 max_topic_len = 5;
+}
+
+message PlanReq {
+  int64 user_id = 1;
+  string note_type = 2;
+  string topic = 3;
+  repeated string material_urls = 4;  // 上传接口返回的地址，最多 3 张
+  int64 digital_human_id = 5;         // 选填：我的数字人（须已生成完成）
+  string request_id = 6;              // 幂等
+  int32 image_count = 7;              // 套图数量，传给 74；不传用默认值
+}
+
+message ReplanReq {
+  int64 id = 1;
+  int64 user_id = 2;
+  int32 image_count = 3;        // 选填：换套图数量重新构思
+}
+
+message GenerateReq {
+  int64 id = 1;
+  int64 user_id = 2;
+  // 规划页改过的内容；不传则沿用构思结果（生成失败后重试时不用再传）
+  string title = 3;
+  string content = 4;
+  repeated string tags = 5;
+  int32 image_count = 6;        // 不传沿用；不能超过构思出的张数（要更多请重新构思）
+}
+
+message UpdateReq {
+  int64 id = 1;
+  int64 user_id = 2;
+  string title = 3;
+  string content = 4;
+  repeated string tags = 5;
+  repeated string image_urls = 6;  // 保留的原图 + 新上传的图；上限见 OptionsResp.max_edit_images
+}
+
+message NoteInfo {
+  int64 id = 1;
+  int64 user_id = 2;
+  string note_type = 3;
+  string note_type_label = 4;
+  string topic = 5;
+  repeated string material_urls = 6;
+  int64 digital_human_id = 7;
+  string title = 8;
+  string content = 9;
+  repeated string tags = 10;
+  int32 image_count = 11;
+  repeated string image_urls = 12;
+  int32 status = 13;            // 0-构思中 1-待确认 2-构思失败 3-生成中 4-已完成 5-生成失败
+  string fail_reason = 14;
+  int64 create_time = 15;       // unix 毫秒
+}
+
+message ListReq {
+  int64 user_id = 1;
+  int32 status = 2;             // -1 表示全部
+  int64 page = 3;
+  int64 page_size = 4;
+}
+
+message NoteList {
+  repeated NoteInfo list = 1;
+  int64 total = 2;
+}

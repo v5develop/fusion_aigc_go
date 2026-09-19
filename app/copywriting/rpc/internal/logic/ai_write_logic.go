@@ -42,6 +42,8 @@ func (l *AiWriteLogic) AiWrite(in *pb.AiWriteReq) (*pb.AiWriteResp, error) {
 		if in.MaxLen <= 0 {
 			in.MaxLen = dhScriptMaxLen
 		}
+	case "note_topic": // 图文笔记主题/思路
+		code = promptNoteTopic
 	default:
 		return nil, xerr.Newf(xerr.ParamError, "不支持的场景 %s", in.Scene)
 	}
@@ -63,6 +65,9 @@ func (l *AiWriteLogic) AiWrite(in *pb.AiWriteReq) (*pb.AiWriteResp, error) {
 	}
 	if o, _ := findOption(l.ctx, l.svcCtx, model.OptionIndustry, in.Industry, "行业"); o != nil {
 		b.WriteString("所属行业：" + o.Label + "\n")
+	}
+	if in.NoteType != "" {
+		b.WriteString("笔记类型：" + in.NoteType + "\n")
 	}
 	if in.MaxLen > 0 {
 		b.WriteString(fmt.Sprintf("不超过 %d 字\n", in.MaxLen))

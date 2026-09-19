@@ -84,6 +84,33 @@ type ModelResp struct {
 	Platform string `json:"platform"`
 }
 
+type Note struct {
+	Id            int64    `json:"id"`
+	UserId        int64    `json:"user_id"`
+	NoteType      string   `json:"note_type"`
+	NoteTypeLabel string   `json:"note_type_label"`
+	Topic         string   `json:"topic"`
+	Title         string   `json:"title"`
+	Content       string   `json:"content"`
+	Tags          []string `json:"tags"`
+	ImageUrls     []string `json:"image_urls"`
+	Status        int32    `json:"status"`
+	FailReason    string   `json:"fail_reason"`
+	CreateTime    int64    `json:"create_time"`
+}
+
+type NoteListReq struct {
+	UserId   int64 `form:"user_id,optional"`
+	Status   int32 `form:"status,optional,default=-1"`
+	Page     int64 `form:"page,optional,default=1"`
+	PageSize int64 `form:"page_size,optional,default=20"`
+}
+
+type NoteListResp struct {
+	List  []Note `json:"list"`
+	Total int64  `json:"total"`
+}
+
 type Option struct {
 	Id         int64  `json:"id"`
 	OptionType string `json:"option_type"`

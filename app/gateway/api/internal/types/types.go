@@ -10,11 +10,12 @@ type AgreementResp struct {
 }
 
 type AiWriteReq struct {
-	Scene       string `json:"scene,options=topic|selling_point|dh_script"`
+	Scene       string `json:"scene,options=topic|selling_point|dh_script|note_topic"`
 	ContentType string `json:"content_type,optional"`
 	Industry    string `json:"industry,optional"`
 	Context     string `json:"context"`
 	MaxLen      int32  `json:"max_len,optional"`
+	NoteType    string `json:"note_type,optional"` // note_topic 场景：探店/种草/情感/知识
 }
 
 type AiWriteResp struct {
@@ -118,6 +119,14 @@ type DigitalHumanListResp struct {
 type EmptyResp struct {
 }
 
+type GenerateNoteReq struct {
+	Id         int64    `path:"id"`
+	Title      string   `json:"title,optional"`
+	Content    string   `json:"content,optional"`
+	Tags       []string `json:"tags,optional"`
+	ImageCount int32    `json:"image_count,optional"`
+}
+
 type GenerateReq struct {
 	RequestId     string `header:"X-Request-Id"`
 	Source        string `json:"source,options=AI_WRITE|IMITATE"`
@@ -135,6 +144,12 @@ type IdPath struct {
 }
 
 type ListDigitalHumansReq struct {
+	Status   int32 `form:"status,optional,default=-1"`
+	Page     int64 `form:"page,optional,default=1"`
+	PageSize int64 `form:"page_size,optional,default=20"`
+}
+
+type ListNotesReq struct {
 	Status   int32 `form:"status,optional,default=-1"`
 	Page     int64 `form:"page,optional,default=1"`
 	PageSize int64 `form:"page_size,optional,default=20"`
@@ -161,6 +176,43 @@ type ModelInfo struct {
 	Code string `json:"code"`
 }
 
+type Note struct {
+	Id             int64    `json:"id"`
+	NoteType       string   `json:"note_type"`
+	NoteTypeLabel  string   `json:"note_type_label"`
+	Topic          string   `json:"topic"`
+	MaterialUrls   []string `json:"material_urls"`
+	DigitalHumanId int64    `json:"digital_human_id"`
+	Title          string   `json:"title"`
+	Content        string   `json:"content"`
+	Tags           []string `json:"tags"`
+	ImageCount     int32    `json:"image_count"`
+	ImageUrls      []string `json:"image_urls"`
+	Status         int32    `json:"status"`
+	FailReason     string   `json:"fail_reason"`
+	CreateTime     int64    `json:"create_time"`
+}
+
+type NoteListResp struct {
+	List  []Note `json:"list"`
+	Total int64  `json:"total"`
+}
+
+type NoteOptionsResp struct {
+	Types         []NoteType `json:"types"`
+	MaxMaterials  int32      `json:"max_materials"`   // 上传素材上限 3
+	DefaultImages int32      `json:"default_images"`  // 套图数量默认值；套图数量不设上限
+	MaxEditImages int32      `json:"max_edit_images"` // 编辑时图片上限 3（生成张数更多时以生成张数为准）
+	MaxTopicLen   int32      `json:"max_topic_len"`
+}
+
+type NoteType struct {
+	Code          string `json:"code"`
+	Label         string `json:"label"`
+	MaterialLabel string `json:"material_label"`
+	MaterialHint  string `json:"material_hint"`
+}
+
 type Option struct {
 	Code  string `json:"code"`
 	Label string `json:"label"`
@@ -175,6 +227,15 @@ type OptionsResp struct {
 	Model           ModelInfo `json:"model"`
 	MaxTopicLen     int32     `json:"max_topic_len"`
 	MaxReferenceLen int32     `json:"max_reference_len"`
+}
+
+type PlanNoteReq struct {
+	RequestId      string   `header:"X-Request-Id"`
+	NoteType       string   `json:"note_type,options=explore|seeding|emotion|knowledge"`
+	Topic          string   `json:"topic"`
+	MaterialUrls   []string `json:"material_urls,optional"`
+	DigitalHumanId int64    `json:"digital_human_id,optional"`
+	ImageCount     int32    `json:"image_count,optional"` // 套图数量，不传用默认值
 }
 
 type Portrait struct {
@@ -205,6 +266,19 @@ type PublicListResp struct {
 type RegenerateReq struct {
 	RequestId string `header:"X-Request-Id"`
 	Id        int64  `path:"id"`
+}
+
+type ReplanNoteReq struct {
+	Id         int64 `path:"id"`
+	ImageCount int32 `json:"image_count,optional"` // 选填：换套图数量重新构思
+}
+
+type UpdateNoteReq struct {
+	Id        int64    `path:"id"`
+	Title     string   `json:"title"`
+	Content   string   `json:"content"`
+	Tags      []string `json:"tags,optional"`
+	ImageUrls []string `json:"image_urls"`
 }
 
 type UpdateReq struct {

@@ -1,12 +1,13 @@
 # AIGC 本地生活 · 后端
 
 Go + go-zero，数据落在现有系统的 `fusion_aigc` 库，新表 `afv_` 前缀，现有表只读、不改结构。
-目前有两个模块：**AI文案**、**AI数字人**。
+目前有三个模块：**AI文案**、**AI数字人**、**AI图文笔记**。
 
 | 模块 | 设计方案 | 建表脚本 |
 |---|---|---|
 | AI文案 | `~/Documents/echo/ai-copywriting-design.md` | `deploy/sql/V1.0.106__ai_copywriting.sql` |
 | AI数字人 | `~/Documents/echo/digital-human-design.md` | `deploy/sql/V1.0.108__ai_digital_human.sql` |
+| AI图文笔记 | `~/Documents/echo/image-text-note-design.md` | `deploy/sql/V1.0.109__ai_image_text_note.sql` |
 
 ## 服务
 
@@ -14,9 +15,10 @@ Go + go-zero，数据落在现有系统的 `fusion_aigc` 库，新表 `afv_` 前
 |---|---|---|
 | `copywriting-rpc` | 9201 | 文案生成与增删改查、选项字典、AI帮写（含数字人配音内容） |
 | `digitalhuman-rpc` | 9202 | 使用约定、公共数字人（只读）、AI 定制形象、系统音色、数字人生成；内置结果轮询器 |
+| `note-rpc` | 9203 | 图文笔记：构思（执行面 74）→ 规划 → 出图（75）、编辑；内置结果轮询器 |
 | `gateway-api` | 8888 | App 接口 `/api/v1/*`，照片上传；本地存储模式下提供 `/files` |
 | `admin-api` | 8889 | 运营后台 `/admin/v1/*` |
-| `mock-aigc` | 5055 | **仅本地**：模拟 AIGC 执行面（75/85），正式地址提供前用它联调 |
+| `mock-aigc` | 5055 | **仅本地**：模拟 AIGC 执行面（74/75/85），正式地址提供前用它联调 |
 
 模型都不写在配置里，每次调用时从库里解析（地址与密钥在 `afv_ai_provider`）：
 
@@ -33,6 +35,7 @@ make db          # 建新表 + 种子数据
 make run-all     # 编译并后台启动（含 mock-aigc），日志在 logs/
 deploy/scripts/e2e.sh               # AI文案端到端测试（49 项，真实调用模型）
 deploy/scripts/e2e-digitalhuman.sh  # AI数字人端到端测试（69 项，执行面走 mock，TTS 真实调用；会临时插入并清理模板素材测试数据）
+deploy/scripts/e2e-note.sh          # AI图文笔记端到端测试（48 项，执行面走 mock）
 make stop-all
 ```
 
@@ -67,6 +70,19 @@ make stop-all
   + `afv_public_template_asset_placement` 一行（`localLife / digitalHuman / publicModel`，排序与上下架），配置项 `PublicModel`。
 - 生成类接口需先同意《AIGC功能使用约定》（`afv_user_agreement`，版本号在配置里，改版 +1 需重新同意）。
 
+## AI图文笔记
+
+表单（类型 / 主题 / 素材 ≤3 / 数字人 / 店铺档案 / 套图数量）→ **构思**（执行面 74，出标题、正文、话题和每张图的出图提示词）
+→ 规划页（可改标题、正文；套图数量只能改少）→ **出图**（执行面 75）→ 详情、编辑。
+与设计稿不同（已和产品确认）：上传素材最多 3 张；套图数量不设上限，以前端为准；编辑图片上限 3 张（生成更多时以生成张数为准）。
+
+- 74 返回的 `script` 整个存下来。确认生成时把 `images`（按 index 取前 N 条，带 index）和 `images_url` **原样**交给 75。
+  字段名以真实交互为准，是 `images_url`（对接文档写的是 `image_urls`）。`images_url` 是参考图（数字人形象图 + 上传素材）在 `aigc_temp/` 的副本，不是生成图；
+  因为 `reference_materials` 是 `images_url` 从 1 开始的下标。解析逻辑在 `note/.../logic/common.go` 的 `parseScript`，单测用的是真实样例。
+- 已知限制：出图提示词里写死了图内文字，规划页改标题不会改图上的字。
+- 表单里的数字人 = 我的数字人（须已生成完成），它的形象图作为 74 的 `person_url`；note-rpc 通过 digitalhuman-rpc 校验。
+- AI帮写新增场景 `note_topic`（带 `note_type`）。
+
 ## AI文案
 
 做：三条创作路径（AI帮写 / 爆款仿写 / 自主撰写）、AI帮写与AI优化、重新生成、列表搜索、详情编辑删除、后台选项维护、
@@ -94,12 +110,12 @@ make stop-all
 
 | 事项 | 卡在哪 | 代码位置 |
 |---|---|---|
-| **计费**：文案、AI 定制形象、数字人生成各预扣 100 点 → 成功结算 / 失败退回 | 定价与 `action_type` 方案 | `generate_logic.go`（文案）、`flow.go` / `create_logic.go`（数字人） |
+| **计费**：文案、AI 定制形象、数字人生成、笔记出图各 100 点，笔记构思 10 点 → 成功结算 / 失败退回 | 定价与 `action_type` 方案 | `generate_logic.go`（文案）、`flow.go` / `create_logic.go`（数字人） |
 | **用户鉴权**：接 `afv_app_user` | token 怎么验 | `gateway/.../auth_middleware.go` |
 | **后台鉴权**：接 `afv_admin_*` | 登录态与权限校验方式 | `admin/.../adminauth_middleware.go` |
-| **创作任务**：写 `afv_creation_task` | `entry_code` / `feature_code` 命名确认；`mode`：文案与 TTS 为 0，出图 75，视频 85 | 文案 `generate_logic.go`；数字人 `flow.go` |
-| **素材库**：AI 定制的 4 张图（设计稿要求）、口播视频写 `afv_asset` | `type` / `entry_code` 取值 | `flow.go` |
-| **AIGC 执行面正式地址** | 待提供；结果地址是否长期有效（否则需转存） | `deploy/etc/digitalhuman-rpc.yaml` |
+| **创作任务**：写 `afv_creation_task` | `entry_code` / `feature_code` 命名确认；`mode`：文案与 TTS 为 0，笔记构思 74，出图 75，视频 85 | 文案 `generate_logic.go`；数字人、笔记 `flow.go` |
+| **素材库**：AI 定制的 4 张图（设计稿要求）、口播视频、图文笔记成品写 `afv_asset` | `type` / `entry_code` 取值；笔记多图怎么存 | 数字人 / 笔记各自的 `flow.go` |
+| **AIGC 执行面正式地址** | 待提供；结果地址是否长期有效（否则需转存）；`aigc_temp/` 参考图保留多久 | `deploy/etc/digitalhuman-rpc.yaml`、`note-rpc.yaml` |
 | **OSS 模式联调** | 写现有公有桶 `xx-shop-img/aigc-life/` 需确认 | `pkg/storage/oss.go`（未对真实桶测过） |
 | **店铺档案**：店铺信息拼进文案提示词 | 该模块接口 | `generate_logic.go` |
 | **审核接易盾** + 写 `afv_moderation_log` | 易盾凭证；provider 取值与 task_id 约定 | `pkg/moderation` |

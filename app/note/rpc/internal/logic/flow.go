@@ -1,0 +1,183 @@
+package logic
+
+import (
+	"context"
+	"encoding/json"
+	"time"
+
+	"aigc-life/app/note/model"
+	"aigc-life/app/note/rpc/internal/svc"
+	"aigc-life/pkg/aigc"
+
+	"github.com/zeromicro/go-zero/core/logx"
+)
+
+func newTaskID(svcCtx *svc.ServiceContext) string {
+	return aigc.NewTaskID(svcCtx.Config.TaskIDPrefix)
+}
+
+// submitPlan 提交构思任务（74）；提交失败直接标记构思失败。
+func submitPlan(ctx context.Context, svcCtx *svc.ServiceContext, n *model.AfvImageTextNote) {
+	task := aigc.NoteScript{
+		UserText: n.Topic, NoteType: noteTypeLabel(n.NoteType), MaterialURLs: parseList(n.MaterialUrls),
+		PersonURL: n.PersonUrl.String, ImageCount: int(n.ImageCount),
+	}
+	if _, err := svcCtx.Aigc.Submit(ctx, n.PlanTaskId.String, task); err != nil {
+		logx.WithContext(ctx).Errorf("submit plan %d: %v", n.Id, err)
+		failPlan(ctx, svcCtx, n.Id, "提交构思失败，请重试")
+		return
+	}
+	// TODO 计费：等计费方案确认后，构思扣 10 点，失败退回
+	// TODO 任务：确认后写 afv_creation_task（mode=74，execution_task_id=plan_task_id）
+}
+
+// submitGenerate 提交出图任务（75）；提交失败直接标记生成失败。
+func submitGenerate(ctx context.Context, svcCtx *svc.ServiceContext, id int64, taskID string, task aigc.NoteImages) {
+	if _, err := svcCtx.Aigc.Submit(ctx, taskID, task); err != nil {
+		logx.WithContext(ctx).Errorf("submit generate %d: %v", id, err)
+		failGenerate(ctx, svcCtx, id, "提交生成失败，请重试")
+		return
+	}
+	// TODO 计费：等计费方案确认后，生成扣 100 点，失败退回
+	// TODO 任务：确认后写 afv_creation_task（mode=75，parent 为构思任务）
+}
+
+func failPlan(ctx context.Context, svcCtx *svc.ServiceContext, id int64, reason string) {
+	if _, err := svcCtx.Note.FinishPlan(ctx, id, nil, reason); err != nil {
+		logx.WithContext(ctx).Errorf("mark plan failed %d: %v", id, err)
+	}
+}
+
+func failGenerate(ctx context.Context, svcCtx *svc.ServiceContext, id int64, reason string) {
+	if _, err := svcCtx.Note.FinishGenerate(ctx, id, model.StatusGenFailed, "", reason); err != nil {
+		logx.WithContext(ctx).Errorf("mark generate failed %d: %v", id, err)
+	}
+}
+
+// Poller 定时查询执行面结果，并回收超时的记录。状态都在库里，进程重启后接着查。
+type Poller struct {
+	svcCtx *svc.ServiceContext
+	cancel context.CancelFunc
+	done   chan struct{}
+}
+
+func NewPoller(svcCtx *svc.ServiceContext) *Poller {
+	return &Poller{svcCtx: svcCtx, done: make(chan struct{})}
+}
+
+func (p *Poller) Start() {
+	ctx, cancel := context.WithCancel(context.Background())
+	p.cancel = cancel
+	defer close(p.done)
+
+	ticker := time.NewTicker(time.Duration(p.svcCtx.Config.Poll.IntervalSeconds) * time.Second)
+	defer ticker.Stop()
+	logx.Info("note poller started")
+	for {
+		p.pollPlans(ctx)
+		p.pollGenerates(ctx)
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+func (p *Poller) Stop() {
+	if p.cancel != nil {
+		p.cancel()
+		<-p.done
+	}
+}
+
+const pollBatch = 100
+
+func (p *Poller) pollPlans(ctx context.Context) {
+	svcCtx := p.svcCtx
+	list, err := svcCtx.Note.ListByStatus(ctx, model.StatusPlanning, time.Now(), pollBatch)
+	if err != nil {
+		logx.WithContext(ctx).Errorf("list planning: %v", err)
+		return
+	}
+	deadline := time.Duration(svcCtx.Config.Plan.TimeoutMinutes) * time.Minute
+	for _, n := range list {
+		r := p.query(ctx, n.PlanTaskId.String)
+		switch {
+		case r != nil && r.Status == aigc.StatusSuccess:
+			p.finishPlan(ctx, n, r.Script)
+		case r != nil && r.Done():
+			logx.WithContext(ctx).Infof("note %d plan %s %s: %s", n.Id, n.PlanTaskId.String, r.Status, r.ErrorMsg)
+			failPlan(ctx, svcCtx, n.Id, "构思失败，请重试")
+		case time.Since(n.UpdateTime) > deadline:
+			failPlan(ctx, svcCtx, n.Id, "构思超时，请重试")
+		}
+	}
+}
+
+// finishPlan 解析 74 的 script，审核后写入规划结果。
+func (p *Poller) finishPlan(ctx context.Context, n *model.AfvImageTextNote, raw json.RawMessage) {
+	svcCtx := p.svcCtx
+	s, err := parseScript(raw)
+	if err != nil {
+		logx.WithContext(ctx).Errorf("note %d parse script: %v", n.Id, err)
+		failPlan(ctx, svcCtx, n.Id, "构思结果异常，请重试")
+		return
+	}
+	tags := normalizeTags(s.Note.Tags, svcCtx.Config.Limits.MaxTags)
+	if r, err := svcCtx.Moderation.Check(ctx, "note_plan_output", s.Note.Title+"\n"+s.Note.Content+"\n"+jsonList(tags)); err == nil && !r.Passed {
+		logx.WithContext(ctx).Infof("note %d plan blocked, label=%s", n.Id, r.Label)
+		failPlan(ctx, svcCtx, n.Id, "构思内容未通过审核，请调整主题后重试")
+		return
+	}
+	plan := &model.Plan{Script: string(raw), Title: s.Note.Title, Content: s.Note.Content, Tags: jsonList(tags)}
+	if _, err := svcCtx.Note.FinishPlan(ctx, n.Id, plan, ""); err != nil {
+		logx.WithContext(ctx).Errorf("finish plan %d: %v", n.Id, err)
+	}
+}
+
+func (p *Poller) pollGenerates(ctx context.Context) {
+	svcCtx := p.svcCtx
+	list, err := svcCtx.Note.ListByStatus(ctx, model.StatusGenerating, time.Now(), pollBatch)
+	if err != nil {
+		logx.WithContext(ctx).Errorf("list generating: %v", err)
+		return
+	}
+	deadline := time.Duration(svcCtx.Config.Generate.TimeoutMinutes) * time.Minute
+	for _, n := range list {
+		r := p.query(ctx, n.GenTaskId.String)
+		switch {
+		case r != nil && r.Status == aigc.StatusSuccess:
+			urls := r.Outputs()
+			if len(urls) == 0 {
+				failGenerate(ctx, svcCtx, n.Id, "生成结果为空，请重试")
+				continue
+			}
+			if _, err := svcCtx.Note.FinishGenerate(ctx, n.Id, model.StatusDone, jsonList(urls), ""); err != nil {
+				logx.WithContext(ctx).Errorf("finish generate %d: %v", n.Id, err)
+			}
+			// TODO 计费：成功结算
+			// TODO 素材库：设计稿要求成品自动存素材库，afv_asset 的 type/entry_code 与多图存法待数据库负责人确认
+		case r != nil && r.Done():
+			logx.WithContext(ctx).Infof("note %d generate %s %s: %s", n.Id, n.GenTaskId.String, r.Status, r.ErrorMsg)
+			failGenerate(ctx, svcCtx, n.Id, "生成失败，请重试")
+		case time.Since(n.UpdateTime) > deadline:
+			failGenerate(ctx, svcCtx, n.Id, "生成超时，请重试")
+		}
+	}
+}
+
+// query 查一次结果；网络抖动等查询失败返回 nil，下一轮再查。
+func (p *Poller) query(ctx context.Context, taskID string) *aigc.Result {
+	if taskID == "" || !p.svcCtx.Aigc.Enabled() {
+		return nil
+	}
+	qctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	r, err := p.svcCtx.Aigc.GetResult(qctx, taskID)
+	if err != nil {
+		logx.WithContext(ctx).Errorf("get result %s: %v", taskID, err)
+		return nil
+	}
+	return r
+}

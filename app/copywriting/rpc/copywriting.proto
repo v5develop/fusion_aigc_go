@@ -77,11 +77,12 @@ message OptionsResp {
 
 message AiWriteReq {
   int64 user_id = 1;
-  string scene = 2;             // topic-主题补写 / selling_point-商品卖点优化 / dh_script-数字人配音内容
+  string scene = 2;             // topic-主题补写 / selling_point-商品卖点优化 / dh_script-数字人配音内容 / note_topic-图文笔记主题
   string content_type = 3;
   string industry = 4;
   string context = 5;           // 用户已输入内容
   int32 max_len = 6;
+  string note_type = 7;         // note_topic 场景：笔记类型展示名（探店/种草/情感/知识）
 }
 
 message AiWriteResp {

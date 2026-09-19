@@ -32,7 +32,7 @@ func NewAiWriteLogic(ctx context.Context, svcCtx *svc.ServiceContext) *AiWriteLo
 func (l *AiWriteLogic) AiWrite(req *types.AiWriteReq) (resp *types.AiWriteResp, err error) {
 	out, err := l.svcCtx.CopywritingRpc.AiWrite(l.ctx, &copywriting.AiWriteReq{
 		UserId: ctxdata.UserID(l.ctx), Scene: req.Scene, ContentType: req.ContentType,
-		Industry: req.Industry, Context: req.Context, MaxLen: req.MaxLen,
+		Industry: req.Industry, Context: req.Context, MaxLen: req.MaxLen, NoteType: req.NoteType,
 	})
 	if err != nil {
 		return nil, err

@@ -14,3 +14,6 @@ DigitalHumanRpc:
   Etcd: {Hosts: [127.0.0.1:2379], Key: digitalhuman.rpc}
   Timeout: 60000        # 生成试听为同步合成
   NonBlock: true
+NoteRpc:
+  Etcd: {Hosts: [127.0.0.1:2379], Key: note.rpc}
+  NonBlock: true

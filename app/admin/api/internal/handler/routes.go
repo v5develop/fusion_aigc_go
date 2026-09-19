@@ -8,6 +8,7 @@ import (
 
 	copywriting "aigc-life/app/admin/api/internal/handler/copywriting"
 	digitalhuman "aigc-life/app/admin/api/internal/handler/digitalhuman"
+	note "aigc-life/app/admin/api/internal/handler/note"
 	"aigc-life/app/admin/api/internal/svc"
 
 	"github.com/zeromicro/go-zero/rest"
@@ -134,6 +135,21 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 					Method:  http.MethodPost,
 					Path:    "/digital-humans/voices/:id/preview",
 					Handler: digitalhuman.GenerateVoicePreviewHandler(serverCtx),
+				},
+			}...,
+		),
+		rest.WithPrefix("/admin/v1"),
+	)
+
+	server.AddRoutes(
+		rest.WithMiddlewares(
+			[]rest.Middleware{serverCtx.AdminAuth},
+			[]rest.Route{
+				{
+					// 用户图文笔记列表（只读，排查用）
+					Method:  http.MethodGet,
+					Path:    "/notes",
+					Handler: note.ListHandler(serverCtx),
 				},
 			}...,
 		),

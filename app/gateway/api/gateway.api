@@ -29,11 +29,12 @@ type (
 		MaxReferenceLen int32     `json:"max_reference_len"`
 	}
 	AiWriteReq {
-		Scene       string `json:"scene,options=topic|selling_point|dh_script"`
+		Scene       string `json:"scene,options=topic|selling_point|dh_script|note_topic"`
 		ContentType string `json:"content_type,optional"`
 		Industry    string `json:"industry,optional"`
 		Context     string `json:"context"`
 		MaxLen      int32  `json:"max_len,optional"`
+		NoteType    string `json:"note_type,optional"` // note_topic 场景：探店/种草/情感/知识
 	}
 	AiWriteResp {
 		Text string `json:"text"`
@@ -327,5 +328,112 @@ service gateway-api {
 	@doc "删除数字人"
 	@handler remove
 	delete /digital-humans/:id (IdPath) returns (EmptyResp)
+}
+
+// ---------------- AI 图文笔记 ----------------
+type (
+	NoteType {
+		Code          string `json:"code"`
+		Label         string `json:"label"`
+		MaterialLabel string `json:"material_label"`
+		MaterialHint  string `json:"material_hint"`
+	}
+	NoteOptionsResp {
+		Types         []NoteType `json:"types"`
+		MaxMaterials  int32      `json:"max_materials"` // 上传素材上限 3
+		DefaultImages int32      `json:"default_images"` // 套图数量默认值；套图数量不设上限
+		MaxEditImages int32      `json:"max_edit_images"` // 编辑时图片上限 3（生成张数更多时以生成张数为准）
+		MaxTopicLen   int32      `json:"max_topic_len"`
+	}
+	PlanNoteReq {
+		RequestId      string   `header:"X-Request-Id"`
+		NoteType       string   `json:"note_type,options=explore|seeding|emotion|knowledge"`
+		Topic          string   `json:"topic"`
+		MaterialUrls   []string `json:"material_urls,optional"`
+		DigitalHumanId int64    `json:"digital_human_id,optional"`
+		ImageCount     int32    `json:"image_count,optional"` // 套图数量，不传用默认值
+	}
+	ReplanNoteReq {
+		Id         int64 `path:"id"`
+		ImageCount int32 `json:"image_count,optional"` // 选填：换套图数量重新构思
+	}
+	GenerateNoteReq {
+		Id         int64    `path:"id"`
+		Title      string   `json:"title,optional"`
+		Content    string   `json:"content,optional"`
+		Tags       []string `json:"tags,optional"`
+		ImageCount int32    `json:"image_count,optional"`
+	}
+	UpdateNoteReq {
+		Id        int64    `path:"id"`
+		Title     string   `json:"title"`
+		Content   string   `json:"content"`
+		Tags      []string `json:"tags,optional"`
+		ImageUrls []string `json:"image_urls"`
+	}
+	Note {
+		Id             int64    `json:"id"`
+		NoteType       string   `json:"note_type"`
+		NoteTypeLabel  string   `json:"note_type_label"`
+		Topic          string   `json:"topic"`
+		MaterialUrls   []string `json:"material_urls"`
+		DigitalHumanId int64    `json:"digital_human_id"`
+		Title          string   `json:"title"`
+		Content        string   `json:"content"`
+		Tags           []string `json:"tags"`
+		ImageCount     int32    `json:"image_count"`
+		ImageUrls      []string `json:"image_urls"`
+		Status         int32    `json:"status"`
+		FailReason     string   `json:"fail_reason"`
+		CreateTime     int64    `json:"create_time"`
+	}
+	ListNotesReq {
+		Status   int32 `form:"status,optional,default=-1"`
+		Page     int64 `form:"page,optional,default=1"`
+		PageSize int64 `form:"page_size,optional,default=20"`
+	}
+	NoteListResp {
+		List  []Note `json:"list"`
+		Total int64  `json:"total"`
+	}
+)
+
+@server (
+	prefix:     /api/v1
+	middleware: Auth
+	group:      note
+)
+service gateway-api {
+	@doc "图文笔记表单配置：笔记类型、素材与套图上限"
+	@handler options
+	get /notes/options returns (NoteOptionsResp)
+
+	@doc "开始构思笔记（异步，轮询详情；完成后进入规划页）"
+	@handler plan
+	post /notes/plan (PlanNoteReq) returns (Note)
+
+	@doc "规划页「重新生成」：重新构思"
+	@handler replan
+	post /notes/:id/replan (ReplanNoteReq) returns (Note)
+
+	@doc "确认开始生成；生成失败后再次调用即重新生成"
+	@handler generate
+	post /notes/:id/generate (GenerateNoteReq) returns (Note)
+
+	@doc "笔记列表（素材库接入前使用）"
+	@handler list
+	get /notes (ListNotesReq) returns (NoteListResp)
+
+	@doc "笔记详情（构思中/生成中轮询此接口）"
+	@handler get
+	get /notes/:id (IdPath) returns (Note)
+
+	@doc "编辑笔记：标题、正文、话题、图片"
+	@handler update
+	put /notes/:id (UpdateNoteReq) returns (Note)
+
+	@doc "删除笔记"
+	@handler remove
+	delete /notes/:id (IdPath) returns (EmptyResp)
 }
 

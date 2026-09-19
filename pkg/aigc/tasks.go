@@ -88,16 +88,20 @@ func (t NoteScript) Validate() error {
 }
 
 // NoteImages 75 图文笔记出图：每项 Images 出一张。产物 Result.ImagePaths，顺序与 Images 一致。
+//
+// 参考图字段名以 AIGC 同事提供的 74→75 真实交互为准：images_url（对接文档写的是 image_urls，与实际不符）。
+// 74 返回的 images / images_url 可原样转交。
 type NoteImages struct {
 	Images    []NoteImage `json:"images"`
-	ImageURLs []string    `json:"image_urls,omitempty"`
+	ImageURLs []string    `json:"images_url,omitempty"`
 	Model     string      `json:"model,omitempty"` // mini(默认) / plus / max
 	Size      string      `json:"size,omitempty"`  // 默认 3:4
 }
 
 type NoteImage struct {
+	Index       int    `json:"index,omitempty"` // 74 返回的序号，原样透传
 	ImagePrompt string `json:"image_prompt"`
-	// ReferenceMaterials ImageURLs 的 1 起下标；空 = 纯文生图，最多 4 张
+	// ReferenceMaterials images_url 的 1 起下标；空 = 纯文生图，最多 4 张
 	ReferenceMaterials []int `json:"reference_materials"`
 }
 
@@ -116,7 +120,7 @@ func (t NoteImages) Validate() error {
 		}
 		for _, n := range img.ReferenceMaterials {
 			if n < 1 || n > len(t.ImageURLs) {
-				return fmt.Errorf("images[%d].reference_materials 下标 %d 超出 image_urls 范围", i, n)
+				return fmt.Errorf("images[%d].reference_materials 下标 %d 超出 images_url 范围", i, n)
 			}
 		}
 	}

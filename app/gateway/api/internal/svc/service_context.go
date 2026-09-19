@@ -5,6 +5,7 @@ import (
 	"aigc-life/app/digitalhuman/rpc/digitalhuman"
 	"aigc-life/app/gateway/api/internal/config"
 	"aigc-life/app/gateway/api/internal/middleware"
+	"aigc-life/app/note/rpc/note"
 	"aigc-life/pkg/storage"
 
 	"github.com/zeromicro/go-zero/core/stores/sqlx"
@@ -17,6 +18,7 @@ type ServiceContext struct {
 	Auth            rest.Middleware
 	CopywritingRpc  copywriting.Copywriting
 	DigitalHumanRpc digitalhuman.DigitalHuman
+	NoteRpc         note.Note
 	Storage         storage.Store
 }
 
@@ -30,6 +32,7 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		Auth:            middleware.NewAuthMiddleware(c.Auth.Mode).Handle,
 		CopywritingRpc:  copywriting.NewCopywriting(zrpc.MustNewClient(c.CopywritingRpc)),
 		DigitalHumanRpc: digitalhuman.NewDigitalHuman(zrpc.MustNewClient(c.DigitalHumanRpc)),
+		NoteRpc:         note.NewNote(zrpc.MustNewClient(c.NoteRpc)),
 		Storage:         storage.New(c.Storage, conn),
 	}
 }

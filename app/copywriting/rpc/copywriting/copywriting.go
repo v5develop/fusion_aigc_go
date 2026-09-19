@@ -51,7 +51,7 @@ type (
 		List(ctx context.Context, in *ListReq, opts ...grpc.CallOption) (*CopywritingList, error)
 		Update(ctx context.Context, in *UpdateReq, opts ...grpc.CallOption) (*CopywritingInfo, error)
 		Delete(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*Empty, error)
-		// 生成历史：该文案衍生出的内容
+		// TODO 本版不交付：生成历史 / 已生成的内容。代码已实现但未启用，
 		Derivatives(ctx context.Context, in *DerivativesReq, opts ...grpc.CallOption) (*DerivativeList, error)
 		// ---- 运营后台 ----
 		AdminListOptions(ctx context.Context, in *AdminListOptionsReq, opts ...grpc.CallOption) (*OptionList, error)
@@ -124,7 +124,7 @@ func (m *defaultCopywriting) Delete(ctx context.Context, in *IdUserReq, opts ...
 	return client.Delete(ctx, in, opts...)
 }
 
-// 生成历史：该文案衍生出的内容
+// TODO 本版不交付：生成历史 / 已生成的内容。代码已实现但未启用，
 func (m *defaultCopywriting) Derivatives(ctx context.Context, in *DerivativesReq, opts ...grpc.CallOption) (*DerivativeList, error) {
 	client := pb.NewCopywritingClient(m.cli.Conn())
 	return client.Derivatives(ctx, in, opts...)

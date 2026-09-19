@@ -1,0 +1,37 @@
+Name: note.rpc
+ListenOn: 0.0.0.0:9203
+Mode: dev
+Timeout: 30000
+Etcd:
+  Hosts: [127.0.0.1:2379]
+  Key: note.rpc
+Log:
+  Encoding: plain
+# 现有系统库；OSS 配置从库里读，不写在这里
+DataSource: root:123456@tcp(127.0.0.1:3306)/fusion_aigc?charset=utf8mb4&parseTime=true&loc=Asia%2FShanghai&time_zone=%27%2B08%3A00%27
+# AIGC 执行面（构思 74、出图 75）。正式地址待提供，本地先指向 mock-aigc；置空则构思与生成返回「暂未开放」
+Aigc:
+  Endpoint: http://127.0.0.1:5055   # 正式：http://<aigc_server>:5000
+  TimeoutSeconds: 10
+Storage:                # 须与网关一致
+  Mode: local
+  Prefix: aigc-life
+  LocalDir: data/files
+  LocalBaseUrl: http://127.0.0.1:8888/files
+DigitalHumanRpc:
+  Etcd: {Hosts: [127.0.0.1:2379], Key: digitalhuman.rpc}
+  NonBlock: true
+TaskIDPrefix: aigclife
+Limits:
+  MaxTopicLen: 500
+  MaxMaterials: 3       # 上传素材最多 3 张
+  DefaultImages: 4      # 套图数量默认值；套图数量不设上限，以前端传入为准
+  MaxEditImages: 3      # 编辑时图片上限（生成张数更多时以生成张数为准）
+Plan:
+  TimeoutMinutes: 5
+Generate:               # Model / Size 不填则不传，用执行面默认（mini、3:4），与 74→75 真实交互一致
+  TimeoutMinutes: 20
+Poll:
+  IntervalSeconds: 5
+Moderation:
+  Mode: keyword         # 与 AI文案共用 BLOCKWORD 词库
