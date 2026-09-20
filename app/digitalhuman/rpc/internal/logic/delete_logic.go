@@ -27,10 +27,21 @@ func NewDeleteLogic(ctx context.Context, svcCtx *svc.ServiceContext) *DeleteLogi
 }
 
 func (l *DeleteLogic) Delete(in *pb.IdUserReq) (*pb.Empty, error) {
-	if _, err := l.svcCtx.Human.FindOwned(l.ctx, in.Id, in.UserId); errors.Is(err, model.ErrNotFound) {
+	h, err := l.svcCtx.Human.FindOwned(l.ctx, in.Id, in.UserId)
+	if errors.Is(err, model.ErrNotFound) {
 		return nil, xerr.NotFoundf("数字人")
-	} else if err != nil {
+	}
+	if err != nil {
 		return nil, err
 	}
-	return &pb.Empty{}, l.svcCtx.Human.SoftDelete(l.ctx, in.Id)
+	if err := l.svcCtx.Human.SoftDelete(l.ctx, in.Id); err != nil {
+		return nil, err
+	}
+	// 素材库里的同一条一起删，两边保持一致
+	if l.svcCtx.Config.Asset.Enabled {
+		if err := l.svcCtx.Asset.SoftDeleteByTask(l.ctx, h.UserId, h.VideoTaskId.String); err != nil {
+			l.Errorf("delete asset of digital human %d: %v", h.Id, err)
+		}
+	}
+	return &pb.Empty{}, nil
 }

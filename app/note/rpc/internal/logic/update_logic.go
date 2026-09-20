@@ -76,5 +76,13 @@ func (l *UpdateLogic) Update(in *pb.UpdateReq) (*pb.NoteInfo, error) {
 	if n, err = l.svcCtx.Note.FindOne(l.ctx, n.Id); err != nil {
 		return nil, err
 	}
+	// 素材库跟着改：先删旧的一组，再按编辑后的标题与图片重写
+	if l.svcCtx.Config.Asset.Enabled {
+		if err := l.svcCtx.Asset.SoftDeleteByTask(l.ctx, n.UserId, n.GenTaskId.String); err != nil {
+			l.Errorf("sync assets of note %d: %v", n.Id, err)
+		} else {
+			saveNoteAssets(l.ctx, l.svcCtx, n, images)
+		}
+	}
 	return toInfo(n), nil
 }

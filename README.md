@@ -61,9 +61,11 @@ make stop-all
 - **轮询器**：`digitalhuman-rpc` 每 5 秒扫一次库里「生成中」的记录，逐个调 `getRes`。状态都在库里，
   服务重启后接着查（已实测）。超时：出图 10 分钟、视频 30 分钟；「配音中」卡住（重启留下的）也会回收。
 - **wav 时长**：百炼返回的 wav 头里长度字段是占位值 `0x7FFFFFFF`，按实际字节数计算（`tts.WavDuration`）。
-- **存储**：`Storage.Mode=local` 写 `data/files`（仅开发，执行面访问不到）；`oss` 写现有公有桶，
-  配置从 `afv_system_config.storage_public_*` 读。网关与 rpc 的 Storage 配置须一致：
+- **存储**：`Storage.Mode=local` 写 `data/files`（仅开发，执行面访问不到）；`oss` 写现有公有桶 `xx-shop-img`，
+  配置从 `afv_system_config.storage_public_*` 读，用 OSS V1 签名直接 PUT，不引 SDK。网关与 rpc 的 Storage 配置须一致：
   rpc 只接受本存储签发的上传地址，防止把任意外链交给执行面。
+  oss 模式已对真实桶实测（上传 → 公网访问 → 删除）：
+  `OSS_REAL=1 OSS_DSN='<dsn>' go test ./pkg/storage -run OSSReal -v`，测试会自行清理。
 - **执行面地址**：`digitalhuman-rpc.yaml` 的 `Aigc.Endpoint`，本地指向 mock；置空则出图与生成返回「暂未开放」。
 - **公共数字人**：不建表，复用现有模板素材（运营在现有后台「模板」里维护，本服务只读）。
   `afv_public_template_assets` 一行（`title`=名字，`url`=形象图，`extra`=`{"role":"店长","avatarUrl":"可空"}`）
@@ -105,6 +107,9 @@ make stop-all
 - **卡单回收**：文案由 `StuckRecovery`、数字人由 `Poller` 负责，前端不会一直轮询。
 - **并发控制**：按 `afv_ai_model.max_concurrency` 限制同时打给模型的请求数（文案与 TTS 各自计数）。
 - **网络重试**：调百炼（文案、TTS）遇到连接/握手这类网络抖动自动重试一次。
+- **素材库**：生成成功后写进现有 `afv_asset`（开关 `Asset.Enabled`）。笔记每张图一行、用 `source_task_id` 成组（同现有套图）；
+  数字人定制形象是一行主资产 + 4 条 `afv_asset_item`；口播视频一行。用户删除或编辑时，素材库同步删除 / 重写。
+  聚合分类与入口归属见 `deploy/sql/V1.0.110__asset_category_localLife.sql`（只插数据，可重复执行）。
 
 ## 待办（代码里都有 TODO，`grep -rn TODO app pkg`）
 
@@ -114,9 +119,7 @@ make stop-all
 | **用户鉴权**：接 `afv_app_user` | token 怎么验 | `gateway/.../auth_middleware.go` |
 | **后台鉴权**：接 `afv_admin_*` | 登录态与权限校验方式 | `admin/.../adminauth_middleware.go` |
 | **创作任务**：写 `afv_creation_task` | `entry_code` / `feature_code` 命名确认；`mode`：文案与 TTS 为 0，笔记构思 74，出图 75，视频 85 | 文案 `generate_logic.go`；数字人、笔记 `flow.go` |
-| **素材库**：AI 定制的 4 张图（设计稿要求）、口播视频、图文笔记成品写 `afv_asset` | `type` / `entry_code` 取值；笔记多图怎么存 | 数字人 / 笔记各自的 `flow.go` |
 | **AIGC 执行面正式地址** | 待提供；结果地址是否长期有效（否则需转存）；`aigc_temp/` 参考图保留多久 | `deploy/etc/digitalhuman-rpc.yaml`、`note-rpc.yaml` |
-| **OSS 模式联调** | 写现有公有桶 `xx-shop-img/aigc-life/` 需确认 | `pkg/storage/oss.go`（未对真实桶测过） |
 | **店铺档案**：店铺信息拼进文案提示词 | 该模块接口 | `generate_logic.go` |
 | **审核接易盾** + 写 `afv_moderation_log` | 易盾凭证；provider 取值与 task_id 约定 | `pkg/moderation` |
 | **生成历史 / 已生成的内容**（文案） | 本版不交付 | 见上节 |

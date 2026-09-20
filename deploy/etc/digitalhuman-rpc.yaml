@@ -42,3 +42,9 @@ PublicModel:
   BizType: localLife
   Module: digitalHuman
   Slot: publicModel
+
+# 素材库：成品写进 afv_asset（分类见 V1.0.110 迁移）。entry_code 与计费 Offer 同名，计费确认后可能调整
+Asset:
+  Enabled: true
+  Portrait: {Type: customizedModel, EntryCode: digitalHumanPortrait}   # 4 张形象图：一行主资产 + 4 条子资产
+  Video: {Type: video, EntryCode: digitalHuman}                        # 口播视频：一行

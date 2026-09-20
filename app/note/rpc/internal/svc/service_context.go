@@ -5,6 +5,7 @@ import (
 	"aigc-life/app/note/model"
 	"aigc-life/app/note/rpc/internal/config"
 	"aigc-life/pkg/aigc"
+	"aigc-life/pkg/asset"
 	"aigc-life/pkg/moderation"
 	"aigc-life/pkg/storage"
 
@@ -17,6 +18,7 @@ type ServiceContext struct {
 	Note            model.AfvImageTextNoteModel
 	Shared          *model.SharedModel
 	Aigc            *aigc.Client
+	Asset           *asset.Writer
 	Storage         storage.Store
 	Moderation      moderation.Checker
 	DigitalHumanRpc digitalhuman.DigitalHuman
@@ -30,6 +32,7 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		Note:            model.NewAfvImageTextNoteModel(conn),
 		Shared:          shared,
 		Aigc:            aigc.New(c.Aigc),
+		Asset:           asset.NewWriter(conn),
 		Storage:         storage.New(c.Storage, conn),
 		Moderation:      moderation.New(c.Moderation.Mode, shared.BlockWords),
 		DigitalHumanRpc: digitalhuman.NewDigitalHuman(zrpc.MustNewClient(c.DigitalHumanRpc)),

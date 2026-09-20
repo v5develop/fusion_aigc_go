@@ -92,7 +92,9 @@ P3ID=$(public_model 下架的 测试 "https://mock-oss.example.com/public/off-$R
 P4ID=$(public_model 电商模特 模特 "https://mock-oss.example.com/public/ecom-$RUN.png" 1 4 ecommerce)
 cleanup_public() {
   sql "DELETE FROM afv_public_template_asset_placement WHERE asset_id IN ($P1ID,$P2ID,$P3ID,$P4ID);
-       DELETE FROM afv_public_template_assets WHERE id IN ($P1ID,$P2ID,$P3ID,$P4ID);"
+       DELETE FROM afv_public_template_assets WHERE id IN ($P1ID,$P2ID,$P3ID,$P4ID);
+       DELETE FROM afv_asset_item WHERE asset_id IN (SELECT id FROM (SELECT id FROM afv_asset WHERE user_id=$USER_ID) x);
+       DELETE FROM afv_asset WHERE user_id=$USER_ID;"
 }
 trap 'cleanup_public; rm -rf "$TMP"' EXIT
 L=$(api GET /digital-humans/public)
@@ -167,10 +169,19 @@ check "上传照片 → 生成完成" "$(jq -r .status <<<"$D3")" 2
 D4=$(poll "/digital-humans/$D4ID" "0 1")
 check "视频失败有原因" "$(jq -r '.status, .fail_reason' <<<"$D4" | paste -sd, -)" "3,视频生成失败，请重试"
 
+echo "== 素材库（afv_asset）"
+PT_TASK=$(sql "SELECT task_id FROM afv_digital_human_portrait WHERE id=$PTID")
+check "定制形象：一行主资产" "$(sql "SELECT CONCAT_WS('|', type, entry_code, aspect_ratio) FROM afv_asset WHERE source_task_id='$PT_TASK' AND deleted=0")" "customizedModel|digitalHumanPortrait|9:16"
+check "定制形象：4 条子资产" "$(sql "SELECT count(*) FROM afv_asset_item i JOIN afv_asset a ON a.id=i.asset_id WHERE a.source_task_id='$PT_TASK' AND i.deleted=0")" 4
+V_TASK=$(sql "SELECT video_task_id FROM afv_digital_human WHERE id=$D1ID")
+check "口播视频：一行资产，封面是形象图" "$(sql "SELECT CONCAT_WS('|', type, entry_code, name, cover_url) FROM afv_asset WHERE source_task_id='$V_TASK' AND deleted=0")" "video|digitalHuman|文慧|https://mock-oss.example.com/public/wenhui-$RUN.png"
+
 echo "== 我的数字人"
 check "列表 4 条" "$(api GET /digital-humans | jq .total)" 4
 check "按状态筛选：完成 3 条" "$(api GET '/digital-humans?status=2' | jq .total)" 3
+D3_TASK=$(sql "SELECT video_task_id FROM afv_digital_human WHERE id=$D3ID")
 api DELETE "/digital-humans/$D3ID" > /dev/null
+check "删除数字人时素材库同步删除" "$(sql "SELECT count(*) FROM afv_asset WHERE source_task_id='$D3_TASK' AND deleted=0")" 0
 check "删除后不可见" "$(api_code GET "/digital-humans/$D3ID")" 1003
 check "删除后 3 条" "$(api GET /digital-humans | jq .total)" 3
 check "别人看不到" "$(curl -sS -H 'X-User-Id: 999999' "$GW/digital-humans/$D1ID" | jq -r .code)" 1003

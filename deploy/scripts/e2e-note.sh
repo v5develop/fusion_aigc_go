@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # AI图文笔记端到端测试（依赖 make run-all 已启动）
-# 执行面（74 构思 / 75 出图）走本地 mock-aigc；AI帮写真实调用模型。
+# 执行面（74 构思 / 75 出图）走本地 mock-aigc；AI帮写真实调用模型（SKIP_MODEL=1 可跳过）。
 # 用法：deploy/scripts/e2e-note.sh
 set -euo pipefail
 
@@ -11,7 +11,7 @@ PASS=0
 TMP=$(mktemp -d)
 MYSQL=(docker exec -i mysql-8.0.36 mysql --default-character-set=utf8mb4 -uroot -p123456 fusion_aigc -N)
 sql() { "${MYSQL[@]}" -e "$1" 2>/dev/null; }
-trap 'sql "DELETE FROM afv_digital_human WHERE user_id IN ($USER_ID, $((USER_ID+1)))"; rm -rf "$TMP"' EXIT
+trap 'sql "DELETE FROM afv_digital_human WHERE user_id IN ($USER_ID, $((USER_ID+1)))"; sql "DELETE FROM afv_asset_item WHERE asset_id IN (SELECT id FROM (SELECT id FROM afv_asset WHERE user_id=$USER_ID) x); DELETE FROM afv_asset WHERE user_id=$USER_ID"; rm -rf "$TMP"' EXIT
 
 red()   { printf '\033[31m%s\033[0m\n' "$*"; }
 green() { printf '\033[32m%s\033[0m\n' "$*"; }
@@ -161,19 +161,33 @@ check "出图失败有原因" "$(jq -r '[.status,.fail_reason]|join(",")' <<<"$G
 check "失败后可重新生成（沿用构思结果）" "$(api POST "/notes/$G2ID/generate" | jq -r .status)" 3
 poll "$G2ID" 3 > /dev/null
 
+echo "== 素材库（afv_asset）"
+check "笔记成品每张图一行" "$(sql "SELECT count(*) FROM afv_asset WHERE source_task_id='$GEN_TASK' AND deleted=0")" 2
+A=$(sql "SELECT CONCAT_WS('|', type, entry_code, name, source_type, owner_type, JSON_UNQUOTE(JSON_EXTRACT(properties,'$.noteId'))) FROM afv_asset WHERE source_task_id='$GEN_TASK' AND deleted=0 LIMIT 1")
+check "编辑后素材库图片同步" "$(sql "SELECT GROUP_CONCAT(result_url ORDER BY id) FROM afv_asset WHERE source_task_id='$GEN_TASK' AND deleted=0")" "$IMG1,$NEW"
+check "type/entry_code/名称/来源/拥有者/笔记ID（编辑后已同步）" "$A" "imageTextNote|imageTextNote|编辑后的标题|2|1|$NID"
+check "素材库分类已挂上入口" "$(sql "SELECT c.category_name FROM afv_asset_category_entry e JOIN afv_asset_category c ON c.id=e.category_id WHERE e.entry_code='imageTextNote'")" 图文笔记
+
 echo "== 列表与删除"
 check "列表 3 条" "$(api GET /notes | jq .total)" 3
 check "按状态：已完成 1 条" "$(api GET '/notes?status=4' | jq .total)" 1
 check "别人看不到" "$(curl -sS -H 'X-User-Id: 999999' "$GW/notes/$NID" | jq -r .code)" 1003
+api DELETE "/notes/$NID" > /dev/null
+check "删除笔记时素材库同步删除" "$(sql "SELECT count(*) FROM afv_asset WHERE source_task_id='$GEN_TASK' AND deleted=0")" 0
 api DELETE "/notes/$G2ID" > /dev/null
 check "删除后不可见" "$(api_code GET "/notes/$G2ID")" 1003
-check "删除后 2 条" "$(api GET /notes | jq .total)" 2
+check "删除后 1 条" "$(api GET /notes | jq .total)" 1
 
-echo "== AI帮写笔记主题（真实调模型）"
-T=$(api POST /copywriting/ai-write '{"scene":"note_topic","note_type":"探店","context":"西湖边的咖啡店"}')
-check "返回主题思路" "$(jq '.text|length > 0' <<<"$T")" true
+# 模型不可用时（如账号欠费）可用 SKIP_MODEL=1 跳过这一段
+if [[ ${SKIP_MODEL:-0} != 1 ]]; then
+  echo "== AI帮写笔记主题（真实调模型）"
+  T=$(api POST /copywriting/ai-write '{"scene":"note_topic","note_type":"探店","context":"西湖边的咖啡店"}')
+  check "返回主题思路" "$(jq '.text|length > 0' <<<"$T")" true
+else
+  echo "== AI帮写笔记主题（SKIP_MODEL=1，已跳过）"
+fi
 
 echo "== 运营后台"
-check "后台按用户查笔记" "$(admin "/notes?user_id=$USER_ID" | jq .total)" 2
+check "后台按用户查笔记" "$(admin "/notes?user_id=$USER_ID" | jq .total)" 1
 
 green "== 全部通过：$PASS 项"

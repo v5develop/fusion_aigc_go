@@ -11,6 +11,7 @@ import (
 	"aigc-life/app/digitalhuman/model"
 	"aigc-life/app/digitalhuman/rpc/internal/svc"
 	"aigc-life/pkg/aigc"
+	"aigc-life/pkg/asset"
 	"aigc-life/pkg/storage"
 
 	"github.com/zeromicro/go-zero/core/logx"
@@ -102,7 +103,6 @@ func submitPortrait(ctx context.Context, svcCtx *svc.ServiceContext, p *model.Af
 	}
 	// TODO 计费：等计费方案确认后，在这里预扣 100 点，失败时退回（同 AI文案）
 	// TODO 任务：确认后写 afv_creation_task（mode=75，execution_task_id=task_id）
-	// TODO 素材库：设计稿要求 4 张图自动存素材库，afv_asset 的 type/entry_code 待数据库负责人确认
 }
 
 func finishPortrait(ctx context.Context, svcCtx *svc.ServiceContext, id, status int64, urls []string, reason string) {
@@ -230,8 +230,8 @@ func (p *Poller) pollPortraits(ctx context.Context) {
 			urls := r.Outputs()
 			if len(urls) == 0 {
 				finishPortrait(ctx, svcCtx, it.Id, model.PortraitFailed, nil, "生成结果为空，请重试")
-			} else {
-				finishPortrait(ctx, svcCtx, it.Id, model.PortraitDone, urls, "")
+			} else if ok, _ := svcCtx.Portrait.Finish(ctx, it.Id, model.PortraitDone, jsonArray(urls), ""); ok {
+				savePortraitAsset(ctx, svcCtx, it, urls) // 设计稿：4 张图自动存进素材库
 			}
 		case r != nil && r.Done():
 			logx.WithContext(ctx).Infof("portrait %d task %s %s: %s", it.Id, it.TaskId.String, r.Status, r.ErrorMsg)
@@ -254,10 +254,12 @@ func (p *Poller) pollVideos(ctx context.Context) {
 		r := p.query(ctx, it.VideoTaskId.String)
 		switch {
 		case r != nil && r.Status == aigc.StatusSuccess && r.GeneratedImagePath != "":
-			if _, err := svcCtx.Human.Finish(ctx, it.Id, model.DhStatusRendering, model.DhStatusDone, r.GeneratedImagePath, ""); err != nil {
+			if ok, err := svcCtx.Human.Finish(ctx, it.Id, model.DhStatusRendering, model.DhStatusDone, r.GeneratedImagePath, ""); err != nil {
 				logx.WithContext(ctx).Errorf("finish %d: %v", it.Id, err)
+			} else if ok {
+				saveVideoAsset(ctx, svcCtx, it, r.GeneratedImagePath)
 			}
-			// TODO 计费：成功结算；素材库：口播视频是否写 afv_asset 待确认
+			// TODO 计费：成功结算
 		case r != nil && r.Done():
 			logx.WithContext(ctx).Infof("digital human %d task %s %s: %s", it.Id, it.VideoTaskId.String, r.Status, r.ErrorMsg)
 			failHuman(ctx, svcCtx, it.Id, model.DhStatusRendering, "视频生成失败，请重试")
@@ -293,4 +295,50 @@ func (p *Poller) query(ctx context.Context, taskID string) *aigc.Result {
 		return nil
 	}
 	return r
+}
+
+// ---- 素材库 ----
+
+func jsonArray(v []string) string {
+	b, _ := json.Marshal(v)
+	return string(b)
+}
+
+// savePortraitAsset AI 定制形象：一行主资产 + 每张图一条子资产（同现有 customizedModel 的存法）。
+func savePortraitAsset(ctx context.Context, svcCtx *svc.ServiceContext, p *model.AfvDigitalHumanPortrait, urls []string) {
+	cfg := svcCtx.Config.Asset
+	if !cfg.Enabled {
+		return
+	}
+	items := make([]asset.Item, 0, len(urls))
+	for i, u := range urls {
+		items = append(items, asset.Item{
+			ItemType: "variant", Name: fmt.Sprintf("形象 %d", i+1), MediaURL: u, MediaType: "image", SortOrder: int64(i),
+		})
+	}
+	a := asset.Asset{
+		UserID: p.UserId, SourceTaskID: p.TaskId.String, Type: cfg.Portrait.Type, EntryCode: cfg.Portrait.EntryCode,
+		Name: "AI定制数字人形象", CoverURL: urls[0], ResultURL: urls[0], AspectRatio: svcCtx.Config.Portrait.Size,
+		AIPrompt: p.Description.String,
+	}
+	if err := svcCtx.Asset.InsertWithItems(ctx, a, items); err != nil {
+		logx.WithContext(ctx).Errorf("save portrait asset %d: %v", p.Id, err)
+	}
+}
+
+// saveVideoAsset 口播视频：一行资产，封面用形象图。
+func saveVideoAsset(ctx context.Context, svcCtx *svc.ServiceContext, h *model.AfvDigitalHuman, videoURL string) {
+	cfg := svcCtx.Config.Asset
+	if !cfg.Enabled {
+		return
+	}
+	props, _ := json.Marshal(map[string]any{"digitalHumanId": h.Id, "duration": h.Duration.Int64, "voiceId": h.VoiceId})
+	a := asset.Asset{
+		UserID: h.UserId, SourceTaskID: h.VideoTaskId.String, Type: cfg.Video.Type, EntryCode: cfg.Video.EntryCode,
+		Name: h.Name, CoverURL: h.ImageUrl, ResultURL: videoURL, AspectRatio: svcCtx.Config.Video.AspectRatio,
+		AIPrompt: h.Script, Properties: string(props),
+	}
+	if err := svcCtx.Asset.InsertSet(ctx, []asset.Asset{a}); err != nil {
+		logx.WithContext(ctx).Errorf("save video asset %d: %v", h.Id, err)
+	}
 }

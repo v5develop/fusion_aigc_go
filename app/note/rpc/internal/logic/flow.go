@@ -8,6 +8,7 @@ import (
 	"aigc-life/app/note/model"
 	"aigc-life/app/note/rpc/internal/svc"
 	"aigc-life/pkg/aigc"
+	"aigc-life/pkg/asset"
 
 	"github.com/zeromicro/go-zero/core/logx"
 )
@@ -153,11 +154,12 @@ func (p *Poller) pollGenerates(ctx context.Context) {
 				failGenerate(ctx, svcCtx, n.Id, "生成结果为空，请重试")
 				continue
 			}
-			if _, err := svcCtx.Note.FinishGenerate(ctx, n.Id, model.StatusDone, jsonList(urls), ""); err != nil {
+			if ok, err := svcCtx.Note.FinishGenerate(ctx, n.Id, model.StatusDone, jsonList(urls), ""); err != nil {
 				logx.WithContext(ctx).Errorf("finish generate %d: %v", n.Id, err)
+			} else if ok {
+				saveNoteAssets(ctx, svcCtx, n, urls) // 设计稿：成品自动存进素材库
 			}
 			// TODO 计费：成功结算
-			// TODO 素材库：设计稿要求成品自动存素材库，afv_asset 的 type/entry_code 与多图存法待数据库负责人确认
 		case r != nil && r.Done():
 			logx.WithContext(ctx).Infof("note %d generate %s %s: %s", n.Id, n.GenTaskId.String, r.Status, r.ErrorMsg)
 			failGenerate(ctx, svcCtx, n.Id, "生成失败，请重试")
@@ -180,4 +182,34 @@ func (p *Poller) query(ctx context.Context, taskID string) *aigc.Result {
 		return nil
 	}
 	return r
+}
+
+// saveNoteAssets 笔记成品写进素材库：每张图一行，用 source_task_id 串成一组（同现有套图的存法）。
+func saveNoteAssets(ctx context.Context, svcCtx *svc.ServiceContext, n *model.AfvImageTextNote, urls []string) {
+	cfg := svcCtx.Config.Asset
+	if !cfg.Enabled {
+		return
+	}
+	var prompts []string
+	if s, err := parseScript([]byte(n.PlanScript.String)); err == nil {
+		for _, img := range s.Images {
+			prompts = append(prompts, img.ImagePrompt)
+		}
+	}
+	props, _ := json.Marshal(map[string]any{"noteId": n.Id, "noteType": n.NoteType, "tags": parseList(n.Tags)})
+	list := make([]asset.Asset, 0, len(urls))
+	for i, u := range urls {
+		a := asset.Asset{
+			UserID: n.UserId, SourceTaskID: n.GenTaskId.String, Type: cfg.Type, EntryCode: cfg.EntryCode,
+			Name: n.Title, CoverURL: u, ResultURL: u, AspectRatio: svcCtx.Config.Generate.Size,
+			Properties: string(props),
+		}
+		if i < len(prompts) {
+			a.AIPrompt = prompts[i]
+		}
+		list = append(list, a)
+	}
+	if err := svcCtx.Asset.InsertSet(ctx, list); err != nil {
+		logx.WithContext(ctx).Errorf("save note assets %d: %v", n.Id, err)
+	}
 }

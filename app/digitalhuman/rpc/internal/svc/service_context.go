@@ -4,6 +4,7 @@ import (
 	"aigc-life/app/digitalhuman/model"
 	"aigc-life/app/digitalhuman/rpc/internal/config"
 	"aigc-life/pkg/aigc"
+	"aigc-life/pkg/asset"
 	"aigc-life/pkg/moderation"
 	"aigc-life/pkg/semaphore"
 	"aigc-life/pkg/storage"
@@ -22,6 +23,7 @@ type ServiceContext struct {
 	Shared    *model.SharedModel
 
 	Aigc       *aigc.Client
+	Asset      *asset.Writer
 	TTS        *tts.Client
 	Storage    storage.Store
 	Moderation moderation.Checker
@@ -41,6 +43,7 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		Agreement:  model.NewAfvUserAgreementModel(conn),
 		Shared:     shared,
 		Aigc:       aigc.New(c.Aigc),
+		Asset:      asset.NewWriter(conn),
 		TTS:        tts.New(),
 		Storage:    storage.New(c.Storage, conn),
 		Moderation: moderation.New(c.Moderation.Mode, shared.BlockWords),

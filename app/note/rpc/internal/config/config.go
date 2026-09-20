@@ -2,6 +2,7 @@ package config
 
 import (
 	"aigc-life/pkg/aigc"
+	"aigc-life/pkg/asset"
 	"aigc-life/pkg/storage"
 
 	"github.com/zeromicro/go-zero/zrpc"
@@ -17,6 +18,8 @@ type Config struct {
 	Storage storage.Conf
 	// DigitalHumanRpc 校验表单里选的数字人（须属于本人且已生成完成），取其形象图
 	DigitalHumanRpc zrpc.RpcClientConf
+	// Asset 成品写进素材库（afv_asset）：每张图一行，用 source_task_id 串起来
+	Asset asset.Conf
 	// TaskIDPrefix 提交执行面的 task_id 前缀，不能含下划线
 	TaskIDPrefix string `json:",default=aigclife"`
 	Limits       struct {

@@ -23,7 +23,19 @@ type Config struct {
 		Module  string `json:",default=digitalHuman"`
 		Slot    string `json:",default=publicModel"`
 	}
-	Agreement    struct {
+	// Asset 成品写进素材库（afv_asset）。entry_code 同时用于素材库分类归属与计费 Offer。
+	Asset struct {
+		Enabled  bool `json:",default=false"`
+		Portrait struct {
+			Type      string `json:",default=customizedModel"`
+			EntryCode string `json:",default=digitalHumanPortrait"`
+		}
+		Video struct {
+			Type      string `json:",default=video"`
+			EntryCode string `json:",default=digitalHuman"`
+		}
+	}
+	Agreement struct {
 		// AigcVersion AIGC 功能使用约定的当前版本；条款改版后 +1，用户需重新同意
 		AigcVersion int `json:",default=1"`
 	}
