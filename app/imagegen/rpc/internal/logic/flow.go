@@ -41,7 +41,10 @@ func dumpTasks(t []imageTask) string {
 }
 
 // buildTask 按类型组装执行面入参：海报 78，长图 76。
-func buildTask(c *model.AfvImageCreation, cfg *config.KindConf, mats []string) aigc.Task {
+//
+// poster_type / poster_style 是喂给模型的，传中文展示名（如「节日」「扁平插画」）；
+// 库里存的是编码，展示名在提交前查出来。
+func buildTask(c *model.AfvImageCreation, cfg *config.KindConf, mats []string, typeLabel string) aigc.Task {
 	if c.Kind == model.KindPoster {
 		style := ""
 		if c.PosterStyle.Valid {
@@ -49,7 +52,7 @@ func buildTask(c *model.AfvImageCreation, cfg *config.KindConf, mats []string) a
 		}
 		return aigc.Poster{
 			Template: c.TemplateUrl.String, Materials: mats, UserText: c.Content,
-			PosterType: c.PosterType.String, PosterStyle: style, Size: c.Size, Model: cfg.Model,
+			PosterType: typeLabel, PosterStyle: style, Size: c.Size, Model: cfg.Model,
 		}
 	}
 	return aigc.LongImage{
@@ -58,9 +61,9 @@ func buildTask(c *model.AfvImageCreation, cfg *config.KindConf, mats []string) a
 }
 
 // submit 一张图一个任务，逐个提交；提交失败的那张直接记失败，其余照常。
-func submit(ctx context.Context, svcCtx *svc.ServiceContext, c *model.AfvImageCreation, cfg *config.KindConf) []imageTask {
+func submit(ctx context.Context, svcCtx *svc.ServiceContext, c *model.AfvImageCreation, cfg *config.KindConf, typeLabel string) []imageTask {
 	mats := parseList(c.MaterialUrls)
-	task := buildTask(c, cfg, mats)
+	task := buildTask(c, cfg, mats, typeLabel)
 	tasks := make([]imageTask, 0, c.ImageCount)
 	for i := int64(0); i < c.ImageCount; i++ {
 		id := newTaskID(svcCtx)

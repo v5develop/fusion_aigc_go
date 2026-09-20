@@ -55,6 +55,24 @@ func styleLabel(code string) (string, bool) {
 	return "", false
 }
 
+// posterTypeLabel 海报类型编码 → 展示名（模板筛选维度字典）；找不到时返回原值。
+func posterTypeLabel(ctx context.Context, svcCtx *svc.ServiceContext, bizType, code string) string {
+	if code == "" {
+		return ""
+	}
+	opts, err := svcCtx.Shared.ListFilterOptions(ctx, bizType, posterTypeFilter)
+	if err != nil {
+		logx.WithContext(ctx).Errorf("load poster types: %v", err)
+		return code
+	}
+	for _, o := range opts {
+		if o.Code == code {
+			return o.Name
+		}
+	}
+	return code
+}
+
 // kindConf 取某种成品（海报 / 长图）的配置；kind 非法返回错误。
 func kindConf(svcCtx *svc.ServiceContext, kind string) (*config.KindConf, error) {
 	switch kind {

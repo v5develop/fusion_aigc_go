@@ -118,7 +118,7 @@ func (l *CreateLogic) Create(in *pb.CreateReq) (*pb.ImageInfo, error) {
 	if row.Id, err = res.LastInsertId(); err != nil {
 		return nil, err
 	}
-	tasks := submit(l.ctx, l.svcCtx, row, cfg)
+	tasks := submit(l.ctx, l.svcCtx, row, cfg, posterTypeLabel(l.ctx, l.svcCtx, cfg.BizType, in.PosterType))
 	if _, err := l.svcCtx.Creation.UpdateTasks(l.ctx, row.Id, dumpTasks(tasks), model.StatusGenerating, "", ""); err != nil {
 		l.Errorf("save tasks %d: %v", row.Id, err)
 	}

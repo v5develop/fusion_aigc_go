@@ -133,7 +133,7 @@ check "已完成" "$(jq -r .status <<<"$P")" 1
 check "出 2 张图" "$(jq '.image_urls|length' <<<"$P")" 2
 T1=$(sql "SELECT JSON_UNQUOTE(JSON_EXTRACT(tasks,'\$[0].task_id')) FROM afv_image_creation WHERE id=$PID")
 B78=$(curl -sS "http://127.0.0.1:5055/mock/task/$T1")
-check "78 入参：模板/素材/比例/模型/类型/风格" "$(jq -c '[.task_type,(.materials|length),.size,.model,.poster_type,.poster_style]' <<<"$B78")" '[78,2,"3:4","max","festival","扁平插画"]'
+check "78 入参：模板/素材/比例/模型/类型与风格传中文" "$(jq -c '[.task_type,(.materials|length),.size,.model,.poster_type,.poster_style]' <<<"$B78")" '[78,2,"3:4","max","节日","扁平插画"]'
 check "78 收到的模板就是所选模板" "$(jq -r .template <<<"$B78")" "https://mock-oss.example.com/tpl/节日模板-$USER_ID.png"
 
 echo "== 长图：生成（mock 76，不选模板）"
