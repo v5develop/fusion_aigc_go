@@ -14,4 +14,5 @@ type Config struct {
 	CopywritingRpc  zrpc.RpcClientConf
 	DigitalHumanRpc zrpc.RpcClientConf
 	NoteRpc         zrpc.RpcClientConf
+	ImageGenRpc     zrpc.RpcClientConf
 }

@@ -10,7 +10,7 @@ type AgreementResp struct {
 }
 
 type AiWriteReq struct {
-	Scene       string `json:"scene,options=topic|selling_point|dh_script|note_topic"`
+	Scene       string `json:"scene,options=topic|selling_point|dh_script|note_topic|poster_info|long_image"`
 	ContentType string `json:"content_type,optional"`
 	Industry    string `json:"industry,optional"`
 	Context     string `json:"context"`
@@ -49,6 +49,18 @@ type CreateDigitalHumanReq struct {
 	ImageIndex     int32  `json:"image_index,optional"`
 	VoiceId        int64  `json:"voice_id"`
 	Script         string `json:"script"`
+}
+
+type CreateImageGenReq struct {
+	RequestId    string   `header:"X-Request-Id"`
+	Kind         string   `json:"kind,options=poster|longImage"`
+	Content      string   `json:"content"`
+	MaterialUrls []string `json:"material_urls,optional"`
+	TemplateId   int64    `json:"template_id,optional"`
+	PosterType   string   `json:"poster_type,optional"`
+	PosterStyle  string   `json:"poster_style,optional"`
+	Size         string   `json:"size,optional"`
+	ImageCount   int32    `json:"image_count,optional"`
 }
 
 type CreatePortraitReq struct {
@@ -143,10 +155,74 @@ type IdPath struct {
 	Id int64 `path:"id"`
 }
 
+type ImageCreation struct {
+	Id           int64    `json:"id"`
+	Kind         string   `json:"kind"`
+	Content      string   `json:"content"`
+	MaterialUrls []string `json:"material_urls"`
+	TemplateId   int64    `json:"template_id"`
+	TemplateUrl  string   `json:"template_url"`
+	PosterType   string   `json:"poster_type"`
+	PosterStyle  string   `json:"poster_style"`
+	Size         string   `json:"size"`
+	ImageCount   int32    `json:"image_count"`
+	ImageUrls    []string `json:"image_urls"`
+	Status       int32    `json:"status"`
+	FailReason   string   `json:"fail_reason"`
+	CreateTime   int64    `json:"create_time"`
+}
+
+type ImageGenListResp struct {
+	List  []ImageCreation `json:"list"`
+	Total int64           `json:"total"`
+}
+
+type ImageGenOption struct {
+	Code  string `json:"code"`
+	Label string `json:"label"`
+}
+
+type ImageGenOptionsReq struct {
+	Kind string `form:"kind,options=poster|longImage"`
+}
+
+type ImageGenOptionsResp struct {
+	PosterTypes      []ImageGenOption `json:"poster_types"`
+	PosterStyles     []ImageGenOption `json:"poster_styles"`
+	Sizes            []ImageGenOption `json:"sizes"`
+	DefaultSize      string           `json:"default_size"`
+	MaxImages        int32            `json:"max_images"`
+	MaxMaterials     int32            `json:"max_materials"`
+	MaxContentLen    int32            `json:"max_content_len"`
+	TemplateRequired bool             `json:"template_required"`
+}
+
+type ImageGenTemplate struct {
+	Id    int64  `json:"id"`
+	Title string `json:"title"`
+	Url   string `json:"url"`
+}
+
+type ImageGenTemplatesReq struct {
+	Kind       string `form:"kind,options=poster|longImage"`
+	PosterType string `form:"poster_type,optional"`
+}
+
+type ImageGenTemplatesResp struct {
+	List []ImageGenTemplate `json:"list"`
+}
+
 type ListDigitalHumansReq struct {
 	Status   int32 `form:"status,optional,default=-1"`
 	Page     int64 `form:"page,optional,default=1"`
 	PageSize int64 `form:"page_size,optional,default=20"`
+}
+
+type ListImageGenReq struct {
+	Kind     string `form:"kind,optional,options=|poster|longImage"`
+	Status   int32  `form:"status,optional,default=-1"`
+	Page     int64  `form:"page,optional,default=1"`
+	PageSize int64  `form:"page_size,optional,default=20"`
 }
 
 type ListNotesReq struct {

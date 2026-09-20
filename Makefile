@@ -1,6 +1,6 @@
 export PATH := $(PATH):$(shell go env GOPATH)/bin
 
-RPCS := copywriting digitalhuman note
+RPCS := copywriting digitalhuman note imagegen
 # 使用 goctl 内置默认模板，避免受本机 ~/.goctl 自定义模板影响
 GOCTL_HOME := $(CURDIR)/deploy/goctl
 
@@ -22,18 +22,22 @@ gen-model:
 	goctl model mysql ddl -src deploy/sql/V1.0.106__ai_copywriting.sql -dir app/copywriting/model --style=go_zero --home $(GOCTL_HOME)
 	goctl model mysql ddl -src deploy/sql/V1.0.108__ai_digital_human.sql -dir app/digitalhuman/model --style=go_zero --home $(GOCTL_HOME)
 	goctl model mysql ddl -src deploy/sql/V1.0.109__ai_image_text_note.sql -dir app/note/model --style=go_zero --home $(GOCTL_HOME)
+	@echo '注意：V1.0.111 含 INSERT..SELECT，goctl 解析不了，改表结构时手工截出 CREATE TABLE 再生成 app/imagegen/model'
 
 # 建新表（只新增 afv_copywriting* / afv_digital_human* 等新表，不碰现有表结构）
 db:
 	docker exec -i mysql-8.0.36 mysql --default-character-set=utf8mb4 -uroot -p123456 fusion_aigc < deploy/sql/V1.0.106__ai_copywriting.sql
 	docker exec -i mysql-8.0.36 mysql --default-character-set=utf8mb4 -uroot -p123456 fusion_aigc < deploy/sql/V1.0.108__ai_digital_human.sql
 	docker exec -i mysql-8.0.36 mysql --default-character-set=utf8mb4 -uroot -p123456 fusion_aigc < deploy/sql/V1.0.109__ai_image_text_note.sql
+	docker exec -i mysql-8.0.36 mysql --default-character-set=utf8mb4 -uroot -p123456 fusion_aigc < deploy/sql/V1.0.110__asset_category_localLife.sql
+	docker exec -i mysql-8.0.36 mysql --default-character-set=utf8mb4 -uroot -p123456 fusion_aigc < deploy/sql/V1.0.111__ai_poster_long_image.sql
 
 build:
 	@mkdir -p bin
 	go build -o bin/copywriting-rpc  ./app/copywriting/rpc
 	go build -o bin/digitalhuman-rpc ./app/digitalhuman/rpc
 	go build -o bin/note-rpc         ./app/note/rpc
+	go build -o bin/imagegen-rpc     ./app/imagegen/rpc
 	go build -o bin/gateway-api      ./app/gateway/api
 	go build -o bin/admin-api        ./app/admin/api
 	go build -o bin/mock-aigc        ./tools/mock-aigc
@@ -48,11 +52,12 @@ run-all: build stop-all
 	nohup bin/copywriting-rpc  -f deploy/etc/copywriting-rpc.yaml  > logs/copywriting-rpc.log 2>&1 &
 	nohup bin/digitalhuman-rpc -f deploy/etc/digitalhuman-rpc.yaml > logs/digitalhuman-rpc.log 2>&1 &
 	nohup bin/note-rpc         -f deploy/etc/note-rpc.yaml         > logs/note-rpc.log 2>&1 &
+	nohup bin/imagegen-rpc     -f deploy/etc/imagegen-rpc.yaml     > logs/imagegen-rpc.log 2>&1 &
 	nohup bin/gateway-api      -f deploy/etc/gateway-api.yaml      > logs/gateway-api.log 2>&1 &
 	nohup bin/admin-api        -f deploy/etc/admin-api.yaml        > logs/admin-api.log 2>&1 &
 	@echo "started, logs in ./logs"
 
-PROCS := bin/(copywriting-rpc|digitalhuman-rpc|note-rpc|gateway-api|admin-api|mock-aigc)
+PROCS := bin/(copywriting-rpc|digitalhuman-rpc|note-rpc|imagegen-rpc|gateway-api|admin-api|mock-aigc)
 
 # 等待优雅退出完成，避免新进程启动时端口仍被占用
 stop-all:

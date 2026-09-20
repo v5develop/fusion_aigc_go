@@ -77,6 +77,30 @@ type IdPath struct {
 	Id int64 `path:"id"`
 }
 
+type ImageCreation struct {
+	Id         int64    `json:"id"`
+	UserId     int64    `json:"user_id"`
+	Kind       string   `json:"kind"`
+	Content    string   `json:"content"`
+	ImageUrls  []string `json:"image_urls"`
+	Status     int32    `json:"status"`
+	FailReason string   `json:"fail_reason"`
+	CreateTime int64    `json:"create_time"`
+}
+
+type ImageGenListReq struct {
+	UserId   int64  `form:"user_id,optional"`
+	Kind     string `form:"kind,optional,options=|poster|longImage"`
+	Status   int32  `form:"status,optional,default=-1"`
+	Page     int64  `form:"page,optional,default=1"`
+	PageSize int64  `form:"page_size,optional,default=20"`
+}
+
+type ImageGenListResp struct {
+	List  []ImageCreation `json:"list"`
+	Total int64           `json:"total"`
+}
+
 type ModelResp struct {
 	Id       int64  `json:"id"`
 	Name     string `json:"name"`

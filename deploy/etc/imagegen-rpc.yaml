@@ -1,0 +1,47 @@
+Name: imagegen.rpc
+ListenOn: 0.0.0.0:9204
+Mode: dev
+Timeout: 30000
+Etcd:
+  Hosts: [127.0.0.1:2379]
+  Key: imagegen.rpc
+Log:
+  Encoding: plain
+DataSource: root:123456@tcp(127.0.0.1:3306)/fusion_aigc?charset=utf8mb4&parseTime=true&loc=Asia%2FShanghai&time_zone=%27%2B08%3A00%27
+# AIGC 执行面（海报 78、长图 76）。正式地址待提供，本地先指向 mock-aigc
+Aigc:
+  Endpoint: http://127.0.0.1:5055   # 正式：http://<aigc_server>:5000
+  TimeoutSeconds: 10
+Storage:                # 须与网关一致
+  Mode: local
+  Prefix: aigc-life
+  LocalDir: data/files
+  LocalBaseUrl: http://127.0.0.1:8888/files
+Asset:
+  Enabled: true         # 成品写进素材库（分类见 V1.0.111 迁移）
+Poster:
+  Module: poster
+  Slot: template
+  Model: max            # 本版只用 max
+  DefaultSize: "9:16"
+  TemplateRequired: true
+  AssetType: poster
+  AssetEntryCode: poster
+LongImage:
+  Module: longImage
+  Slot: template
+  Model: ""             # 对接文档里 76 没有 model 参数，留空不传；AIGC 确认支持后再填
+  DefaultSize: "1:4"
+  TemplateRequired: false
+  AssetType: longImage
+  AssetEntryCode: longImage
+TaskIDPrefix: aigclife
+Limits:
+  MaxContentLen: 500
+  MaxMaterials: 3       # 海报、长图都最多 3 张
+  MaxImages: 4          # 生成数量上限
+Poll:
+  IntervalSeconds: 5
+  TimeoutMinutes: 10
+Moderation:
+  Mode: keyword

@@ -258,3 +258,39 @@ service admin-api {
 	get /notes (NoteListReq) returns (NoteListResp)
 }
 
+// ---------------- AI 海报 / AI 长图 ----------------
+type (
+	ImageGenListReq {
+		UserId   int64  `form:"user_id,optional"`
+		Kind     string `form:"kind,optional,options=|poster|longImage"`
+		Status   int32  `form:"status,optional,default=-1"`
+		Page     int64  `form:"page,optional,default=1"`
+		PageSize int64  `form:"page_size,optional,default=20"`
+	}
+	ImageCreation {
+		Id         int64    `json:"id"`
+		UserId     int64    `json:"user_id"`
+		Kind       string   `json:"kind"`
+		Content    string   `json:"content"`
+		ImageUrls  []string `json:"image_urls"`
+		Status     int32    `json:"status"`
+		FailReason string   `json:"fail_reason"`
+		CreateTime int64    `json:"create_time"`
+	}
+	ImageGenListResp {
+		List  []ImageCreation `json:"list"`
+		Total int64           `json:"total"`
+	}
+)
+
+@server (
+	prefix:     /admin/v1
+	middleware: AdminAuth
+	group:      imagegen
+)
+service admin-api {
+	@doc "用户海报/长图列表（只读，排查用）"
+	@handler list
+	get /image-creations (ImageGenListReq) returns (ImageGenListResp)
+}
+

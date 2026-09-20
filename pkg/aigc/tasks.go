@@ -170,9 +170,12 @@ func (t LongImage) Validate() error {
 }
 
 // Poster 78 海报。产物 GeneratedImagePath。
+//
+// Materials 对接文档写的是必填（1–3 张），但设计稿里「上传素材」是选填（产品已确认），
+// 因此这里不强制；待 AIGC 同事确认不传时的行为。
 type Poster struct {
 	Template    string   `json:"template"`
-	Materials   []string `json:"materials"` // 1–3 张，超出取前 3
+	Materials   []string `json:"materials,omitempty"` // 1–3 张，超出取前 3
 	UserText    string   `json:"user_text,omitempty"`
 	PosterStyle string   `json:"poster_style,omitempty"`
 	PosterType  string   `json:"poster_type,omitempty"`
@@ -183,10 +186,10 @@ type Poster struct {
 func (Poster) TaskType() int { return TypePoster }
 
 func (t Poster) Validate() error {
-	if len(t.Materials) == 0 {
-		return errors.New("缺少 materials")
-	}
-	return required("template", t.Template)
+	return first(
+		required("template", t.Template),
+		maxLen("materials", len(t.Materials), 3),
+	)
 }
 
 func first(errs ...error) error {

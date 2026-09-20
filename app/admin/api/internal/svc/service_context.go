@@ -5,6 +5,7 @@ import (
 	"aigc-life/app/admin/api/internal/middleware"
 	"aigc-life/app/copywriting/rpc/copywriting"
 	"aigc-life/app/digitalhuman/rpc/digitalhuman"
+	"aigc-life/app/imagegen/rpc/imagegen"
 	"aigc-life/app/note/rpc/note"
 
 	"github.com/zeromicro/go-zero/rest"
@@ -17,6 +18,7 @@ type ServiceContext struct {
 	CopywritingRpc  copywriting.Copywriting
 	DigitalHumanRpc digitalhuman.DigitalHuman
 	NoteRpc         note.Note
+	ImageGenRpc     imagegen.ImageGen
 }
 
 func NewServiceContext(c config.Config) *ServiceContext {
@@ -26,5 +28,6 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		CopywritingRpc:  copywriting.NewCopywriting(zrpc.MustNewClient(c.CopywritingRpc)),
 		DigitalHumanRpc: digitalhuman.NewDigitalHuman(zrpc.MustNewClient(c.DigitalHumanRpc)),
 		NoteRpc:         note.NewNote(zrpc.MustNewClient(c.NoteRpc)),
+		ImageGenRpc:     imagegen.NewImageGen(zrpc.MustNewClient(c.ImageGenRpc)),
 	}
 }

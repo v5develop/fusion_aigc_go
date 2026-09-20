@@ -4,7 +4,8 @@
 //	GET  /aigc/getRes/<id>     轮询：第 1 次 waiting、第 2 次 running、之后 success
 //
 // 请求参数里含 "mock-fail" 的任务返回 failed，用来测试失败流程；
-// 含 "mock-fail-<task_type>"（如 mock-fail-75）的只让该类型失败，方便测多步流程中的某一步。
+// 含 "mock-fail-<task_type>"（如 mock-fail-75）的只让该类型失败，方便测多步流程中的某一步；
+// 含 "mock-partial" 的每两个任务失败一个，用来测一次出多张时的部分成功。
 package main
 
 import (
@@ -28,9 +29,10 @@ type task struct {
 }
 
 var (
-	mu    sync.Mutex
-	tasks = map[string]*task{}
-	seq   int
+	mu      sync.Mutex
+	tasks   = map[string]*task{}
+	seq     int
+	partial int
 )
 
 func main() {
@@ -71,6 +73,17 @@ func generate(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, 400, map[string]any{"code": 400, "message": "task_type=74 缺少 user_text", "success": false})
 			return
 		}
+	case 76:
+		if s, _ := body["user_text"].(string); s == "" {
+			writeJSON(w, 400, map[string]any{"code": 400, "message": "task_type=76 缺少 user_text", "success": false})
+			return
+		}
+	case 78:
+		// 真实 78 的 materials 是否必填待 AIGC 确认；这里只校验 template
+		if s, _ := body["template"].(string); s == "" {
+			writeJSON(w, 400, map[string]any{"code": 400, "message": "task_type=78 缺少 template", "success": false})
+			return
+		}
 	case 75:
 		imgs, _ := body["images"].([]any)
 		if len(imgs) == 0 {
@@ -92,6 +105,10 @@ func generate(w http.ResponseWriter, r *http.Request) {
 		t.Images = len(imgs)
 	}
 	mu.Lock()
+	if strings.Contains(string(raw), "mock-partial") {
+		partial++
+		t.Fail = partial%2 == 0 // 每两个失败一个
+	}
 	id, _ := body["task_id"].(string)
 	if id == "" {
 		seq++

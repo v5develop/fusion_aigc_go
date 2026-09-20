@@ -452,7 +452,7 @@ func (x *OptionsResp) GetMaxReferenceLen() int32 {
 type AiWriteReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
-	Scene         string                 `protobuf:"bytes,2,opt,name=scene,proto3" json:"scene,omitempty"` // topic-主题补写 / selling_point-商品卖点优化 / dh_script-数字人配音内容 / note_topic-图文笔记主题
+	Scene         string                 `protobuf:"bytes,2,opt,name=scene,proto3" json:"scene,omitempty"` // topic-主题补写 / selling_point-商品卖点优化 / dh_script-数字人配音内容 / note_topic-图文笔记主题 / poster_info-海报信息润色 / long_image-长图内容
 	ContentType   string                 `protobuf:"bytes,3,opt,name=content_type,json=contentType,proto3" json:"content_type,omitempty"`
 	Industry      string                 `protobuf:"bytes,4,opt,name=industry,proto3" json:"industry,omitempty"`
 	Context       string                 `protobuf:"bytes,5,opt,name=context,proto3" json:"context,omitempty"` // 用户已输入内容

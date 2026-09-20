@@ -44,6 +44,10 @@ func (l *AiWriteLogic) AiWrite(in *pb.AiWriteReq) (*pb.AiWriteResp, error) {
 		}
 	case "note_topic": // 图文笔记主题/思路
 		code = promptNoteTopic
+	case "poster_info": // 海报信息润色
+		code = promptPosterInfo
+	case "long_image": // 长图内容
+		code = promptLongImage
 	default:
 		return nil, xerr.Newf(xerr.ParamError, "不支持的场景 %s", in.Scene)
 	}

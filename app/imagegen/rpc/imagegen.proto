@@ -1,0 +1,107 @@
+syntax = "proto3";
+
+package imagegen;
+option go_package = "./pb";
+
+// AI 海报（执行面 78）与 AI 长图（执行面 76）。两者流程相同，用 kind 区分。
+service ImageGen {
+  // ---- App ----
+  // 表单配置：海报类型 / 风格 / 比例 / 数量与素材上限
+  rpc Options(KindReq) returns (OptionsResp);
+  // 模板列表（复用现有模板素材表，运营在现有后台维护）
+  rpc ListTemplates(ListTemplatesReq) returns (TemplateList);
+  // 提交生成（异步，轮询 Get）。一张图一个执行面任务。
+  rpc Create(CreateReq) returns (ImageInfo);
+  rpc Get(IdUserReq) returns (ImageInfo);
+  rpc List(ListReq) returns (ImageList);
+  rpc Delete(IdUserReq) returns (Empty);
+
+  // ---- 运营后台 ----
+  rpc AdminList(ListReq) returns (ImageList);
+}
+
+message Empty {}
+
+message IdUserReq {
+  int64 id = 1;
+  int64 user_id = 2;
+}
+
+message KindReq {
+  string kind = 1;              // poster / longImage
+}
+
+message Option {
+  string code = 1;
+  string label = 2;
+}
+
+message OptionsResp {
+  repeated Option poster_types = 1;   // 海报类型（模板筛选维度 posterType），长图为空
+  repeated Option poster_styles = 2;  // 海报风格，长图为空
+  repeated Option sizes = 3;          // 图片比例；长图固定，只返回一项
+  string default_size = 4;
+  int32 max_images = 5;               // 生成数量上限
+  int32 max_materials = 6;            // 上传素材上限
+  int32 max_content_len = 7;
+  bool template_required = 8;         // 海报模板必选；长图可不选（AI智能匹配）
+}
+
+message ListTemplatesReq {
+  string kind = 1;
+  string poster_type = 2;       // 海报：按类型筛模板；空表示全部
+}
+
+message Template {
+  int64 id = 1;
+  string title = 2;
+  string url = 3;
+}
+
+message TemplateList {
+  repeated Template list = 1;
+}
+
+message CreateReq {
+  int64 user_id = 1;
+  string kind = 2;
+  string content = 3;                 // 海报信息 / 长图内容
+  repeated string material_urls = 4;  // 上传接口返回的地址
+  int64 template_id = 5;              // 模板素材 id；长图可为 0（AI智能匹配）
+  string poster_type = 6;
+  string poster_style = 7;            // 空 = AI自动匹配
+  string size = 8;                    // 不传用默认
+  int32 image_count = 9;              // 不传为 1
+  string request_id = 10;             // 幂等
+}
+
+message ImageInfo {
+  int64 id = 1;
+  int64 user_id = 2;
+  string kind = 3;
+  string content = 4;
+  repeated string material_urls = 5;
+  int64 template_id = 6;
+  string template_url = 7;
+  string poster_type = 8;
+  string poster_style = 9;
+  string size = 10;
+  int32 image_count = 11;
+  repeated string image_urls = 12;
+  int32 status = 13;            // 0-生成中 1-已完成（含部分成功） 2-失败
+  string fail_reason = 14;
+  int64 create_time = 15;
+}
+
+message ListReq {
+  int64 user_id = 1;
+  string kind = 2;
+  int32 status = 3;             // -1 表示全部
+  int64 page = 4;
+  int64 page_size = 5;
+}
+
+message ImageList {
+  repeated ImageInfo list = 1;
+  int64 total = 2;
+}

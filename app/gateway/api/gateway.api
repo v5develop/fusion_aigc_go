@@ -29,7 +29,7 @@ type (
 		MaxReferenceLen int32     `json:"max_reference_len"`
 	}
 	AiWriteReq {
-		Scene       string `json:"scene,options=topic|selling_point|dh_script|note_topic"`
+		Scene       string `json:"scene,options=topic|selling_point|dh_script|note_topic|poster_info|long_image"`
 		ContentType string `json:"content_type,optional"`
 		Industry    string `json:"industry,optional"`
 		Context     string `json:"context"`
@@ -435,5 +435,106 @@ service gateway-api {
 	@doc "删除笔记"
 	@handler remove
 	delete /notes/:id (IdPath) returns (EmptyResp)
+}
+
+// ---------------- AI 海报 / AI 长图 ----------------
+type (
+	ImageGenOption {
+		Code  string `json:"code"`
+		Label string `json:"label"`
+	}
+	ImageGenOptionsReq {
+		Kind string `form:"kind,options=poster|longImage"`
+	}
+	ImageGenOptionsResp {
+		PosterTypes      []ImageGenOption `json:"poster_types"`
+		PosterStyles     []ImageGenOption `json:"poster_styles"`
+		Sizes            []ImageGenOption `json:"sizes"`
+		DefaultSize      string           `json:"default_size"`
+		MaxImages        int32            `json:"max_images"`
+		MaxMaterials     int32            `json:"max_materials"`
+		MaxContentLen    int32            `json:"max_content_len"`
+		TemplateRequired bool             `json:"template_required"`
+	}
+	ImageGenTemplatesReq {
+		Kind       string `form:"kind,options=poster|longImage"`
+		PosterType string `form:"poster_type,optional"`
+	}
+	ImageGenTemplate {
+		Id    int64  `json:"id"`
+		Title string `json:"title"`
+		Url   string `json:"url"`
+	}
+	ImageGenTemplatesResp {
+		List []ImageGenTemplate `json:"list"`
+	}
+	CreateImageGenReq {
+		RequestId    string   `header:"X-Request-Id"`
+		Kind         string   `json:"kind,options=poster|longImage"`
+		Content      string   `json:"content"`
+		MaterialUrls []string `json:"material_urls,optional"`
+		TemplateId   int64    `json:"template_id,optional"`
+		PosterType   string   `json:"poster_type,optional"`
+		PosterStyle  string   `json:"poster_style,optional"`
+		Size         string   `json:"size,optional"`
+		ImageCount   int32    `json:"image_count,optional"`
+	}
+	ImageCreation {
+		Id           int64    `json:"id"`
+		Kind         string   `json:"kind"`
+		Content      string   `json:"content"`
+		MaterialUrls []string `json:"material_urls"`
+		TemplateId   int64    `json:"template_id"`
+		TemplateUrl  string   `json:"template_url"`
+		PosterType   string   `json:"poster_type"`
+		PosterStyle  string   `json:"poster_style"`
+		Size         string   `json:"size"`
+		ImageCount   int32    `json:"image_count"`
+		ImageUrls    []string `json:"image_urls"`
+		Status       int32    `json:"status"`
+		FailReason   string   `json:"fail_reason"`
+		CreateTime   int64    `json:"create_time"`
+	}
+	ListImageGenReq {
+		Kind     string `form:"kind,optional,options=|poster|longImage"`
+		Status   int32  `form:"status,optional,default=-1"`
+		Page     int64  `form:"page,optional,default=1"`
+		PageSize int64  `form:"page_size,optional,default=20"`
+	}
+	ImageGenListResp {
+		List  []ImageCreation `json:"list"`
+		Total int64           `json:"total"`
+	}
+)
+
+@server (
+	prefix:     /api/v1
+	middleware: Auth
+	group:      imagegen
+)
+service gateway-api {
+	@doc "海报/长图表单配置"
+	@handler options
+	get /image-creations/options (ImageGenOptionsReq) returns (ImageGenOptionsResp)
+
+	@doc "模板列表（海报可按类型筛）"
+	@handler templates
+	get /image-creations/templates (ImageGenTemplatesReq) returns (ImageGenTemplatesResp)
+
+	@doc "提交生成（一次可出多张，异步）"
+	@handler create
+	post /image-creations (CreateImageGenReq) returns (ImageCreation)
+
+	@doc "列表"
+	@handler list
+	get /image-creations (ListImageGenReq) returns (ImageGenListResp)
+
+	@doc "详情（生成中轮询此接口）"
+	@handler get
+	get /image-creations/:id (IdPath) returns (ImageCreation)
+
+	@doc "删除"
+	@handler remove
+	delete /image-creations/:id (IdPath) returns (EmptyResp)
 }
 

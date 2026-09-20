@@ -22,6 +22,8 @@ const (
 	promptGenerateSuffix = "generate_suffix"
 	promptDhScript       = "ai_write_dh_script"
 	promptNoteTopic      = "ai_write_note_topic"
+	promptPosterInfo     = "ai_write_poster_info"
+	promptLongImage      = "ai_write_long_image"
 )
 
 var fallbackPrompts = map[string]string{
@@ -32,6 +34,8 @@ var fallbackPrompts = map[string]string{
 	promptGenerateSuffix: "先输出一行标题，再空一行输出正文。标题不超过 30 字，不要加「标题：」这类前缀。",
 	promptDhScript:       "你帮商家写数字人口播的配音文案：口语化、亲切自然，适合直接念出来，一到两句话，不要表情符号和话题标签，只输出配音文案本身。",
 	promptNoteTopic:      "你帮本地生活商家构思一篇小红书风格图文笔记的主题和思路：说清楚写什么、突出哪些亮点、面向什么人群，两到三句话，只输出主题思路本身。",
+	promptPosterInfo:     "你帮商家把海报信息整理清楚：按主标题、副标题、时间、地点、卖点分行列出，保留原有事实，不编造。只输出整理后的文本。",
+	promptLongImage:      "你帮本地生活商家写一段适合做成长图的图文内容：分几个小段，每段一个要点，语言简洁易读。只输出内容本身。",
 }
 
 // prompt 取模板：库里有且非空就用库里的，否则用内置。

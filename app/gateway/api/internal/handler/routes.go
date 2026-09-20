@@ -9,6 +9,7 @@ import (
 	common "aigc-life/app/gateway/api/internal/handler/common"
 	copywriting "aigc-life/app/gateway/api/internal/handler/copywriting"
 	digitalhuman "aigc-life/app/gateway/api/internal/handler/digitalhuman"
+	imagegen "aigc-life/app/gateway/api/internal/handler/imagegen"
 	note "aigc-life/app/gateway/api/internal/handler/note"
 	"aigc-life/app/gateway/api/internal/svc"
 
@@ -181,6 +182,51 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 					Method:  http.MethodGet,
 					Path:    "/voices/categories",
 					Handler: digitalhuman.VoiceCategoriesHandler(serverCtx),
+				},
+			}...,
+		),
+		rest.WithPrefix("/api/v1"),
+	)
+
+	server.AddRoutes(
+		rest.WithMiddlewares(
+			[]rest.Middleware{serverCtx.Auth},
+			[]rest.Route{
+				{
+					// 提交生成（一次可出多张，异步）
+					Method:  http.MethodPost,
+					Path:    "/image-creations",
+					Handler: imagegen.CreateHandler(serverCtx),
+				},
+				{
+					// 列表
+					Method:  http.MethodGet,
+					Path:    "/image-creations",
+					Handler: imagegen.ListHandler(serverCtx),
+				},
+				{
+					// 详情（生成中轮询此接口）
+					Method:  http.MethodGet,
+					Path:    "/image-creations/:id",
+					Handler: imagegen.GetHandler(serverCtx),
+				},
+				{
+					// 删除
+					Method:  http.MethodDelete,
+					Path:    "/image-creations/:id",
+					Handler: imagegen.RemoveHandler(serverCtx),
+				},
+				{
+					// 海报/长图表单配置
+					Method:  http.MethodGet,
+					Path:    "/image-creations/options",
+					Handler: imagegen.OptionsHandler(serverCtx),
+				},
+				{
+					// 模板列表（海报可按类型筛）
+					Method:  http.MethodGet,
+					Path:    "/image-creations/templates",
+					Handler: imagegen.TemplatesHandler(serverCtx),
 				},
 			}...,
 		),

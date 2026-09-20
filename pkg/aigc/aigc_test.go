@@ -131,6 +131,9 @@ func TestValidate(t *testing.T) {
 		{VoiceClone{Text: "t", Voice: "v"}, true},
 		{LongImage{UserText: "t", TemplateURL: "a", MaterialURLs: []string{"1", "2", "3", "4"}}, false},
 		{Poster{Template: "t", Materials: []string{"m"}}, true},
+		{Poster{Template: "t"}, true}, // 素材选填
+		{Poster{Materials: []string{"m"}}, false},
+		{Poster{Template: "t", Materials: []string{"1", "2", "3", "4"}}, false},
 		{DigitalHuman{ImagePath: "a", AudioPath: "b", AspectRatio: "1:1", Resolution: "720p", Duration: 5}, false},
 		{DigitalHuman{ImagePath: "a", AudioPath: "b", AspectRatio: "9:16", Resolution: "720p", Duration: 31}, false},
 	}

@@ -17,3 +17,6 @@ DigitalHumanRpc:
 NoteRpc:
   Etcd: {Hosts: [127.0.0.1:2379], Key: note.rpc}
   NonBlock: true
+ImageGenRpc:
+  Etcd: {Hosts: [127.0.0.1:2379], Key: imagegen.rpc}
+  NonBlock: true
