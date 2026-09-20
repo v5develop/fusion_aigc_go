@@ -10,6 +10,7 @@ import (
 	"aigc-life/app/note/model"
 	"aigc-life/app/note/rpc/internal/svc"
 	"aigc-life/app/note/rpc/pb"
+	"aigc-life/pkg/storage"
 	"aigc-life/pkg/xerr"
 
 	"github.com/zeromicro/go-zero/core/logx"
@@ -122,8 +123,8 @@ func (l *PlanLogic) materials(urls []string) ([]string, error) {
 		if u == "" || seen[u] {
 			continue
 		}
-		if !l.svcCtx.Storage.Owns(u) {
-			return nil, xerr.Param("素材请先通过上传接口上传")
+		if err := storage.Verify(l.ctx, l.svcCtx.Storage, u, l.svcCtx.Config.Limits.MaxImageBytes, imageTypes); err != nil {
+			return nil, xerr.Param(err.Error())
 		}
 		seen[u] = true
 		out = append(out, u)

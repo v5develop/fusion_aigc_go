@@ -168,6 +168,21 @@ type (
 		Size        int64  `json:"size"`
 		ContentType string `json:"content_type"`
 	}
+	UploadCredentialReq {
+		Kind string `form:"kind,options=image|video"`
+	}
+	UploadCredentialResp {
+		AccessKeyId     string   `json:"access_key_id"`
+		AccessKeySecret string   `json:"access_key_secret"`
+		SecurityToken   string   `json:"security_token"`
+		Expiration      string   `json:"expiration"`
+		Bucket          string   `json:"bucket"`
+		Host            string   `json:"host"`
+		Dir             string   `json:"dir"`
+		BaseUrl         string   `json:"base_url"`
+		MaxBytes        int64    `json:"max_bytes"`
+		ContentTypes    []string `json:"content_types"`
+	}
 	PublicDigitalHuman {
 		Id        int64  `json:"id"`
 		Name      string `json:"name"`
@@ -274,7 +289,11 @@ service gateway-api {
 	@handler acceptAgreement
 	post /agreements/aigc/accept returns (AgreementResp)
 
-	@doc "上传照片（multipart 字段 file），返回公网地址"
+	@doc "客户端直传 OSS 的临时凭证（限定只能写返回的 dir 目录）"
+	@handler uploadCredential
+	get /upload/credentials (UploadCredentialReq) returns (UploadCredentialResp)
+
+	@doc "上传照片（multipart 字段 file）。仅开发/本地存储用，线上前端走直传"
 	@handler upload
 	post /upload returns (UploadResp)
 }

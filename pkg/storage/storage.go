@@ -28,10 +28,12 @@ type Conf struct {
 }
 
 type Store interface {
-	// Put 写入对象，返回公网可访问地址。
+	// Put 写入对象，返回公网可访问地址。开发环境网关代传用；线上前端直传。
 	Put(ctx context.Context, key, contentType string, data []byte) (string, error)
 	// Owns 判断地址是否是本存储签发的（校验客户端传回的上传地址用）。
 	Owns(url string) bool
+	// Uploader 客户端直传：签发临时凭证、校验传上来的对象。
+	Uploader
 }
 
 // New 按模式创建。oss 模式需要 conn 读取 afv_system_config。

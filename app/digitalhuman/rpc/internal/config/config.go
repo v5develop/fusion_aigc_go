@@ -43,7 +43,7 @@ type Config struct {
 		MaxNameLen        int `json:",default=20"`
 		MaxScriptLen      int `json:",default=50"`
 		MaxDescriptionLen int `json:",default=200"`
-		MaxImageBytes     int `json:",default=10485760"` // 上传照片上限 10MB（网关同样校验）
+		MaxImageBytes     int64 `json:",default=10485760"` // 上传照片上限 10MB（提交时 HEAD 校验）
 	}
 	Portrait struct {
 		Count          int    `json:",default=4"`

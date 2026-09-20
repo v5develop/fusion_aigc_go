@@ -363,6 +363,23 @@ type UpdateReq struct {
 	Body  string `json:"body"`
 }
 
+type UploadCredentialReq struct {
+	Kind string `form:"kind,options=image|video"`
+}
+
+type UploadCredentialResp struct {
+	AccessKeyId     string   `json:"access_key_id"`
+	AccessKeySecret string   `json:"access_key_secret"`
+	SecurityToken   string   `json:"security_token"`
+	Expiration      string   `json:"expiration"`
+	Bucket          string   `json:"bucket"`
+	Host            string   `json:"host"`
+	Dir             string   `json:"dir"`
+	BaseUrl         string   `json:"base_url"`
+	MaxBytes        int64    `json:"max_bytes"`
+	ContentTypes    []string `json:"content_types"`
+}
+
 type UploadResp struct {
 	Url         string `json:"url"`
 	Size        int64  `json:"size"`

@@ -56,7 +56,7 @@ func (l *CreateLogic) Create(in *pb.CreateReq) (*pb.ImageInfo, error) {
 	if err := checkText(l.ctx, l.svcCtx, in.Kind+"_input", content); err != nil {
 		return nil, err
 	}
-	mats, err := materials(l.svcCtx, in.MaterialUrls)
+	mats, err := materials(l.ctx, l.svcCtx, in.MaterialUrls)
 	if err != nil {
 		return nil, err
 	}

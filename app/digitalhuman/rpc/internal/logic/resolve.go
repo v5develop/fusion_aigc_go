@@ -8,6 +8,7 @@ import (
 	"aigc-life/app/digitalhuman/model"
 	"aigc-life/app/digitalhuman/rpc/internal/svc"
 	"aigc-life/app/digitalhuman/rpc/pb"
+	"aigc-life/pkg/storage"
 	"aigc-life/pkg/xerr"
 )
 
@@ -74,9 +75,10 @@ type portraitSource struct {
 func resolvePortraitSource(ctx context.Context, svcCtx *svc.ServiceContext, in *pb.CreateReq) (*portraitSource, error) {
 	switch in.PortraitSource {
 	case model.PortraitUpload:
-		// 只接受我们自己签发的上传地址，防止把任意外链交给执行面
-		if in.ImageUrl == "" || !svcCtx.Storage.Owns(in.ImageUrl) {
-			return nil, xerr.Param("请先上传照片")
+		// 只接受我们自己签发的上传地址，防止把任意外链交给执行面；大小与类型按对象实际值校验
+		if err := storage.Verify(ctx, svcCtx.Storage, in.ImageUrl, svcCtx.Config.Limits.MaxImageBytes,
+			[]string{"image/jpeg", "image/png", "image/webp"}); err != nil {
+			return nil, xerr.Param(err.Error())
 		}
 		return &portraitSource{ImageURL: in.ImageUrl}, nil
 

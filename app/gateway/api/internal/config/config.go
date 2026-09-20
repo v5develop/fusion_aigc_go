@@ -21,7 +21,10 @@ type Config struct {
 	DataSource string `json:",optional"`
 	// Storage 须与 digitalhuman-rpc 一致：rpc 只接受本存储签发的上传地址
 	Storage storage.Conf
-	Upload  struct {
-		MaxImageBytes int64 `json:",default=10485760"` // 10MB
+	Upload struct {
+		MaxImageBytes int64 `json:",default=10485760"`  // 10MB
+		MaxVideoBytes int64 `json:",default=104857600"` // 100MB
+		// CredentialTTLMinutes 直传凭证有效期
+		CredentialTTLMinutes int `json:",default=30"`
 	}
 }

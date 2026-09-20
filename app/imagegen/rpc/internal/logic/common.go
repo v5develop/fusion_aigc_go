@@ -11,11 +11,15 @@ import (
 	"aigc-life/app/imagegen/rpc/internal/config"
 	"aigc-life/app/imagegen/rpc/internal/svc"
 	"aigc-life/app/imagegen/rpc/pb"
+	"aigc-life/pkg/storage"
 	"aigc-life/pkg/xerr"
 
 	"github.com/go-sql-driver/mysql"
 	"github.com/zeromicro/go-zero/core/logx"
 )
+
+// imageTypes 允许的图片类型（客户端直传后按对象实际类型校验）
+var imageTypes = []string{"image/jpeg", "image/png", "image/webp"}
 
 // posterTypeFilter 海报类型在模板筛选维度字典里的编码（afv_public_template_filter）
 const posterTypeFilter = "posterType"
@@ -163,7 +167,7 @@ func checkText(ctx context.Context, svcCtx *svc.ServiceContext, scene, text stri
 }
 
 // materials 校验素材：只接受本存储签发的上传地址，去重，不超过上限。
-func materials(svcCtx *svc.ServiceContext, urls []string) ([]string, error) {
+func materials(ctx context.Context, svcCtx *svc.ServiceContext, urls []string) ([]string, error) {
 	out := make([]string, 0, len(urls))
 	seen := map[string]bool{}
 	for _, u := range urls {
@@ -171,8 +175,8 @@ func materials(svcCtx *svc.ServiceContext, urls []string) ([]string, error) {
 		if u == "" || seen[u] {
 			continue
 		}
-		if !svcCtx.Storage.Owns(u) {
-			return nil, xerr.Param("素材请先通过上传接口上传")
+		if err := storage.Verify(ctx, svcCtx.Storage, u, svcCtx.Config.Limits.MaxImageBytes, imageTypes); err != nil {
+			return nil, xerr.Param(err.Error())
 		}
 		seen[u] = true
 		out = append(out, u)

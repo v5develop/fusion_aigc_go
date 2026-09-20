@@ -34,10 +34,16 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 					Handler: common.AcceptAgreementHandler(serverCtx),
 				},
 				{
-					// 上传照片（multipart 字段 file），返回公网地址
+					// 上传照片（multipart 字段 file）。仅开发/本地存储用，线上前端走直传
 					Method:  http.MethodPost,
 					Path:    "/upload",
 					Handler: common.UploadHandler(serverCtx),
+				},
+				{
+					// 客户端直传 OSS 的临时凭证（限定只能写返回的 dir 目录）
+					Method:  http.MethodGet,
+					Path:    "/upload/credentials",
+					Handler: common.UploadCredentialHandler(serverCtx),
 				},
 			}...,
 		),

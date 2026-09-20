@@ -24,6 +24,10 @@ type ossConfig struct {
 	AccessKey    string
 	SecretKey    string
 	CustomDomain string
+	Region       string
+	// StsRoleArn / StsRegion 客户端直传用：AssumeRole 换临时凭证
+	StsRoleArn string
+	StsRegion  string
 }
 
 // host 桶的访问域名：<bucket>.<endpoint host>
@@ -81,7 +85,8 @@ func (s *ossStore) config(ctx context.Context) (*ossConfig, error) {
 	c := &ossConfig{
 		Endpoint: kv["storage_public_endpoint"], Bucket: kv["storage_public_bucket"],
 		AccessKey: kv["storage_public_access_key"], SecretKey: kv["storage_public_secret_key"],
-		CustomDomain: kv["storage_public_custom_domain"],
+		CustomDomain: kv["storage_public_custom_domain"], Region: kv["storage_public_region"],
+		StsRoleArn: kv["storage_public_sts_role_arn"], StsRegion: kv["storage_public_sts_region"],
 	}
 	if c.Endpoint == "" || c.Bucket == "" || c.AccessKey == "" || c.SecretKey == "" {
 		return nil, fmt.Errorf("storage: afv_system_config 缺少 storage_public_* 配置")

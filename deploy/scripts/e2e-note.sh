@@ -74,6 +74,10 @@ DH=$(sql "INSERT INTO afv_digital_human (user_id,name,portrait_source,image_url,
 DH_BUSY=$(sql "INSERT INTO afv_digital_human (user_id,name,portrait_source,image_url,voice_id,script,status) VALUES ($USER_ID,'生成中','PUBLIC','https://mock-oss.example.com/dh/busy.png',1,'x',1); SELECT LAST_INSERT_ID();")
 DH_OTHER=$(sql "INSERT INTO afv_digital_human (user_id,name,portrait_source,image_url,voice_id,script,status) VALUES ($((USER_ID+1)),'别人的','PUBLIC','https://mock-oss.example.com/dh/other.png',1,'x',2); SELECT LAST_INSERT_ID();")
 
+echo "== 上传"
+check "本地存储模式下直传凭证不可用（线上走直传）" "$(curl -sS -H "X-User-Id: $USER_ID" "$GW/upload/credentials?kind=image" | jq -r .code)" 1006
+check "非图片被拒" "$(printf 'not an image' > "$TMP/x.txt"; curl -sS -H "X-User-Id: $USER_ID" -F "file=@$TMP/x.txt" "$GW/upload" | jq -r .code)" 1001
+
 echo "== 开始构思：校验"
 check "主题为空被拒" "$(api_code POST /notes/plan '{"note_type":"explore","topic":"  "}')" 1001
 check "无效类型被拒" "$(api_code POST /notes/plan '{"note_type":"bad","topic":"x"}')" 1001

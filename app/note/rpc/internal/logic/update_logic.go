@@ -7,6 +7,7 @@ import (
 	"aigc-life/app/note/model"
 	"aigc-life/app/note/rpc/internal/svc"
 	"aigc-life/app/note/rpc/pb"
+	"aigc-life/pkg/storage"
 	"aigc-life/pkg/xerr"
 
 	"github.com/zeromicro/go-zero/core/logx"
@@ -52,8 +53,10 @@ func (l *UpdateLogic) Update(in *pb.UpdateReq) (*pb.NoteInfo, error) {
 		if u == "" || seen[u] {
 			continue
 		}
-		if !current[u] && !l.svcCtx.Storage.Owns(u) {
-			return nil, xerr.Param("新增图片请先通过上传接口上传")
+		if !current[u] {
+			if err := storage.Verify(l.ctx, l.svcCtx.Storage, u, l.svcCtx.Config.Limits.MaxImageBytes, imageTypes); err != nil {
+				return nil, xerr.Param(err.Error())
+			}
 		}
 		seen[u] = true
 		images = append(images, u)

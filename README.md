@@ -18,7 +18,7 @@ Go + go-zero，数据落在现有系统的 `fusion_aigc` 库，新表 `afv_` 前
 | `digitalhuman-rpc` | 9202 | 使用约定、公共数字人（只读）、AI 定制形象、系统音色、数字人生成；内置结果轮询器 |
 | `note-rpc` | 9203 | 图文笔记：构思（执行面 74）→ 规划 → 出图（75）、编辑；内置结果轮询器 |
 | `imagegen-rpc` | 9204 | 海报（执行面 78）与长图（76）：模板、提交、轮询；内置结果轮询器 |
-| `gateway-api` | 8888 | App 接口 `/api/v1/*`，照片上传；本地存储模式下提供 `/files` |
+| `gateway-api` | 8888 | App 接口 `/api/v1/*`，直传凭证；本地存储模式下提供 `/files` 与代传上传 |
 | `admin-api` | 8889 | 运营后台 `/admin/v1/*` |
 | `mock-aigc` | 5055 | **仅本地**：模拟 AIGC 执行面（74/75/76/78/85），正式地址提供前用它联调 |
 
@@ -37,7 +37,7 @@ make db          # 建新表 + 种子数据
 make run-all     # 编译并后台启动（含 mock-aigc），日志在 logs/
 deploy/scripts/e2e.sh               # AI文案端到端测试（49 项，真实调用模型）
 deploy/scripts/e2e-digitalhuman.sh  # AI数字人端到端测试（73 项，执行面走 mock，TTS 真实调用；会临时插入并清理模板素材测试数据）
-deploy/scripts/e2e-note.sh          # AI图文笔记端到端测试（61 项，执行面走 mock；SKIP_MODEL=1 跳过真实模型）
+deploy/scripts/e2e-note.sh          # AI图文笔记端到端测试（62 项，执行面走 mock；SKIP_MODEL=1 跳过真实模型）
 deploy/scripts/e2e-imagegen.sh      # AI海报/长图端到端测试（49 项，执行面走 mock；会临时插入并清理模板素材）
 make stop-all
 ```
@@ -64,11 +64,16 @@ make stop-all
 - **轮询器**：`digitalhuman-rpc` 每 5 秒扫一次库里「生成中」的记录，逐个调 `getRes`。状态都在库里，
   服务重启后接着查（已实测）。超时：出图 10 分钟、视频 30 分钟；「配音中」卡住（重启留下的）也会回收。
 - **wav 时长**：百炼返回的 wav 头里长度字段是占位值 `0x7FFFFFFF`，按实际字节数计算（`tts.WavDuration`）。
-- **存储**：`Storage.Mode=local` 写 `data/files`（仅开发，执行面访问不到）；`oss` 写现有公有桶 `xx-shop-img`，
-  配置从 `afv_system_config.storage_public_*` 读，用 OSS V1 签名直接 PUT，不引 SDK。网关与 rpc 的 Storage 配置须一致：
-  rpc 只接受本存储签发的上传地址，防止把任意外链交给执行面。
-  oss 模式已对真实桶实测（上传 → 公网访问 → 删除）：
-  `OSS_REAL=1 OSS_DSN='<dsn>' go test ./pkg/storage -run OSSReal -v`，测试会自行清理。
+- **上传：客户端直传 OSS**（与现有系统一致，已和前端确认）。
+  `GET /upload/credentials?kind=image|video` 返回 STS 临时凭证，策略限定只能写 `aigc-life/<kind>/<用户>/<日期>/` 下的对象，
+  前端直接 PUT 到 OSS，再把地址回传给业务接口。提交生成任务时后端再用 `storage.Verify` 核对：
+  地址属于本存储、大小与类型（图片 10MB，视频 100MB，可配）符合限制。
+  `POST /upload`（网关代传）保留给本地开发与 e2e，线上不用。
+- **存储**：`Storage.Mode=local` 写 `data/files`（仅开发，执行面访问不到，也不支持直传）；
+  `oss` 写现有公有桶 `xx-shop-img`，配置从 `afv_system_config.storage_public_*` 读（含 STS 角色），
+  OSS V1 签名与 STS AssumeRole 都是自己签，不引 SDK。网关与 rpc 的 Storage 配置须一致。
+  已对真实桶实测（代传上传、STS 直传、目录外写入被拒 403、公网访问、删除）：
+  `OSS_REAL=1 OSS_DSN='<dsn>' go test ./pkg/storage -run 'OSSReal|STSReal' -v`，测试会自行清理。
 - **执行面地址**：`digitalhuman-rpc.yaml` 的 `Aigc.Endpoint`，本地指向 mock；置空则出图与生成返回「暂未开放」。
 - **公共数字人**：不建表，复用现有模板素材（运营在现有后台「模板」里维护，本服务只读）。
   `afv_public_template_assets` 一行（`title`=名字，`url`=形象图，`extra`=`{"role":"店长","avatarUrl":"可空"}`）
