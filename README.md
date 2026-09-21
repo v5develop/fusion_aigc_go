@@ -74,6 +74,12 @@ make stop-all
   前端直接 PUT 到 OSS，再把地址回传给业务接口。
   **文件大小与类型由前端控制，后端不管**；后端只校验地址属于本存储签发的目录（`storage.Owned`），
   防止把任意外链交给执行面。`POST /upload`（网关代传）保留给本地开发与 e2e，线上不用。
+- **产物转存**：AIGC 执行面的产物落在上游**私有桶**（`afv_system_config.storage_private_*`，当前是上海的 `xxlm-pp`），
+  返回的是带签名的临时地址、会过期，也不对外可读——现有系统同样要转存（见 `afv_creation_task.is_transferred`）。
+  各模块的轮询器拿到结果后先转存到公有桶再落库：同地域走 OSS 服务端复制（CopyObject），
+  跨地域（现状：上海 → 杭州）下载再上传；私有桶对象会丢掉过期签名、用我们的密钥重新签。
+  转存失败不落库，保持生成中，下一轮重试。已对真实对象实测：
+  `OSS_REAL=1 OSS_DSN='<dsn>' go test ./pkg/storage -run TransferReal -v`。
 - **存储**：`Storage.Mode=local` 写 `data/files`（仅开发，执行面访问不到，也不支持直传）；
   `oss` 写现有公有桶 `xx-shop-img`，配置从 `afv_system_config.storage_public_*` 读（含 STS 角色），
   OSS V1 签名与 STS AssumeRole 都是自己签，不引 SDK。网关与 rpc 的 Storage 配置须一致。

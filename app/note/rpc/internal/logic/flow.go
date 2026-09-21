@@ -149,9 +149,14 @@ func (p *Poller) pollGenerates(ctx context.Context) {
 		r := p.query(ctx, n.GenTaskId.String)
 		switch {
 		case r != nil && r.Status == aigc.StatusSuccess:
-			urls := r.Outputs()
-			if len(urls) == 0 {
+			if len(r.Outputs()) == 0 {
 				failGenerate(ctx, svcCtx, n.Id, "生成结果为空，请重试")
+				continue
+			}
+			// 执行面产物在上游私有桶，转存到公有桶后再落库
+			urls := transferAll(ctx, svcCtx, r.Outputs(), "note", n.UserId)
+			if len(urls) == 0 {
+				logx.WithContext(ctx).Errorf("note %d 转存失败，下一轮重试", n.Id)
 				continue
 			}
 			if ok, err := svcCtx.Note.FinishGenerate(ctx, n.Id, model.StatusDone, jsonList(urls), ""); err != nil {
@@ -212,4 +217,19 @@ func saveNoteAssets(ctx context.Context, svcCtx *svc.ServiceContext, n *model.Af
 	if err := svcCtx.Asset.InsertSet(ctx, list); err != nil {
 		logx.WithContext(ctx).Errorf("save note assets %d: %v", n.Id, err)
 	}
+}
+
+// transferAll 把执行面产物转存到公有桶（上游私有桶不对外可读也不长期保留）。
+// 任一失败返回空，调用方保持生成中，下一轮重试。
+func transferAll(ctx context.Context, svcCtx *svc.ServiceContext, srcURLs []string, kind string, userID int64) []string {
+	out := make([]string, 0, len(srcURLs))
+	for _, src := range srcURLs {
+		u, err := svcCtx.Storage.Transfer(ctx, src, kind, userID)
+		if err != nil {
+			logx.WithContext(ctx).Errorf("transfer %s: %v", src, err)
+			return nil
+		}
+		out = append(out, u)
+	}
+	return out
 }

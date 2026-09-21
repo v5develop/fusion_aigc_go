@@ -227,10 +227,15 @@ func (p *Poller) pollPortraits(ctx context.Context) {
 		r := p.query(ctx, it.TaskId.String)
 		switch {
 		case r != nil && r.Status == aigc.StatusSuccess:
-			urls := r.Outputs()
-			if len(urls) == 0 {
+			if len(r.Outputs()) == 0 {
 				finishPortrait(ctx, svcCtx, it.Id, model.PortraitFailed, nil, "生成结果为空，请重试")
-			} else if ok, _ := svcCtx.Portrait.Finish(ctx, it.Id, model.PortraitDone, jsonArray(urls), ""); ok {
+				continue
+			}
+			urls := transferAll(ctx, svcCtx, r.Outputs(), "portrait", it.UserId) // 上游私有桶 → 公有桶
+			if len(urls) == 0 {
+				continue // 转存失败，保持生成中，下一轮重试
+			}
+			if ok, _ := svcCtx.Portrait.Finish(ctx, it.Id, model.PortraitDone, jsonArray(urls), ""); ok {
 				savePortraitAsset(ctx, svcCtx, it, urls) // 设计稿：4 张图自动存进素材库
 			}
 		case r != nil && r.Done():
@@ -254,10 +259,14 @@ func (p *Poller) pollVideos(ctx context.Context) {
 		r := p.query(ctx, it.VideoTaskId.String)
 		switch {
 		case r != nil && r.Status == aigc.StatusSuccess && r.GeneratedImagePath != "":
-			if ok, err := svcCtx.Human.Finish(ctx, it.Id, model.DhStatusRendering, model.DhStatusDone, r.GeneratedImagePath, ""); err != nil {
+			videoURL := transfer(ctx, svcCtx, r.GeneratedImagePath, "video", it.UserId) // 上游私有桶 → 公有桶
+			if videoURL == "" {
+				continue // 转存失败，保持生成中，下一轮重试
+			}
+			if ok, err := svcCtx.Human.Finish(ctx, it.Id, model.DhStatusRendering, model.DhStatusDone, videoURL, ""); err != nil {
 				logx.WithContext(ctx).Errorf("finish %d: %v", it.Id, err)
 			} else if ok {
-				saveVideoAsset(ctx, svcCtx, it, r.GeneratedImagePath)
+				saveVideoAsset(ctx, svcCtx, it, videoURL)
 			}
 			// TODO 计费：成功结算
 		case r != nil && r.Done():
@@ -341,4 +350,31 @@ func saveVideoAsset(ctx context.Context, svcCtx *svc.ServiceContext, h *model.Af
 	if err := svcCtx.Asset.InsertSet(ctx, []asset.Asset{a}); err != nil {
 		logx.WithContext(ctx).Errorf("save video asset %d: %v", h.Id, err)
 	}
+}
+
+// ---- 产物转存 ----
+//
+// 执行面的产物落在上游私有桶，不对外可读也不长期保留（现有系统同样要转存，
+// 见 afv_creation_task.is_transferred）。这里统一转到公有桶后再落库。
+
+func transfer(ctx context.Context, svcCtx *svc.ServiceContext, srcURL, kind string, userID int64) string {
+	u, err := svcCtx.Storage.Transfer(ctx, srcURL, kind, userID)
+	if err != nil {
+		logx.WithContext(ctx).Errorf("transfer %s: %v", srcURL, err)
+		return ""
+	}
+	return u
+}
+
+// transferAll 全部转存成功才返回，任一失败返回空（调用方按失败处理，下一轮重试）。
+func transferAll(ctx context.Context, svcCtx *svc.ServiceContext, srcURLs []string, kind string, userID int64) []string {
+	out := make([]string, 0, len(srcURLs))
+	for _, src := range srcURLs {
+		u := transfer(ctx, svcCtx, src, kind, userID)
+		if u == "" {
+			return nil
+		}
+		out = append(out, u)
+	}
+	return out
 }

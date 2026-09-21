@@ -32,6 +32,8 @@ type Store interface {
 	Put(ctx context.Context, key, contentType string, data []byte) (string, error)
 	// Owns 判断地址是否是本存储签发的（校验客户端传回的上传地址用）。
 	Owns(url string) bool
+	// Transfer 把执行面产物（私有桶、会过期）转存到公有桶，返回新地址。local 模式原样返回。
+	Transfer(ctx context.Context, srcURL, kind string, userID int64) (string, error)
 	// Uploader 客户端直传：签发临时凭证、校验传上来的对象。
 	Uploader
 }

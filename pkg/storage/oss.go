@@ -57,9 +57,11 @@ type ossStore struct {
 	conn   sqlx.SqlConn
 	hc     http.Client
 
-	mu     sync.Mutex
-	cfg    *ossConfig
-	loaded time.Time
+	mu         sync.Mutex
+	cfg        *ossConfig
+	loaded     time.Time
+	priv       *ossConfig // 私有桶（转存产物时读）
+	privLoaded time.Time
 }
 
 // config 读库并缓存 5 分钟，运维改了配置不用重启。
@@ -69,29 +71,37 @@ func (s *ossStore) config(ctx context.Context) (*ossConfig, error) {
 	if s.cfg != nil && time.Since(s.loaded) < 5*time.Minute {
 		return s.cfg, nil
 	}
+	c, err := loadOSSConfig(ctx, s.conn, "storage_public_")
+	if err != nil {
+		return nil, err
+	}
+	s.cfg, s.loaded = c, time.Now()
+	return c, nil
+}
+
+// loadOSSConfig 从 afv_system_config 读一组桶配置（前缀 storage_public_ / storage_private_）。
+func loadOSSConfig(ctx context.Context, conn sqlx.SqlConn, prefix string) (*ossConfig, error) {
 	var rows []struct {
 		Key   string `db:"config_key"`
 		Value string `db:"config_value"`
 	}
 	q := "SELECT config_key, COALESCE(config_value, '') AS config_value FROM afv_system_config " +
-		"WHERE config_key LIKE 'storage\\_public\\_%' AND deleted = 0"
-	if err := s.conn.QueryRowsCtx(ctx, &rows, q); err != nil {
+		"WHERE config_key LIKE ? AND deleted = 0"
+	if err := conn.QueryRowsCtx(ctx, &rows, q, strings.ReplaceAll(prefix, "_", "\\_")+"%"); err != nil {
 		return nil, err
 	}
 	kv := map[string]string{}
 	for _, r := range rows {
-		kv[r.Key] = strings.TrimSpace(r.Value)
+		kv[strings.TrimPrefix(r.Key, prefix)] = strings.TrimSpace(r.Value)
 	}
 	c := &ossConfig{
-		Endpoint: kv["storage_public_endpoint"], Bucket: kv["storage_public_bucket"],
-		AccessKey: kv["storage_public_access_key"], SecretKey: kv["storage_public_secret_key"],
-		CustomDomain: kv["storage_public_custom_domain"], Region: kv["storage_public_region"],
-		StsRoleArn: kv["storage_public_sts_role_arn"], StsRegion: kv["storage_public_sts_region"],
+		Endpoint: kv["endpoint"], Bucket: kv["bucket"], AccessKey: kv["access_key"], SecretKey: kv["secret_key"],
+		CustomDomain: kv["custom_domain"], Region: kv["region"],
+		StsRoleArn: kv["sts_role_arn"], StsRegion: kv["sts_region"],
 	}
 	if c.Endpoint == "" || c.Bucket == "" || c.AccessKey == "" || c.SecretKey == "" {
-		return nil, fmt.Errorf("storage: afv_system_config 缺少 storage_public_* 配置")
+		return nil, fmt.Errorf("storage: afv_system_config 缺少 %s* 配置", prefix)
 	}
-	s.cfg, s.loaded = c, time.Now()
 	return c, nil
 }
 

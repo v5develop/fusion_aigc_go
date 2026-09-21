@@ -147,7 +147,13 @@ func (p *Poller) pollOne(ctx context.Context, c *model.AfvImageCreation, timedOu
 		r := p.query(ctx, tasks[i].TaskID)
 		switch {
 		case r != nil && r.Status == aigc.StatusSuccess && r.GeneratedImagePath != "":
-			tasks[i].Status, tasks[i].URL, changed = aigc.StatusSuccess, r.GeneratedImagePath, true
+			// 执行面产物在上游私有桶，转存到公有桶后再落库；转存失败下一轮重试
+			u, terr := svcCtx.Storage.Transfer(ctx, r.GeneratedImagePath, c.Kind, c.UserId)
+			if terr != nil {
+				logx.WithContext(ctx).Errorf("%s %d 转存失败: %v", c.Kind, c.Id, terr)
+				continue
+			}
+			tasks[i].Status, tasks[i].URL, changed = aigc.StatusSuccess, u, true
 		case r != nil && r.Done():
 			tasks[i].Status, tasks[i].Error, changed = aigc.StatusFailed, r.ErrorMsg, true
 			logx.WithContext(ctx).Infof("%s %d task %s %s: %s", c.Kind, c.Id, tasks[i].TaskID, r.Status, r.ErrorMsg)
