@@ -1,0 +1,136 @@
+# 部署说明
+
+一套服务 6 个进程（外加本地联调用的 mock）。目前**鉴权是开发模式、计费未接**，可以先给前端联调，上线前必须补上（见最后一节）。
+
+| 进程 | 端口 | 对外 | 说明 |
+|---|---|---|---|
+| `gateway-api` | 8888 | ✅ | App 接口 `/api/v1/*` |
+| `admin-api` | 8889 | ✅ | 运营后台 `/admin/v1/*` |
+| `copywriting-rpc` | 9201 | ❌ | AI文案 |
+| `digitalhuman-rpc` | 9202 | ❌ | AI数字人 |
+| `note-rpc` | 9203 | ❌ | AI图文笔记 |
+| `imagegen-rpc` | 9204 | ❌ | 海报 / 长图 / 动作迁移 |
+| `mock-aigc` | 5055 | ❌ | **仅联调**：模拟 AIGC 执行面，拿到正式地址后不要部署 |
+
+rpc 之间通过 etcd 发现，**只有两个网关需要对外暴露**。
+
+## 1. 依赖
+
+- MySQL：现有 `fusion_aigc` 库，服务用同一个账号连（配置里的 `DataSource`）。
+- etcd：rpc 注册发现用。测试环境一个单节点即可：
+  ```bash
+  docker run -d --name etcd -p 2379:2379 \
+    -e ALLOW_NONE_AUTHENTICATION=yes -e ETCD_ADVERTISE_CLIENT_URLS=http://0.0.0.0:2379 \
+    bitnami/etcd:3.5
+  ```
+- 出网：调阿里云百炼（文案、配音）与 AIGC 执行面。
+
+## 2. 数据库变更
+
+按顺序执行，都只新建表 / 插数据，不改现有表结构：
+
+```bash
+mysql fusion_aigc < deploy/sql/V1.0.106__ai_copywriting.sql        # AI文案
+mysql fusion_aigc < deploy/sql/V1.0.108__ai_digital_human.sql      # AI数字人
+mysql fusion_aigc < deploy/sql/V1.0.109__ai_image_text_note.sql    # 图文笔记
+mysql fusion_aigc < deploy/sql/V1.0.110__asset_category_localLife.sql   # 素材库分类
+mysql fusion_aigc < deploy/sql/V1.0.111__ai_poster_long_image.sql  # 海报/长图
+mysql fusion_aigc < deploy/sql/V1.0.112__ai_action_transfer.sql    # 动作迁移
+```
+
+还需要**手动加两行配置**（脚本不含，怕误改现有环境）：
+
+```sql
+-- 1. 配音模型（若该环境还没有）：afv_ai_model 插一行
+--    code=qwen-audio-3.1-tts-flash，model_type=4（语音合成），ai_provider_id=百炼那条
+-- 2. 指向它
+INSERT INTO afv_system_config (config_key, config_value, remark)
+VALUES ('ai_tts_model_id', '<上面那行的 id>', 'AI数字人配音使用的TTS模型ID');
+```
+
+已有的 `ai_writing_model_id`（文案模型）、`storage_public_*`（OSS 与 STS 角色）直接复用，不用动。
+
+## 3. 编译
+
+在开发机交叉编译出 Linux 二进制：
+
+```bash
+make release          # 产物在 bin/linux/
+```
+
+或在服务器上 `make build`（需要 Go 1.26+）。
+
+## 4. 配置
+
+配置文件在 `deploy/etc/`，按环境改这几项：
+
+| 文件 | 要改的 |
+|---|---|
+| 全部 rpc | `DataSource`（数据库）、`Etcd.Hosts` |
+| `digitalhuman-rpc.yaml`、`note-rpc.yaml`、`imagegen-rpc.yaml` | `Aigc.Endpoint`=执行面地址（联调期指向 mock-aigc）；`Storage.Mode: oss` |
+| `gateway-api.yaml` | `Storage.Mode: oss`、`DataSource`、各 rpc 的 `Etcd` |
+| `admin-api.yaml` | 各 rpc 的 `Etcd` |
+
+**`Storage.Mode` 线上必须是 `oss`**：`local` 模式文件落在本机磁盘，AIGC 执行面拿不到，而且不支持前端直传。
+网关与各 rpc 的 `Storage` 配置要一致（rpc 靠它判断前端回传的地址是不是我们签发的）。
+
+## 5. 启动
+
+```bash
+bin/linux/copywriting-rpc  -f deploy/etc/copywriting-rpc.yaml
+bin/linux/digitalhuman-rpc -f deploy/etc/digitalhuman-rpc.yaml
+bin/linux/note-rpc         -f deploy/etc/note-rpc.yaml
+bin/linux/imagegen-rpc     -f deploy/etc/imagegen-rpc.yaml
+bin/linux/gateway-api      -f deploy/etc/gateway-api.yaml
+bin/linux/admin-api        -f deploy/etc/admin-api.yaml
+```
+
+systemd 示例（每个进程一份，改名字与配置路径）：
+
+```ini
+[Unit]
+Description=aigc-life gateway-api
+After=network.target
+
+[Service]
+WorkingDirectory=/opt/aigc-life
+ExecStart=/opt/aigc-life/bin/gateway-api -f /opt/aigc-life/deploy/etc/gateway-api.yaml
+Restart=always
+RestartSec=3
+StandardOutput=append:/var/log/aigc-life/gateway-api.log
+StandardError=inherit
+
+[Install]
+WantedBy=multi-user.target
+```
+
+服务重启不会丢任务：生成中的记录状态都在库里，各服务的轮询器启动后会接着查。
+
+## 6. 验证
+
+```bash
+curl -s -H 'X-User-Id: 1' http://<host>:8888/api/v1/copywriting/options | head -c 200   # 文案选项
+curl -s -H 'X-User-Id: 1' http://<host>:8888/api/v1/notes/options | head -c 200         # 笔记类型
+curl -s -H 'X-Admin-Id: 1' http://<host>:8889/admin/v1/digital-humans/tts-model         # 配音模型
+```
+
+返回 `{"code":0,...}` 即正常。执行面没配时，生成类接口返回 `code=1006`（暂未开放），其余接口不受影响。
+
+## 7. 运营需要先准备的数据
+
+否则 App 端对应的列表是空的：
+
+| 内容 | 在哪维护 |
+|---|---|
+| 公共数字人 | 现有后台「模板」：`afv_public_template_assets` + 投放位 `localLife / digitalHuman / publicModel`，`extra` 填 `{"role":"店长","avatarUrl":"…"}` |
+| 海报模板 | 投放位 `localLife / poster / template`，按筛选维度 `posterType` 打标签 |
+| 长图模板 | 投放位 `localLife / longImage / template` |
+| 预置动作视频 | 投放位 `localLife / actionTransfer / actionVideo`，素材类型 `video` |
+| 系统音色试听 | 后台「生成试听」按钮，28 个音色各点一次 |
+
+## 8. 上线前必须补
+
+- **用户鉴权**：现在信任请求头 `X-User-Id`（`gateway/.../auth_middleware.go`）。
+- **后台鉴权**：现在信任 `X-Admin-Id`（`admin/.../adminauth_middleware.go`）。
+- **计费**：各生成动作的扣点数未接，代码里有 TODO。
+- 其余待办见根目录 `README.md` 的待办表。

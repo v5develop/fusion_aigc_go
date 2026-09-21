@@ -45,6 +45,16 @@ build:
 test:
 	go test ./...
 
+# 交叉编译 Linux 二进制（部署用），产物在 bin/linux/
+release:
+	@mkdir -p bin/linux
+	@for s in copywriting/rpc digitalhuman/rpc note/rpc imagegen/rpc gateway/api admin/api; do \
+		name=$$(echo $$s | sed 's#/rpc#-rpc#; s#/api#-api#'); \
+		echo "build $$name"; \
+		GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags '-s -w' -o bin/linux/$$name ./app/$$s || exit 1; \
+	done
+	@ls -lh bin/linux
+
 # 本地一键启动（日志写到 logs/）
 run-all: build stop-all
 	@mkdir -p logs

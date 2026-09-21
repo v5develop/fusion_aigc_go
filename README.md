@@ -29,6 +29,11 @@ Go + go-zero，数据落在现有系统的 `fusion_aigc` 库，新表 `afv_` 前
 | 文案生成、AI帮写 | `afv_system_config.ai_writing_model_id` | `qwen3-vl-plus` |
 | 数字人配音（TTS） | `afv_system_config.ai_tts_model_id` | `qwen-audio-3.1-tts-flash`（`model_type=4` 语音合成） |
 
+## 文档
+
+- **部署**：`deploy/README.md`（依赖、数据库变更、配置、启动、运营要先准备的数据）
+- **给前端的接口文档**：`docs/api-app.md`
+
 ## 本地运行
 
 ```bash
