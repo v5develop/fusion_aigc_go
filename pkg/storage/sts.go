@@ -221,27 +221,11 @@ const (
 	KindVideo = "video"
 )
 
-// Verify 校验客户端直传上来的地址：必须是本存储签发的，且大小与类型符合限制。
-// 返回的错误信息可直接给用户看。
-func Verify(ctx context.Context, s Store, rawURL string, maxBytes int64, allowed []string) error {
+// Owned 校验客户端直传上来的地址是否属于本存储签发的目录。
+// 文件大小与类型由前端控制，后端不管（产品已确认）。
+func Owned(s Store, rawURL string) error {
 	if rawURL == "" || !s.Owns(rawURL) {
 		return errors.New("请先通过上传接口上传")
 	}
-	size, contentType, err := s.Stat(ctx, rawURL)
-	if err != nil {
-		return errors.New("文件不存在或不可访问，请重新上传")
-	}
-	if maxBytes > 0 && size > maxBytes {
-		return fmt.Errorf("文件不能超过 %dMB", maxBytes>>20)
-	}
-	if len(allowed) == 0 {
-		return nil
-	}
-	ct := strings.ToLower(strings.TrimSpace(strings.Split(contentType, ";")[0]))
-	for _, a := range allowed {
-		if ct == a {
-			return nil
-		}
-	}
-	return fmt.Errorf("不支持的文件类型 %s", ct)
+	return nil
 }

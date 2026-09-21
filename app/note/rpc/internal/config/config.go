@@ -30,8 +30,6 @@ type Config struct {
 		MaxTitleLen   int `json:",default=100"`
 		MaxContentLen int `json:",default=3000"`
 		MaxTags       int `json:",default=10"`
-		// MaxImageBytes 直传上来的素材大小上限（提交时 HEAD 校验）
-		MaxImageBytes int64 `json:",default=10485760"`
 	}
 	Plan struct {
 		TimeoutMinutes int `json:",default=5"`

@@ -82,9 +82,6 @@ func findOwned(ctx context.Context, svcCtx *svc.ServiceContext, id, userID int64
 	return n, err
 }
 
-// imageTypes 允许的图片类型（客户端直传后按对象实际类型校验）
-var imageTypes = []string{"image/jpeg", "image/png", "image/webp"}
-
 // requireAigc 执行面未配置时，构思与生成直接拒绝。
 func requireAigc(svcCtx *svc.ServiceContext) error {
 	if !svcCtx.Aigc.Enabled() {

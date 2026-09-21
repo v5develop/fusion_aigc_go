@@ -75,10 +75,9 @@ type portraitSource struct {
 func resolvePortraitSource(ctx context.Context, svcCtx *svc.ServiceContext, in *pb.CreateReq) (*portraitSource, error) {
 	switch in.PortraitSource {
 	case model.PortraitUpload:
-		// 只接受我们自己签发的上传地址，防止把任意外链交给执行面；大小与类型按对象实际值校验
-		if err := storage.Verify(ctx, svcCtx.Storage, in.ImageUrl, svcCtx.Config.Limits.MaxImageBytes,
-			[]string{"image/jpeg", "image/png", "image/webp"}); err != nil {
-			return nil, xerr.Param(err.Error())
+		// 只接受我们自己签发的上传地址，防止把任意外链交给执行面；大小与类型由前端控制
+		if err := storage.Owned(svcCtx.Storage, in.ImageUrl); err != nil {
+			return nil, xerr.Param("请先上传照片")
 		}
 		return &portraitSource{ImageURL: in.ImageUrl}, nil
 

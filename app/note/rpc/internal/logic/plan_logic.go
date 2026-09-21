@@ -123,7 +123,7 @@ func (l *PlanLogic) materials(urls []string) ([]string, error) {
 		if u == "" || seen[u] {
 			continue
 		}
-		if err := storage.Verify(l.ctx, l.svcCtx.Storage, u, l.svcCtx.Config.Limits.MaxImageBytes, imageTypes); err != nil {
+		if err := storage.Owned(l.svcCtx.Storage, u); err != nil {
 			return nil, xerr.Param(err.Error())
 		}
 		seen[u] = true

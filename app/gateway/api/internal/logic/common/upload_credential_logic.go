@@ -34,12 +34,7 @@ func NewUploadCredentialLogic(ctx context.Context, svcCtx *svc.ServiceContext) *
 }
 
 func (l *UploadCredentialLogic) UploadCredential(req *types.UploadCredentialReq) (resp *types0.UploadCredentialResp, err error) {
-	cfg := l.svcCtx.Config.Upload
-	maxBytes, types := cfg.MaxImageBytes, imageTypes
-	if req.Kind == storage.KindVideo {
-		maxBytes, types = cfg.MaxVideoBytes, videoTypes
-	}
-	ttl := time.Duration(cfg.CredentialTTLMinutes) * time.Minute
+	ttl := time.Duration(l.svcCtx.Config.Upload.CredentialTTLMinutes) * time.Minute
 	cred, err := l.svcCtx.Storage.Credentials(l.ctx, req.Kind, ctxdata.UserID(l.ctx), ttl)
 	if errors.Is(err, storage.ErrDirectUploadUnsupported) {
 		return nil, xerr.New(xerr.NotReady, "当前环境未开启直传（本地存储模式请用 POST /upload）")
@@ -51,6 +46,5 @@ func (l *UploadCredentialLogic) UploadCredential(req *types.UploadCredentialReq)
 	return &types0.UploadCredentialResp{
 		AccessKeyId: cred.AccessKeyID, AccessKeySecret: cred.AccessKeySecret, SecurityToken: cred.SecurityToken,
 		Expiration: cred.Expiration, Bucket: cred.Bucket, Host: cred.Host, Dir: cred.Dir, BaseUrl: cred.BaseURL,
-		MaxBytes: maxBytes, ContentTypes: types,
 	}, nil
 }

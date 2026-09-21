@@ -66,9 +66,9 @@ make stop-all
 - **wav 时长**：百炼返回的 wav 头里长度字段是占位值 `0x7FFFFFFF`，按实际字节数计算（`tts.WavDuration`）。
 - **上传：客户端直传 OSS**（与现有系统一致，已和前端确认）。
   `GET /upload/credentials?kind=image|video` 返回 STS 临时凭证，策略限定只能写 `aigc-life/<kind>/<用户>/<日期>/` 下的对象，
-  前端直接 PUT 到 OSS，再把地址回传给业务接口。提交生成任务时后端再用 `storage.Verify` 核对：
-  地址属于本存储、大小与类型（图片 10MB，视频 100MB，可配）符合限制。
-  `POST /upload`（网关代传）保留给本地开发与 e2e，线上不用。
+  前端直接 PUT 到 OSS，再把地址回传给业务接口。
+  **文件大小与类型由前端控制，后端不管**；后端只校验地址属于本存储签发的目录（`storage.Owned`），
+  防止把任意外链交给执行面。`POST /upload`（网关代传）保留给本地开发与 e2e，线上不用。
 - **存储**：`Storage.Mode=local` 写 `data/files`（仅开发，执行面访问不到，也不支持直传）；
   `oss` 写现有公有桶 `xx-shop-img`，配置从 `afv_system_config.storage_public_*` 读（含 STS 角色），
   OSS V1 签名与 STS AssumeRole 都是自己签，不引 SDK。网关与 rpc 的 Storage 配置须一致。

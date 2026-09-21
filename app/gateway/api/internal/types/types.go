@@ -368,16 +368,14 @@ type UploadCredentialReq struct {
 }
 
 type UploadCredentialResp struct {
-	AccessKeyId     string   `json:"access_key_id"`
-	AccessKeySecret string   `json:"access_key_secret"`
-	SecurityToken   string   `json:"security_token"`
-	Expiration      string   `json:"expiration"`
-	Bucket          string   `json:"bucket"`
-	Host            string   `json:"host"`
-	Dir             string   `json:"dir"`
-	BaseUrl         string   `json:"base_url"`
-	MaxBytes        int64    `json:"max_bytes"`
-	ContentTypes    []string `json:"content_types"`
+	AccessKeyId     string `json:"access_key_id"`
+	AccessKeySecret string `json:"access_key_secret"`
+	SecurityToken   string `json:"security_token"`
+	Expiration      string `json:"expiration"`
+	Bucket          string `json:"bucket"`
+	Host            string `json:"host"`
+	Dir             string `json:"dir"`
+	BaseUrl         string `json:"base_url"`
 }
 
 type UploadResp struct {

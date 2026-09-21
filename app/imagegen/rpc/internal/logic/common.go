@@ -18,9 +18,6 @@ import (
 	"github.com/zeromicro/go-zero/core/logx"
 )
 
-// imageTypes 允许的图片类型（客户端直传后按对象实际类型校验）
-var imageTypes = []string{"image/jpeg", "image/png", "image/webp"}
-
 // posterTypeFilter 海报类型在模板筛选维度字典里的编码（afv_public_template_filter）
 const posterTypeFilter = "posterType"
 
@@ -175,7 +172,7 @@ func materials(ctx context.Context, svcCtx *svc.ServiceContext, urls []string) (
 		if u == "" || seen[u] {
 			continue
 		}
-		if err := storage.Verify(ctx, svcCtx.Storage, u, svcCtx.Config.Limits.MaxImageBytes, imageTypes); err != nil {
+		if err := storage.Owned(svcCtx.Storage, u); err != nil {
 			return nil, xerr.Param(err.Error())
 		}
 		seen[u] = true

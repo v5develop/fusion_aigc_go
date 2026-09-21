@@ -26,8 +26,6 @@ type Config struct {
 		MaxContentLen int `json:",default=500"`
 		MaxMaterials  int `json:",default=3"`
 		MaxImages     int `json:",default=4"`
-		// MaxImageBytes 直传上来的素材大小上限（提交时 HEAD 校验）
-		MaxImageBytes int64 `json:",default=10485760"`
 	}
 	Poll struct {
 		IntervalSeconds int `json:",default=5"`

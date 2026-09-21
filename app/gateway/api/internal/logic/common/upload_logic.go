@@ -62,9 +62,3 @@ func (l *UploadLogic) Upload(r *http.Request) (resp *types.UploadResp, err error
 	}
 	return &types.UploadResp{Url: url, Size: int64(len(data)), ContentType: ct}, nil
 }
-
-// 允许的类型：图片按内容识别；视频直传后由业务侧在提交时校验
-var (
-	imageTypes = []string{"image/jpeg", "image/png", "image/webp"}
-	videoTypes = []string{"video/mp4", "video/quicktime"}
-)
