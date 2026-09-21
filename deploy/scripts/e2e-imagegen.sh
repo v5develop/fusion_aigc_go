@@ -56,12 +56,12 @@ upload() {
   curl -sS -H "X-User-Id: $USER_ID" -F "file=@$TMP/$1.png" "$GW/upload" | jq -r .data.url
 }
 
-# 模板：临时插进现有模板素材表（localLife/poster|longImage/template）
-template() { # template 标题 模块 [海报类型code] → 素材 id
+# 模板：临时插进现有模板素材表（localLife/poster|longImage/template、actionTransfer/actionVideo）
+template() { # template 标题 模块 [海报类型code] [素材类型 image|video] [槽位] → 素材 id
   local id
-  id=$(sql "INSERT INTO afv_public_template_assets (biz_type,type,title,url) VALUES ('localLife','image','$1','https://mock-oss.example.com/tpl/$1-$USER_ID.png');
+  id=$(sql "INSERT INTO afv_public_template_assets (biz_type,type,title,url) VALUES ('localLife','${4:-image}','$1','https://mock-oss.example.com/tpl/$1-$USER_ID.png');
             SET @a=LAST_INSERT_ID();
-            INSERT INTO afv_public_template_asset_placement (biz_type,module_code,slot_code,asset_id,sort_order,status) VALUES ('localLife','$2','template',@a,1,1);
+            INSERT INTO afv_public_template_asset_placement (biz_type,module_code,slot_code,asset_id,sort_order,status) VALUES ('localLife','$2','${5:-template}',@a,1,1);
             SELECT @a;")
   if [[ -n ${3:-} ]]; then
     sql "INSERT INTO afv_public_template_asset_filter (asset_id, filter_id, option_id)
@@ -78,7 +78,8 @@ cleanup() {
        DELETE FROM afv_public_template_assets WHERE url LIKE '%-$USER_ID.png';
        DELETE FROM afv_asset_item WHERE asset_id IN (SELECT id FROM (SELECT id FROM afv_asset WHERE user_id=$USER_ID) x);
        DELETE FROM afv_asset WHERE user_id=$USER_ID;
-       DELETE FROM afv_image_creation WHERE user_id=$USER_ID;"
+       DELETE FROM afv_image_creation WHERE user_id=$USER_ID;
+       DELETE FROM afv_action_video WHERE user_id=$USER_ID;"
   rm -rf "$TMP"
 }
 trap cleanup EXIT
@@ -164,18 +165,55 @@ check "type/entry_code/比例" "$(sql "SELECT CONCAT_WS('|',type,entry_code,aspe
 check "长图成品也进素材库" "$(sql "SELECT count(*) FROM afv_asset WHERE user_id=$USER_ID AND entry_code='longImage' AND deleted=0")" 2
 check "素材库分类已挂上入口" "$(sql "SELECT GROUP_CONCAT(c.category_name ORDER BY c.category_code) FROM afv_asset_category_entry e JOIN afv_asset_category c ON c.id=e.category_id WHERE e.entry_code IN ('poster','longImage')")" 长图,海报
 
+echo "== 动作迁移：选项与动作视频"
+AO=$(api GET '/image-creations/options?kind=actionTransfer')
+check "模型 2 个" "$(jq -r '[.models[].label]|join(",")' <<<"$AO")" "seedance 2.0,xiaoqi-video-1.0-lite"
+check "动作迁移一次一条" "$(jq -r .max_images <<<"$AO")" 1
+T_ACT=$(template 跳舞 actionTransfer "" video actionVideo)
+V1=$(upload v1)   # 当作用户直传上来的动作视频
+AV=$(api POST /action-videos "{\"url\":\"$V1\"}")
+check "导入后自动命名" "$(jq -r .name <<<"$AV")" 我的动作1
+AVID=$(jq -r .id <<<"$AV")
+check "外链视频被拒" "$(api_code POST /action-videos '{"url":"https://evil.example.com/a.mp4"}')" 1001
+L=$(api GET /action-videos)
+check "预置动作可见" "$(jq "[.presets[]|select(.id==$T_ACT)]|length" <<<"$L")" 1
+check "我的动作可见且标记 mine" "$(jq -r "[.mine[]|select(.id==$AVID)]|map(.mine)|join(\",\")" <<<"$L")" true
+
+echo "== 动作迁移：生成（mock 9 / 86）"
+PUB=$(template 公共形象 digitalHuman "" image publicModel)   # 公共数字人（复用模板素材表）
+check "没选动作视频被拒" "$(api_code POST /image-creations "{\"kind\":\"actionTransfer\",\"portrait_source\":\"UPLOAD\",\"image_url\":\"$M1\",\"model\":\"lite\"}")" 1001
+check "模型无效被拒" "$(api_code POST /image-creations "{\"kind\":\"actionTransfer\",\"portrait_source\":\"UPLOAD\",\"image_url\":\"$M1\",\"action_video_id\":$T_ACT,\"model\":\"bad\"}")" 1001
+check "人物图外链被拒" "$(api_code POST /image-creations "{\"kind\":\"actionTransfer\",\"portrait_source\":\"UPLOAD\",\"image_url\":\"https://evil.example.com/a.png\",\"action_video_id\":$T_ACT,\"model\":\"lite\"}")" 1001
+A1=$(api POST /image-creations "{\"kind\":\"actionTransfer\",\"portrait_source\":\"UPLOAD\",\"image_url\":\"$M1\",\"action_video_id\":$T_ACT,\"model\":\"lite\"}" "$(uuidgen)")
+A1ID=$(jq -r .id <<<"$A1")
+check "人物图与动作视频已解析" "$(jq -r '[(.input_image_url|length>0),(.input_video_url|length>0)]|map(tostring)|join(",")' <<<"$A1")" true,true
+A1=$(poll "$A1ID")
+check "生成完成，出 1 个视频" "$(jq -r '[.status,(.image_urls|length)]|map(tostring)|join(",")' <<<"$A1")" 1,1
+AT1=$(sql "SELECT JSON_UNQUOTE(JSON_EXTRACT(tasks,'\$[0].task_id')) FROM afv_image_creation WHERE id=$A1ID")
+B9=$(curl -sS "http://127.0.0.1:5055/mock/task/$AT1")
+check "9 入参：视频/人物图/模型" "$(jq -c '[.task_type,(.input_video|length>0),(.reference_image|length>0),.model]' <<<"$B9")" '[9,true,true,"lite"]'
+A2=$(api POST /image-creations "{\"kind\":\"actionTransfer\",\"portrait_source\":\"PUBLIC\",\"public_id\":$PUB,\"my_action_video_id\":$AVID,\"model\":\"doubao-seedance-2-0-260128\"}" "$(uuidgen)")
+A2ID=$(jq -r .id <<<"$A2")
+check "公共数字人作为人物图可用" "$(jq -r '.input_image_url|endswith("公共形象-'"$USER_ID"'.png")' <<<"$A2")" true
+A2=$(poll "$A2ID")
+check "seedance 2.0 路由到 86" "$(sql "SELECT JSON_UNQUOTE(JSON_EXTRACT(tasks,'\$[0].task_id')) FROM afv_image_creation WHERE id=$A2ID" | xargs -I{} curl -sS "http://127.0.0.1:5055/aigc/getRes/{}" | jq -r .task_type)" 86
+check "动作迁移成品进素材库" "$(sql "SELECT CONCAT_WS('|',type,entry_code) FROM afv_asset WHERE user_id=$USER_ID AND entry_code='actionTransfer' AND deleted=0 LIMIT 1")" "video|actionTransfer"
+api DELETE "/action-videos/$AVID" > /dev/null
+check "删除我的动作后不可见" "$(api GET /action-videos | jq "[.mine[]|select(.id==$AVID)]|length")" 0
+
 echo "== 列表与删除"
-check "全部 5 条" "$(api GET /image-creations | jq .total)" 5
+check "全部 7 条" "$(api GET /image-creations | jq .total)" 7
 check "按 kind 筛：海报 3 条" "$(api GET '/image-creations?kind=poster' | jq .total)" 3
-check "按状态筛：已完成 4 条" "$(api GET '/image-creations?status=1' | jq .total)" 4
+check "按状态筛：已完成 6 条" "$(api GET '/image-creations?status=1' | jq .total)" 6
+check "按 kind 筛：动作迁移 2 条" "$(api GET '/image-creations?kind=actionTransfer' | jq .total)" 2
 check "别人看不到" "$(curl -sS -H 'X-User-Id: 999999' "$GW/image-creations/$PID" | jq -r .code)" 1003
 api DELETE "/image-creations/$PID" > /dev/null
 check "删除后不可见" "$(api_code GET "/image-creations/$PID")" 1003
 check "删除时素材库同步删除" "$(sql "SELECT count(*) FROM afv_asset WHERE source_task_id='$GROUP' AND deleted=0")" 0
-check "删除后 4 条" "$(api GET /image-creations | jq .total)" 4
+check "删除后 6 条" "$(api GET /image-creations | jq .total)" 6
 
 echo "== 运营后台"
-check "后台按用户查" "$(admin "/image-creations?user_id=$USER_ID" | jq .total)" 4
+check "后台按用户查" "$(admin "/image-creations?user_id=$USER_ID" | jq .total)" 6
 check "后台按 kind 查" "$(admin "/image-creations?user_id=$USER_ID&kind=longImage" | jq .total)" 2
 
 green "== 全部通过：$PASS 项"

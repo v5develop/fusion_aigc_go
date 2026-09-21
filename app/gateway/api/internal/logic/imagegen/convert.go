@@ -23,7 +23,16 @@ func toImageCreation(c *imagegen.ImageInfo) *types.ImageCreation {
 	return &types.ImageCreation{
 		Id: c.Id, Kind: c.Kind, Content: c.Content, MaterialUrls: orEmpty(c.MaterialUrls), TemplateId: c.TemplateId,
 		TemplateUrl: c.TemplateUrl, PosterType: c.PosterType, PosterStyle: c.PosterStyle, Size: c.Size,
-		ImageCount: c.ImageCount, ImageUrls: orEmpty(c.ImageUrls), Status: c.Status, FailReason: c.FailReason,
+		ImageCount: c.ImageCount, ImageUrls: orEmpty(c.ImageUrls), InputImageUrl: c.InputImageUrl,
+		InputVideoUrl: c.InputVideoUrl, Model: c.Model, Status: c.Status, FailReason: c.FailReason,
 		CreateTime: c.CreateTime,
 	}
+}
+
+func toActionVideos(list []*imagegen.ActionVideo) []types.ActionVideo {
+	out := make([]types.ActionVideo, 0, len(list))
+	for _, v := range list {
+		out = append(out, types.ActionVideo{Id: v.Id, Name: v.Name, Url: v.Url, CoverUrl: v.CoverUrl, Mine: v.Mine})
+	}
+	return out
 }

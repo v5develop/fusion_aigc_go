@@ -73,6 +73,17 @@ func generate(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, 400, map[string]any{"code": 400, "message": "task_type=74 缺少 user_text", "success": false})
 			return
 		}
+	case 9, 86:
+		for _, k := range []string{"input_video", "reference_image"} {
+			if v, _ := body[k].(string); v == "" {
+				writeJSON(w, 400, map[string]any{"code": 400, "message": fmt.Sprintf("task_type=%d 缺少 %s", t.Type, k), "success": false})
+				return
+			}
+		}
+		// 真实行为：model=doubao-seedance-2-0-260128 会被路由到 86
+		if m, _ := body["model"].(string); m == "doubao-seedance-2-0-260128" {
+			t.Type = 86
+		}
 	case 76:
 		if s, _ := body["user_text"].(string); s == "" {
 			writeJSON(w, 400, map[string]any{"code": 400, "message": "task_type=76 缺少 user_text", "success": false})

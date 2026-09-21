@@ -5,7 +5,9 @@ import (
 	"errors"
 	"strings"
 
+	"aigc-life/app/digitalhuman/rpc/digitalhuman"
 	"aigc-life/app/imagegen/model"
+	"aigc-life/app/imagegen/rpc/internal/config"
 	"aigc-life/app/imagegen/rpc/internal/svc"
 	"aigc-life/app/imagegen/rpc/pb"
 	"aigc-life/pkg/xerr"
@@ -44,6 +46,9 @@ func (l *CreateLogic) Create(in *pb.CreateReq) (*pb.ImageInfo, error) {
 	}
 	if err := requireAigc(l.svcCtx); err != nil {
 		return nil, err
+	}
+	if in.Kind == model.KindActionTransfer {
+		return l.createActionTransfer(in, cfg)
 	}
 	lim := l.svcCtx.Config.Limits
 	content := strings.TrimSpace(in.Content)
@@ -135,4 +140,70 @@ func validSize(size string) bool {
 		}
 	}
 	return false
+}
+
+// createActionTransfer 动作迁移：人物图（上传/公共数字人/AI定制形象）+ 动作视频（预置或我导入的）→ 视频。
+func (l *CreateLogic) createActionTransfer(in *pb.CreateReq, cfg *config.KindConf) (*pb.ImageInfo, error) {
+	// 人物图交给数字人服务解析，三种来源的校验逻辑不重复写
+	p, err := l.svcCtx.DigitalHumanRpc.ResolvePortrait(l.ctx, &digitalhuman.ResolvePortraitReq{
+		UserId: in.UserId, PortraitSource: in.PortraitSource, ImageUrl: in.ImageUrl,
+		PublicId: in.PublicId, PortraitId: in.PortraitId, ImageIndex: in.ImageIndex,
+	})
+	if err != nil {
+		return nil, err
+	}
+	videoURL, err := l.actionVideo(in, cfg)
+	if err != nil {
+		return nil, err
+	}
+	if !validActionModel(in.Model) {
+		return nil, xerr.Param("请选择模型")
+	}
+
+	row := &model.AfvImageCreation{
+		UserId: in.UserId, Kind: in.Kind, Content: "", InputImageUrl: nullStr(p.ImageUrl),
+		InputVideoUrl: nullStr(videoURL), Model: in.Model, ImageCount: 1,
+		RequestId: nullStr(in.RequestId), Status: model.StatusGenerating,
+	}
+	res, err := l.svcCtx.Creation.Insert(l.ctx, row)
+	if err != nil {
+		if isDuplicate(err) {
+			old, ferr := l.svcCtx.Creation.FindByRequestID(l.ctx, in.UserId, in.RequestId)
+			if ferr != nil {
+				return nil, ferr
+			}
+			return toInfo(old), nil
+		}
+		return nil, err
+	}
+	if row.Id, err = res.LastInsertId(); err != nil {
+		return nil, err
+	}
+	tasks := submit(l.ctx, l.svcCtx, row, cfg, "")
+	if _, err := l.svcCtx.Creation.UpdateTasks(l.ctx, row.Id, dumpTasks(tasks), model.StatusGenerating, "", ""); err != nil {
+		l.Errorf("save tasks %d: %v", row.Id, err)
+	}
+	if cur, err := l.svcCtx.Creation.FindOne(l.ctx, row.Id); err == nil {
+		row = cur
+	}
+	return toInfo(row), nil
+}
+
+// actionVideo 动作视频：预置（模板素材）或我导入的，二选一。
+func (l *CreateLogic) actionVideo(in *pb.CreateReq, cfg *config.KindConf) (string, error) {
+	switch {
+	case in.ActionVideoId > 0:
+		t, err := l.svcCtx.Shared.FindTemplate(l.ctx, templateSlot(cfg), in.ActionVideoId)
+		if errors.Is(err, model.ErrNotFound) {
+			return "", xerr.Param("该动作视频已下架，请重新选择")
+		}
+		return t.Url, err
+	case in.MyActionVideoId > 0:
+		v, err := l.svcCtx.ActionVideo.FindOwned(l.ctx, in.MyActionVideoId, in.UserId)
+		if errors.Is(err, model.ErrNotFound) {
+			return "", xerr.Param("动作视频不存在")
+		}
+		return v.Url, err
+	}
+	return "", xerr.Param("请选择动作视频")
 }

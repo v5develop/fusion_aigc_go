@@ -1,14 +1,14 @@
 # AIGC 本地生活 · 后端
 
 Go + go-zero，数据落在现有系统的 `fusion_aigc` 库，新表 `afv_` 前缀，现有表只读、不改结构。
-目前有四个模块：**AI文案**、**AI数字人**、**AI图文笔记**、**AI海报/长图**。
+目前有四个模块：**AI文案**、**AI数字人**、**AI图文笔记**、**AI海报/长图/动作迁移**。
 
 | 模块 | 设计方案 | 建表脚本 |
 |---|---|---|
 | AI文案 | `~/Documents/echo/ai-copywriting-design.md` | `deploy/sql/V1.0.106__ai_copywriting.sql` |
 | AI数字人 | `~/Documents/echo/digital-human-design.md` | `deploy/sql/V1.0.108__ai_digital_human.sql` |
 | AI图文笔记 | `~/Documents/echo/image-text-note-design.md` | `deploy/sql/V1.0.109__ai_image_text_note.sql` |
-| AI海报/长图 | `~/Documents/echo/poster-long-image-design.md` | `deploy/sql/V1.0.111__ai_poster_long_image.sql` |
+| AI海报/长图/动作迁移 | `~/Documents/echo/image-video-creation-design.md` | `deploy/sql/V1.0.111__ai_poster_long_image.sql`、`V1.0.112__ai_action_transfer.sql` |
 
 ## 服务
 
@@ -17,10 +17,10 @@ Go + go-zero，数据落在现有系统的 `fusion_aigc` 库，新表 `afv_` 前
 | `copywriting-rpc` | 9201 | 文案生成与增删改查、选项字典、AI帮写（含数字人配音内容） |
 | `digitalhuman-rpc` | 9202 | 使用约定、公共数字人（只读）、AI 定制形象、系统音色、数字人生成；内置结果轮询器 |
 | `note-rpc` | 9203 | 图文笔记：构思（执行面 74）→ 规划 → 出图（75）、编辑；内置结果轮询器 |
-| `imagegen-rpc` | 9204 | 海报（执行面 78）与长图（76）：模板、提交、轮询；内置结果轮询器 |
+| `imagegen-rpc` | 9204 | 海报（78）、长图（76）、动作迁移（9/86）：模板与动作视频、提交、轮询；内置结果轮询器 |
 | `gateway-api` | 8888 | App 接口 `/api/v1/*`，直传凭证；本地存储模式下提供 `/files` 与代传上传 |
 | `admin-api` | 8889 | 运营后台 `/admin/v1/*` |
-| `mock-aigc` | 5055 | **仅本地**：模拟 AIGC 执行面（74/75/76/78/85），正式地址提供前用它联调 |
+| `mock-aigc` | 5055 | **仅本地**：模拟 AIGC 执行面（9/74/75/76/78/85），正式地址提供前用它联调 |
 
 模型都不写在配置里，每次调用时从库里解析（地址与密钥在 `afv_ai_provider`）：
 
@@ -38,7 +38,7 @@ make run-all     # 编译并后台启动（含 mock-aigc），日志在 logs/
 deploy/scripts/e2e.sh               # AI文案端到端测试（49 项，真实调用模型）
 deploy/scripts/e2e-digitalhuman.sh  # AI数字人端到端测试（73 项，执行面走 mock，TTS 真实调用；会临时插入并清理模板素材测试数据）
 deploy/scripts/e2e-note.sh          # AI图文笔记端到端测试（62 项，执行面走 mock；SKIP_MODEL=1 跳过真实模型）
-deploy/scripts/e2e-imagegen.sh      # AI海报/长图端到端测试（49 项，执行面走 mock；会临时插入并清理模板素材）
+deploy/scripts/e2e-imagegen.sh      # 海报/长图/动作迁移端到端测试（66 项，执行面走 mock；会临时插入并清理模板素材）
 make stop-all
 ```
 
@@ -80,7 +80,7 @@ make stop-all
   + `afv_public_template_asset_placement` 一行（`localLife / digitalHuman / publicModel`，排序与上下架），配置项 `PublicModel`。
 - 生成类接口需先同意《AIGC功能使用约定》（`afv_user_agreement`，版本号在配置里，改版 +1 需重新同意）。
 
-## AI海报 / AI长图
+## AI海报 / AI长图 / 动作迁移
 
 一个服务 `imagegen`、一张表 `afv_image_creation`，用 `kind`（poster / longImage）区分，流程相同：
 填内容（≤500 字）→ 选模板 → 生成设置 → 提交 → 轮询 → 存素材库。
@@ -91,6 +91,9 @@ make stop-all
 - 海报模板必选、可选风格与比例、模型本版固定 `max`；长图模板可不选、比例固定 `1:4`、不传 model（76 文档里没有这个参数）。
 - 上传素材两边都最多 3 张（设计稿长图写的是 10 张，与产品确认后改为 3）。
 - AI帮写新增场景 `poster_info`（海报信息润色）、`long_image`（长图内容）。
+- **动作迁移**：人物图（上传 / 公共数字人 / AI定制形象，经 `digitalhuman-rpc` 的 `ResolvePortrait` 解析）
+  + 动作视频（预置来自模板素材表 `localLife/actionTransfer/actionVideo`，或用户导入存 `afv_action_video`）
+  → 执行面 9；选 seedance 2.0 时执行面会路由到 86。成品视频进素材库，封面用人物图。
 
 ## AI图文笔记
 

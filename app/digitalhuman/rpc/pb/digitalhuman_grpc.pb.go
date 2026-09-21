@@ -32,6 +32,7 @@ const (
 	DigitalHuman_Get_FullMethodName                       = "/digitalhuman.DigitalHuman/Get"
 	DigitalHuman_List_FullMethodName                      = "/digitalhuman.DigitalHuman/List"
 	DigitalHuman_Delete_FullMethodName                    = "/digitalhuman.DigitalHuman/Delete"
+	DigitalHuman_ResolvePortrait_FullMethodName           = "/digitalhuman.DigitalHuman/ResolvePortrait"
 	DigitalHuman_AdminListOptions_FullMethodName          = "/digitalhuman.DigitalHuman/AdminListOptions"
 	DigitalHuman_AdminSaveOption_FullMethodName           = "/digitalhuman.DigitalHuman/AdminSaveOption"
 	DigitalHuman_AdminDeleteOption_FullMethodName         = "/digitalhuman.DigitalHuman/AdminDeleteOption"
@@ -68,6 +69,8 @@ type DigitalHumanClient interface {
 	Get(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*DigitalHumanInfo, error)
 	List(ctx context.Context, in *ListReq, opts ...grpc.CallOption) (*DigitalHumanList, error)
 	Delete(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*Empty, error)
+	// ResolvePortrait 把「形象来源 + id」解析成形象图地址，供动作迁移等模块复用
+	ResolvePortrait(ctx context.Context, in *ResolvePortraitReq, opts ...grpc.CallOption) (*PortraitImage, error)
 	// ---- 运营后台 ----
 	AdminListOptions(ctx context.Context, in *AdminListOptionsReq, opts ...grpc.CallOption) (*OptionList, error)
 	AdminSaveOption(ctx context.Context, in *OptionInfo, opts ...grpc.CallOption) (*OptionInfo, error)
@@ -220,6 +223,16 @@ func (c *digitalHumanClient) Delete(ctx context.Context, in *IdUserReq, opts ...
 	return out, nil
 }
 
+func (c *digitalHumanClient) ResolvePortrait(ctx context.Context, in *ResolvePortraitReq, opts ...grpc.CallOption) (*PortraitImage, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PortraitImage)
+	err := c.cc.Invoke(ctx, DigitalHuman_ResolvePortrait_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *digitalHumanClient) AdminListOptions(ctx context.Context, in *AdminListOptionsReq, opts ...grpc.CallOption) (*OptionList, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(OptionList)
@@ -335,6 +348,8 @@ type DigitalHumanServer interface {
 	Get(context.Context, *IdUserReq) (*DigitalHumanInfo, error)
 	List(context.Context, *ListReq) (*DigitalHumanList, error)
 	Delete(context.Context, *IdUserReq) (*Empty, error)
+	// ResolvePortrait 把「形象来源 + id」解析成形象图地址，供动作迁移等模块复用
+	ResolvePortrait(context.Context, *ResolvePortraitReq) (*PortraitImage, error)
 	// ---- 运营后台 ----
 	AdminListOptions(context.Context, *AdminListOptionsReq) (*OptionList, error)
 	AdminSaveOption(context.Context, *OptionInfo) (*OptionInfo, error)
@@ -395,6 +410,9 @@ func (UnimplementedDigitalHumanServer) List(context.Context, *ListReq) (*Digital
 }
 func (UnimplementedDigitalHumanServer) Delete(context.Context, *IdUserReq) (*Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method Delete not implemented")
+}
+func (UnimplementedDigitalHumanServer) ResolvePortrait(context.Context, *ResolvePortraitReq) (*PortraitImage, error) {
+	return nil, status.Error(codes.Unimplemented, "method ResolvePortrait not implemented")
 }
 func (UnimplementedDigitalHumanServer) AdminListOptions(context.Context, *AdminListOptionsReq) (*OptionList, error) {
 	return nil, status.Error(codes.Unimplemented, "method AdminListOptions not implemented")
@@ -678,6 +696,24 @@ func _DigitalHuman_Delete_Handler(srv interface{}, ctx context.Context, dec func
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DigitalHuman_ResolvePortrait_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ResolvePortraitReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DigitalHumanServer).ResolvePortrait(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DigitalHuman_ResolvePortrait_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DigitalHumanServer).ResolvePortrait(ctx, req.(*ResolvePortraitReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _DigitalHuman_AdminListOptions_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(AdminListOptionsReq)
 	if err := dec(in); err != nil {
@@ -898,6 +934,10 @@ var DigitalHuman_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Delete",
 			Handler:    _DigitalHuman_Delete_Handler,
+		},
+		{
+			MethodName: "ResolvePortrait",
+			Handler:    _DigitalHuman_ResolvePortrait_Handler,
 		},
 		{
 			MethodName: "AdminListOptions",

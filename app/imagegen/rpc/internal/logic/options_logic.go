@@ -35,6 +35,11 @@ func (l *OptionsLogic) Options(in *pb.KindReq) (*pb.OptionsResp, error) {
 		DefaultSize: cfg.DefaultSize, MaxImages: int32(lim.MaxImages), MaxMaterials: int32(lim.MaxMaterials),
 		MaxContentLen: int32(lim.MaxContentLen), TemplateRequired: cfg.TemplateRequired,
 	}
+	if in.Kind == model.KindActionTransfer { // 动作迁移：只有模型选择
+		resp.Models = actionModels
+		resp.MaxImages = 1
+		return resp, nil
+	}
 	if in.Kind == model.KindLongImage { // 长图比例固定，设计稿没有比例与风格选项
 		resp.Sizes = []*pb.Option{{Code: cfg.DefaultSize, Label: cfg.DefaultSize}}
 		return resp, nil

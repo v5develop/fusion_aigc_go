@@ -90,7 +90,7 @@ type ImageCreation struct {
 
 type ImageGenListReq struct {
 	UserId   int64  `form:"user_id,optional"`
-	Kind     string `form:"kind,optional,options=|poster|longImage"`
+	Kind     string `form:"kind,optional,options=|poster|longImage|actionTransfer"`
 	Status   int32  `form:"status,optional,default=-1"`
 	Page     int64  `form:"page,optional,default=1"`
 	PageSize int64  `form:"page_size,optional,default=20"`

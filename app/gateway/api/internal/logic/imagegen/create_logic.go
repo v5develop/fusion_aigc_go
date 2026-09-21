@@ -33,7 +33,9 @@ func (l *CreateLogic) Create(req *types.CreateImageGenReq) (resp *types.ImageCre
 	out, err := l.svcCtx.ImageGenRpc.Create(l.ctx, &imagegen.CreateReq{
 		UserId: ctxdata.UserID(l.ctx), Kind: req.Kind, Content: req.Content, MaterialUrls: req.MaterialUrls, TemplateId: req.TemplateId,
 		PosterType: req.PosterType, PosterStyle: req.PosterStyle, Size: req.Size, ImageCount: req.ImageCount,
-		RequestId: req.RequestId,
+		RequestId: req.RequestId, PortraitSource: req.PortraitSource, ImageUrl: req.ImageUrl, PublicId: req.PublicId,
+		PortraitId: req.PortraitId, ImageIndex: req.ImageIndex, ActionVideoId: req.ActionVideoId,
+		MyActionVideoId: req.MyActionVideoId, Model: req.Model,
 	})
 	if err != nil {
 		return nil, err

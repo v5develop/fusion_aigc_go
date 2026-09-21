@@ -28,10 +28,12 @@ type TemplateSlot struct {
 }
 
 // Template 一张模板：复用现有模板素材表，运营在现有后台「模板」里维护。
+// 动作迁移的预置动作视频也走这里（type=video）。
 type Template struct {
 	Id        int64  `db:"id"`
 	Title     string `db:"title"`
 	Url       string `db:"url"`
+	Type      string `db:"type"`
 	SortOrder int64  `db:"sort_order"`
 }
 
@@ -41,7 +43,7 @@ type FilterOption struct {
 	Name string `db:"option_name"`
 }
 
-const templateSelect = "SELECT a.id, a.title, a.url, p.sort_order " +
+const templateSelect = "SELECT a.id, a.title, a.url, a.type, p.sort_order " +
 	"FROM afv_public_template_asset_placement p " +
 	"JOIN afv_public_template_assets a ON a.id = p.asset_id AND a.deleted = 0 " +
 	"WHERE p.biz_type = ? AND p.module_code = ? AND p.slot_code = ? AND p.status = 1 AND p.deleted = 0"

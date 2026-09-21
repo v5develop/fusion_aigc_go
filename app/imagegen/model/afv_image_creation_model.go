@@ -14,8 +14,9 @@ var _ AfvImageCreationModel = (*customAfvImageCreationModel)(nil)
 
 // 类型
 const (
-	KindPoster    = "poster"
-	KindLongImage = "longImage"
+	KindPoster         = "poster"
+	KindLongImage      = "longImage"
+	KindActionTransfer = "actionTransfer"
 )
 
 // 状态

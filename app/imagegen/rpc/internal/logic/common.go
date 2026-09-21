@@ -40,6 +40,22 @@ var posterStyles = []*pb.Option{
 	{Code: "sketch", Label: "简笔画"},
 }
 
+// actionModels 动作迁移的模型选择（设计稿），值直接作为执行面 9 的 model：
+// seedance 2.0 会被路由到 86（入参须公网 URL）；lite 走本地 GPU 的 9。
+var actionModels = []*pb.Option{
+	{Code: "doubao-seedance-2-0-260128", Label: "seedance 2.0"},
+	{Code: "lite", Label: "xiaoqi-video-1.0-lite"},
+}
+
+func validActionModel(code string) bool {
+	for _, m := range actionModels {
+		if m.Code == code {
+			return true
+		}
+	}
+	return false
+}
+
 // posterSizes 海报图片比例（设计稿「生成设置」弹窗）
 var posterSizes = []*pb.Option{
 	{Code: "9:16", Label: "9:16"}, {Code: "16:9", Label: "16:9"},
@@ -81,6 +97,8 @@ func kindConf(svcCtx *svc.ServiceContext, kind string) (*config.KindConf, error)
 		return &svcCtx.Config.Poster, nil
 	case model.KindLongImage:
 		return &svcCtx.Config.LongImage, nil
+	case model.KindActionTransfer:
+		return &svcCtx.Config.ActionTransfer, nil
 	}
 	return nil, xerr.Newf(xerr.ParamError, "不支持的类型 %s", kind)
 }
@@ -124,6 +142,7 @@ func toInfo(c *model.AfvImageCreation) *pb.ImageInfo {
 	return &pb.ImageInfo{
 		Id: c.Id, UserId: c.UserId, Kind: c.Kind, Content: c.Content, MaterialUrls: parseList(c.MaterialUrls),
 		TemplateId: c.TemplateAssetId.Int64, TemplateUrl: c.TemplateUrl.String, PosterType: c.PosterType.String,
+		InputImageUrl: c.InputImageUrl.String, InputVideoUrl: c.InputVideoUrl.String, Model: c.Model,
 		PosterStyle: c.PosterStyle.String, Size: c.Size, ImageCount: int32(c.ImageCount),
 		ImageUrls: parseList(c.ImageUrls), Status: int32(c.Status), FailReason: c.FailReason.String,
 		CreateTime: c.CreateTime.UnixMilli(),

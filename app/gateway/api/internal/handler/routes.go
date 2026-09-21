@@ -199,6 +199,24 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 			[]rest.Middleware{serverCtx.Auth},
 			[]rest.Route{
 				{
+					// 动作视频：预置（运营维护）+ 我导入的
+					Method:  http.MethodGet,
+					Path:    "/action-videos",
+					Handler: imagegen.ActionVideosHandler(serverCtx),
+				},
+				{
+					// 导入动作视频（前端直传后回传地址）
+					Method:  http.MethodPost,
+					Path:    "/action-videos",
+					Handler: imagegen.ImportActionVideoHandler(serverCtx),
+				},
+				{
+					// 删除我导入的动作视频
+					Method:  http.MethodDelete,
+					Path:    "/action-videos/:id",
+					Handler: imagegen.RemoveActionVideoHandler(serverCtx),
+				},
+				{
 					// 提交生成（一次可出多张，异步）
 					Method:  http.MethodPost,
 					Path:    "/image-creations",

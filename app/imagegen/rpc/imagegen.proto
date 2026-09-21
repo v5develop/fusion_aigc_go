@@ -3,7 +3,7 @@ syntax = "proto3";
 package imagegen;
 option go_package = "./pb";
 
-// AI 海报（执行面 78）与 AI 长图（执行面 76）。两者流程相同，用 kind 区分。
+// AI 海报（78）、AI 长图（76）、动作迁移（9 / 86）。流程相同，用 kind 区分。
 service ImageGen {
   // ---- App ----
   // 表单配置：海报类型 / 风格 / 比例 / 数量与素材上限
@@ -15,6 +15,10 @@ service ImageGen {
   rpc Get(IdUserReq) returns (ImageInfo);
   rpc List(ListReq) returns (ImageList);
   rpc Delete(IdUserReq) returns (Empty);
+  // ---- 动作迁移：动作视频（预置来自模板素材表，我的来自用户导入）----
+  rpc ListActionVideos(IdUserReq) returns (ActionVideoList);
+  rpc ImportActionVideo(ImportActionVideoReq) returns (ActionVideo);
+  rpc DeleteActionVideo(IdUserReq) returns (Empty);
 
   // ---- 运营后台 ----
   rpc AdminList(ListReq) returns (ImageList);
@@ -36,6 +40,26 @@ message Option {
   string label = 2;
 }
 
+message ActionVideo {
+  int64 id = 1;
+  string name = 2;
+  string url = 3;
+  string cover_url = 4;
+  bool mine = 5;                // true=用户导入的，可删除
+}
+
+message ActionVideoList {
+  repeated ActionVideo presets = 1;  // 预置动作（模板素材表）
+  repeated ActionVideo mine = 2;     // 我导入的
+}
+
+message ImportActionVideoReq {
+  int64 user_id = 1;
+  string url = 2;               // 直传后的视频地址
+  string cover_url = 3;         // 选填
+  string name = 4;              // 选填，默认「我的动作N」
+}
+
 message OptionsResp {
   repeated Option poster_types = 1;   // 海报类型（模板筛选维度 posterType），长图为空
   repeated Option poster_styles = 2;  // 海报风格，长图为空
@@ -45,6 +69,7 @@ message OptionsResp {
   int32 max_materials = 6;            // 上传素材上限
   int32 max_content_len = 7;
   bool template_required = 8;         // 海报模板必选；长图可不选（AI智能匹配）
+  repeated Option models = 9;         // 动作迁移的模型选择；其余类型为空
 }
 
 message ListTemplatesReq {
@@ -73,6 +98,16 @@ message CreateReq {
   string size = 8;                    // 不传用默认
   int32 image_count = 9;              // 不传为 1
   string request_id = 10;             // 幂等
+
+  // ---- 动作迁移 ----
+  string portrait_source = 11;        // UPLOAD / PUBLIC / AI（同数字人）
+  string image_url = 12;              // UPLOAD：直传后的照片地址
+  int64 public_id = 13;               // PUBLIC：公共数字人
+  int64 portrait_id = 14;             // AI：定制形象记录
+  int32 image_index = 15;             // AI：选中第几张
+  int64 action_video_id = 16;         // 预置动作视频（模板素材 id）
+  int64 my_action_video_id = 17;      // 我导入的动作视频 id
+  string model = 18;                  // 模型：seedance 2.0 / lite
 }
 
 message ImageInfo {
@@ -88,6 +123,9 @@ message ImageInfo {
   string size = 10;
   int32 image_count = 11;
   repeated string image_urls = 12;
+  string input_image_url = 16;
+  string input_video_url = 17;
+  string model = 18;
   int32 status = 13;            // 0-生成中 1-已完成（含部分成功） 2-失败
   string fail_reason = 14;
   int64 create_time = 15;

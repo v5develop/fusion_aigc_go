@@ -1229,6 +1229,150 @@ func (x *CreateReq) GetRequestId() string {
 	return ""
 }
 
+type ResolvePortraitReq struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	UserId         int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	PortraitSource string                 `protobuf:"bytes,2,opt,name=portrait_source,json=portraitSource,proto3" json:"portrait_source,omitempty"` // UPLOAD / PUBLIC / AI
+	ImageUrl       string                 `protobuf:"bytes,3,opt,name=image_url,json=imageUrl,proto3" json:"image_url,omitempty"`                   // UPLOAD：上传接口返回的地址
+	PublicId       int64                  `protobuf:"varint,4,opt,name=public_id,json=publicId,proto3" json:"public_id,omitempty"`                  // PUBLIC
+	PortraitId     int64                  `protobuf:"varint,5,opt,name=portrait_id,json=portraitId,proto3" json:"portrait_id,omitempty"`            // AI
+	ImageIndex     int32                  `protobuf:"varint,6,opt,name=image_index,json=imageIndex,proto3" json:"image_index,omitempty"`            // AI：选中第几张（0 起）
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *ResolvePortraitReq) Reset() {
+	*x = ResolvePortraitReq{}
+	mi := &file_digitalhuman_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResolvePortraitReq) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResolvePortraitReq) ProtoMessage() {}
+
+func (x *ResolvePortraitReq) ProtoReflect() protoreflect.Message {
+	mi := &file_digitalhuman_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResolvePortraitReq.ProtoReflect.Descriptor instead.
+func (*ResolvePortraitReq) Descriptor() ([]byte, []int) {
+	return file_digitalhuman_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *ResolvePortraitReq) GetUserId() int64 {
+	if x != nil {
+		return x.UserId
+	}
+	return 0
+}
+
+func (x *ResolvePortraitReq) GetPortraitSource() string {
+	if x != nil {
+		return x.PortraitSource
+	}
+	return ""
+}
+
+func (x *ResolvePortraitReq) GetImageUrl() string {
+	if x != nil {
+		return x.ImageUrl
+	}
+	return ""
+}
+
+func (x *ResolvePortraitReq) GetPublicId() int64 {
+	if x != nil {
+		return x.PublicId
+	}
+	return 0
+}
+
+func (x *ResolvePortraitReq) GetPortraitId() int64 {
+	if x != nil {
+		return x.PortraitId
+	}
+	return 0
+}
+
+func (x *ResolvePortraitReq) GetImageIndex() int32 {
+	if x != nil {
+		return x.ImageIndex
+	}
+	return 0
+}
+
+type PortraitImage struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ImageUrl      string                 `protobuf:"bytes,1,opt,name=image_url,json=imageUrl,proto3" json:"image_url,omitempty"`
+	RefId         int64                  `protobuf:"varint,2,opt,name=ref_id,json=refId,proto3" json:"ref_id,omitempty"`                  // PUBLIC=公共数字人 id，AI=定制形象记录 id
+	DefaultName   string                 `protobuf:"bytes,3,opt,name=default_name,json=defaultName,proto3" json:"default_name,omitempty"` // 公共数字人名，可为空
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PortraitImage) Reset() {
+	*x = PortraitImage{}
+	mi := &file_digitalhuman_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PortraitImage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PortraitImage) ProtoMessage() {}
+
+func (x *PortraitImage) ProtoReflect() protoreflect.Message {
+	mi := &file_digitalhuman_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PortraitImage.ProtoReflect.Descriptor instead.
+func (*PortraitImage) Descriptor() ([]byte, []int) {
+	return file_digitalhuman_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *PortraitImage) GetImageUrl() string {
+	if x != nil {
+		return x.ImageUrl
+	}
+	return ""
+}
+
+func (x *PortraitImage) GetRefId() int64 {
+	if x != nil {
+		return x.RefId
+	}
+	return 0
+}
+
+func (x *PortraitImage) GetDefaultName() string {
+	if x != nil {
+		return x.DefaultName
+	}
+	return ""
+}
+
 type DigitalHumanInfo struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	Id             int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -1251,7 +1395,7 @@ type DigitalHumanInfo struct {
 
 func (x *DigitalHumanInfo) Reset() {
 	*x = DigitalHumanInfo{}
-	mi := &file_digitalhuman_proto_msgTypes[18]
+	mi := &file_digitalhuman_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1263,7 +1407,7 @@ func (x *DigitalHumanInfo) String() string {
 func (*DigitalHumanInfo) ProtoMessage() {}
 
 func (x *DigitalHumanInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_digitalhuman_proto_msgTypes[18]
+	mi := &file_digitalhuman_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1276,7 +1420,7 @@ func (x *DigitalHumanInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DigitalHumanInfo.ProtoReflect.Descriptor instead.
 func (*DigitalHumanInfo) Descriptor() ([]byte, []int) {
-	return file_digitalhuman_proto_rawDescGZIP(), []int{18}
+	return file_digitalhuman_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *DigitalHumanInfo) GetId() int64 {
@@ -1389,7 +1533,7 @@ type ListReq struct {
 
 func (x *ListReq) Reset() {
 	*x = ListReq{}
-	mi := &file_digitalhuman_proto_msgTypes[19]
+	mi := &file_digitalhuman_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1401,7 +1545,7 @@ func (x *ListReq) String() string {
 func (*ListReq) ProtoMessage() {}
 
 func (x *ListReq) ProtoReflect() protoreflect.Message {
-	mi := &file_digitalhuman_proto_msgTypes[19]
+	mi := &file_digitalhuman_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1414,7 +1558,7 @@ func (x *ListReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListReq.ProtoReflect.Descriptor instead.
 func (*ListReq) Descriptor() ([]byte, []int) {
-	return file_digitalhuman_proto_rawDescGZIP(), []int{19}
+	return file_digitalhuman_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *ListReq) GetUserId() int64 {
@@ -1457,7 +1601,7 @@ type AdminListReq struct {
 
 func (x *AdminListReq) Reset() {
 	*x = AdminListReq{}
-	mi := &file_digitalhuman_proto_msgTypes[20]
+	mi := &file_digitalhuman_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1469,7 +1613,7 @@ func (x *AdminListReq) String() string {
 func (*AdminListReq) ProtoMessage() {}
 
 func (x *AdminListReq) ProtoReflect() protoreflect.Message {
-	mi := &file_digitalhuman_proto_msgTypes[20]
+	mi := &file_digitalhuman_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1482,7 +1626,7 @@ func (x *AdminListReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AdminListReq.ProtoReflect.Descriptor instead.
 func (*AdminListReq) Descriptor() ([]byte, []int) {
-	return file_digitalhuman_proto_rawDescGZIP(), []int{20}
+	return file_digitalhuman_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *AdminListReq) GetUserId() int64 {
@@ -1523,7 +1667,7 @@ type DigitalHumanList struct {
 
 func (x *DigitalHumanList) Reset() {
 	*x = DigitalHumanList{}
-	mi := &file_digitalhuman_proto_msgTypes[21]
+	mi := &file_digitalhuman_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1535,7 +1679,7 @@ func (x *DigitalHumanList) String() string {
 func (*DigitalHumanList) ProtoMessage() {}
 
 func (x *DigitalHumanList) ProtoReflect() protoreflect.Message {
-	mi := &file_digitalhuman_proto_msgTypes[21]
+	mi := &file_digitalhuman_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1548,7 +1692,7 @@ func (x *DigitalHumanList) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DigitalHumanList.ProtoReflect.Descriptor instead.
 func (*DigitalHumanList) Descriptor() ([]byte, []int) {
-	return file_digitalhuman_proto_rawDescGZIP(), []int{21}
+	return file_digitalhuman_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *DigitalHumanList) GetList() []*DigitalHumanInfo {
@@ -1577,7 +1721,7 @@ type ModelInfo struct {
 
 func (x *ModelInfo) Reset() {
 	*x = ModelInfo{}
-	mi := &file_digitalhuman_proto_msgTypes[22]
+	mi := &file_digitalhuman_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1589,7 +1733,7 @@ func (x *ModelInfo) String() string {
 func (*ModelInfo) ProtoMessage() {}
 
 func (x *ModelInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_digitalhuman_proto_msgTypes[22]
+	mi := &file_digitalhuman_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1602,7 +1746,7 @@ func (x *ModelInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ModelInfo.ProtoReflect.Descriptor instead.
 func (*ModelInfo) Descriptor() ([]byte, []int) {
-	return file_digitalhuman_proto_rawDescGZIP(), []int{22}
+	return file_digitalhuman_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *ModelInfo) GetId() int64 {
@@ -1749,7 +1893,20 @@ const file_digitalhuman_proto_rawDesc = "" +
 	"\x06script\x18\t \x01(\tR\x06script\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\n" +
-	" \x01(\tR\trequestId\"\x97\x03\n" +
+	" \x01(\tR\trequestId\"\xd2\x01\n" +
+	"\x12ResolvePortraitReq\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12'\n" +
+	"\x0fportrait_source\x18\x02 \x01(\tR\x0eportraitSource\x12\x1b\n" +
+	"\timage_url\x18\x03 \x01(\tR\bimageUrl\x12\x1b\n" +
+	"\tpublic_id\x18\x04 \x01(\x03R\bpublicId\x12\x1f\n" +
+	"\vportrait_id\x18\x05 \x01(\x03R\n" +
+	"portraitId\x12\x1f\n" +
+	"\vimage_index\x18\x06 \x01(\x05R\n" +
+	"imageIndex\"f\n" +
+	"\rPortraitImage\x12\x1b\n" +
+	"\timage_url\x18\x01 \x01(\tR\bimageUrl\x12\x15\n" +
+	"\x06ref_id\x18\x02 \x01(\x03R\x05refId\x12!\n" +
+	"\fdefault_name\x18\x03 \x01(\tR\vdefaultName\"\x97\x03\n" +
 	"\x10DigitalHumanInfo\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x17\n" +
 	"\auser_id\x18\x02 \x01(\x03R\x06userId\x12\x12\n" +
@@ -1786,7 +1943,7 @@ const file_digitalhuman_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x12\n" +
 	"\x04code\x18\x03 \x01(\tR\x04code\x12\x1a\n" +
-	"\bplatform\x18\x04 \x01(\tR\bplatform2\xf5\v\n" +
+	"\bplatform\x18\x04 \x01(\tR\bplatform2\xc7\f\n" +
 	"\fDigitalHuman\x12G\n" +
 	"\fGetAgreement\x12\x1a.digitalhuman.AgreementReq\x1a\x1b.digitalhuman.AgreementInfo\x12J\n" +
 	"\x0fAcceptAgreement\x12\x1a.digitalhuman.AgreementReq\x1a\x1b.digitalhuman.AgreementInfo\x12;\n" +
@@ -1802,7 +1959,8 @@ const file_digitalhuman_proto_rawDesc = "" +
 	"\x06Create\x12\x17.digitalhuman.CreateReq\x1a\x1e.digitalhuman.DigitalHumanInfo\x12>\n" +
 	"\x03Get\x12\x17.digitalhuman.IdUserReq\x1a\x1e.digitalhuman.DigitalHumanInfo\x12=\n" +
 	"\x04List\x12\x15.digitalhuman.ListReq\x1a\x1e.digitalhuman.DigitalHumanList\x126\n" +
-	"\x06Delete\x12\x17.digitalhuman.IdUserReq\x1a\x13.digitalhuman.Empty\x12O\n" +
+	"\x06Delete\x12\x17.digitalhuman.IdUserReq\x1a\x13.digitalhuman.Empty\x12P\n" +
+	"\x0fResolvePortrait\x12 .digitalhuman.ResolvePortraitReq\x1a\x1b.digitalhuman.PortraitImage\x12O\n" +
 	"\x10AdminListOptions\x12!.digitalhuman.AdminListOptionsReq\x1a\x18.digitalhuman.OptionList\x12E\n" +
 	"\x0fAdminSaveOption\x12\x18.digitalhuman.OptionInfo\x1a\x18.digitalhuman.OptionInfo\x12=\n" +
 	"\x11AdminDeleteOption\x12\x13.digitalhuman.IdReq\x1a\x13.digitalhuman.Empty\x12G\n" +
@@ -1825,7 +1983,7 @@ func file_digitalhuman_proto_rawDescGZIP() []byte {
 	return file_digitalhuman_proto_rawDescData
 }
 
-var file_digitalhuman_proto_msgTypes = make([]protoimpl.MessageInfo, 23)
+var file_digitalhuman_proto_msgTypes = make([]protoimpl.MessageInfo, 25)
 var file_digitalhuman_proto_goTypes = []any{
 	(*Empty)(nil),               // 0: digitalhuman.Empty
 	(*IdReq)(nil),               // 1: digitalhuman.IdReq
@@ -1845,11 +2003,13 @@ var file_digitalhuman_proto_goTypes = []any{
 	(*ListVoicesReq)(nil),       // 15: digitalhuman.ListVoicesReq
 	(*VoiceList)(nil),           // 16: digitalhuman.VoiceList
 	(*CreateReq)(nil),           // 17: digitalhuman.CreateReq
-	(*DigitalHumanInfo)(nil),    // 18: digitalhuman.DigitalHumanInfo
-	(*ListReq)(nil),             // 19: digitalhuman.ListReq
-	(*AdminListReq)(nil),        // 20: digitalhuman.AdminListReq
-	(*DigitalHumanList)(nil),    // 21: digitalhuman.DigitalHumanList
-	(*ModelInfo)(nil),           // 22: digitalhuman.ModelInfo
+	(*ResolvePortraitReq)(nil),  // 18: digitalhuman.ResolvePortraitReq
+	(*PortraitImage)(nil),       // 19: digitalhuman.PortraitImage
+	(*DigitalHumanInfo)(nil),    // 20: digitalhuman.DigitalHumanInfo
+	(*ListReq)(nil),             // 21: digitalhuman.ListReq
+	(*AdminListReq)(nil),        // 22: digitalhuman.AdminListReq
+	(*DigitalHumanList)(nil),    // 23: digitalhuman.DigitalHumanList
+	(*ModelInfo)(nil),           // 24: digitalhuman.ModelInfo
 }
 var file_digitalhuman_proto_depIdxs = []int32{
 	5,  // 0: digitalhuman.PublicList.list:type_name -> digitalhuman.PublicInfo
@@ -1859,7 +2019,7 @@ var file_digitalhuman_proto_depIdxs = []int32{
 	7,  // 4: digitalhuman.OptionsResp.skin_tones:type_name -> digitalhuman.OptionInfo
 	7,  // 5: digitalhuman.OptionsResp.roles:type_name -> digitalhuman.OptionInfo
 	14, // 6: digitalhuman.VoiceList.list:type_name -> digitalhuman.VoiceInfo
-	18, // 7: digitalhuman.DigitalHumanList.list:type_name -> digitalhuman.DigitalHumanInfo
+	20, // 7: digitalhuman.DigitalHumanList.list:type_name -> digitalhuman.DigitalHumanInfo
 	3,  // 8: digitalhuman.DigitalHuman.GetAgreement:input_type -> digitalhuman.AgreementReq
 	3,  // 9: digitalhuman.DigitalHuman.AcceptAgreement:input_type -> digitalhuman.AgreementReq
 	0,  // 10: digitalhuman.DigitalHuman.ListPublic:input_type -> digitalhuman.Empty
@@ -1871,41 +2031,43 @@ var file_digitalhuman_proto_depIdxs = []int32{
 	15, // 16: digitalhuman.DigitalHuman.ListVoices:input_type -> digitalhuman.ListVoicesReq
 	17, // 17: digitalhuman.DigitalHuman.Create:input_type -> digitalhuman.CreateReq
 	2,  // 18: digitalhuman.DigitalHuman.Get:input_type -> digitalhuman.IdUserReq
-	19, // 19: digitalhuman.DigitalHuman.List:input_type -> digitalhuman.ListReq
+	21, // 19: digitalhuman.DigitalHuman.List:input_type -> digitalhuman.ListReq
 	2,  // 20: digitalhuman.DigitalHuman.Delete:input_type -> digitalhuman.IdUserReq
-	9,  // 21: digitalhuman.DigitalHuman.AdminListOptions:input_type -> digitalhuman.AdminListOptionsReq
-	7,  // 22: digitalhuman.DigitalHuman.AdminSaveOption:input_type -> digitalhuman.OptionInfo
-	1,  // 23: digitalhuman.DigitalHuman.AdminDeleteOption:input_type -> digitalhuman.IdReq
-	15, // 24: digitalhuman.DigitalHuman.AdminListVoices:input_type -> digitalhuman.ListVoicesReq
-	14, // 25: digitalhuman.DigitalHuman.AdminSaveVoice:input_type -> digitalhuman.VoiceInfo
-	1,  // 26: digitalhuman.DigitalHuman.AdminDeleteVoice:input_type -> digitalhuman.IdReq
-	1,  // 27: digitalhuman.DigitalHuman.AdminGenerateVoicePreview:input_type -> digitalhuman.IdReq
-	20, // 28: digitalhuman.DigitalHuman.AdminList:input_type -> digitalhuman.AdminListReq
-	0,  // 29: digitalhuman.DigitalHuman.AdminGetTTSModel:input_type -> digitalhuman.Empty
-	4,  // 30: digitalhuman.DigitalHuman.GetAgreement:output_type -> digitalhuman.AgreementInfo
-	4,  // 31: digitalhuman.DigitalHuman.AcceptAgreement:output_type -> digitalhuman.AgreementInfo
-	6,  // 32: digitalhuman.DigitalHuman.ListPublic:output_type -> digitalhuman.PublicList
-	10, // 33: digitalhuman.DigitalHuman.Options:output_type -> digitalhuman.OptionsResp
-	13, // 34: digitalhuman.DigitalHuman.CreatePortrait:output_type -> digitalhuman.PortraitInfo
-	13, // 35: digitalhuman.DigitalHuman.GetPortrait:output_type -> digitalhuman.PortraitInfo
-	13, // 36: digitalhuman.DigitalHuman.RegeneratePortrait:output_type -> digitalhuman.PortraitInfo
-	8,  // 37: digitalhuman.DigitalHuman.VoiceCategories:output_type -> digitalhuman.OptionList
-	16, // 38: digitalhuman.DigitalHuman.ListVoices:output_type -> digitalhuman.VoiceList
-	18, // 39: digitalhuman.DigitalHuman.Create:output_type -> digitalhuman.DigitalHumanInfo
-	18, // 40: digitalhuman.DigitalHuman.Get:output_type -> digitalhuman.DigitalHumanInfo
-	21, // 41: digitalhuman.DigitalHuman.List:output_type -> digitalhuman.DigitalHumanList
-	0,  // 42: digitalhuman.DigitalHuman.Delete:output_type -> digitalhuman.Empty
-	8,  // 43: digitalhuman.DigitalHuman.AdminListOptions:output_type -> digitalhuman.OptionList
-	7,  // 44: digitalhuman.DigitalHuman.AdminSaveOption:output_type -> digitalhuman.OptionInfo
-	0,  // 45: digitalhuman.DigitalHuman.AdminDeleteOption:output_type -> digitalhuman.Empty
-	16, // 46: digitalhuman.DigitalHuman.AdminListVoices:output_type -> digitalhuman.VoiceList
-	14, // 47: digitalhuman.DigitalHuman.AdminSaveVoice:output_type -> digitalhuman.VoiceInfo
-	0,  // 48: digitalhuman.DigitalHuman.AdminDeleteVoice:output_type -> digitalhuman.Empty
-	14, // 49: digitalhuman.DigitalHuman.AdminGenerateVoicePreview:output_type -> digitalhuman.VoiceInfo
-	21, // 50: digitalhuman.DigitalHuman.AdminList:output_type -> digitalhuman.DigitalHumanList
-	22, // 51: digitalhuman.DigitalHuman.AdminGetTTSModel:output_type -> digitalhuman.ModelInfo
-	30, // [30:52] is the sub-list for method output_type
-	8,  // [8:30] is the sub-list for method input_type
+	18, // 21: digitalhuman.DigitalHuman.ResolvePortrait:input_type -> digitalhuman.ResolvePortraitReq
+	9,  // 22: digitalhuman.DigitalHuman.AdminListOptions:input_type -> digitalhuman.AdminListOptionsReq
+	7,  // 23: digitalhuman.DigitalHuman.AdminSaveOption:input_type -> digitalhuman.OptionInfo
+	1,  // 24: digitalhuman.DigitalHuman.AdminDeleteOption:input_type -> digitalhuman.IdReq
+	15, // 25: digitalhuman.DigitalHuman.AdminListVoices:input_type -> digitalhuman.ListVoicesReq
+	14, // 26: digitalhuman.DigitalHuman.AdminSaveVoice:input_type -> digitalhuman.VoiceInfo
+	1,  // 27: digitalhuman.DigitalHuman.AdminDeleteVoice:input_type -> digitalhuman.IdReq
+	1,  // 28: digitalhuman.DigitalHuman.AdminGenerateVoicePreview:input_type -> digitalhuman.IdReq
+	22, // 29: digitalhuman.DigitalHuman.AdminList:input_type -> digitalhuman.AdminListReq
+	0,  // 30: digitalhuman.DigitalHuman.AdminGetTTSModel:input_type -> digitalhuman.Empty
+	4,  // 31: digitalhuman.DigitalHuman.GetAgreement:output_type -> digitalhuman.AgreementInfo
+	4,  // 32: digitalhuman.DigitalHuman.AcceptAgreement:output_type -> digitalhuman.AgreementInfo
+	6,  // 33: digitalhuman.DigitalHuman.ListPublic:output_type -> digitalhuman.PublicList
+	10, // 34: digitalhuman.DigitalHuman.Options:output_type -> digitalhuman.OptionsResp
+	13, // 35: digitalhuman.DigitalHuman.CreatePortrait:output_type -> digitalhuman.PortraitInfo
+	13, // 36: digitalhuman.DigitalHuman.GetPortrait:output_type -> digitalhuman.PortraitInfo
+	13, // 37: digitalhuman.DigitalHuman.RegeneratePortrait:output_type -> digitalhuman.PortraitInfo
+	8,  // 38: digitalhuman.DigitalHuman.VoiceCategories:output_type -> digitalhuman.OptionList
+	16, // 39: digitalhuman.DigitalHuman.ListVoices:output_type -> digitalhuman.VoiceList
+	20, // 40: digitalhuman.DigitalHuman.Create:output_type -> digitalhuman.DigitalHumanInfo
+	20, // 41: digitalhuman.DigitalHuman.Get:output_type -> digitalhuman.DigitalHumanInfo
+	23, // 42: digitalhuman.DigitalHuman.List:output_type -> digitalhuman.DigitalHumanList
+	0,  // 43: digitalhuman.DigitalHuman.Delete:output_type -> digitalhuman.Empty
+	19, // 44: digitalhuman.DigitalHuman.ResolvePortrait:output_type -> digitalhuman.PortraitImage
+	8,  // 45: digitalhuman.DigitalHuman.AdminListOptions:output_type -> digitalhuman.OptionList
+	7,  // 46: digitalhuman.DigitalHuman.AdminSaveOption:output_type -> digitalhuman.OptionInfo
+	0,  // 47: digitalhuman.DigitalHuman.AdminDeleteOption:output_type -> digitalhuman.Empty
+	16, // 48: digitalhuman.DigitalHuman.AdminListVoices:output_type -> digitalhuman.VoiceList
+	14, // 49: digitalhuman.DigitalHuman.AdminSaveVoice:output_type -> digitalhuman.VoiceInfo
+	0,  // 50: digitalhuman.DigitalHuman.AdminDeleteVoice:output_type -> digitalhuman.Empty
+	14, // 51: digitalhuman.DigitalHuman.AdminGenerateVoicePreview:output_type -> digitalhuman.VoiceInfo
+	23, // 52: digitalhuman.DigitalHuman.AdminList:output_type -> digitalhuman.DigitalHumanList
+	24, // 53: digitalhuman.DigitalHuman.AdminGetTTSModel:output_type -> digitalhuman.ModelInfo
+	31, // [31:54] is the sub-list for method output_type
+	8,  // [8:31] is the sub-list for method input_type
 	8,  // [8:8] is the sub-list for extension type_name
 	8,  // [8:8] is the sub-list for extension extendee
 	0,  // [0:8] is the sub-list for field type_name
@@ -1922,7 +2084,7 @@ func file_digitalhuman_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_digitalhuman_proto_rawDesc), len(file_digitalhuman_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   23,
+			NumMessages:   25,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

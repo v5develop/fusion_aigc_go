@@ -14,18 +14,21 @@ import (
 )
 
 type (
-	CreateReq        = pb.CreateReq
-	Empty            = pb.Empty
-	IdUserReq        = pb.IdUserReq
-	ImageInfo        = pb.ImageInfo
-	ImageList        = pb.ImageList
-	KindReq          = pb.KindReq
-	ListReq          = pb.ListReq
-	ListTemplatesReq = pb.ListTemplatesReq
-	Option           = pb.Option
-	OptionsResp      = pb.OptionsResp
-	Template         = pb.Template
-	TemplateList     = pb.TemplateList
+	ActionVideo          = pb.ActionVideo
+	ActionVideoList      = pb.ActionVideoList
+	CreateReq            = pb.CreateReq
+	Empty                = pb.Empty
+	IdUserReq            = pb.IdUserReq
+	ImageInfo            = pb.ImageInfo
+	ImageList            = pb.ImageList
+	ImportActionVideoReq = pb.ImportActionVideoReq
+	KindReq              = pb.KindReq
+	ListReq              = pb.ListReq
+	ListTemplatesReq     = pb.ListTemplatesReq
+	Option               = pb.Option
+	OptionsResp          = pb.OptionsResp
+	Template             = pb.Template
+	TemplateList         = pb.TemplateList
 
 	ImageGen interface {
 		// ---- App ----
@@ -37,6 +40,10 @@ type (
 		Get(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*ImageInfo, error)
 		List(ctx context.Context, in *ListReq, opts ...grpc.CallOption) (*ImageList, error)
 		Delete(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*Empty, error)
+		// ---- 动作迁移：动作视频（预置来自模板素材表，我的来自用户导入）----
+		ListActionVideos(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*ActionVideoList, error)
+		ImportActionVideo(ctx context.Context, in *ImportActionVideoReq, opts ...grpc.CallOption) (*ActionVideo, error)
+		DeleteActionVideo(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*Empty, error)
 		// ---- 运营后台 ----
 		AdminList(ctx context.Context, in *ListReq, opts ...grpc.CallOption) (*ImageList, error)
 	}
@@ -83,6 +90,22 @@ func (m *defaultImageGen) List(ctx context.Context, in *ListReq, opts ...grpc.Ca
 func (m *defaultImageGen) Delete(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*Empty, error) {
 	client := pb.NewImageGenClient(m.cli.Conn())
 	return client.Delete(ctx, in, opts...)
+}
+
+// ---- 动作迁移：动作视频（预置来自模板素材表，我的来自用户导入）----
+func (m *defaultImageGen) ListActionVideos(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*ActionVideoList, error) {
+	client := pb.NewImageGenClient(m.cli.Conn())
+	return client.ListActionVideos(ctx, in, opts...)
+}
+
+func (m *defaultImageGen) ImportActionVideo(ctx context.Context, in *ImportActionVideoReq, opts ...grpc.CallOption) (*ActionVideo, error) {
+	client := pb.NewImageGenClient(m.cli.Conn())
+	return client.ImportActionVideo(ctx, in, opts...)
+}
+
+func (m *defaultImageGen) DeleteActionVideo(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*Empty, error) {
+	client := pb.NewImageGenClient(m.cli.Conn())
+	return client.DeleteActionVideo(ctx, in, opts...)
 }
 
 // ---- 运营后台 ----

@@ -19,6 +19,8 @@ type Config struct {
 	// Asset 成品写进素材库；Type/EntryCode 按 kind 取下面 Poster / LongImage 的配置
 	Asset  asset.Conf
 	Poster KindConf
+	// ActionTransfer 动作迁移：人物图 + 动作视频 → 视频（执行面 9，seedance 2.0 会路由到 86）
+	ActionTransfer KindConf
 	// LongImage 长图：模板选填，比例固定，Model 留空不传（对接文档里 76 没有 model 参数）
 	LongImage    KindConf
 	TaskIDPrefix string `json:",default=aigclife"`
@@ -27,7 +29,9 @@ type Config struct {
 		MaxMaterials  int `json:",default=3"`
 		MaxImages     int `json:",default=4"`
 	}
-	Poll struct {
+	// DigitalHumanRpc 解析人物图来源（上传 / 公共数字人 / AI定制形象）
+	DigitalHumanRpc zrpc.RpcClientConf
+	Poll            struct {
 		IntervalSeconds int `json:",default=5"`
 		TimeoutMinutes  int `json:",default=10"`
 	}

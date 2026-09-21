@@ -461,7 +461,7 @@ type (
 		Label string `json:"label"`
 	}
 	ImageGenOptionsReq {
-		Kind string `form:"kind,options=poster|longImage"`
+		Kind string `form:"kind,options=poster|longImage|actionTransfer"`
 	}
 	ImageGenOptionsResp {
 		PosterTypes      []ImageGenOption `json:"poster_types"`
@@ -472,6 +472,7 @@ type (
 		MaxMaterials     int32            `json:"max_materials"`
 		MaxContentLen    int32            `json:"max_content_len"`
 		TemplateRequired bool             `json:"template_required"`
+		Models           []ImageGenOption `json:"models"` // 动作迁移的模型选择
 	}
 	ImageGenTemplatesReq {
 		Kind       string `form:"kind,options=poster|longImage"`
@@ -487,33 +488,61 @@ type (
 	}
 	CreateImageGenReq {
 		RequestId    string   `header:"X-Request-Id"`
-		Kind         string   `json:"kind,options=poster|longImage"`
-		Content      string   `json:"content"`
+		Kind         string   `json:"kind,options=poster|longImage|actionTransfer"`
+		Content      string   `json:"content,optional"`
 		MaterialUrls []string `json:"material_urls,optional"`
 		TemplateId   int64    `json:"template_id,optional"`
 		PosterType   string   `json:"poster_type,optional"`
 		PosterStyle  string   `json:"poster_style,optional"`
 		Size         string   `json:"size,optional"`
 		ImageCount   int32    `json:"image_count,optional"`
+		// 动作迁移
+		PortraitSource  string `json:"portrait_source,optional,options=|UPLOAD|PUBLIC|AI"`
+		ImageUrl        string `json:"image_url,optional"`
+		PublicId        int64  `json:"public_id,optional"`
+		PortraitId      int64  `json:"portrait_id,optional"`
+		ImageIndex      int32  `json:"image_index,optional"`
+		ActionVideoId   int64  `json:"action_video_id,optional"`
+		MyActionVideoId int64  `json:"my_action_video_id,optional"`
+		Model           string `json:"model,optional"`
+	}
+	ActionVideo {
+		Id       int64  `json:"id"`
+		Name     string `json:"name"`
+		Url      string `json:"url"`
+		CoverUrl string `json:"cover_url"`
+		Mine     bool   `json:"mine"`
+	}
+	ActionVideoListResp {
+		Presets []ActionVideo `json:"presets"`
+		Mine    []ActionVideo `json:"mine"`
+	}
+	ImportActionVideoReq {
+		Url      string `json:"url"`
+		CoverUrl string `json:"cover_url,optional"`
+		Name     string `json:"name,optional"`
 	}
 	ImageCreation {
-		Id           int64    `json:"id"`
-		Kind         string   `json:"kind"`
-		Content      string   `json:"content"`
-		MaterialUrls []string `json:"material_urls"`
-		TemplateId   int64    `json:"template_id"`
-		TemplateUrl  string   `json:"template_url"`
-		PosterType   string   `json:"poster_type"`
-		PosterStyle  string   `json:"poster_style"`
-		Size         string   `json:"size"`
-		ImageCount   int32    `json:"image_count"`
-		ImageUrls    []string `json:"image_urls"`
-		Status       int32    `json:"status"`
-		FailReason   string   `json:"fail_reason"`
-		CreateTime   int64    `json:"create_time"`
+		Id            int64    `json:"id"`
+		Kind          string   `json:"kind"`
+		Content       string   `json:"content"`
+		MaterialUrls  []string `json:"material_urls"`
+		TemplateId    int64    `json:"template_id"`
+		TemplateUrl   string   `json:"template_url"`
+		PosterType    string   `json:"poster_type"`
+		PosterStyle   string   `json:"poster_style"`
+		Size          string   `json:"size"`
+		ImageCount    int32    `json:"image_count"`
+		ImageUrls     []string `json:"image_urls"`
+		InputImageUrl string   `json:"input_image_url"`
+		InputVideoUrl string   `json:"input_video_url"`
+		Model         string   `json:"model"`
+		Status        int32    `json:"status"`
+		FailReason    string   `json:"fail_reason"`
+		CreateTime    int64    `json:"create_time"`
 	}
 	ListImageGenReq {
-		Kind     string `form:"kind,optional,options=|poster|longImage"`
+		Kind     string `form:"kind,optional,options=|poster|longImage|actionTransfer"`
 		Status   int32  `form:"status,optional,default=-1"`
 		Page     int64  `form:"page,optional,default=1"`
 		PageSize int64  `form:"page_size,optional,default=20"`
@@ -553,5 +582,17 @@ service gateway-api {
 	@doc "删除"
 	@handler remove
 	delete /image-creations/:id (IdPath) returns (EmptyResp)
+
+	@doc "动作视频：预置（运营维护）+ 我导入的"
+	@handler actionVideos
+	get /action-videos returns (ActionVideoListResp)
+
+	@doc "导入动作视频（前端直传后回传地址）"
+	@handler importActionVideo
+	post /action-videos (ImportActionVideoReq) returns (ActionVideo)
+
+	@doc "删除我导入的动作视频"
+	@handler removeActionVideo
+	delete /action-videos/:id (IdPath) returns (EmptyResp)
 }
 

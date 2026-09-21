@@ -56,6 +56,22 @@ func (s *ImageGenServer) Delete(ctx context.Context, in *pb.IdUserReq) (*pb.Empt
 	return l.Delete(in)
 }
 
+// ---- 动作迁移：动作视频（预置来自模板素材表，我的来自用户导入）----
+func (s *ImageGenServer) ListActionVideos(ctx context.Context, in *pb.IdUserReq) (*pb.ActionVideoList, error) {
+	l := logic.NewListActionVideosLogic(ctx, s.svcCtx)
+	return l.ListActionVideos(in)
+}
+
+func (s *ImageGenServer) ImportActionVideo(ctx context.Context, in *pb.ImportActionVideoReq) (*pb.ActionVideo, error) {
+	l := logic.NewImportActionVideoLogic(ctx, s.svcCtx)
+	return l.ImportActionVideo(in)
+}
+
+func (s *ImageGenServer) DeleteActionVideo(ctx context.Context, in *pb.IdUserReq) (*pb.Empty, error) {
+	l := logic.NewDeleteActionVideoLogic(ctx, s.svcCtx)
+	return l.DeleteActionVideo(in)
+}
+
 // ---- 运营后台 ----
 func (s *ImageGenServer) AdminList(ctx context.Context, in *pb.ListReq) (*pb.ImageList, error) {
 	l := logic.NewAdminListLogic(ctx, s.svcCtx)

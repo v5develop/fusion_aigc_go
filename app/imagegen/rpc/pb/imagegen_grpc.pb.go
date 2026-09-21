@@ -19,20 +19,23 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	ImageGen_Options_FullMethodName       = "/imagegen.ImageGen/Options"
-	ImageGen_ListTemplates_FullMethodName = "/imagegen.ImageGen/ListTemplates"
-	ImageGen_Create_FullMethodName        = "/imagegen.ImageGen/Create"
-	ImageGen_Get_FullMethodName           = "/imagegen.ImageGen/Get"
-	ImageGen_List_FullMethodName          = "/imagegen.ImageGen/List"
-	ImageGen_Delete_FullMethodName        = "/imagegen.ImageGen/Delete"
-	ImageGen_AdminList_FullMethodName     = "/imagegen.ImageGen/AdminList"
+	ImageGen_Options_FullMethodName           = "/imagegen.ImageGen/Options"
+	ImageGen_ListTemplates_FullMethodName     = "/imagegen.ImageGen/ListTemplates"
+	ImageGen_Create_FullMethodName            = "/imagegen.ImageGen/Create"
+	ImageGen_Get_FullMethodName               = "/imagegen.ImageGen/Get"
+	ImageGen_List_FullMethodName              = "/imagegen.ImageGen/List"
+	ImageGen_Delete_FullMethodName            = "/imagegen.ImageGen/Delete"
+	ImageGen_ListActionVideos_FullMethodName  = "/imagegen.ImageGen/ListActionVideos"
+	ImageGen_ImportActionVideo_FullMethodName = "/imagegen.ImageGen/ImportActionVideo"
+	ImageGen_DeleteActionVideo_FullMethodName = "/imagegen.ImageGen/DeleteActionVideo"
+	ImageGen_AdminList_FullMethodName         = "/imagegen.ImageGen/AdminList"
 )
 
 // ImageGenClient is the client API for ImageGen service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
-// AI 海报（执行面 78）与 AI 长图（执行面 76）。两者流程相同，用 kind 区分。
+// AI 海报（78）、AI 长图（76）、动作迁移（9 / 86）。流程相同，用 kind 区分。
 type ImageGenClient interface {
 	// ---- App ----
 	// 表单配置：海报类型 / 风格 / 比例 / 数量与素材上限
@@ -44,6 +47,10 @@ type ImageGenClient interface {
 	Get(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*ImageInfo, error)
 	List(ctx context.Context, in *ListReq, opts ...grpc.CallOption) (*ImageList, error)
 	Delete(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*Empty, error)
+	// ---- 动作迁移：动作视频（预置来自模板素材表，我的来自用户导入）----
+	ListActionVideos(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*ActionVideoList, error)
+	ImportActionVideo(ctx context.Context, in *ImportActionVideoReq, opts ...grpc.CallOption) (*ActionVideo, error)
+	DeleteActionVideo(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*Empty, error)
 	// ---- 运营后台 ----
 	AdminList(ctx context.Context, in *ListReq, opts ...grpc.CallOption) (*ImageList, error)
 }
@@ -116,6 +123,36 @@ func (c *imageGenClient) Delete(ctx context.Context, in *IdUserReq, opts ...grpc
 	return out, nil
 }
 
+func (c *imageGenClient) ListActionVideos(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*ActionVideoList, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ActionVideoList)
+	err := c.cc.Invoke(ctx, ImageGen_ListActionVideos_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *imageGenClient) ImportActionVideo(ctx context.Context, in *ImportActionVideoReq, opts ...grpc.CallOption) (*ActionVideo, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ActionVideo)
+	err := c.cc.Invoke(ctx, ImageGen_ImportActionVideo_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *imageGenClient) DeleteActionVideo(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, ImageGen_DeleteActionVideo_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *imageGenClient) AdminList(ctx context.Context, in *ListReq, opts ...grpc.CallOption) (*ImageList, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ImageList)
@@ -130,7 +167,7 @@ func (c *imageGenClient) AdminList(ctx context.Context, in *ListReq, opts ...grp
 // All implementations must embed UnimplementedImageGenServer
 // for forward compatibility.
 //
-// AI 海报（执行面 78）与 AI 长图（执行面 76）。两者流程相同，用 kind 区分。
+// AI 海报（78）、AI 长图（76）、动作迁移（9 / 86）。流程相同，用 kind 区分。
 type ImageGenServer interface {
 	// ---- App ----
 	// 表单配置：海报类型 / 风格 / 比例 / 数量与素材上限
@@ -142,6 +179,10 @@ type ImageGenServer interface {
 	Get(context.Context, *IdUserReq) (*ImageInfo, error)
 	List(context.Context, *ListReq) (*ImageList, error)
 	Delete(context.Context, *IdUserReq) (*Empty, error)
+	// ---- 动作迁移：动作视频（预置来自模板素材表，我的来自用户导入）----
+	ListActionVideos(context.Context, *IdUserReq) (*ActionVideoList, error)
+	ImportActionVideo(context.Context, *ImportActionVideoReq) (*ActionVideo, error)
+	DeleteActionVideo(context.Context, *IdUserReq) (*Empty, error)
 	// ---- 运营后台 ----
 	AdminList(context.Context, *ListReq) (*ImageList, error)
 	mustEmbedUnimplementedImageGenServer()
@@ -171,6 +212,15 @@ func (UnimplementedImageGenServer) List(context.Context, *ListReq) (*ImageList, 
 }
 func (UnimplementedImageGenServer) Delete(context.Context, *IdUserReq) (*Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method Delete not implemented")
+}
+func (UnimplementedImageGenServer) ListActionVideos(context.Context, *IdUserReq) (*ActionVideoList, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListActionVideos not implemented")
+}
+func (UnimplementedImageGenServer) ImportActionVideo(context.Context, *ImportActionVideoReq) (*ActionVideo, error) {
+	return nil, status.Error(codes.Unimplemented, "method ImportActionVideo not implemented")
+}
+func (UnimplementedImageGenServer) DeleteActionVideo(context.Context, *IdUserReq) (*Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteActionVideo not implemented")
 }
 func (UnimplementedImageGenServer) AdminList(context.Context, *ListReq) (*ImageList, error) {
 	return nil, status.Error(codes.Unimplemented, "method AdminList not implemented")
@@ -304,6 +354,60 @@ func _ImageGen_Delete_Handler(srv interface{}, ctx context.Context, dec func(int
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ImageGen_ListActionVideos_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(IdUserReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ImageGenServer).ListActionVideos(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ImageGen_ListActionVideos_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ImageGenServer).ListActionVideos(ctx, req.(*IdUserReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ImageGen_ImportActionVideo_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ImportActionVideoReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ImageGenServer).ImportActionVideo(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ImageGen_ImportActionVideo_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ImageGenServer).ImportActionVideo(ctx, req.(*ImportActionVideoReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ImageGen_DeleteActionVideo_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(IdUserReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ImageGenServer).DeleteActionVideo(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ImageGen_DeleteActionVideo_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ImageGenServer).DeleteActionVideo(ctx, req.(*IdUserReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _ImageGen_AdminList_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ListReq)
 	if err := dec(in); err != nil {
@@ -352,6 +456,18 @@ var ImageGen_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Delete",
 			Handler:    _ImageGen_Delete_Handler,
+		},
+		{
+			MethodName: "ListActionVideos",
+			Handler:    _ImageGen_ListActionVideos_Handler,
+		},
+		{
+			MethodName: "ImportActionVideo",
+			Handler:    _ImageGen_ImportActionVideo_Handler,
+		},
+		{
+			MethodName: "DeleteActionVideo",
+			Handler:    _ImageGen_DeleteActionVideo_Handler,
 		},
 		{
 			MethodName: "AdminList",

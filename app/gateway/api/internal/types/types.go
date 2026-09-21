@@ -3,6 +3,19 @@
 
 package types
 
+type ActionVideo struct {
+	Id       int64  `json:"id"`
+	Name     string `json:"name"`
+	Url      string `json:"url"`
+	CoverUrl string `json:"cover_url"`
+	Mine     bool   `json:"mine"`
+}
+
+type ActionVideoListResp struct {
+	Presets []ActionVideo `json:"presets"`
+	Mine    []ActionVideo `json:"mine"`
+}
+
 type AgreementResp struct {
 	Code     string `json:"code"`
 	Version  int32  `json:"version"`
@@ -52,15 +65,23 @@ type CreateDigitalHumanReq struct {
 }
 
 type CreateImageGenReq struct {
-	RequestId    string   `header:"X-Request-Id"`
-	Kind         string   `json:"kind,options=poster|longImage"`
-	Content      string   `json:"content"`
-	MaterialUrls []string `json:"material_urls,optional"`
-	TemplateId   int64    `json:"template_id,optional"`
-	PosterType   string   `json:"poster_type,optional"`
-	PosterStyle  string   `json:"poster_style,optional"`
-	Size         string   `json:"size,optional"`
-	ImageCount   int32    `json:"image_count,optional"`
+	RequestId       string   `header:"X-Request-Id"`
+	Kind            string   `json:"kind,options=poster|longImage|actionTransfer"`
+	Content         string   `json:"content,optional"`
+	MaterialUrls    []string `json:"material_urls,optional"`
+	TemplateId      int64    `json:"template_id,optional"`
+	PosterType      string   `json:"poster_type,optional"`
+	PosterStyle     string   `json:"poster_style,optional"`
+	Size            string   `json:"size,optional"`
+	ImageCount      int32    `json:"image_count,optional"`
+	PortraitSource  string   `json:"portrait_source,optional,options=|UPLOAD|PUBLIC|AI"`
+	ImageUrl        string   `json:"image_url,optional"`
+	PublicId        int64    `json:"public_id,optional"`
+	PortraitId      int64    `json:"portrait_id,optional"`
+	ImageIndex      int32    `json:"image_index,optional"`
+	ActionVideoId   int64    `json:"action_video_id,optional"`
+	MyActionVideoId int64    `json:"my_action_video_id,optional"`
+	Model           string   `json:"model,optional"`
 }
 
 type CreatePortraitReq struct {
@@ -156,20 +177,23 @@ type IdPath struct {
 }
 
 type ImageCreation struct {
-	Id           int64    `json:"id"`
-	Kind         string   `json:"kind"`
-	Content      string   `json:"content"`
-	MaterialUrls []string `json:"material_urls"`
-	TemplateId   int64    `json:"template_id"`
-	TemplateUrl  string   `json:"template_url"`
-	PosterType   string   `json:"poster_type"`
-	PosterStyle  string   `json:"poster_style"`
-	Size         string   `json:"size"`
-	ImageCount   int32    `json:"image_count"`
-	ImageUrls    []string `json:"image_urls"`
-	Status       int32    `json:"status"`
-	FailReason   string   `json:"fail_reason"`
-	CreateTime   int64    `json:"create_time"`
+	Id            int64    `json:"id"`
+	Kind          string   `json:"kind"`
+	Content       string   `json:"content"`
+	MaterialUrls  []string `json:"material_urls"`
+	TemplateId    int64    `json:"template_id"`
+	TemplateUrl   string   `json:"template_url"`
+	PosterType    string   `json:"poster_type"`
+	PosterStyle   string   `json:"poster_style"`
+	Size          string   `json:"size"`
+	ImageCount    int32    `json:"image_count"`
+	ImageUrls     []string `json:"image_urls"`
+	InputImageUrl string   `json:"input_image_url"`
+	InputVideoUrl string   `json:"input_video_url"`
+	Model         string   `json:"model"`
+	Status        int32    `json:"status"`
+	FailReason    string   `json:"fail_reason"`
+	CreateTime    int64    `json:"create_time"`
 }
 
 type ImageGenListResp struct {
@@ -183,7 +207,7 @@ type ImageGenOption struct {
 }
 
 type ImageGenOptionsReq struct {
-	Kind string `form:"kind,options=poster|longImage"`
+	Kind string `form:"kind,options=poster|longImage|actionTransfer"`
 }
 
 type ImageGenOptionsResp struct {
@@ -195,6 +219,7 @@ type ImageGenOptionsResp struct {
 	MaxMaterials     int32            `json:"max_materials"`
 	MaxContentLen    int32            `json:"max_content_len"`
 	TemplateRequired bool             `json:"template_required"`
+	Models           []ImageGenOption `json:"models"` // 动作迁移的模型选择
 }
 
 type ImageGenTemplate struct {
@@ -212,6 +237,12 @@ type ImageGenTemplatesResp struct {
 	List []ImageGenTemplate `json:"list"`
 }
 
+type ImportActionVideoReq struct {
+	Url      string `json:"url"`
+	CoverUrl string `json:"cover_url,optional"`
+	Name     string `json:"name,optional"`
+}
+
 type ListDigitalHumansReq struct {
 	Status   int32 `form:"status,optional,default=-1"`
 	Page     int64 `form:"page,optional,default=1"`
@@ -219,7 +250,7 @@ type ListDigitalHumansReq struct {
 }
 
 type ListImageGenReq struct {
-	Kind     string `form:"kind,optional,options=|poster|longImage"`
+	Kind     string `form:"kind,optional,options=|poster|longImage|actionTransfer"`
 	Status   int32  `form:"status,optional,default=-1"`
 	Page     int64  `form:"page,optional,default=1"`
 	PageSize int64  `form:"page_size,optional,default=20"`

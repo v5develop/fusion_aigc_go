@@ -24,6 +24,8 @@ service DigitalHuman {
   rpc Get(IdUserReq) returns (DigitalHumanInfo);
   rpc List(ListReq) returns (DigitalHumanList);
   rpc Delete(IdUserReq) returns (Empty);
+  // ResolvePortrait 把「形象来源 + id」解析成形象图地址，供动作迁移等模块复用
+  rpc ResolvePortrait(ResolvePortraitReq) returns (PortraitImage);
 
   // ---- 运营后台 ----
   rpc AdminListOptions(AdminListOptionsReq) returns (OptionList);
@@ -160,6 +162,21 @@ message CreateReq {
   int64 voice_id = 8;
   string script = 9;
   string request_id = 10;       // 幂等
+}
+
+message ResolvePortraitReq {
+  int64 user_id = 1;
+  string portrait_source = 2;   // UPLOAD / PUBLIC / AI
+  string image_url = 3;         // UPLOAD：上传接口返回的地址
+  int64 public_id = 4;          // PUBLIC
+  int64 portrait_id = 5;        // AI
+  int32 image_index = 6;        // AI：选中第几张（0 起）
+}
+
+message PortraitImage {
+  string image_url = 1;
+  int64 ref_id = 2;             // PUBLIC=公共数字人 id，AI=定制形象记录 id
+  string default_name = 3;      // 公共数字人名，可为空
 }
 
 message DigitalHumanInfo {

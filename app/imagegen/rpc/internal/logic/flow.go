@@ -55,6 +55,11 @@ func buildTask(c *model.AfvImageCreation, cfg *config.KindConf, mats []string, t
 			PosterType: typeLabel, PosterStyle: style, Size: c.Size, Model: cfg.Model,
 		}
 	}
+	if c.Kind == model.KindActionTransfer {
+		return aigc.MotionDrive{
+			InputVideo: c.InputVideoUrl.String, ReferenceImage: c.InputImageUrl.String, Model: c.Model,
+		}
+	}
 	return aigc.LongImage{
 		UserText: c.Content, TemplateURL: c.TemplateUrl.String, MaterialURLs: mats, Size: c.Size,
 	}
@@ -210,12 +215,16 @@ func saveAssets(ctx context.Context, svcCtx *svc.ServiceContext, c *model.AfvIma
 		return
 	}
 	props, _ := json.Marshal(map[string]any{"creationId": c.Id, "kind": c.Kind, "posterType": c.PosterType.String})
+	name := c.Content
+	if c.Kind == model.KindActionTransfer {
+		name = "动作迁移"
+	}
 	group := groupTaskID(c)
 	list := make([]asset.Asset, 0, len(urls))
 	for _, u := range urls {
 		list = append(list, asset.Asset{
 			UserID: c.UserId, SourceTaskID: group, Type: cfg.AssetType, EntryCode: cfg.AssetEntryCode,
-			Name: c.Content, CoverURL: u, ResultURL: u, AspectRatio: c.Size, AIPrompt: c.Content,
+			Name: name, CoverURL: coverOf(c, u), ResultURL: u, AspectRatio: c.Size, AIPrompt: c.Content,
 			Properties: string(props),
 		})
 	}
@@ -230,4 +239,12 @@ func groupTaskID(c *model.AfvImageCreation) string {
 		return t[0].TaskID
 	}
 	return ""
+}
+
+// coverOf 素材库封面：动作迁移的成品是视频，用人物图当封面；图片类成品用自身。
+func coverOf(c *model.AfvImageCreation, url string) string {
+	if c.Kind == model.KindActionTransfer && c.InputImageUrl.Valid {
+		return c.InputImageUrl.String
+	}
+	return url
 }

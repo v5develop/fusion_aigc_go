@@ -31,10 +31,12 @@ type (
 	OptionInfo          = pb.OptionInfo
 	OptionList          = pb.OptionList
 	OptionsResp         = pb.OptionsResp
+	PortraitImage       = pb.PortraitImage
 	PortraitInfo        = pb.PortraitInfo
 	PublicInfo          = pb.PublicInfo
 	PublicList          = pb.PublicList
 	RegenerateReq       = pb.RegenerateReq
+	ResolvePortraitReq  = pb.ResolvePortraitReq
 	VoiceInfo           = pb.VoiceInfo
 	VoiceList           = pb.VoiceList
 
@@ -57,6 +59,8 @@ type (
 		Get(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*DigitalHumanInfo, error)
 		List(ctx context.Context, in *ListReq, opts ...grpc.CallOption) (*DigitalHumanList, error)
 		Delete(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*Empty, error)
+		// ResolvePortrait 把「形象来源 + id」解析成形象图地址，供动作迁移等模块复用
+		ResolvePortrait(ctx context.Context, in *ResolvePortraitReq, opts ...grpc.CallOption) (*PortraitImage, error)
 		// ---- 运营后台 ----
 		AdminListOptions(ctx context.Context, in *AdminListOptionsReq, opts ...grpc.CallOption) (*OptionList, error)
 		AdminSaveOption(ctx context.Context, in *OptionInfo, opts ...grpc.CallOption) (*OptionInfo, error)
@@ -150,6 +154,12 @@ func (m *defaultDigitalHuman) List(ctx context.Context, in *ListReq, opts ...grp
 func (m *defaultDigitalHuman) Delete(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*Empty, error) {
 	client := pb.NewDigitalHumanClient(m.cli.Conn())
 	return client.Delete(ctx, in, opts...)
+}
+
+// ResolvePortrait 把「形象来源 + id」解析成形象图地址，供动作迁移等模块复用
+func (m *defaultDigitalHuman) ResolvePortrait(ctx context.Context, in *ResolvePortraitReq, opts ...grpc.CallOption) (*PortraitImage, error) {
+	client := pb.NewDigitalHumanClient(m.cli.Conn())
+	return client.ResolvePortrait(ctx, in, opts...)
 }
 
 // ---- 运营后台 ----

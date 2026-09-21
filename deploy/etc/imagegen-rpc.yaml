@@ -45,3 +45,14 @@ Poll:
   TimeoutMinutes: 10
 Moderation:
   Mode: keyword
+ActionTransfer:
+  Module: actionTransfer
+  Slot: actionVideo     # 预置动作视频的投放位（模板素材表，type=video）
+  Model: ""             # 默认模型档位；实际以前端传入为准（seedance 2.0 / lite）
+  DefaultSize: ""       # 执行面 9 / 86 用自己的默认比例
+  TemplateRequired: false
+  AssetType: video
+  AssetEntryCode: actionTransfer
+DigitalHumanRpc:
+  Etcd: {Hosts: [127.0.0.1:2379], Key: digitalhuman.rpc}
+  NonBlock: true

@@ -93,6 +93,12 @@ func (s *DigitalHumanServer) Delete(ctx context.Context, in *pb.IdUserReq) (*pb.
 	return l.Delete(in)
 }
 
+// ResolvePortrait 把「形象来源 + id」解析成形象图地址，供动作迁移等模块复用
+func (s *DigitalHumanServer) ResolvePortrait(ctx context.Context, in *pb.ResolvePortraitReq) (*pb.PortraitImage, error) {
+	l := logic.NewResolvePortraitLogic(ctx, s.svcCtx)
+	return l.ResolvePortrait(in)
+}
+
 // ---- 运营后台 ----
 func (s *DigitalHumanServer) AdminListOptions(ctx context.Context, in *pb.AdminListOptionsReq) (*pb.OptionList, error) {
 	l := logic.NewAdminListOptionsLogic(ctx, s.svcCtx)
