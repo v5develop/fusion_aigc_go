@@ -137,35 +137,39 @@ INSERT INTO `afv_digital_human_option` (`option_type`,`code`,`label`,`value`,`so
 
 -- 系统音色：百炼 Qwen-Audio-TTS 精品中文音色（qwen-audio-3.1-tts-flash）
 -- https://help.aliyun.com/zh/model-studio/qwen-audio-tts-voice-list
-INSERT INTO `afv_digital_human_voice` (`name`,`voice`,`gender`,`style`,`categories`,`sort_order`) VALUES
- ('于小云','yuxiaoyun_v3.1','female','元气、亲切、自然','["female","broadcast","selling"]',1),
- ('乔小娇','qiaoxiaojiao_v3.1','female','俏丽、可爱','["female","broadcast","selling"]',2),
- ('陆小燕','luxiaoyan_v3.1','female','明亮、清亮','["female","broadcast"]',3),
- ('夏小晨','xiaxiaochen_v3.1','female','元气、明亮','["female","broadcast","selling"]',4),
- ('安明远','anmingyuan_v3.1','male','清亮、自然','["male","broadcast","narration"]',5),
- ('温怀清','wenhuaiqing_v3.1','female','清亮、柔和','["female","knowledge"]',6),
- ('安小岚','anxiaolan_v3.1','female','清甜、纯净','["female"]',7),
- ('许如远','xuruyuan_v3.1','female','细腻、柔和','["female","narration"]',8),
- ('谢舒柔','xieshurou_v3.1','female','柔和、自然、知性','["female","emotion"]',9),
- ('易安宁','yianning_v3.1','female','气声、亲切、口音特别','["female","emotion"]',10),
- ('白清岚','baiqinglan_v3.1','female','明亮、清纯','["female"]',11),
- ('许玉远','xuyuyuan_v3.1','female','知性、成熟、质感','["female","broadcast","knowledge"]',12),
- ('安若柔','anruorou_v3.1','female','气声、知性','["female","emotion"]',13),
- ('闻怀之','wenhuaizhi_v3.1','female','稳重、成熟','["female","knowledge"]',14),
- ('萧行之','xiaoxingzhi_v3.1','female','端庄、贵气','["female","knowledge"]',15),
- ('顾云舒','guyunshu_v3.1','female','成熟、稳重','["female","narration"]',16),
- ('霍拙石','huozhuoshi_v3.1','male','清亮','["male"]',17),
- ('叶清禾','yeqinghe_v3.1','female','亲切、温柔','["female","emotion"]',18),
- ('云欢欢','yunhuanhuan_v3.1','female','高亢、热情','["female","selling"]',19),
- ('徐小俏','xuxiaoqiao_v3.1','female','自然、俏皮','["female"]',20),
- ('白安然','baianran_v3.1','female','低沉、浑厚、气声','["female","emotion","narration"]',21),
- ('许言初','xuyanchu_v3.1','female','沉稳、磁性','["female","knowledge"]',22),
- ('楚景川','chujingchuan_v3.1','male','浑厚、爽朗','["male","narration"]',23),
- ('顾小然','guxiaoran_v3.1','female','邻家姐姐','["female"]',24),
- ('叶知晴','yezhiqing_v3.1','female','轻快、自然','["female"]',25),
- ('凌星朗','lingxinglang_v3.1','female','活泼、元气','["female","selling"]',26),
- ('安迪','andi_v3.1','male','ABC 口音','["male"]',27),
- ('安语晴','anyuqing_v3.1','female','甜妹','["female"]',28);
+--
+-- 2026-09-21 实测：下面 6 个用当前账号合成会返回 411（陆小燕、许如远、易安宁、楚景川、顾小然在官网有列但接口拒绝；
+-- 凌星朗官网已不在列表里），因此建表时就置为停用（status=0），App 端看不到。
+-- 账号开通后把 status 改回 1、再用 deploy/scripts/gen-voice-previews.sh 生成试听即可。
+INSERT INTO `afv_digital_human_voice` (`name`,`voice`,`gender`,`style`,`categories`,`sort_order`,`status`) VALUES
+ ('于小云','yuxiaoyun_v3.1','female','元气、亲切、自然','["female", "broadcast", "selling"]',1,1),
+ ('乔小娇','qiaoxiaojiao_v3.1','female','俏丽、可爱','["female", "broadcast", "selling"]',2,1),
+ ('陆小燕','luxiaoyan_v3.1','female','明亮、清亮','["female", "broadcast"]',3,0),
+ ('夏小晨','xiaxiaochen_v3.1','female','元气、明亮','["female", "broadcast", "selling"]',4,1),
+ ('安明远','anmingyuan_v3.1','male','清亮、自然','["male", "broadcast", "narration"]',5,1),
+ ('温怀清','wenhuaiqing_v3.1','female','清亮、柔和','["female", "knowledge"]',6,1),
+ ('安小岚','anxiaolan_v3.1','female','清甜、纯净','["female"]',7,1),
+ ('许如远','xuruyuan_v3.1','female','细腻、柔和','["female", "narration"]',8,0),
+ ('谢舒柔','xieshurou_v3.1','female','柔和、自然、知性','["female", "emotion"]',9,1),
+ ('易安宁','yianning_v3.1','female','气声、亲切、口音特别','["female", "emotion"]',10,0),
+ ('白清岚','baiqinglan_v3.1','female','明亮、清纯','["female"]',11,1),
+ ('许玉远','xuyuyuan_v3.1','female','知性、成熟、质感','["female", "broadcast", "knowledge"]',12,1),
+ ('安若柔','anruorou_v3.1','female','气声、知性','["female", "emotion"]',13,1),
+ ('闻怀之','wenhuaizhi_v3.1','female','稳重、成熟','["female", "knowledge"]',14,1),
+ ('萧行之','xiaoxingzhi_v3.1','female','端庄、贵气','["female", "knowledge"]',15,1),
+ ('顾云舒','guyunshu_v3.1','female','成熟、稳重','["female", "narration"]',16,1),
+ ('霍拙石','huozhuoshi_v3.1','male','清亮','["male"]',17,1),
+ ('叶清禾','yeqinghe_v3.1','female','亲切、温柔','["female", "emotion"]',18,1),
+ ('云欢欢','yunhuanhuan_v3.1','female','高亢、热情','["female", "selling"]',19,1),
+ ('徐小俏','xuxiaoqiao_v3.1','female','自然、俏皮','["female"]',20,1),
+ ('白安然','baianran_v3.1','female','低沉、浑厚、气声','["female", "emotion", "narration"]',21,1),
+ ('许言初','xuyanchu_v3.1','female','沉稳、磁性','["female", "knowledge"]',22,1),
+ ('楚景川','chujingchuan_v3.1','male','浑厚、爽朗','["male", "narration"]',23,0),
+ ('顾小然','guxiaoran_v3.1','female','邻家姐姐','["female"]',24,0),
+ ('叶知晴','yezhiqing_v3.1','female','轻快、自然','["female"]',25,1),
+ ('凌星朗','lingxinglang_v3.1','female','活泼、元气','["female", "selling"]',26,0),
+ ('安迪','andi_v3.1','male','ABC 口音','["male"]',27,1),
+ ('安语晴','anyuqing_v3.1','female','甜妹','["female"]',28,1);
 
 -- AI帮写新增场景：数字人配音内容（放在 AI文案的提示词表里，运营可改）
 INSERT INTO `afv_copywriting_option` (`option_type`,`code`,`label`,`value`,`sort_order`) VALUES

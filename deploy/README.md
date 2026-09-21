@@ -118,7 +118,7 @@ curl -s -H 'X-Admin-Id: 1' http://<host>:8889/admin/v1/digital-humans/tts-model 
 
 ## 7. 运营需要先准备的数据
 
-否则 App 端对应的列表是空的：
+否则 App 端对应的列表是空的。前四项可以用 `go run ./tools/seed -kind ... -csv ...` 批量导入：
 
 | 内容 | 在哪维护 |
 |---|---|
@@ -126,7 +126,7 @@ curl -s -H 'X-Admin-Id: 1' http://<host>:8889/admin/v1/digital-humans/tts-model 
 | 海报模板 | 投放位 `localLife / poster / template`，按筛选维度 `posterType` 打标签 |
 | 长图模板 | 投放位 `localLife / longImage / template` |
 | 预置动作视频 | 投放位 `localLife / actionTransfer / actionVideo`，素材类型 `video` |
-| 系统音色试听 | 后台「生成试听」按钮，28 个音色各点一次 |
+| 系统音色试听 | `deploy/scripts/gen-voice-previews.sh` 一次生成完（也可在后台逐个点「生成试听」） |
 
 ## 8. 上线前必须补
 

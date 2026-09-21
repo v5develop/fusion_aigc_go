@@ -29,6 +29,15 @@ Go + go-zero，数据落在现有系统的 `fusion_aigc` 库，新表 `afv_` 前
 | 文案生成、AI帮写 | `afv_system_config.ai_writing_model_id` | `qwen3-vl-plus` |
 | 数字人配音（TTS） | `afv_system_config.ai_tts_model_id` | `qwen-audio-3.1-tts-flash`（`model_type=4` 语音合成） |
 
+## 运维脚本
+
+```bash
+# 批量导入运营数据（公共数字人 / 海报模板 / 长图模板 / 预置动作视频），按 url 去重、可重复执行
+go run ./tools/seed -dsn '<mysql dsn>' -kind posterTemplate -csv poster.csv -dry
+# 批量生成系统音色试听（默认只补没有试听的；--force 全部重来）
+ADMIN=http://<host>:8889/admin/v1 deploy/scripts/gen-voice-previews.sh
+```
+
 ## 文档
 
 - **部署**：`deploy/README.md`（依赖、数据库变更、配置、启动、运营要先准备的数据）
@@ -54,9 +63,11 @@ make stop-all
 
 形象（上传照片 / 公共数字人 / AI 定制）+ 系统音色 + 配音内容（≤50 字）→ 口播视频，保存为「我的数字人」。
 
-**本版不做「我的音色」**（录音复刻、自定义音色），只做系统音色：28 个百炼
+**本版不做「我的音色」**（录音复刻、自定义音色），只做系统音色：百炼
 [Qwen-Audio-TTS 精品中文音色](https://help.aliyun.com/zh/model-studio/qwen-audio-tts-voice-list)，
 按分类展示（方言、外语暂无对应音色，分类已停用）。App 端只拿我们的 `voice_id`，不接触音色参数值。
+  入库 28 个，其中 **6 个当前账号合成会报 411，已置为停用**（陆小燕、许如远、易安宁、楚景川、顾小然在官网有列但接口拒绝；
+  凌星朗官网已不在列表），可用 22 个。账号开通后把 `status` 改回 1，再跑 `deploy/scripts/gen-voice-previews.sh` 生成试听。
 
 生成链路：
 

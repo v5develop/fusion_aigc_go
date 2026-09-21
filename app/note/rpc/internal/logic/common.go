@@ -20,12 +20,12 @@ import (
 )
 
 // noteTypes 笔记类型。Label 同时作为 74 的 note_type 传入（文档示例为「种草」）。
-// 探店、种草的上传区文案来自设计稿；情感、知识的设计稿未单独出图，文案暂定。
+// 上传区文案来自设计稿（知识/情感两种见「图文笔记-知识/情感」页，2026-09-21 新增）。
 var noteTypes = []*pb.NoteType{
 	{Code: "explore", Label: "探店", MaterialLabel: "上传门店素材", MaterialHint: "上传参考素材，建议上传门头、店内环境照片"},
 	{Code: "seeding", Label: "种草", MaterialLabel: "上传商品素材", MaterialHint: "上传参考素材，建议上传商品图、使用场景图"},
-	{Code: "emotion", Label: "情感", MaterialLabel: "上传参考素材", MaterialHint: "上传参考素材，建议上传能表达氛围的照片"},
-	{Code: "knowledge", Label: "知识", MaterialLabel: "上传参考素材", MaterialHint: "上传参考素材，建议上传与主题相关的图片"},
+	{Code: "emotion", Label: "情感", MaterialLabel: "上传素材", MaterialHint: "上传参考素材，支持知识配图/情感场景图，AI将参考风格"},
+	{Code: "knowledge", Label: "知识", MaterialLabel: "上传素材", MaterialHint: "上传参考素材，支持知识配图/情感场景图，AI将参考风格"},
 }
 
 func noteTypeLabel(code string) string {

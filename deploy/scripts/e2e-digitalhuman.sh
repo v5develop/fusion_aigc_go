@@ -71,8 +71,8 @@ check "职业 10 个" "$(jq '.roles|length' <<<"$O")" 10
 check "配音上限 50 字" "$(jq '.max_script_len' <<<"$O")" 50
 C=$(api GET /voices/categories)
 check "音色分类 7 个（方言/外语停用）" "$(jq '.list|length' <<<"$C")" 7
-check "全部音色 28 个" "$(api GET /voices | jq '.list|length')" 28
-check "男声 4 个" "$(api GET '/voices?category=male' | jq '.list|length')" 4
+check "启用音色 22 个（6 个账号不可用的已停用）" "$(api GET /voices | jq '.list|length')" 22
+check "男声 3 个" "$(api GET '/voices?category=male' | jq '.list|length')" 3
 check "App 端不暴露音色参数" "$(api GET /voices | jq '[.list[]|has("voice")]|any')" false
 VOICE_ID=$(api GET '/voices?category=selling' | jq -r '.list[0].id')
 
@@ -197,7 +197,7 @@ check "后台看得到音色参数" "$(admin GET /digital-humans/voices | jq -r 
 check "后台看得到停用分类" "$(admin GET '/digital-humans/options?option_type=VOICE_CATEGORY' | jq '.list|length')" 9
 NV=$(admin POST /digital-humans/voices '{"name":"测试音色","voice":"anxiaolan_v3.1_e2e","gender":"female","style":"测试","categories":["female"],"status":0}')
 check "音色参数重复被拒" "$(curl -sS -X POST -H 'X-Admin-Id: 1' -H 'Content-Type: application/json' -d '{"name":"x","voice":"yuxiaoyun_v3.1","gender":"female","status":1}' "$ADMIN/digital-humans/voices" | jq -r .code)" 1005
-check "停用音色 App 不可见" "$(api GET /voices | jq '.list|length')" 28
+check "停用音色 App 不可见" "$(api GET /voices | jq '.list|length')" 22
 admin DELETE "/digital-humans/voices/$(jq -r .id <<<"$NV")" > /dev/null
 PV=$(admin POST "/digital-humans/voices/$VOICE_ID/preview")
 check "生成试听（真实合成）" "$([[ $(jq -r .preview_url <<<"$PV") == *.wav ]] && echo yes)" yes
