@@ -98,7 +98,18 @@ bash /opt/aigc-life/install.sh voices
 
 前端地址：`https://aigc-api.xxx.com/api/v1`。运营后台同理再建一个站点代理到 `18889`。
 
-## 四、验证
+## 四、验证与接口文档
+
+**在线接口文档（Swagger）**，浏览器直接打开，可以在页面上调试：
+
+- App 接口：`http://<服务器公网IP>:18888/swagger`
+- 运营后台：`http://<服务器公网IP>:18889/swagger`
+
+调试前先点右上角「Authorize」，填 `X-User-Id`（后台填 `X-Admin-Id`），比如 `1`，之后每个接口「Try it out」→「Execute」就会带上。
+文档由代码里的接口定义自动生成，和实际接口一致。按页面逐步对接的说明在安装目录 `docs/` 下（`api-app.md`、`api-voiceover.md`）。
+上线前如需关闭文档页：在仓库的 `deploy/etc/gateway-api.yaml`、`admin-api.yaml` 里加一行 `Swagger: false`，重新打包安装。
+
+**命令行验证**：
 
 ```bash
 curl -s -H 'X-User-Id: 1' http://127.0.0.1:18888/api/v1/image-creations/options?kind=voiceover

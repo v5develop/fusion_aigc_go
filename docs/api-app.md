@@ -1,6 +1,8 @@
 # App 接口文档
 
-网关地址：`http://<host>:8888`，所有接口前缀 `/api/v1`。
+网关地址：`http://<host>:8888`（服务器部署默认 18888），所有接口前缀 `/api/v1`。
+
+**在线文档（Swagger，可调试）**：`http://<host>:<端口>/swagger`，先点「Authorize」填 `X-User-Id`。
 
 ## 通用约定
 

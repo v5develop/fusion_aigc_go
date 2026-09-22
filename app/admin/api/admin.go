@@ -4,7 +4,9 @@
 package main
 
 import (
+	"aigc-life/app/admin/api/doc"
 	"aigc-life/pkg/result"
+	"aigc-life/pkg/swaggerui"
 
 	"flag"
 	"fmt"
@@ -31,6 +33,9 @@ func main() {
 	result.Setup()
 	ctx := svc.NewServiceContext(c)
 	handler.RegisterHandlers(server, ctx)
+	if c.Swagger {
+		swaggerui.Register(server, doc.Title, doc.Spec) // 接口文档：/swagger
+	}
 
 	fmt.Printf("Starting server at %s:%d...\n", c.Host, c.Port)
 	server.Start()

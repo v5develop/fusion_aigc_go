@@ -9,7 +9,9 @@ import (
 
 type Config struct {
 	rest.RestConf
-	Auth struct {
+	// Swagger 是否提供接口文档页面 /swagger（联调期开着，上线前可关）
+	Swagger bool `json:",default=true"`
+	Auth    struct {
 		// dev：从请求头 X-User-Id 读取用户（接入现有用户体系前使用）
 		Mode string `json:",default=dev,options=dev"`
 	}
@@ -21,7 +23,7 @@ type Config struct {
 	DataSource string `json:",optional"`
 	// Storage 须与 digitalhuman-rpc 一致：rpc 只接受本存储签发的上传地址
 	Storage storage.Conf
-	Upload struct {
+	Upload  struct {
 		// MaxImageBytes 仅网关代传（开发用）时生效；直传的大小与类型由前端控制
 		MaxImageBytes int64 `json:",default=10485760"`
 		// CredentialTTLMinutes 直传凭证有效期

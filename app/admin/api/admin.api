@@ -1,8 +1,15 @@
 syntax = "v1"
 
 info (
-	title:   "AIGC 本地生活 运营后台网关"
-	version: "v1"
+	title:                       "AIGC 本地生活 运营后台接口"
+	version:                     "v1"
+	description:                 "HTTP 状态码一律 200，用响应里的 code 判断，业务数据在 data 里。提交生成类接口必须带 X-Request-Id（UUID，重试沿用同一个）。完整说明见安装目录 docs/ 下的接口文档。"
+	schemes:                     "http,https"
+	consumes:                    "application/json"
+	produces:                    "application/json"
+	wrapCodeMsg:                 true
+	bizCodeEnumDescription:      "0-成功<br>1000-服务异常，稍后重试<br>1001-参数错误，直接展示 msg<br>1002-未登录<br>1003-不存在或不属于当前用户<br>1005-状态冲突<br>1006-暂未开放 / 形象未生成完成<br>1007-未同意《AIGC功能使用约定》<br>1008-点数不足（计费未接）"
+	securityDefinitionsFromJson: `{"auth":{"type":"apiKey","in":"header","name":"X-Admin-Id","description":"管理员 ID（开发模式；接入后台登录后替换）"}}`
 )
 
 type (
@@ -68,6 +75,8 @@ type (
 	prefix:     /admin/v1
 	middleware: AdminAuth
 	group:      copywriting
+	tags:       "AI文案"
+	authType:   auth
 )
 service admin-api {
 	@doc "选项列表"
@@ -172,6 +181,8 @@ type (
 	prefix:     /admin/v1
 	middleware: AdminAuth
 	group:      digitalhuman
+	tags:       "AI数字人"
+	authType:   auth
 )
 service admin-api {
 	@doc "数字人选项列表（年龄/肤色/职业/音色分类/提示词）"
@@ -251,6 +262,8 @@ type (
 	prefix:     /admin/v1
 	middleware: AdminAuth
 	group:      note
+	tags:       "AI图文笔记"
+	authType:   auth
 )
 service admin-api {
 	@doc "用户图文笔记列表（只读，排查用）"
@@ -287,6 +300,8 @@ type (
 	prefix:     /admin/v1
 	middleware: AdminAuth
 	group:      imagegen
+	tags:       "海报 / 长图 / 动作迁移 / 数字人口播"
+	authType:   auth
 )
 service admin-api {
 	@doc "用户海报/长图列表（只读，排查用）"

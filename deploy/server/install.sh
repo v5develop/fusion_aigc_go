@@ -300,6 +300,8 @@ cmd_install() {
 
   App 接口：  http://<服务器公网IP>:$GATEWAY_PORT/api/v1     （给前端；内网 ${ip:-?}）
   运营后台：  http://<服务器公网IP>:$ADMIN_PORT/admin/v1
+  接口文档：  http://<服务器公网IP>:$GATEWAY_PORT/swagger   （App，Swagger，可在线调试）
+              http://<服务器公网IP>:$ADMIN_PORT/swagger   （运营后台）
   执行面：    $([[ $MOCK_ENABLED == 1 ]] && echo "mock（联调用，成品是示例图/示例视频）" || echo "$AIGC_ENDPOINT")
 
   外网访问还要放行端口：宝塔「安全」页 + 云服务器安全组，放行 $GATEWAY_PORT、$ADMIN_PORT

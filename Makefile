@@ -17,6 +17,8 @@ gen-rpc:
 gen-api:
 	cd app/gateway/api && goctl api go -api gateway.api -dir . --style=go_zero --home $(GOCTL_HOME)
 	cd app/admin/api && goctl api go -api admin.api -dir . --style=go_zero --home $(GOCTL_HOME)
+	goctl api swagger --api app/gateway/api/gateway.api --dir app/gateway/api/doc --filename gateway
+	goctl api swagger --api app/admin/api/admin.api --dir app/admin/api/doc --filename admin
 
 gen-model:
 	goctl model mysql ddl -src deploy/sql/V1.0.106__ai_copywriting.sql -dir app/copywriting/model --style=go_zero --home $(GOCTL_HOME)
