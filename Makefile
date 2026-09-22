@@ -4,7 +4,7 @@ RPCS := copywriting digitalhuman note imagegen
 # 使用 goctl 内置默认模板，避免受本机 ~/.goctl 自定义模板影响
 GOCTL_HOME := $(CURDIR)/deploy/goctl
 
-.PHONY: gen gen-rpc gen-api gen-model db build test run-all stop-all
+.PHONY: gen gen-rpc gen-api gen-model db build test run-all stop-all release package
 
 gen: gen-rpc gen-api gen-model
 
@@ -51,9 +51,31 @@ release:
 	@for s in copywriting/rpc digitalhuman/rpc note/rpc imagegen/rpc gateway/api admin/api; do \
 		name=$$(echo $$s | sed 's#/rpc#-rpc#; s#/api#-api#'); \
 		echo "build $$name"; \
-		GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags '-s -w' -o bin/linux/$$name ./app/$$s || exit 1; \
+		GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -tags timetzdata -trimpath -ldflags '-s -w' -o bin/linux/$$name ./app/$$s || exit 1; \
 	done
 	@ls -lh bin/linux
+
+# 服务器部署包：dist/aigc-life-<版本>.tar.gz，上传到服务器解压后 bash install.sh（见 deploy/server/README.md）
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+package:
+	@rm -rf dist/aigc-life && mkdir -p dist/aigc-life/bin dist/aigc-life/etc-dev dist/aigc-life/sql dist/aigc-life/scripts dist/aigc-life/docs
+	@for s in copywriting/rpc digitalhuman/rpc note/rpc imagegen/rpc gateway/api admin/api; do \
+		name=$$(echo $$s | sed 's#/rpc#-rpc#; s#/api#-api#'); \
+		echo "build $$name"; \
+		GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -tags timetzdata -trimpath -ldflags '-s -w' -o dist/aigc-life/bin/$$name ./app/$$s || exit 1; \
+	done
+	@for t in mock-aigc mkconf seed; do \
+		echo "build $$t"; \
+		GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -tags timetzdata -trimpath -ldflags '-s -w' -o dist/aigc-life/bin/$$t ./tools/$$t || exit 1; \
+	done
+	cp deploy/etc/*.yaml dist/aigc-life/etc-dev/
+	cp deploy/sql/V*.sql dist/aigc-life/sql/
+	cp deploy/scripts/gen-voice-previews.sh dist/aigc-life/scripts/
+	cp docs/*.md dist/aigc-life/docs/
+	cp deploy/server/install.sh deploy/server/deploy.env.example deploy/server/README.md dist/aigc-life/
+	@echo $(VERSION) > dist/aigc-life/VERSION
+	tar -C dist -czf dist/aigc-life-$(VERSION).tar.gz aigc-life
+	@ls -lh dist/aigc-life-$(VERSION).tar.gz
 
 # 本地一键启动（日志写到 logs/）
 run-all: build stop-all

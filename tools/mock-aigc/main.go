@@ -37,6 +37,8 @@ var (
 
 func main() {
 	addr := flag.String("addr", ":5055", "listen address")
+	flag.StringVar(&sampleImage, "sample-image", "", "服务器联调用：图片类产物（75/76/78）统一返回这个可访问的地址；空则返回假地址")
+	flag.StringVar(&sampleVideo, "sample-video", "", "服务器联调用：视频类产物统一返回这个可访问的地址；空则返回假地址")
 	flag.Parse()
 	http.HandleFunc("/aigc/generate", generate)
 	http.HandleFunc("/aigc/getRes/", getRes)
@@ -175,14 +177,28 @@ func getRes(w http.ResponseWriter, r *http.Request) {
 	case t.Type == 75:
 		paths := make([]string, t.Images)
 		for i := range paths {
-			paths[i] = fmt.Sprintf("https://mock-oss.example.com/aigc/%s_%d.png", id, i)
+			paths[i] = orSample(sampleImage, fmt.Sprintf("https://mock-oss.example.com/aigc/%s_%d.png", id, i))
 		}
 		writeJSON(w, 200, map[string]any{"task_id": id, "task_type": 75, "status": "success",
 			"generated_image_path": "", "image_paths": paths, "pool": "platform", "cost": 0})
+	case t.Type == 76 || t.Type == 78:
+		writeJSON(w, 200, map[string]any{"task_id": id, "task_type": t.Type, "status": "success",
+			"generated_image_path": orSample(sampleImage, fmt.Sprintf("https://mock-oss.example.com/aigc/%s.png", id)), "pool": "platform", "cost": 0})
 	default:
 		writeJSON(w, 200, map[string]any{"task_id": id, "task_type": t.Type, "status": "success",
-			"generated_image_path": fmt.Sprintf("https://mock-oss.example.com/aigc/%s.mp4", id), "pool": "platform", "cost": 0})
+			"generated_image_path": orSample(sampleVideo, fmt.Sprintf("https://mock-oss.example.com/aigc/%s.mp4", id)), "pool": "platform", "cost": 0})
 	}
+}
+
+// 服务器上联调时产物要能真实下载（会被转存到公有桶），用 -sample-image / -sample-video 指定；
+// 本地 e2e 不设，返回假地址（local 存储模式不转存）。
+var sampleImage, sampleVideo string
+
+func orSample(sample, fake string) string {
+	if sample != "" {
+		return sample
+	}
+	return fake
 }
 
 // mockScript 按 AIGC 同事给的 74 真实返回结构造一份：note{title,content,tags} + images[] + images_url[]。
@@ -195,8 +211,12 @@ func mockScript(id string, body map[string]any) map[string]any {
 	if ms, ok := body["material_urls"].([]any); ok {
 		for _, m := range ms {
 			if s, _ := m.(string); s != "" {
-				refs = append(refs, fmt.Sprintf("https://mock-oss.example.com/aigc_temp/%s_%d.jpg", id, len(refs)+1))
-				_ = s
+				// 真实执行面会把素材复制到 aigc_temp/；服务器联调时直接回显原图，保证可下载
+				ref := fmt.Sprintf("https://mock-oss.example.com/aigc_temp/%s_%d.jpg", id, len(refs)+1)
+				if sampleImage != "" {
+					ref = s
+				}
+				refs = append(refs, ref)
 			}
 		}
 	}

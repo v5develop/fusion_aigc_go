@@ -40,7 +40,7 @@ ADMIN=http://<host>:8889/admin/v1 deploy/scripts/gen-voice-previews.sh
 
 ## 文档
 
-- **部署**：`deploy/README.md`（依赖、数据库变更、配置、启动、运营要先准备的数据）
+- **部署**：一键部署见 `deploy/server/README.md`（`make package` → 服务器 `bash install.sh`）；手工部署细节见 `deploy/README.md`
 - **给前端的接口文档**：`docs/api-app.md`（数字人口播单独一份：`docs/api-voiceover.md`）
 
 ## 本地运行
