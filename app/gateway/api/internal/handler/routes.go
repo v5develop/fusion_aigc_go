@@ -45,6 +45,12 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 					Path:    "/upload/credentials",
 					Handler: common.UploadCredentialHandler(serverCtx),
 				},
+				{
+					// 预签名上传地址（推荐）：后端签好 PUT 地址，前端直接 PUT 文件，无需密钥与签名
+					Method:  http.MethodPost,
+					Path:    "/upload/presign",
+					Handler: common.PresignUploadHandler(serverCtx),
+				},
 			}...,
 		),
 		rest.WithPrefix("/api/v1"),

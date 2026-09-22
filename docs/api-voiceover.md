@@ -15,6 +15,10 @@
 - **提交生成**必须带 `X-Request-Id: <UUID>`：每次点「开始生成」新生成一个，网络失败重试时**沿用同一个**，避免重复生成、重复扣点。
 - 响应统一是 `{"code":0,"msg":"ok","data":{…}}`，HTTP 状态码都是 200，用 `code` 判断；`code != 0` 时直接把 `msg` 提示给用户（错误码表见第 9 节）。
 - 时间都是 unix 毫秒。
+- **字段命名**：请求体、查询参数、响应一律下划线（`image_url`、`portrait_source`），不会改成小驼峰。
+- **未登录**：HTTP 200，`code=1002`（`msg`「未登录」）。接入正式登录后，token 无效/过期也是这个码，端上据此重新登录。
+- **跨域**：网关允许任意来源（含 App 离线包的 `Origin: null`），并放行 `X-User-Id`、`X-Request-Id` 的预检（OPTIONS 返回 204）。
+- **在线文档**：`http://<host>:<端口>/swagger`，可在页面上调试（先点 Authorize 填 `X-User-Id`）。
 
 ---
 
@@ -98,7 +102,7 @@ Content-Type: application/json
 | 字段 | 必填 | 说明 |
 |---|---|---|
 | `scene` | ✅ | 固定 `voiceover` |
-| `context` | ✅ | 用户已经输入的内容（可以只是几个关键词） |
+| `context` | | 用户已经输入的内容（可以只是几个关键词），**可以为空**（为空时按场景写一段通用口播），最多 500 字 |
 | `max_len` | | 期望字数，**不传就不限**。需要时可按所选时长给个参考：15 秒约 60 字，30 秒约 120 字 |
 
 返回 `{"text": "…"}`，同步返回，几秒内完成。建议把 `text` 回填到输入框让用户再改。
@@ -134,26 +138,38 @@ GET /api/v1/copywriting?keyword=睡眠&page=1&page_size=20
 | AI公共数字人 | `PUBLIC` | `public_id` |
 | AI定制数字人 | `AI` | `portrait_id` + `image_index`（选中第几张，**0 起**） |
 
-### 4.1 上传照片
+### 4.1 上传照片（预签名直传，推荐）
 
-1. `GET /api/v1/upload/credentials?kind=image` 取 STS 临时凭证：
+后端签好上传地址，前端只管 PUT 文件，**不需要任何密钥，也不用实现 OSS 签名**。
 
-   ```json
-   {"access_key_id": "STS.…", "access_key_secret": "…", "security_token": "…",
-    "expiration": "2026-09-21T06:12:00Z", "bucket": "xx-shop-img",
-    "host": "xx-shop-img.oss-cn-hangzhou.aliyuncs.com",
-    "dir": "aigc-life/image/123/20260921/",
-    "base_url": "https://xx-shop-img.oss-cn-hangzhou.aliyuncs.com"}
+1. 取上传地址：
+
+   ```
+   POST /api/v1/upload/presign
+   {"kind": "image", "content_type": "image/jpeg"}
    ```
 
-2. 用凭证把文件 PUT 到 `https://{host}/{dir}{随机文件名}`。**对象 key 必须在 `dir` 下**，否则 OSS 返回 403。
-3. 文件地址 = `{base_url}/{key}`，提交时作为 `image_url` 传。
+   ```json
+   {"put_url": "https://xx-shop-img.oss-cn-hangzhou.aliyuncs.com/aigc-life/image/123/20260922/2aaf….jpg?OSSAccessKeyId=…&Expires=…&Signature=…",
+    "url": "https://xx-shop-img.oss-cn-hangzhou.aliyuncs.com/aigc-life/image/123/20260922/2aaf….jpg",
+    "content_type": "image/jpeg",
+    "expires_at": 1790051817000}
+   ```
 
-- 凭证默认 30 分钟有效，过期重新取；可以缓存复用。
-- 文件大小、格式由前端控制（设计稿提示「建议上传模特半身照片，增加成功率」）。
-- 后端只接受这个 OSS 目录下的地址，别的外链会报「请先上传照片」。
+2. 把文件原样 PUT 到 `put_url`，请求体就是文件内容，**必须带 `Content-Type: <返回的 content_type>`**（签名包含它，不一致 OSS 返回 403）。HTTP 200 即成功。
+3. 提交时把 `url` 作为 `image_url` 传。
 
-> 本地联调没有 OSS 时，可以用 `POST /api/v1/upload`（multipart，字段 `file`）代传，返回 `{"url": "…"}`。**仅本地可用**，线上一律直传。
+- `kind`：`image`（照片、背景图）或 `video`（动作迁移的动作视频）。音频目前不需要前端上传。
+- `content_type`：图片 `image/jpeg` `image/png` `image/webp` `image/gif` `image/heic`，视频 `video/mp4` `video/quicktime`。
+  对象名（含扩展名）由后端生成，扩展名与类型一致，每次都是新的随机名，不会覆盖。
+- `put_url` 默认 30 分钟有效，**一个地址只传一个文件**，每个文件单独取。
+- 大小与格式由前端控制，后端不再校验（设计稿提示「建议上传模特半身照片，增加成功率」）。
+- OSS 已允许跨域 PUT（含离线包的 `Origin: null`），不需要额外配置。
+- 后端只接受本服务签发的地址（`…/aigc-life/…`），别的外链会报「请先上传照片」/「请先通过上传接口上传」。
+- 上传后的地址是公有桶的永久地址，不带过期签名。
+
+> 另有 `GET /upload/credentials?kind=image`（STS 临时凭证，前端自行签名上传），功能相同，保留兼容，新接入请用预签名。
+> 本地联调没有 OSS 时可用 `POST /api/v1/upload`（multipart，字段 `file`）代传，**仅本地可用**。
 
 ### 4.2 AI公共数字人
 
@@ -268,7 +284,9 @@ Content-Type: application/json
 }}
 ```
 
-- 同一个 `X-Request-Id` 重复提交，返回的是**同一条**记录，不会重复生成。
+- 同一个 `X-Request-Id` 重复提交，返回的是**同一条**记录，不会重复生成：
+  网络超时不知道有没有提交成功时，**沿用原 ID 重发**即可——后端已受理就原样返回那条记录（**无论它现在是生成中、已完成还是已失败**，都是正常返回 `code=0` + 记录当前状态，不报错）；没受理就当新请求处理。
+  用户主动点「重新生成」才换新 ID。
 - 按钮上的「10」点：**计费还没接**，目前不扣点。接入后余额不足会返回 1008。
 
 ---
@@ -303,7 +321,11 @@ GET /api/v1/image-creations/:id
 - 字段名叫 `image_urls` 是因为和海报/长图共用一张表，口播里放的是**视频地址**，固定只有 1 个。
 - 封面可以用 `input_image_url`（人物图），素材库里也是用它当封面。
 - **耗时**：云端（seedance 2.5）一般 2–10 分钟，30 秒视频和 lite 可能更久。建议 **5–10 秒轮询一次**；用户离开页面后可以停止轮询，回来再查，后端会继续跟进结果。
-- 超过 **30 分钟**还没出结果，后端会按失败处理（`fail_reason`「生成失败，请重试」）。
+- 超过 **30 分钟**还没出结果，后端会按失败处理（`fail_reason`「生成失败，请重试」）。这是**后端定时任务**判定的（每 5 秒巡检一次），
+  不依赖前端查询：用户很久之后回来查，拿到的已经是最终状态，不会一直是 `0`。
+- **成品地址**：已转存到我们的公有桶，是**永久地址，不带过期签名**，可直接预览、下载。
+- **封面**：没有单独的封面图，用 `input_image_url`（人物图）当封面；素材库里也是这样。
+- **水印**：由 AIGC 执行面决定，目前还在对接真实执行面，确认后补充。
 - 成品会自动进素材库的「数字人口播」分类。
 
 ---
@@ -316,8 +338,12 @@ DELETE /api/v1/image-creations/:id
 ```
 
 - 列表返回 `{"list": [...], "total": N}`，每条结构同第 7 节，按创建时间倒序。
+- 分页：`page` 从 **1** 开始（默认 1），`page_size` 默认 20、**最大 100**（超过按 100）。
+- 生成中的条目也带 `input_image_url`（提交时就确定了），可以直接当缩略图。
 - `status` 可筛选：`-1` 全部（默认）、`0` 生成中、`1` 已完成、`2` 失败。
 - 删除后素材库里对应的视频也会一并删除。
+- **生成中也可以删**：删除后后端不再跟进这条记录，出结果也不会写进素材库。
+  但执行面那边的任务没有取消接口，**已经提交的会继续跑完**；计费规则（生成中删除是否退点）等计费方案确定后再定。
 
 ---
 

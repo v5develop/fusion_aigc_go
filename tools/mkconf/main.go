@@ -1,14 +1,18 @@
 // mkconf 由开发配置（deploy/etc/*.yaml）生成服务器配置，install.sh 调用。
 //
 // 只改和环境有关的几项，其余（业务参数、注释）原样保留，开发配置改了服务器配置自动跟上：
+//
 //   - 数据库 DataSource、执行面 Aigc.Endpoint、存储 Storage.Mode=oss
+//
 //   - 端口：rpc 的 ListenOn、api 的 Port
+//
 //   - 不用 etcd：rpc 服务端去掉 Etcd，客户端的 Etcd 换成直连 Endpoints（单机部署够用，少装一个组件）
+//
 //   - 日志写文件（按天切分，保留 KeepDays 天），Mode=pro
 //
-//	mkconf -src deploy/etc -out /opt/aigc-life/etc -logs /opt/aigc-life/logs \
-//	  -dsn 'user:pass@tcp(127.0.0.1:3306)/fusion_aigc?...' -aigc http://127.0.0.1:15055 \
-//	  -ports copywriting=19201,digitalhuman=19202,note=19203,imagegen=19204,gateway=18888,admin=18889
+//     mkconf -src deploy/etc -out /opt/aigc-life/etc -logs /opt/aigc-life/logs \
+//     -dsn 'user:pass@tcp(127.0.0.1:3306)/fusion_aigc?...' -aigc http://127.0.0.1:15055 \
+//     -ports copywriting=19201,digitalhuman=19202,note=19203,imagegen=19204,gateway=18888,admin=18889
 package main
 
 import (

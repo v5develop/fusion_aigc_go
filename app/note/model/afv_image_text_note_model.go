@@ -147,7 +147,7 @@ func (m *customAfvImageTextNoteModel) UpdateContent(ctx context.Context, id int6
 }
 
 func (m *customAfvImageTextNoteModel) ListByStatus(ctx context.Context, status int64, before time.Time, limit int64) ([]*AfvImageTextNote, error) {
-	q := fmt.Sprintf("SELECT %s FROM %s WHERE `status` = ? AND `update_time` < ? ORDER BY `id` LIMIT ?", afvImageTextNoteRows, m.table)
+	q := fmt.Sprintf("SELECT %s FROM %s WHERE `status` = ? AND `deleted` = 0 AND `update_time` < ? ORDER BY `id` LIMIT ?", afvImageTextNoteRows, m.table)
 	var list []*AfvImageTextNote
 	return list, m.conn.QueryRowsCtx(ctx, &list, q, status, before, limit)
 }

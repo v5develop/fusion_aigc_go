@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/zeromicro/go-zero/core/stores/sqlx"
 )
@@ -93,4 +94,45 @@ func TestTransferTempReal(t *testing.T) {
 	if again, err := s.Transfer(ctx, got, "note_ref", 1); err != nil || again != got {
 		t.Fatalf("自己目录下的地址不应再复制: %s %v", again, err)
 	}
+}
+
+// TestPresignPutReal 预签名 PUT：按签名时的 Content-Type 上传成功、公网可读；Content-Type 不一致被 OSS 拒绝（默认跳过）：
+//
+//	OSS_REAL=1 OSS_DSN='…' go test ./pkg/storage -run PresignPutReal -v
+func TestPresignPutReal(t *testing.T) {
+	dsn := os.Getenv("OSS_DSN")
+	if os.Getenv("OSS_REAL") != "1" || dsn == "" {
+		t.Skip("设置 OSS_REAL=1 与 OSS_DSN 后才会连真实账号")
+	}
+	s := New(Conf{Mode: "oss", Prefix: "aigc-life"}, sqlx.NewMysql(dsn)).(*ossStore)
+	ctx := context.Background()
+	p, err := s.PresignPut(ctx, ObjectKey("aigc-life", "image", 1, "png"), "image/png", 5*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	put := func(ct string) int {
+		req, _ := http.NewRequest(http.MethodPut, p.PutURL, strings.NewReader("\x89PNG\r\n\x1a\npresign-test"))
+		req.Header.Set("Content-Type", ct)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+	if code := put("image/jpeg"); code != http.StatusForbidden {
+		t.Fatalf("Content-Type 不一致应被拒绝，实际 HTTP %d", code)
+	}
+	if code := put("image/png"); code != http.StatusOK {
+		t.Fatalf("预签名上传失败 HTTP %d", code)
+	}
+	resp, err := http.Get(p.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || !s.Owns(p.URL) {
+		t.Fatalf("上传后的地址不可读或不被识别为本存储: HTTP %d %s", resp.StatusCode, p.URL)
+	}
+	t.Logf("ok: %s", p.URL)
 }

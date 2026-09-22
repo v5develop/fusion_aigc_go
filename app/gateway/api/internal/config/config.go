@@ -11,7 +11,9 @@ type Config struct {
 	rest.RestConf
 	// Swagger 是否提供接口文档页面 /swagger（联调期开着，上线前可关）
 	Swagger bool `json:",default=true"`
-	Auth    struct {
+	// Cors 允许跨域（任意来源，含 App 离线包的 Origin: null），放行 X-User-Id、X-Request-Id 的预检
+	Cors bool `json:",default=true"`
+	Auth struct {
 		// dev：从请求头 X-User-Id 读取用户（接入现有用户体系前使用）
 		Mode string `json:",default=dev,options=dev"`
 	}

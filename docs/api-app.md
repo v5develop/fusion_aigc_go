@@ -34,7 +34,22 @@ HTTP 状态码一律 200，用 `code` 判断：
 
 **时间**：都是 unix 毫秒。
 
+**跨域**：网关允许任意来源（含 App 离线包的 `Origin: null`），放行 `X-User-Id`、`X-Request-Id` 预检。
+
+**命名**：请求与响应字段一律下划线，不会改成小驼峰。
+
 ## 上传：前端直传 OSS
+
+**推荐：预签名直传**（前端不需要密钥、不用实现签名）
+
+1. `POST /upload/presign`，body `{"kind":"image","content_type":"image/jpeg"}`，返回 `put_url`、`url`、`content_type`、`expires_at`。
+2. 把文件原样 PUT 到 `put_url`，**必须带 `Content-Type: <返回的 content_type>`**，HTTP 200 即成功。
+3. 把 `url` 传给业务接口（如 `image_url`）。
+
+`kind`：`image` / `video`。`content_type`：`image/jpeg|png|webp|gif|heic`、`video/mp4|quicktime`。对象名由后端生成；地址 30 分钟有效，一个地址传一个文件。
+OSS 已允许跨域 PUT。文件大小与类型由前端控制；后端只校验地址是不是本服务签发的。详细见 `api-voiceover.md` 4.1。
+
+**兼容：STS 临时凭证**（前端自行签名上传）
 
 1. `GET /upload/credentials?kind=image|video` 取临时凭证：
 
@@ -46,9 +61,7 @@ HTTP 状态码一律 200，用 `code` 判断：
 ```
 
 2. 用凭证把文件 PUT 到 `https://{host}/{dir}{随机文件名}`，**对象 key 必须在 `dir` 下**，否则 OSS 返回 403。
-3. 上传成功后，文件地址是 `{base_url}/{key}`，把它传给后续接口。
-
-文件大小与类型由前端控制，后端不限制；后端只校验地址是不是这个 OSS 目录下的。凭证默认 30 分钟有效，过期重新取。
+3. 上传成功后，文件地址是 `{base_url}/{key}`，把它传给后续接口。凭证默认 30 分钟有效。
 
 ## 一、AI文案
 

@@ -25,6 +25,10 @@ func main() {
 	conf.MustLoad(*configFile, &c)
 
 	var opts []rest.RunOption
+	if c.Cors {
+		// App 内置 H5 离线包从 file:// 发请求（Origin: null），带自定义头会先发预检
+		opts = append(opts, rest.WithCorsHeaders("X-User-Id", "X-Request-Id"))
+	}
 	if c.Storage.Mode == "local" {
 		// 本地存储（仅开发）：/files 下提供上传与配音文件访问
 		opts = append(opts, rest.WithFileServer("/files", filesOnly{http.Dir(c.Storage.LocalDir)}))

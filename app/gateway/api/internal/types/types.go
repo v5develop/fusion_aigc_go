@@ -26,7 +26,7 @@ type AiWriteReq struct {
 	Scene       string `json:"scene,options=topic|selling_point|dh_script|note_topic|poster_info|long_image|voiceover"`
 	ContentType string `json:"content_type,optional"`
 	Industry    string `json:"industry,optional"`
-	Context     string `json:"context"`
+	Context     string `json:"context,optional"` // 用户已输入的内容，可为空，最多 500 字
 	MaxLen      int32  `json:"max_len,optional"`
 	NoteType    string `json:"note_type,optional"` // note_topic 场景：探店/种草/情感/知识
 }
@@ -365,6 +365,18 @@ type Portrait struct {
 	ImageUrls   []string `json:"image_urls"`
 	FailReason  string   `json:"fail_reason"`
 	CreateTime  int64    `json:"create_time"`
+}
+
+type PresignUploadReq struct {
+	Kind        string `json:"kind,options=image|video"`
+	ContentType string `json:"content_type"` // 文件类型，如 image/jpeg；PUT 时 Content-Type 必须与它完全一致
+}
+
+type PresignUploadResp struct {
+	PutUrl      string `json:"put_url"`      // 用 PUT 把文件原样传到这里（请求体就是文件内容）
+	Url         string `json:"url"`          // 上传成功后的文件地址，提交给业务接口（如 image_url）
+	ContentType string `json:"content_type"` // PUT 时必须带的 Content-Type
+	ExpiresAt   int64  `json:"expires_at"`   // put_url 过期时间（unix 毫秒），过期重新取
 }
 
 type PublicDigitalHuman struct {

@@ -27,7 +27,11 @@ func main() {
 	var c config.Config
 	conf.MustLoad(*configFile, &c)
 
-	server := rest.MustNewServer(c.RestConf)
+	var opts []rest.RunOption
+	if c.Cors { // 运营后台前端与接口不同域
+		opts = append(opts, rest.WithCorsHeaders("X-Admin-Id", "X-Request-Id"))
+	}
+	server := rest.MustNewServer(c.RestConf, opts...)
 	defer server.Stop()
 
 	result.Setup()

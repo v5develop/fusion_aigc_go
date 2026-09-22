@@ -39,12 +39,51 @@ type Uploader interface {
 	Credentials(ctx context.Context, kind string, userID int64, ttl time.Duration) (*Credential, error)
 	// Stat 读对象大小与类型（客户端传完后校验用）。
 	Stat(ctx context.Context, url string) (size int64, contentType string, err error)
+	// PresignPut 签一个带签名的 PUT 地址：客户端用它上传，PUT 时 Content-Type 必须与 contentType 一致。
+	PresignPut(ctx context.Context, key, contentType string, ttl time.Duration) (*Presigned, error)
+}
+
+// Presigned 预签名上传地址。
+type Presigned struct {
+	PutURL    string    // 客户端 PUT 到这里
+	URL       string    // 上传成功后的文件地址，提交给业务接口
+	ExpiresAt time.Time // PutURL 过期时间
 }
 
 var ErrDirectUploadUnsupported = errors.New("storage: 当前存储模式不支持客户端直传")
 
 func (s *localStore) Credentials(context.Context, string, int64, time.Duration) (*Credential, error) {
 	return nil, ErrDirectUploadUnsupported
+}
+
+func (s *localStore) PresignPut(context.Context, string, string, time.Duration) (*Presigned, error) {
+	return nil, ErrDirectUploadUnsupported
+}
+
+// PresignPut OSS V1 URL 签名：Signature = base64(hmac-sha1(SK, "PUT\n\n<Content-Type>\n<Expires>\n/<bucket>/<key>"))。
+// 用服务端自己的密钥签，客户端拿不到任何密钥；签名只对这一个 key、这一个 Content-Type 有效。
+func (s *ossStore) PresignPut(ctx context.Context, key, contentType string, ttl time.Duration) (*Presigned, error) {
+	c, err := s.config(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if ttl <= 0 {
+		ttl = 30 * time.Minute
+	}
+	expires := time.Now().Add(ttl).Truncate(time.Second)
+	exp := fmt.Sprint(expires.Unix())
+	mac := hmac.New(sha1.New, []byte(c.SecretKey))
+	mac.Write([]byte("PUT\n\n" + contentType + "\n" + exp + "\n/" + c.Bucket + "/" + key))
+	q := url.Values{
+		"OSSAccessKeyId": {c.AccessKey},
+		"Expires":        {exp},
+		"Signature":      {base64.StdEncoding.EncodeToString(mac.Sum(nil))},
+	}
+	return &Presigned{
+		PutURL:    "https://" + c.host() + "/" + key + "?" + q.Encode(),
+		URL:       c.publicBase() + "/" + key,
+		ExpiresAt: expires,
+	}, nil
 }
 
 // Stat 本地模式直接读文件：go-zero 的文件服务只响应 GET，HEAD 拿不到信息。

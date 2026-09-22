@@ -651,14 +651,14 @@
             "schema": {
               "type": "object",
               "required": [
-                "scene",
-                "context"
+                "scene"
               ],
               "properties": {
                 "content_type": {
                   "type": "string"
                 },
                 "context": {
+                  "description": "用户已输入的内容，可为空，最多 500 字",
                   "type": "string"
                 },
                 "industry": {
@@ -4298,6 +4298,97 @@
         }
       }
     },
+    "/api/v1/upload/presign": {
+      "post": {
+        "security": [
+          {
+            "auth": []
+          }
+        ],
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "上传"
+        ],
+        "summary": "预签名上传地址（推荐）：后端签好 PUT 地址，前端直接 PUT 文件，无需密钥与签名",
+        "operationId": "commonPresignUpload",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "required": [
+                "kind",
+                "content_type"
+              ],
+              "properties": {
+                "content_type": {
+                  "description": "文件类型，如 image/jpeg；PUT 时 Content-Type 必须与它完全一致",
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "image",
+                    "video"
+                  ]
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
+                  "type": "integer",
+                  "example": 0
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "content_type": {
+                      "description": "PUT 时必须带的 Content-Type",
+                      "type": "string"
+                    },
+                    "expires_at": {
+                      "description": "put_url 过期时间（unix 毫秒），过期重新取",
+                      "type": "integer"
+                    },
+                    "put_url": {
+                      "description": "用 PUT 把文件原样传到这里（请求体就是文件内容）",
+                      "type": "string"
+                    },
+                    "url": {
+                      "description": "上传成功后的文件地址，提交给业务接口（如 image_url）",
+                      "type": "string"
+                    }
+                  }
+                },
+                "msg": {
+                  "description": "business message",
+                  "type": "string",
+                  "example": "ok"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/voices": {
       "get": {
         "security": [
@@ -4464,7 +4555,7 @@
       "in": "header"
     }
   },
-  "x-date": "2026-09-22 16:17:54",
+  "x-date": "2026-09-22 18:26:18",
   "x-description": "This is a goctl generated swagger file.",
   "x-github": "https://github.com/zeromicro/go-zero",
   "x-go-zero-doc": "https://go-zero.dev/",

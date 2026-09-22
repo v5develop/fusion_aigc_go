@@ -73,7 +73,7 @@ func (m *customAfvDigitalHumanPortraitModel) Finish(ctx context.Context, id, to 
 }
 
 func (m *customAfvDigitalHumanPortraitModel) ListGenerating(ctx context.Context, before time.Time, limit int64) ([]*AfvDigitalHumanPortrait, error) {
-	q := fmt.Sprintf("SELECT %s FROM %s WHERE `status` = ? AND `update_time` < ? ORDER BY `id` LIMIT ?", afvDigitalHumanPortraitRows, m.table)
+	q := fmt.Sprintf("SELECT %s FROM %s WHERE `status` = ? AND `deleted` = 0 AND `update_time` < ? ORDER BY `id` LIMIT ?", afvDigitalHumanPortraitRows, m.table)
 	var list []*AfvDigitalHumanPortrait
 	return list, m.conn.QueryRowsCtx(ctx, &list, q, PortraitGenerating, before, limit)
 }

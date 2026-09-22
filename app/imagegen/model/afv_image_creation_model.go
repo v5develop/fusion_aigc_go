@@ -122,7 +122,7 @@ func (m *customAfvImageCreationModel) UpdateTasks(ctx context.Context, id int64,
 }
 
 func (m *customAfvImageCreationModel) ListGenerating(ctx context.Context, before time.Time, limit int64) ([]*AfvImageCreation, error) {
-	q := fmt.Sprintf("SELECT %s FROM %s WHERE `status` = ? AND `update_time` < ? ORDER BY `id` LIMIT ?", afvImageCreationRows, m.table)
+	q := fmt.Sprintf("SELECT %s FROM %s WHERE `status` = ? AND `deleted` = 0 AND `update_time` < ? ORDER BY `id` LIMIT ?", afvImageCreationRows, m.table)
 	var list []*AfvImageCreation
 	return list, m.conn.QueryRowsCtx(ctx, &list, q, StatusGenerating, before, limit)
 }

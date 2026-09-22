@@ -120,7 +120,7 @@ func (m *customAfvDigitalHumanModel) Finish(ctx context.Context, id, from, to in
 }
 
 func (m *customAfvDigitalHumanModel) ListByStatus(ctx context.Context, status int64, before time.Time, limit int64) ([]*AfvDigitalHuman, error) {
-	q := fmt.Sprintf("SELECT %s FROM %s WHERE `status` = ? AND `update_time` < ? ORDER BY `id` LIMIT ?", afvDigitalHumanRows, m.table)
+	q := fmt.Sprintf("SELECT %s FROM %s WHERE `status` = ? AND `deleted` = 0 AND `update_time` < ? ORDER BY `id` LIMIT ?", afvDigitalHumanRows, m.table)
 	var list []*AfvDigitalHuman
 	return list, m.conn.QueryRowsCtx(ctx, &list, q, status, before, limit)
 }

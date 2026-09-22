@@ -289,6 +289,11 @@ B4=$(vb '{"content":"mock-fail-92 模拟失败"}')
 V4ID=$(api POST /image-creations "$B4" "$(uuidgen)" | jq -r .id)
 check "执行面失败记失败" "$(poll "$V4ID" | jq -r '[.status,.fail_reason]|map(tostring)|join(",")')" "2,生成失败，请重试"
 check "口播成品进素材库，封面为人物图" "$(sql "SELECT CONCAT_WS('|',type,entry_code,name,cover_url='$M1') FROM afv_asset WHERE user_id=$USER_ID AND entry_code='voiceover' AND source_task_id='$(task_id "$V1ID")'")" "video|voiceover|数字人口播|1"
+B5=$(vb '{"content":"生成中就删除"}')
+V5ID=$(api POST /image-creations "$B5" "$(uuidgen)" | jq -r .id)
+api DELETE "/image-creations/$V5ID" > /dev/null
+sleep 20   # mock 第 3 次轮询才出结果，轮询间隔 5 秒
+check "生成中删除：不再轮询、成品不进素材库" "$(sql "SELECT CONCAT(c.status,'|',(SELECT COUNT(*) FROM afv_asset a WHERE a.user_id=$USER_ID AND a.source_task_id=JSON_UNQUOTE(JSON_EXTRACT(c.tasks,'\$[0].task_id')))) FROM afv_image_creation c WHERE c.id=$V5ID")" "0|0"
 check "按 kind 筛：数字人口播 5 条（含 2000 字那条）" "$(api GET '/image-creations?kind=voiceover' | jq .total)" 5
 
 if [[ ${SKIP_MODEL:-0} != 1 ]]; then
