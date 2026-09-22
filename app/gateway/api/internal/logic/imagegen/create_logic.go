@@ -35,7 +35,8 @@ func (l *CreateLogic) Create(req *types.CreateImageGenReq) (resp *types.ImageCre
 		PosterType: req.PosterType, PosterStyle: req.PosterStyle, Size: req.Size, ImageCount: req.ImageCount,
 		RequestId: req.RequestId, PortraitSource: req.PortraitSource, ImageUrl: req.ImageUrl, PublicId: req.PublicId,
 		PortraitId: req.PortraitId, ImageIndex: req.ImageIndex, ActionVideoId: req.ActionVideoId,
-		MyActionVideoId: req.MyActionVideoId, Model: req.Model,
+		MyActionVideoId: req.MyActionVideoId, Model: req.Model, BackgroundSource: req.BackgroundSource,
+		BackgroundId: req.BackgroundId, BackgroundUrl: req.BackgroundUrl, Duration: req.Duration,
 	})
 	if err != nil {
 		return nil, err

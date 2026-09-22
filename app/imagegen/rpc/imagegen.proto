@@ -3,7 +3,7 @@ syntax = "proto3";
 package imagegen;
 option go_package = "./pb";
 
-// AI 海报（78）、AI 长图（76）、动作迁移（9 / 86）。流程相同，用 kind 区分。
+// AI 海报（78）、AI 长图（76）、动作迁移（9 / 86）、数字人口播（92 / 91）。流程相同，用 kind 区分。
 service ImageGen {
   // ---- App ----
   // 表单配置：海报类型 / 风格 / 比例 / 数量与素材上限
@@ -32,7 +32,7 @@ message IdUserReq {
 }
 
 message KindReq {
-  string kind = 1;              // poster / longImage
+  string kind = 1;              // poster / longImage / actionTransfer / voiceover
 }
 
 message Option {
@@ -67,9 +67,12 @@ message OptionsResp {
   string default_size = 4;
   int32 max_images = 5;               // 生成数量上限
   int32 max_materials = 6;            // 上传素材上限
-  int32 max_content_len = 7;
+  int32 max_content_len = 7;          // 0 = 不限（数字人口播）
   bool template_required = 8;         // 海报模板必选；长图可不选（AI智能匹配）
-  repeated Option models = 9;         // 动作迁移的模型选择；其余类型为空
+  repeated Option models = 9;         // 动作迁移、数字人口播的模型选择；其余类型为空
+  repeated int32 durations = 10;      // 数字人口播的视频时长（秒）；其余类型为空
+  int32 default_duration = 11;
+  string default_model = 12;
 }
 
 message ListTemplatesReq {
@@ -107,7 +110,13 @@ message CreateReq {
   int32 image_index = 15;             // AI：选中第几张
   int64 action_video_id = 16;         // 预置动作视频（模板素材 id）
   int64 my_action_video_id = 17;      // 我导入的动作视频 id
-  string model = 18;                  // 模型：seedance 2.0 / lite
+  string model = 18;                  // 模型：动作迁移 seedance 2.0 / lite；数字人口播 seedance2.5 / lite
+
+  // ---- 数字人口播（文案用 content，比例用 size，人物图同动作迁移）----
+  string background_source = 19;      // AI（智能匹配，默认）/ PRESET（预设背景）/ UPLOAD（导入背景）
+  int64 background_id = 20;           // PRESET：预设背景（模板素材 id）
+  string background_url = 21;         // UPLOAD：直传后的背景图地址
+  int32 duration = 22;                // 15 / 30
 }
 
 message ImageInfo {
@@ -126,6 +135,8 @@ message ImageInfo {
   string input_image_url = 16;
   string input_video_url = 17;
   string model = 18;
+  string input_bg_url = 19;     // 数字人口播的背景图；空=AI智能匹配
+  int32 duration = 20;          // 数字人口播的视频时长（秒）
   int32 status = 13;            // 0-生成中 1-已完成（含部分成功） 2-失败
   string fail_reason = 14;
   int64 create_time = 15;

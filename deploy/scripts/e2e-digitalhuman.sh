@@ -135,13 +135,20 @@ check "出图失败有原因" "$(jq -r '.status, .fail_reason' <<<"$FP" | paste 
 check "别人看不到" "$(curl -sS -H 'X-User-Id: 999999' "$GW/digital-humans/portraits/$PTID" | jq -r .code)" 1003
 
 echo "== 开始生成：真实百炼配音 + mock 执行面 85"
-check "配音为空被拒" "$(api_code POST /digital-humans "{\"portrait_source\":\"PUBLIC\",\"public_id\":$P1ID,\"voice_id\":$VOICE_ID,\"script\":\"  \"}")" 1001
-check "配音超 50 字被拒" "$(api_code POST /digital-humans "{\"portrait_source\":\"PUBLIC\",\"public_id\":$P1ID,\"voice_id\":$VOICE_ID,\"script\":\"$(printf '字%.0s' {1..51})\"}")" 1001
-check "外链照片被拒" "$(api_code POST /digital-humans "{\"portrait_source\":\"UPLOAD\",\"image_url\":\"https://evil.example.com/a.png\",\"voice_id\":$VOICE_ID,\"script\":\"你好\"}")" 1001
-check "其他业务域的素材被拒" "$(api_code POST /digital-humans "{\"portrait_source\":\"PUBLIC\",\"public_id\":$P4ID,\"voice_id\":$VOICE_ID,\"script\":\"你好\"}")" 1001
-check "下架的公共数字人被拒" "$(api_code POST /digital-humans "{\"portrait_source\":\"PUBLIC\",\"public_id\":$P3ID,\"voice_id\":$VOICE_ID,\"script\":\"你好\"}")" 1001
-check "无效音色被拒" "$(api_code POST /digital-humans "{\"portrait_source\":\"PUBLIC\",\"public_id\":$P1ID,\"voice_id\":99999999,\"script\":\"你好\"}")" 1001
-check "AI 形象下标越界被拒" "$(api_code POST /digital-humans "{\"portrait_source\":\"AI\",\"portrait_id\":$PTID,\"image_index\":4,\"voice_id\":$VOICE_ID,\"script\":\"你好\"}")" 1001
+B="{\"portrait_source\":\"PUBLIC\",\"public_id\":$P1ID,\"voice_id\":$VOICE_ID,\"script\":\"  \"}"
+check "配音为空被拒" "$(api_code POST /digital-humans "$B")" 1001
+B="{\"portrait_source\":\"PUBLIC\",\"public_id\":$P1ID,\"voice_id\":$VOICE_ID,\"script\":\"$(printf '字%.0s' {1..51})\"}"
+check "配音超 50 字被拒" "$(api_code POST /digital-humans "$B")" 1001
+B="{\"portrait_source\":\"UPLOAD\",\"image_url\":\"https://evil.example.com/a.png\",\"voice_id\":$VOICE_ID,\"script\":\"你好\"}"
+check "外链照片被拒" "$(api_code POST /digital-humans "$B")" 1001
+B="{\"portrait_source\":\"PUBLIC\",\"public_id\":$P4ID,\"voice_id\":$VOICE_ID,\"script\":\"你好\"}"
+check "其他业务域的素材被拒" "$(api_code POST /digital-humans "$B")" 1001
+B="{\"portrait_source\":\"PUBLIC\",\"public_id\":$P3ID,\"voice_id\":$VOICE_ID,\"script\":\"你好\"}"
+check "下架的公共数字人被拒" "$(api_code POST /digital-humans "$B")" 1001
+B="{\"portrait_source\":\"PUBLIC\",\"public_id\":$P1ID,\"voice_id\":99999999,\"script\":\"你好\"}"
+check "无效音色被拒" "$(api_code POST /digital-humans "$B")" 1001
+B="{\"portrait_source\":\"AI\",\"portrait_id\":$PTID,\"image_index\":4,\"voice_id\":$VOICE_ID,\"script\":\"你好\"}"
+check "AI 形象下标越界被拒" "$(api_code POST /digital-humans "$B")" 1001
 
 RID=$(uuidgen)
 D1=$(api POST /digital-humans "{\"portrait_source\":\"PUBLIC\",\"public_id\":$P1ID,\"voice_id\":$VOICE_ID,\"script\":\"欢迎来到西湖边的临湖咖啡，今天的手冲和甜品都很推荐。\"}" "$RID")

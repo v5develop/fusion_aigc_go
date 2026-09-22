@@ -81,10 +81,13 @@ check "非图片被拒" "$(printf 'not an image' > "$TMP/x.txt"; curl -sS -H "X-
 echo "== 开始构思：校验"
 check "主题为空被拒" "$(api_code POST /notes/plan '{"note_type":"explore","topic":"  "}')" 1001
 check "无效类型被拒" "$(api_code POST /notes/plan '{"note_type":"bad","topic":"x"}')" 1001
-check "素材超 3 张被拒" "$(api_code POST /notes/plan "{\"note_type\":\"explore\",\"topic\":\"x\",\"material_urls\":[\"$M1\",\"$M2\",\"$M3\",\"$M4\"]}")" 1001
+B="{\"note_type\":\"explore\",\"topic\":\"x\",\"material_urls\":[\"$M1\",\"$M2\",\"$M3\",\"$M4\"]}"
+check "素材超 3 张被拒" "$(api_code POST /notes/plan "$B")" 1001
 check "外链素材被拒" "$(api_code POST /notes/plan '{"note_type":"explore","topic":"x","material_urls":["https://evil.example.com/a.png"]}')" 1001
-check "未完成的数字人被拒" "$(api_code POST /notes/plan "{\"note_type\":\"explore\",\"topic\":\"x\",\"digital_human_id\":$DH_BUSY}")" 1001
-check "别人的数字人被拒" "$(api_code POST /notes/plan "{\"note_type\":\"explore\",\"topic\":\"x\",\"digital_human_id\":$DH_OTHER}")" 1001
+B="{\"note_type\":\"explore\",\"topic\":\"x\",\"digital_human_id\":$DH_BUSY}"
+check "未完成的数字人被拒" "$(api_code POST /notes/plan "$B")" 1001
+B="{\"note_type\":\"explore\",\"topic\":\"x\",\"digital_human_id\":$DH_OTHER}"
+check "别人的数字人被拒" "$(api_code POST /notes/plan "$B")" 1001
 check "缺少 request_id 被拒" "$(curl -sS -X POST -H "X-User-Id: $USER_ID" -H 'Content-Type: application/json' -d '{"note_type":"explore","topic":"x"}' "$GW/notes/plan" | jq -r .code)" 1001
 
 echo "== 构思（mock 74）→ 规划页"
@@ -118,9 +121,9 @@ check "标题为空被拒" "$(api_code POST "/notes/$NID/generate" '{"title":" "
 G=$(api POST "/notes/$NID/generate" '{"title":"西湖边宝藏咖啡店｜临湖景观位","content":"改过的正文","tags":["临湖咖啡","#西湖"],"image_count":2}')
 GEN_TASK=$(sql "SELECT gen_task_id FROM afv_image_text_note WHERE id=$NID")
 T75=$(curl -sS "http://127.0.0.1:5055/mock/task/$GEN_TASK")
-check "75 参考图字段是 images_url，原样转交" "$(jq -c '[has("images_url"), has("image_urls"), (.images_url|length)]' <<<"$T75")" '[true,false,4]'
+check "75 参考图字段是 image_urls（按最新对接文档）" "$(jq -c '[has("image_urls"), has("images_url"), (.image_urls|length)]' <<<"$T75")" '[true,false,4]'
 check "75 的 images 带 index、取前 2 条" "$(jq -c '[.images[].index]' <<<"$T75")" '[1,2]'
-check "75 不传 model/size（用默认）" "$(jq -c '[has("model"), has("size")]' <<<"$T75")" '[false,false]'
+check "75 固定 model=max，size 不传（用默认）" "$(jq -c '[.model, has("size")]' <<<"$T75")" '["max",false]'
 check "生成中" "$(jq -r .status <<<"$G")" 3
 check "规划页的修改已保存" "$(jq -r '[.title,.content,(.tags|join(" ")),.image_count]|join("|")' <<<"$G")" "西湖边宝藏咖啡店｜临湖景观位|改过的正文|#临湖咖啡 #西湖|2"
 check "重复点确认不重复提交" "$(api POST "/notes/$NID/generate" '{"title":"x","content":"y"}' | jq -r .title)" "西湖边宝藏咖啡店｜临湖景观位"
@@ -135,8 +138,10 @@ NEW=$(upload new1)
 U=$(api PUT "/notes/$NID" "{\"title\":\"编辑后的标题\",\"content\":\"编辑后的正文\",\"tags\":[\"#西湖\"],\"image_urls\":[\"$IMG1\",\"$NEW\"]}")
 check "删一张原图、加一张新图" "$(jq -r '.image_urls|join(",")' <<<"$U")" "$IMG1,$NEW"
 check "文字已改" "$(jq -r .title <<<"$U")" 编辑后的标题
-check "生成 2 张时最多补到 3 张" "$(api_code PUT "/notes/$NID" "{\"title\":\"t\",\"content\":\"c\",\"image_urls\":[\"$IMG1\",\"$NEW\",\"$M1\",\"$M2\"]}")" 1001
-check "外链图片被拒" "$(api_code PUT "/notes/$NID" "{\"title\":\"t\",\"content\":\"c\",\"image_urls\":[\"https://evil.example.com/x.png\"]}")" 1001
+B="{\"title\":\"t\",\"content\":\"c\",\"image_urls\":[\"$IMG1\",\"$NEW\",\"$M1\",\"$M2\"]}"
+check "生成 2 张时最多补到 3 张" "$(api_code PUT "/notes/$NID" "$B")" 1001
+B="{\"title\":\"t\",\"content\":\"c\",\"image_urls\":[\"https://evil.example.com/x.png\"]}"
+check "外链图片被拒" "$(api_code PUT "/notes/$NID" "$B")" 1001
 check "至少保留一张" "$(api_code PUT "/notes/$NID" '{"title":"t","content":"c","image_urls":[]}')" 1001
 
 echo "== 生成张数多于 3 张时，编辑可保留全部"

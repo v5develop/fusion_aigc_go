@@ -34,7 +34,7 @@ type Config struct {
 	Plan struct {
 		TimeoutMinutes int `json:",default=5"`
 	}
-	// Generate 出图（75）。Model / Size 为空时不传，用执行面默认（mini、3:4），与 74→75 真实交互一致
+	// Generate 出图（75）。Model 本版固定 max；Size 为空时不传，用执行面默认 3:4
 	Generate struct {
 		Model          string `json:",optional"`
 		Size           string `json:",optional"`

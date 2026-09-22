@@ -111,7 +111,7 @@ func (x *IdUserReq) GetUserId() int64 {
 
 type KindReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Kind          string                 `protobuf:"bytes,1,opt,name=kind,proto3" json:"kind,omitempty"` // poster / longImage
+	Kind          string                 `protobuf:"bytes,1,opt,name=kind,proto3" json:"kind,omitempty"` // poster / longImage / actionTransfer / voiceover
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -407,11 +407,14 @@ type OptionsResp struct {
 	PosterStyles     []*Option              `protobuf:"bytes,2,rep,name=poster_styles,json=posterStyles,proto3" json:"poster_styles,omitempty"` // 海报风格，长图为空
 	Sizes            []*Option              `protobuf:"bytes,3,rep,name=sizes,proto3" json:"sizes,omitempty"`                                   // 图片比例；长图固定，只返回一项
 	DefaultSize      string                 `protobuf:"bytes,4,opt,name=default_size,json=defaultSize,proto3" json:"default_size,omitempty"`
-	MaxImages        int32                  `protobuf:"varint,5,opt,name=max_images,json=maxImages,proto3" json:"max_images,omitempty"`          // 生成数量上限
-	MaxMaterials     int32                  `protobuf:"varint,6,opt,name=max_materials,json=maxMaterials,proto3" json:"max_materials,omitempty"` // 上传素材上限
-	MaxContentLen    int32                  `protobuf:"varint,7,opt,name=max_content_len,json=maxContentLen,proto3" json:"max_content_len,omitempty"`
+	MaxImages        int32                  `protobuf:"varint,5,opt,name=max_images,json=maxImages,proto3" json:"max_images,omitempty"`                      // 生成数量上限
+	MaxMaterials     int32                  `protobuf:"varint,6,opt,name=max_materials,json=maxMaterials,proto3" json:"max_materials,omitempty"`             // 上传素材上限
+	MaxContentLen    int32                  `protobuf:"varint,7,opt,name=max_content_len,json=maxContentLen,proto3" json:"max_content_len,omitempty"`        // 0 = 不限（数字人口播）
 	TemplateRequired bool                   `protobuf:"varint,8,opt,name=template_required,json=templateRequired,proto3" json:"template_required,omitempty"` // 海报模板必选；长图可不选（AI智能匹配）
-	Models           []*Option              `protobuf:"bytes,9,rep,name=models,proto3" json:"models,omitempty"`                                              // 动作迁移的模型选择；其余类型为空
+	Models           []*Option              `protobuf:"bytes,9,rep,name=models,proto3" json:"models,omitempty"`                                              // 动作迁移、数字人口播的模型选择；其余类型为空
+	Durations        []int32                `protobuf:"varint,10,rep,packed,name=durations,proto3" json:"durations,omitempty"`                               // 数字人口播的视频时长（秒）；其余类型为空
+	DefaultDuration  int32                  `protobuf:"varint,11,opt,name=default_duration,json=defaultDuration,proto3" json:"default_duration,omitempty"`
+	DefaultModel     string                 `protobuf:"bytes,12,opt,name=default_model,json=defaultModel,proto3" json:"default_model,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -507,6 +510,27 @@ func (x *OptionsResp) GetModels() []*Option {
 		return x.Models
 	}
 	return nil
+}
+
+func (x *OptionsResp) GetDurations() []int32 {
+	if x != nil {
+		return x.Durations
+	}
+	return nil
+}
+
+func (x *OptionsResp) GetDefaultDuration() int32 {
+	if x != nil {
+		return x.DefaultDuration
+	}
+	return 0
+}
+
+func (x *OptionsResp) GetDefaultModel() string {
+	if x != nil {
+		return x.DefaultModel
+	}
+	return ""
 }
 
 type ListTemplatesReq struct {
@@ -685,9 +709,14 @@ type CreateReq struct {
 	ImageIndex      int32  `protobuf:"varint,15,opt,name=image_index,json=imageIndex,proto3" json:"image_index,omitempty"`                    // AI：选中第几张
 	ActionVideoId   int64  `protobuf:"varint,16,opt,name=action_video_id,json=actionVideoId,proto3" json:"action_video_id,omitempty"`         // 预置动作视频（模板素材 id）
 	MyActionVideoId int64  `protobuf:"varint,17,opt,name=my_action_video_id,json=myActionVideoId,proto3" json:"my_action_video_id,omitempty"` // 我导入的动作视频 id
-	Model           string `protobuf:"bytes,18,opt,name=model,proto3" json:"model,omitempty"`                                                 // 模型：seedance 2.0 / lite
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	Model           string `protobuf:"bytes,18,opt,name=model,proto3" json:"model,omitempty"`                                                 // 模型：动作迁移 seedance 2.0 / lite；数字人口播 seedance2.5 / lite
+	// ---- 数字人口播（文案用 content，比例用 size，人物图同动作迁移）----
+	BackgroundSource string `protobuf:"bytes,19,opt,name=background_source,json=backgroundSource,proto3" json:"background_source,omitempty"` // AI（智能匹配，默认）/ PRESET（预设背景）/ UPLOAD（导入背景）
+	BackgroundId     int64  `protobuf:"varint,20,opt,name=background_id,json=backgroundId,proto3" json:"background_id,omitempty"`            // PRESET：预设背景（模板素材 id）
+	BackgroundUrl    string `protobuf:"bytes,21,opt,name=background_url,json=backgroundUrl,proto3" json:"background_url,omitempty"`          // UPLOAD：直传后的背景图地址
+	Duration         int32  `protobuf:"varint,22,opt,name=duration,proto3" json:"duration,omitempty"`                                        // 15 / 30
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *CreateReq) Reset() {
@@ -846,6 +875,34 @@ func (x *CreateReq) GetModel() string {
 	return ""
 }
 
+func (x *CreateReq) GetBackgroundSource() string {
+	if x != nil {
+		return x.BackgroundSource
+	}
+	return ""
+}
+
+func (x *CreateReq) GetBackgroundId() int64 {
+	if x != nil {
+		return x.BackgroundId
+	}
+	return 0
+}
+
+func (x *CreateReq) GetBackgroundUrl() string {
+	if x != nil {
+		return x.BackgroundUrl
+	}
+	return ""
+}
+
+func (x *CreateReq) GetDuration() int32 {
+	if x != nil {
+		return x.Duration
+	}
+	return 0
+}
+
 type ImageInfo struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -863,7 +920,9 @@ type ImageInfo struct {
 	InputImageUrl string                 `protobuf:"bytes,16,opt,name=input_image_url,json=inputImageUrl,proto3" json:"input_image_url,omitempty"`
 	InputVideoUrl string                 `protobuf:"bytes,17,opt,name=input_video_url,json=inputVideoUrl,proto3" json:"input_video_url,omitempty"`
 	Model         string                 `protobuf:"bytes,18,opt,name=model,proto3" json:"model,omitempty"`
-	Status        int32                  `protobuf:"varint,13,opt,name=status,proto3" json:"status,omitempty"` // 0-生成中 1-已完成（含部分成功） 2-失败
+	InputBgUrl    string                 `protobuf:"bytes,19,opt,name=input_bg_url,json=inputBgUrl,proto3" json:"input_bg_url,omitempty"` // 数字人口播的背景图；空=AI智能匹配
+	Duration      int32                  `protobuf:"varint,20,opt,name=duration,proto3" json:"duration,omitempty"`                        // 数字人口播的视频时长（秒）
+	Status        int32                  `protobuf:"varint,13,opt,name=status,proto3" json:"status,omitempty"`                            // 0-生成中 1-已完成（含部分成功） 2-失败
 	FailReason    string                 `protobuf:"bytes,14,opt,name=fail_reason,json=failReason,proto3" json:"fail_reason,omitempty"`
 	CreateTime    int64                  `protobuf:"varint,15,opt,name=create_time,json=createTime,proto3" json:"create_time,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -1003,6 +1062,20 @@ func (x *ImageInfo) GetModel() string {
 		return x.Model
 	}
 	return ""
+}
+
+func (x *ImageInfo) GetInputBgUrl() string {
+	if x != nil {
+		return x.InputBgUrl
+	}
+	return ""
+}
+
+func (x *ImageInfo) GetDuration() int32 {
+	if x != nil {
+		return x.Duration
+	}
+	return 0
 }
 
 func (x *ImageInfo) GetStatus() int32 {
@@ -1181,7 +1254,7 @@ const file_imagegen_proto_rawDesc = "" +
 	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x10\n" +
 	"\x03url\x18\x02 \x01(\tR\x03url\x12\x1b\n" +
 	"\tcover_url\x18\x03 \x01(\tR\bcoverUrl\x12\x12\n" +
-	"\x04name\x18\x04 \x01(\tR\x04name\"\x87\x03\n" +
+	"\x04name\x18\x04 \x01(\tR\x04name\"\xf5\x03\n" +
 	"\vOptionsResp\x123\n" +
 	"\fposter_types\x18\x01 \x03(\v2\x10.imagegen.OptionR\vposterTypes\x125\n" +
 	"\rposter_styles\x18\x02 \x03(\v2\x10.imagegen.OptionR\fposterStyles\x12&\n" +
@@ -1192,7 +1265,11 @@ const file_imagegen_proto_rawDesc = "" +
 	"\rmax_materials\x18\x06 \x01(\x05R\fmaxMaterials\x12&\n" +
 	"\x0fmax_content_len\x18\a \x01(\x05R\rmaxContentLen\x12+\n" +
 	"\x11template_required\x18\b \x01(\bR\x10templateRequired\x12(\n" +
-	"\x06models\x18\t \x03(\v2\x10.imagegen.OptionR\x06models\"G\n" +
+	"\x06models\x18\t \x03(\v2\x10.imagegen.OptionR\x06models\x12\x1c\n" +
+	"\tdurations\x18\n" +
+	" \x03(\x05R\tdurations\x12)\n" +
+	"\x10default_duration\x18\v \x01(\x05R\x0fdefaultDuration\x12#\n" +
+	"\rdefault_model\x18\f \x01(\tR\fdefaultModel\"G\n" +
 	"\x10ListTemplatesReq\x12\x12\n" +
 	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x1f\n" +
 	"\vposter_type\x18\x02 \x01(\tR\n" +
@@ -1202,7 +1279,7 @@ const file_imagegen_proto_rawDesc = "" +
 	"\x05title\x18\x02 \x01(\tR\x05title\x12\x10\n" +
 	"\x03url\x18\x03 \x01(\tR\x03url\"6\n" +
 	"\fTemplateList\x12&\n" +
-	"\x04list\x18\x01 \x03(\v2\x12.imagegen.TemplateR\x04list\"\xc0\x04\n" +
+	"\x04list\x18\x01 \x03(\v2\x12.imagegen.TemplateR\x04list\"\xd5\x05\n" +
 	"\tCreateReq\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x18\n" +
@@ -1228,7 +1305,11 @@ const file_imagegen_proto_rawDesc = "" +
 	"imageIndex\x12&\n" +
 	"\x0faction_video_id\x18\x10 \x01(\x03R\ractionVideoId\x12+\n" +
 	"\x12my_action_video_id\x18\x11 \x01(\x03R\x0fmyActionVideoId\x12\x14\n" +
-	"\x05model\x18\x12 \x01(\tR\x05model\"\xa3\x04\n" +
+	"\x05model\x18\x12 \x01(\tR\x05model\x12+\n" +
+	"\x11background_source\x18\x13 \x01(\tR\x10backgroundSource\x12#\n" +
+	"\rbackground_id\x18\x14 \x01(\x03R\fbackgroundId\x12%\n" +
+	"\x0ebackground_url\x18\x15 \x01(\tR\rbackgroundUrl\x12\x1a\n" +
+	"\bduration\x18\x16 \x01(\x05R\bduration\"\xe1\x04\n" +
 	"\tImageInfo\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x17\n" +
 	"\auser_id\x18\x02 \x01(\x03R\x06userId\x12\x12\n" +
@@ -1249,7 +1330,10 @@ const file_imagegen_proto_rawDesc = "" +
 	"image_urls\x18\f \x03(\tR\timageUrls\x12&\n" +
 	"\x0finput_image_url\x18\x10 \x01(\tR\rinputImageUrl\x12&\n" +
 	"\x0finput_video_url\x18\x11 \x01(\tR\rinputVideoUrl\x12\x14\n" +
-	"\x05model\x18\x12 \x01(\tR\x05model\x12\x16\n" +
+	"\x05model\x18\x12 \x01(\tR\x05model\x12 \n" +
+	"\finput_bg_url\x18\x13 \x01(\tR\n" +
+	"inputBgUrl\x12\x1a\n" +
+	"\bduration\x18\x14 \x01(\x05R\bduration\x12\x16\n" +
 	"\x06status\x18\r \x01(\x05R\x06status\x12\x1f\n" +
 	"\vfail_reason\x18\x0e \x01(\tR\n" +
 	"failReason\x12\x1f\n" +

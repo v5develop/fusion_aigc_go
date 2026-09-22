@@ -29,7 +29,8 @@ Limits:
   MaxEditImages: 3      # 编辑时图片上限（生成张数更多时以生成张数为准）
 Plan:
   TimeoutMinutes: 5
-Generate:               # Model / Size 不填则不传，用执行面默认（mini、3:4），与 74→75 真实交互一致
+Generate:
+  Model: max            # 本版 mini/plus/max 一律用 max；Size 不填，用执行面默认 3:4
   TimeoutMinutes: 20
 Poll:
   IntervalSeconds: 5

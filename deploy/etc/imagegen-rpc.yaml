@@ -8,7 +8,7 @@ Etcd:
 Log:
   Encoding: plain
 DataSource: root:123456@tcp(127.0.0.1:3306)/fusion_aigc?charset=utf8mb4&parseTime=true&loc=Asia%2FShanghai&time_zone=%27%2B08%3A00%27
-# AIGC 执行面（海报 78、长图 76）。正式地址待提供，本地先指向 mock-aigc
+# AIGC 执行面（海报 78、长图 76、动作迁移 9、数字人口播 92）。正式地址待提供，本地先指向 mock-aigc
 Aigc:
   Endpoint: http://127.0.0.1:5055   # 正式：http://<aigc_server>:5000
   TimeoutSeconds: 10
@@ -32,7 +32,7 @@ LongImage:
   Slot: template
   Model: ""             # 对接文档里 76 没有 model 参数，留空不传；AIGC 确认支持后再填
   DefaultSize: "1:4"
-  TemplateRequired: false
+  TemplateRequired: true  # 最新对接文档：76 的 template_url 必填
   AssetType: longImage
   AssetEntryCode: longImage
 TaskIDPrefix: aigclife
@@ -53,6 +53,14 @@ ActionTransfer:
   TemplateRequired: false
   AssetType: video
   AssetEntryCode: actionTransfer
+Voiceover:              # 数字人口播（92；lite 路由到 91）
+  Module: voiceover
+  Slot: background      # 预设背景的投放位（模板素材表，type=image）
+  DefaultSize: "9:16"
+  TimeoutMinutes: 30    # 云端常见 2–10 分钟，30s 本地可能更久
+  Resolution: 720p      # 设计稿没有分辨率选项，固定 720p
+  AssetType: video
+  AssetEntryCode: voiceover
 DigitalHumanRpc:
   Etcd: {Hosts: [127.0.0.1:2379], Key: digitalhuman.rpc}
   NonBlock: true

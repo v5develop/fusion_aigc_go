@@ -67,7 +67,7 @@ func NewTaskID(prefix string) string {
 	return prefix + "_" + hex.EncodeToString(b)
 }
 
-// SubmitResult 提交成功的返回。TaskType 是路由后的类型，可能与请求不同（85+lite→45、9+seedance2.0→86）。
+// SubmitResult 提交成功的返回。TaskType 是路由后的类型，可能与请求不同（85+lite→45、9 缺省→86、92+lite→91）。
 type SubmitResult struct {
 	TaskID      string `json:"task_id"`
 	TaskType    int    `json:"task_type"`

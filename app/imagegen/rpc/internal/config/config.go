@@ -21,8 +21,10 @@ type Config struct {
 	Poster KindConf
 	// ActionTransfer 动作迁移：人物图 + 动作视频 → 视频（执行面 9，seedance 2.0 会路由到 86）
 	ActionTransfer KindConf
-	// LongImage 长图：模板选填，比例固定，Model 留空不传（对接文档里 76 没有 model 参数）
-	LongImage    KindConf
+	// LongImage 长图：模板必选（76 的 template_url 必填），比例固定，Model 留空不传（对接文档里 76 没有 model 参数）
+	LongImage KindConf
+	// Voiceover 数字人口播：口播文案 + 人物图（+ 背景图）→ 视频（执行面 92，lite 路由到 91）
+	Voiceover    KindConf
 	TaskIDPrefix string `json:",default=aigclife"`
 	Limits       struct {
 		MaxContentLen int `json:",default=500"`
@@ -55,4 +57,15 @@ type KindConf struct {
 	// AssetType / AssetEntryCode 写进素材库时的取值
 	AssetType      string `json:",optional"`
 	AssetEntryCode string `json:",optional"`
+	// TimeoutMinutes 生成超时；0 用 Poll.TimeoutMinutes（视频类出片慢，单独放宽）
+	TimeoutMinutes int `json:",optional"`
+	// Resolution 视频分辨率（数字人口播，仅云端 92 生效）；留空不传
+	Resolution string `json:",optional"`
+}
+
+func (c *KindConf) Timeout(defMinutes int) int {
+	if c.TimeoutMinutes > 0 {
+		return c.TimeoutMinutes
+	}
+	return defMinutes
 }

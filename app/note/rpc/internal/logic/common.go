@@ -164,6 +164,20 @@ type planScript struct {
 	ImagesURL []string `json:"images_url"`
 }
 
+// replaceImagesURL 只替换 script 里的 images_url，其余字段原样保留（75 要用 images 原文）。
+func replaceImagesURL(raw []byte, urls []string) ([]byte, error) {
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return nil, err
+	}
+	b, err := json.Marshal(urls)
+	if err != nil {
+		return nil, err
+	}
+	m["images_url"] = b
+	return json.Marshal(m)
+}
+
 func parseScript(raw []byte) (*planScript, error) {
 	var s planScript
 	if err := json.Unmarshal(raw, &s); err != nil {

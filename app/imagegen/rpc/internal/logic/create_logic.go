@@ -10,6 +10,7 @@ import (
 	"aigc-life/app/imagegen/rpc/internal/config"
 	"aigc-life/app/imagegen/rpc/internal/svc"
 	"aigc-life/app/imagegen/rpc/pb"
+	"aigc-life/pkg/storage"
 	"aigc-life/pkg/xerr"
 
 	"github.com/zeromicro/go-zero/core/logx"
@@ -47,8 +48,11 @@ func (l *CreateLogic) Create(in *pb.CreateReq) (*pb.ImageInfo, error) {
 	if err := requireAigc(l.svcCtx); err != nil {
 		return nil, err
 	}
-	if in.Kind == model.KindActionTransfer {
+	switch in.Kind {
+	case model.KindActionTransfer:
 		return l.createActionTransfer(in, cfg)
+	case model.KindVoiceover:
+		return l.createVoiceover(in, cfg)
 	}
 	lim := l.svcCtx.Config.Limits
 	content := strings.TrimSpace(in.Content)
@@ -66,7 +70,7 @@ func (l *CreateLogic) Create(in *pb.CreateReq) (*pb.ImageInfo, error) {
 		return nil, err
 	}
 
-	// 模板：海报必选；长图可不选（AI智能匹配）。下单时把地址快照下来，之后模板下架不影响。
+	// 模板：海报、长图都必选（按配置 TemplateRequired）。下单时把地址快照下来，之后模板下架不影响。
 	var templateURL string
 	if in.TemplateId > 0 {
 		t, err := l.svcCtx.Shared.FindTemplate(l.ctx, templateSlot(cfg), in.TemplateId)
@@ -109,10 +113,15 @@ func (l *CreateLogic) Create(in *pb.CreateReq) (*pb.ImageInfo, error) {
 		PosterType: nullStr(in.PosterType), PosterStyle: nullStr(in.PosterStyle), Size: size, Model: cfg.Model,
 		ImageCount: count, RequestId: nullStr(in.RequestId), Status: model.StatusGenerating,
 	}
+	return l.insertAndSubmit(row, cfg, posterTypeLabel(l.ctx, l.svcCtx, cfg.BizType, in.PosterType))
+}
+
+// insertAndSubmit 落记录后提交执行面任务。同一 request_id 并发重复提交时返回先到的那条。
+func (l *CreateLogic) insertAndSubmit(row *model.AfvImageCreation, cfg *config.KindConf, typeLabel string) (*pb.ImageInfo, error) {
 	res, err := l.svcCtx.Creation.Insert(l.ctx, row)
 	if err != nil {
-		if isDuplicate(err) { // 并发重复提交
-			old, ferr := l.svcCtx.Creation.FindByRequestID(l.ctx, in.UserId, in.RequestId)
+		if isDuplicate(err) {
+			old, ferr := l.svcCtx.Creation.FindByRequestID(l.ctx, row.UserId, row.RequestId.String)
 			if ferr != nil {
 				return nil, ferr
 			}
@@ -123,7 +132,7 @@ func (l *CreateLogic) Create(in *pb.CreateReq) (*pb.ImageInfo, error) {
 	if row.Id, err = res.LastInsertId(); err != nil {
 		return nil, err
 	}
-	tasks := submit(l.ctx, l.svcCtx, row, cfg, posterTypeLabel(l.ctx, l.svcCtx, cfg.BizType, in.PosterType))
+	tasks := submit(l.ctx, l.svcCtx, row, cfg, typeLabel)
 	if _, err := l.svcCtx.Creation.UpdateTasks(l.ctx, row.Id, dumpTasks(tasks), model.StatusGenerating, "", ""); err != nil {
 		l.Errorf("save tasks %d: %v", row.Id, err)
 	}
@@ -165,28 +174,7 @@ func (l *CreateLogic) createActionTransfer(in *pb.CreateReq, cfg *config.KindCon
 		InputVideoUrl: nullStr(videoURL), Model: in.Model, ImageCount: 1,
 		RequestId: nullStr(in.RequestId), Status: model.StatusGenerating,
 	}
-	res, err := l.svcCtx.Creation.Insert(l.ctx, row)
-	if err != nil {
-		if isDuplicate(err) {
-			old, ferr := l.svcCtx.Creation.FindByRequestID(l.ctx, in.UserId, in.RequestId)
-			if ferr != nil {
-				return nil, ferr
-			}
-			return toInfo(old), nil
-		}
-		return nil, err
-	}
-	if row.Id, err = res.LastInsertId(); err != nil {
-		return nil, err
-	}
-	tasks := submit(l.ctx, l.svcCtx, row, cfg, "")
-	if _, err := l.svcCtx.Creation.UpdateTasks(l.ctx, row.Id, dumpTasks(tasks), model.StatusGenerating, "", ""); err != nil {
-		l.Errorf("save tasks %d: %v", row.Id, err)
-	}
-	if cur, err := l.svcCtx.Creation.FindOne(l.ctx, row.Id); err == nil {
-		row = cur
-	}
-	return toInfo(row), nil
+	return l.insertAndSubmit(row, cfg, "")
 }
 
 // actionVideo 动作视频：预置（模板素材）或我导入的，二选一。
@@ -206,4 +194,85 @@ func (l *CreateLogic) actionVideo(in *pb.CreateReq, cfg *config.KindConf) (strin
 		return v.Url, err
 	}
 	return "", xerr.Param("请选择动作视频")
+}
+
+// createVoiceover 数字人口播：口播文案 + 人物图（上传/公共数字人/AI定制形象）+ 背景图（可选）→ 视频。
+// 执行面 92 一步出片，剧本由它内部生成。
+func (l *CreateLogic) createVoiceover(in *pb.CreateReq, cfg *config.KindConf) (*pb.ImageInfo, error) {
+	content := strings.TrimSpace(in.Content) // 字数不限（产品确认）
+	if content == "" {
+		return nil, xerr.Param("请输入口播文案")
+	}
+	mdl := in.Model
+	if mdl == "" {
+		mdl = voiceoverModels[0].Code
+	}
+	if !validModel(voiceoverModels, mdl) {
+		return nil, xerr.Param("模型无效")
+	}
+	duration := in.Duration
+	if duration == 0 {
+		duration = voiceoverDurations[0]
+	}
+	if duration != 15 && duration != 30 {
+		return nil, xerr.Param("视频时长为 15 或 30 秒")
+	}
+	size := strings.TrimSpace(in.Size)
+	if size == "" {
+		size = cfg.DefaultSize
+	}
+	if size != "9:16" && size != "16:9" {
+		return nil, xerr.Param("视频比例无效")
+	}
+	if err := checkText(l.ctx, l.svcCtx, "voiceover_input", content); err != nil {
+		return nil, err
+	}
+	p, err := l.svcCtx.DigitalHumanRpc.ResolvePortrait(l.ctx, &digitalhuman.ResolvePortraitReq{
+		UserId: in.UserId, PortraitSource: in.PortraitSource, ImageUrl: in.ImageUrl,
+		PublicId: in.PublicId, PortraitId: in.PortraitId, ImageIndex: in.ImageIndex,
+	})
+	if err != nil {
+		return nil, err
+	}
+	bgID, bgURL, err := l.background(in, cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	row := &model.AfvImageCreation{
+		UserId: in.UserId, Kind: in.Kind, Content: content, InputImageUrl: nullStr(p.ImageUrl),
+		TemplateAssetId: nullInt(bgID), InputBgUrl: nullStr(bgURL), Size: size, Duration: int64(duration),
+		Model: mdl, ImageCount: 1, RequestId: nullStr(in.RequestId), Status: model.StatusGenerating,
+	}
+	return l.insertAndSubmit(row, cfg, "")
+}
+
+// background 数字人口播的背景图：AI智能匹配（不传给执行面）/ 预设背景（模板素材，快照地址）/ 导入背景（直传）。
+func (l *CreateLogic) background(in *pb.CreateReq, cfg *config.KindConf) (int64, string, error) {
+	switch in.BackgroundSource {
+	case "", "AI":
+		return 0, "", nil
+	case "PRESET":
+		if in.BackgroundId <= 0 {
+			return 0, "", xerr.Param("请选择背景")
+		}
+		t, err := l.svcCtx.Shared.FindTemplate(l.ctx, templateSlot(cfg), in.BackgroundId)
+		if errors.Is(err, model.ErrNotFound) {
+			return 0, "", xerr.Param("该背景已下架，请重新选择")
+		}
+		if err != nil {
+			return 0, "", err
+		}
+		return t.Id, t.Url, nil
+	case "UPLOAD":
+		u := strings.TrimSpace(in.BackgroundUrl)
+		if u == "" {
+			return 0, "", xerr.Param("请上传背景图")
+		}
+		if err := storage.Owned(l.svcCtx.Storage, u); err != nil {
+			return 0, "", xerr.Param(err.Error())
+		}
+		return 0, u, nil
+	}
+	return 0, "", xerr.Param("背景来源无效")
 }

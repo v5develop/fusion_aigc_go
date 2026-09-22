@@ -12,12 +12,13 @@ const (
 	TypeNoteImages   = 75 // 图文笔记出图
 	TypeLongImage    = 76 // 长图
 	TypePoster       = 78 // 海报
-	TypeVoiceClone   = 84 // TTS 声音复刻
 	TypeDigitalHuman = 85 // AI 数字人
+	TypeVoiceover    = 92 // 数字人口播
 
 	// 路由后才会出现的类型，只在返回值里看到
 	TypeDigitalHumanLite = 45 // 85 + model=lite
-	TypeMotionDriveV2    = 86 // 9 + model=doubao-seedance-2-0-260128
+	TypeMotionDriveV2    = 86 // 9 + model 缺省/非 lite（云端 Seedance 2.0）
+	TypeVoiceoverLite    = 91 // 92 + model=lite（本地 GPU）
 )
 
 // DigitalHuman 85 AI 数字人：图+音频→视频。产物 GeneratedImagePath（mp4）。
@@ -48,10 +49,10 @@ func (t DigitalHuman) Validate() error {
 
 // MotionDrive 9 动作驱动：参考视频+参考图→视频。产物 GeneratedImagePath（mp4）。
 type MotionDrive struct {
-	// InputVideo / ReferenceImage 公网 URL 或 OSS key；Model 为 seedance 2.0 时必须是公网 URL
+	// InputVideo / ReferenceImage 公网 URL 或 OSS key；走 86 时必须是公网 URL
 	InputVideo     string `json:"input_video"`
 	ReferenceImage string `json:"reference_image"`
-	// Model doubao-seedance-2-0-260128 → 路由到 86；不传或 lite → 本地 GPU
+	// Model lite → 本地 GPU 的 9；缺省或其它值 → 路由到 86（云端 Seedance 2.0）
 	Model  string `json:"model,omitempty"`
 	Prompt string `json:"prompt,omitempty"` // 默认 跳舞
 	// 以下走 86 时生效，默认 15 / 720p / 9:16
@@ -89,19 +90,18 @@ func (t NoteScript) Validate() error {
 
 // NoteImages 75 图文笔记出图：每项 Images 出一张。产物 Result.ImagePaths，顺序与 Images 一致。
 //
-// 参考图字段名以 AIGC 同事提供的 74→75 真实交互为准：images_url（对接文档写的是 image_urls，与实际不符）。
-// 74 返回的 images / images_url 可原样转交。
+// 参考图字段按最新对接文档是 image_urls（内容即 74 返回的 images_url，转存到我们目录后再传）。
 type NoteImages struct {
 	Images    []NoteImage `json:"images"`
-	ImageURLs []string    `json:"images_url,omitempty"`
-	Model     string      `json:"model,omitempty"` // mini(默认) / plus / max
+	ImageURLs []string    `json:"image_urls,omitempty"`
+	Model     string      `json:"model,omitempty"` // mini / plus / max(默认)
 	Size      string      `json:"size,omitempty"`  // 默认 3:4
 }
 
 type NoteImage struct {
 	Index       int    `json:"index,omitempty"` // 74 返回的序号，原样透传
 	ImagePrompt string `json:"image_prompt"`
-	// ReferenceMaterials images_url 的 1 起下标；空 = 纯文生图，最多 4 张
+	// ReferenceMaterials image_urls 的 1 起下标；空 = 纯文生图，最多 4 张
 	ReferenceMaterials []int `json:"reference_materials"`
 }
 
@@ -120,38 +120,17 @@ func (t NoteImages) Validate() error {
 		}
 		for _, n := range img.ReferenceMaterials {
 			if n < 1 || n > len(t.ImageURLs) {
-				return fmt.Errorf("images[%d].reference_materials 下标 %d 超出 images_url 范围", i, n)
+				return fmt.Errorf("images[%d].reference_materials 下标 %d 超出 image_urls 范围", i, n)
 			}
 		}
 	}
 	return nil
 }
 
-// VoiceClone 84 TTS 声音复刻。AudioURL / Voice 二选一，Voice 优先。产物 GeneratedImagePath（wav）。
-// 注意：执行面不回传新建的 voice id。
-type VoiceClone struct {
-	Text        string `json:"text"`
-	AudioURL    string `json:"audio_url,omitempty"`
-	Voice       string `json:"voice,omitempty"`
-	Prefix      string `json:"prefix,omitempty"`       // 默认 myvoice
-	TargetModel string `json:"target_model,omitempty"` // 默认 cosyvoice-v3-plus
-	Format      string `json:"format,omitempty"`       // 默认 wav
-	SampleRate  int    `json:"sample_rate,omitempty"`  // 默认 24000
-}
-
-func (VoiceClone) TaskType() int { return TypeVoiceClone }
-
-func (t VoiceClone) Validate() error {
-	if t.AudioURL == "" && t.Voice == "" {
-		return errors.New("audio_url 与 voice 至少给一个")
-	}
-	return required("text", t.Text)
-}
-
 // LongImage 76 长图。产物 GeneratedImagePath。
 type LongImage struct {
 	UserText     string   `json:"user_text"`
-	TemplateURL  string   `json:"template_url,omitempty"`
+	TemplateURL  string   `json:"template_url"` // 必填
 	MaterialURLs []string `json:"material_urls,omitempty"`
 	Size         string   `json:"size,omitempty"` // 默认 1:4
 }
@@ -165,6 +144,7 @@ func (t LongImage) Validate() error {
 	}
 	return first(
 		required("user_text", t.UserText),
+		required("template_url", t.TemplateURL),
 		maxLen("template_url + material_urls", n, 4),
 	)
 }
@@ -189,6 +169,32 @@ func (t Poster) Validate() error {
 	return first(
 		required("template", t.Template),
 		maxLen("materials", len(t.Materials), 3),
+	)
+}
+
+// Voiceover 92 数字人口播：口播文案 + 人物图（+ 场景图）→ 视频。产物 GeneratedImagePath（mp4）。
+// 剧本（分段提示词）由执行面内部生成，不对外。
+type Voiceover struct {
+	Text        string `json:"text"`
+	CharURL     string `json:"CHAR_01_url"`           // 人物图公网 URL（锁定人物形象）
+	EnvURL      string `json:"ENV_01_url,omitempty"`  // 场景图公网 URL（锁定背景）；不传由模型自行匹配
+	Duration    int    `json:"duration"`              // 15 / 30
+	AspectRatio string `json:"aspectRatio,omitempty"` // 9:16（默认）/ 16:9
+	Resolution  string `json:"resolution,omitempty"`  // 仅云端 92 生效，默认 720p
+	// Model 缺省 / seedance2.5 → 云端 92；lite → 路由到 91（本地 GPU）
+	Model         string `json:"model,omitempty"`
+	GenerateAudio *bool  `json:"generate_audio,omitempty"` // 默认 true
+}
+
+func (Voiceover) TaskType() int { return TypeVoiceover }
+
+func (t Voiceover) Validate() error {
+	if t.Duration != 15 && t.Duration != 30 {
+		return fmt.Errorf("duration 须为 15 或 30，当前 %d", t.Duration)
+	}
+	return first(
+		required("text", t.Text),
+		required("CHAR_01_url", t.CharURL),
 	)
 }
 

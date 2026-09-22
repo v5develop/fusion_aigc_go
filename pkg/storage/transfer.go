@@ -20,16 +20,26 @@ import (
 //
 // 执行面的产物落在现有系统的私有桶（afv_system_config.storage_private_*），
 // 既不能长期保留也不对外可读——现有系统同样要转存（见 afv_creation_task.is_transferred）。
-// 私有桶的对象用签名 GET 下载，其余地址直接下载；已经是公有桶的地址原样返回。
+// 私有桶的对象用签名 GET 下载，其余地址直接下载；已经在我们自己目录（{prefix}/）下的原样返回。
+// 公有桶里的其他目录也要复制：比如 74 返回的参考图在 aigc_temp/，那是执行面的临时目录，会被清理。
 func (s *ossStore) Transfer(ctx context.Context, srcURL, kind string, userID int64) (string, error) {
 	pub, err := s.config(ctx)
 	if err != nil {
 		return "", err
 	}
-	if strings.HasPrefix(srcURL, pub.publicBase()+"/") {
-		return srcURL, nil // 已经在公有桶里
+	if strings.HasPrefix(srcURL, pub.publicBase()+"/"+s.prefix+"/") {
+		return srcURL, nil // 已经在我们自己的目录里
 	}
 	key := ObjectKey(s.prefix, kind, userID, ext(srcURL))
+
+	// 公有桶里的临时目录：同桶服务端复制
+	if strings.HasPrefix(srcURL, pub.publicBase()+"/") {
+		if url, err := s.copyObject(ctx, pub, pub.Bucket, objectKeyOf(stripQuery(srcURL)), key); err == nil {
+			return url, nil
+		} else {
+			logx.WithContext(ctx).Errorf("storage: 同桶复制失败，改为下载上传: %v", err)
+		}
+	}
 
 	// 同地域优先用 OSS 服务端复制（CopyObject），不经过我们，快很多；
 	// 跨地域 OSS 不支持复制，只能下载再上传（当前私有桶在上海、公有桶在杭州，走的是这条）。

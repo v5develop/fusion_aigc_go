@@ -65,7 +65,7 @@ func TestGetResultStates(t *testing.T) {
 	bodies := map[string]string{
 		"w":  `{"task_id":"w","status":"waiting","message":"任务正在队列中等待","original_task":null}`,
 		"s":  `{"task_id":"s","task_type":75,"status":"success","generated_image_path":"","image_paths":["u0","u1"],"pool":"platform","cost":0}`,
-		"f":  `{"task_id":"f","task_type":84,"status":"failed","error_msg":"voice not found","error_code":null,"upstream":null,"cost":0}`,
+		"f":  `{"task_id":"f","task_type":92,"status":"failed","error_msg":"Seedance failed","error_code":null,"upstream":null,"cost":0}`,
 		"n":  `{"task_id":"n","status":"not_found","message":"任务不存在","original_task":null}`,
 		"sc": `{"task_id":"sc","task_type":74,"status":"success","generated_image_path":null,"script":{"title":"t"}}`,
 	}
@@ -85,7 +85,7 @@ func TestGetResultStates(t *testing.T) {
 		t.Fatalf("success: %+v", r)
 	}
 	r, _ = c.GetResult(ctx, "f")
-	if !r.Done() || r.Err() == nil || !strings.Contains(r.Err().Error(), "voice not found") {
+	if !r.Done() || r.Err() == nil || !strings.Contains(r.Err().Error(), "Seedance failed") {
 		t.Fatalf("failed: %+v", r)
 	}
 	r, _ = c.GetResult(ctx, "n")
@@ -127,9 +127,12 @@ func TestValidate(t *testing.T) {
 		{NoteImages{Images: []NoteImage{{ImagePrompt: "p", ReferenceMaterials: []int{1}}}, ImageURLs: []string{"a"}}, true},
 		{NoteImages{Images: []NoteImage{{ImagePrompt: "p", ReferenceMaterials: []int{2}}}, ImageURLs: []string{"a"}}, false},
 		{NoteImages{}, false},
-		{VoiceClone{Text: "t"}, false},
-		{VoiceClone{Text: "t", Voice: "v"}, true},
+		{Voiceover{Text: "t", CharURL: "c", Duration: 15}, true},
+		{Voiceover{Text: "t", CharURL: "c", Duration: 20}, false},
+		{Voiceover{Text: "t", Duration: 30}, false},
 		{LongImage{UserText: "t", TemplateURL: "a", MaterialURLs: []string{"1", "2", "3", "4"}}, false},
+		{LongImage{UserText: "t", TemplateURL: "a", MaterialURLs: []string{"1"}}, true},
+		{LongImage{UserText: "t"}, false}, // 模板必填
 		{Poster{Template: "t", Materials: []string{"m"}}, true},
 		{Poster{Template: "t"}, true}, // 素材选填
 		{Poster{Materials: []string{"m"}}, false},
@@ -144,7 +147,7 @@ func TestValidate(t *testing.T) {
 	}
 }
 
-// 75 的请求体以真实 74→75 交互为准：参考图字段是 images_url，images 带 index。
+// 75 的请求体按最新对接文档：参考图字段是 image_urls，images 带 index。
 func TestNoteImagesBody(t *testing.T) {
 	b, err := buildBody("t_1", NoteImages{
 		Images:    []NoteImage{{Index: 1, ImagePrompt: "p", ReferenceMaterials: []int{1, 2}}},
@@ -155,7 +158,7 @@ func TestNoteImagesBody(t *testing.T) {
 	}
 	var m map[string]any
 	_ = json.Unmarshal(b, &m)
-	if _, ok := m["images_url"]; !ok || m["image_urls"] != nil || m["model"] != nil || m["size"] != nil || m["task_type"] != float64(75) {
+	if _, ok := m["image_urls"]; !ok || m["images_url"] != nil || m["model"] != nil || m["size"] != nil || m["task_type"] != float64(75) {
 		t.Fatalf("body %s", b)
 	}
 	if img := m["images"].([]any)[0].(map[string]any); img["index"] != float64(1) {

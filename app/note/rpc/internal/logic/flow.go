@@ -117,6 +117,8 @@ func (p *Poller) pollPlans(ctx context.Context) {
 }
 
 // finishPlan 解析 74 的 script，审核后写入规划结果。
+// script 里的参考图（images_url）在执行面临时目录 aigc_temp/，先转存到我们的目录再落库，
+// 否则用户隔一段时间再点生成，75 会取不到参考图。转存失败保持构思中，下一轮重试。
 func (p *Poller) finishPlan(ctx context.Context, n *model.AfvImageTextNote, raw json.RawMessage) {
 	svcCtx := p.svcCtx
 	s, err := parseScript(raw)
@@ -130,6 +132,18 @@ func (p *Poller) finishPlan(ctx context.Context, n *model.AfvImageTextNote, raw 
 		logx.WithContext(ctx).Infof("note %d plan blocked, label=%s", n.Id, r.Label)
 		failPlan(ctx, svcCtx, n.Id, "构思内容未通过审核，请调整主题后重试")
 		return
+	}
+	if len(s.ImagesURL) > 0 {
+		urls := transferAll(ctx, svcCtx, s.ImagesURL, "note_ref", n.UserId)
+		if len(urls) == 0 {
+			logx.WithContext(ctx).Errorf("note %d 参考图转存失败，下一轮重试", n.Id)
+			return
+		}
+		if raw, err = replaceImagesURL(raw, urls); err != nil {
+			logx.WithContext(ctx).Errorf("note %d rewrite script: %v", n.Id, err)
+			failPlan(ctx, svcCtx, n.Id, "构思结果异常，请重试")
+			return
+		}
 	}
 	plan := &model.Plan{Script: string(raw), Title: s.Note.Title, Content: s.Note.Content, Tags: jsonList(tags)}
 	if _, err := svcCtx.Note.FinishPlan(ctx, n.Id, plan, ""); err != nil {

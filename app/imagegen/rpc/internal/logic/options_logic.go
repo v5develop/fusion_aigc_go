@@ -40,6 +40,14 @@ func (l *OptionsLogic) Options(in *pb.KindReq) (*pb.OptionsResp, error) {
 		resp.MaxImages = 1
 		return resp, nil
 	}
+	if in.Kind == model.KindVoiceover { // 数字人口播：模型、时长、比例
+		resp.Models, resp.DefaultModel = voiceoverModels, voiceoverModels[0].Code
+		resp.Durations, resp.DefaultDuration = voiceoverDurations, voiceoverDurations[0]
+		resp.Sizes = voiceoverSizes
+		resp.MaxImages, resp.MaxMaterials = 1, 0
+		resp.MaxContentLen = 0 // 口播文案字数不限
+		return resp, nil
+	}
 	if in.Kind == model.KindLongImage { // 长图比例固定，设计稿没有比例与风格选项
 		resp.Sizes = []*pb.Option{{Code: cfg.DefaultSize, Label: cfg.DefaultSize}}
 		return resp, nil

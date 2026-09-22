@@ -9,7 +9,7 @@
 | `copywriting-rpc` | 9201 | ❌ | AI文案 |
 | `digitalhuman-rpc` | 9202 | ❌ | AI数字人 |
 | `note-rpc` | 9203 | ❌ | AI图文笔记 |
-| `imagegen-rpc` | 9204 | ❌ | 海报 / 长图 / 动作迁移 |
+| `imagegen-rpc` | 9204 | ❌ | 海报 / 长图 / 动作迁移 / 数字人口播 |
 | `mock-aigc` | 5055 | ❌ | **仅联调**：模拟 AIGC 执行面，拿到正式地址后不要部署 |
 
 rpc 之间通过 etcd 发现，**只有两个网关需要对外暴露**。
@@ -27,7 +27,7 @@ rpc 之间通过 etcd 发现，**只有两个网关需要对外暴露**。
 
 ## 2. 数据库变更
 
-按顺序执行，都只新建表 / 插数据，不改现有表结构：
+按顺序执行，只新建表 / 插数据，不改现有表结构（112、113 只给本项目新建的 `afv_image_creation` 加列，**不能重复执行**）：
 
 ```bash
 mysql fusion_aigc < deploy/sql/V1.0.106__ai_copywriting.sql        # AI文案
@@ -36,6 +36,7 @@ mysql fusion_aigc < deploy/sql/V1.0.109__ai_image_text_note.sql    # 图文笔�
 mysql fusion_aigc < deploy/sql/V1.0.110__asset_category_localLife.sql   # 素材库分类
 mysql fusion_aigc < deploy/sql/V1.0.111__ai_poster_long_image.sql  # 海报/长图
 mysql fusion_aigc < deploy/sql/V1.0.112__ai_action_transfer.sql    # 动作迁移
+mysql fusion_aigc < deploy/sql/V1.0.113__ai_voiceover.sql          # 数字人口播
 ```
 
 还需要**手动加两行配置**（脚本不含，怕误改现有环境）：
@@ -118,7 +119,7 @@ curl -s -H 'X-Admin-Id: 1' http://<host>:8889/admin/v1/digital-humans/tts-model 
 
 ## 7. 运营需要先准备的数据
 
-否则 App 端对应的列表是空的。前四项可以用 `go run ./tools/seed -kind ... -csv ...` 批量导入：
+否则 App 端对应的列表是空的。前五项可以用 `go run ./tools/seed -kind ... -csv ...` 批量导入：
 
 | 内容 | 在哪维护 |
 |---|---|
@@ -126,6 +127,7 @@ curl -s -H 'X-Admin-Id: 1' http://<host>:8889/admin/v1/digital-humans/tts-model 
 | 海报模板 | 投放位 `localLife / poster / template`，按筛选维度 `posterType` 打标签 |
 | 长图模板 | 投放位 `localLife / longImage / template` |
 | 预置动作视频 | 投放位 `localLife / actionTransfer / actionVideo`，素材类型 `video` |
+| 数字人口播预设背景 | 投放位 `localLife / voiceover / background`（设计稿示例：卧室），`-kind voiceoverBackground` |
 | 系统音色试听 | `deploy/scripts/gen-voice-previews.sh` 一次生成完（也可在后台逐个点「生成试听」） |
 
 ## 8. 上线前必须补

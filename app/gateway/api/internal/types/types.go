@@ -23,7 +23,7 @@ type AgreementResp struct {
 }
 
 type AiWriteReq struct {
-	Scene       string `json:"scene,options=topic|selling_point|dh_script|note_topic|poster_info|long_image"`
+	Scene       string `json:"scene,options=topic|selling_point|dh_script|note_topic|poster_info|long_image|voiceover"`
 	ContentType string `json:"content_type,optional"`
 	Industry    string `json:"industry,optional"`
 	Context     string `json:"context"`
@@ -65,23 +65,27 @@ type CreateDigitalHumanReq struct {
 }
 
 type CreateImageGenReq struct {
-	RequestId       string   `header:"X-Request-Id"`
-	Kind            string   `json:"kind,options=poster|longImage|actionTransfer"`
-	Content         string   `json:"content,optional"`
-	MaterialUrls    []string `json:"material_urls,optional"`
-	TemplateId      int64    `json:"template_id,optional"`
-	PosterType      string   `json:"poster_type,optional"`
-	PosterStyle     string   `json:"poster_style,optional"`
-	Size            string   `json:"size,optional"`
-	ImageCount      int32    `json:"image_count,optional"`
-	PortraitSource  string   `json:"portrait_source,optional,options=|UPLOAD|PUBLIC|AI"`
-	ImageUrl        string   `json:"image_url,optional"`
-	PublicId        int64    `json:"public_id,optional"`
-	PortraitId      int64    `json:"portrait_id,optional"`
-	ImageIndex      int32    `json:"image_index,optional"`
-	ActionVideoId   int64    `json:"action_video_id,optional"`
-	MyActionVideoId int64    `json:"my_action_video_id,optional"`
-	Model           string   `json:"model,optional"`
+	RequestId        string   `header:"X-Request-Id"`
+	Kind             string   `json:"kind,options=poster|longImage|actionTransfer|voiceover"`
+	Content          string   `json:"content,optional"` // 海报信息 / 长图内容 / 口播文案
+	MaterialUrls     []string `json:"material_urls,optional"`
+	TemplateId       int64    `json:"template_id,optional"`
+	PosterType       string   `json:"poster_type,optional"`
+	PosterStyle      string   `json:"poster_style,optional"`
+	Size             string   `json:"size,optional"`
+	ImageCount       int32    `json:"image_count,optional"`
+	PortraitSource   string   `json:"portrait_source,optional,options=|UPLOAD|PUBLIC|AI"`
+	ImageUrl         string   `json:"image_url,optional"`
+	PublicId         int64    `json:"public_id,optional"`
+	PortraitId       int64    `json:"portrait_id,optional"`
+	ImageIndex       int32    `json:"image_index,optional"`
+	ActionVideoId    int64    `json:"action_video_id,optional"`
+	MyActionVideoId  int64    `json:"my_action_video_id,optional"`
+	Model            string   `json:"model,optional"`
+	BackgroundSource string   `json:"background_source,optional,options=|AI|PRESET|UPLOAD"`
+	BackgroundId     int64    `json:"background_id,optional"`
+	BackgroundUrl    string   `json:"background_url,optional"`
+	Duration         int32    `json:"duration,optional"`
 }
 
 type CreatePortraitReq struct {
@@ -191,6 +195,8 @@ type ImageCreation struct {
 	InputImageUrl string   `json:"input_image_url"`
 	InputVideoUrl string   `json:"input_video_url"`
 	Model         string   `json:"model"`
+	InputBgUrl    string   `json:"input_bg_url"` // 数字人口播的背景图；空=AI智能匹配
+	Duration      int32    `json:"duration"`     // 数字人口播的视频时长（秒）
 	Status        int32    `json:"status"`
 	FailReason    string   `json:"fail_reason"`
 	CreateTime    int64    `json:"create_time"`
@@ -207,7 +213,7 @@ type ImageGenOption struct {
 }
 
 type ImageGenOptionsReq struct {
-	Kind string `form:"kind,options=poster|longImage|actionTransfer"`
+	Kind string `form:"kind,options=poster|longImage|actionTransfer|voiceover"`
 }
 
 type ImageGenOptionsResp struct {
@@ -217,9 +223,12 @@ type ImageGenOptionsResp struct {
 	DefaultSize      string           `json:"default_size"`
 	MaxImages        int32            `json:"max_images"`
 	MaxMaterials     int32            `json:"max_materials"`
-	MaxContentLen    int32            `json:"max_content_len"`
+	MaxContentLen    int32            `json:"max_content_len"` // 0 = 不限（数字人口播）
 	TemplateRequired bool             `json:"template_required"`
-	Models           []ImageGenOption `json:"models"` // 动作迁移的模型选择
+	Models           []ImageGenOption `json:"models"`           // 动作迁移、数字人口播的模型选择
+	DefaultModel     string           `json:"default_model"`    // 数字人口播默认模型
+	Durations        []int32          `json:"durations"`        // 数字人口播的视频时长（秒）
+	DefaultDuration  int32            `json:"default_duration"` // 数字人口播默认时长
 }
 
 type ImageGenTemplate struct {
@@ -229,7 +238,7 @@ type ImageGenTemplate struct {
 }
 
 type ImageGenTemplatesReq struct {
-	Kind       string `form:"kind,options=poster|longImage"`
+	Kind       string `form:"kind,options=poster|longImage|voiceover"` // voiceover：预设背景
 	PosterType string `form:"poster_type,optional"`
 }
 
@@ -250,7 +259,7 @@ type ListDigitalHumansReq struct {
 }
 
 type ListImageGenReq struct {
-	Kind     string `form:"kind,optional,options=|poster|longImage|actionTransfer"`
+	Kind     string `form:"kind,optional,options=|poster|longImage|actionTransfer|voiceover"`
 	Status   int32  `form:"status,optional,default=-1"`
 	Page     int64  `form:"page,optional,default=1"`
 	PageSize int64  `form:"page_size,optional,default=20"`

@@ -38,8 +38,11 @@ func New() *Client {
 	return &Client{hc: &http.Client{}}
 }
 
+// retryBackoff 第 n 次重试前的等待时间（限流时用）
+var retryBackoff = []time.Duration{time.Second, 3 * time.Second}
+
 // Synthesize 合成一段语音，返回百炼上的音频地址（http，24 小时有效，调用方需尽快转存）。
-// 网络层失败（连接超时等）自动重试一次；接口返回的业务错误不重试。
+// 网络层失败（连接超时等）和限流（HTTP 429）自动重试，最多再试 2 次；其余业务错误不重试。
 func (c *Client) Synthesize(ctx context.Context, ep Endpoint, text, voice string) (string, error) {
 	if ep.APIKey == "" {
 		return "", fmt.Errorf("tts: 模型 %s 未配置 api_key", ep.Model)
@@ -53,18 +56,40 @@ func (c *Client) Synthesize(ctx context.Context, ep Endpoint, text, voice string
 		timeout = 60 * time.Second
 	}
 	var lastErr error
-	for attempt := 0; attempt < 2; attempt++ {
+	for attempt := 0; ; attempt++ {
 		url, err := c.once(ctx, ep, body, timeout)
 		if err == nil {
 			return url, nil
 		}
 		lastErr = err
-		var ne net.Error
-		if !errors.As(err, &ne) || ctx.Err() != nil {
+		if attempt >= len(retryBackoff) || !retryable(err) || ctx.Err() != nil {
 			break
+		}
+		select {
+		case <-ctx.Done():
+			return "", lastErr
+		case <-time.After(retryBackoff[attempt]):
 		}
 	}
 	return "", lastErr
+}
+
+// httpError 接口返回的非成功响应
+type httpError struct {
+	status int
+	msg    string
+}
+
+func (e *httpError) Error() string { return e.msg }
+
+// retryable 网络层失败或限流可以重试；参数错误、音色不可用等重试也没用。
+func retryable(err error) bool {
+	var ne net.Error
+	if errors.As(err, &ne) {
+		return true
+	}
+	var he *httpError
+	return errors.As(err, &he) && he.status == http.StatusTooManyRequests
 }
 
 func (c *Client) once(ctx context.Context, ep Endpoint, body []byte, timeout time.Duration) (string, error) {
@@ -99,7 +124,7 @@ func (c *Client) once(ctx context.Context, ep Endpoint, body []byte, timeout tim
 		return "", fmt.Errorf("tts: 解析响应失败(HTTP %d): %s", resp.StatusCode, truncate(string(raw), 300))
 	}
 	if out.Code != "" || resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("tts: %s 返回 %d %s: %s", ep.Model, resp.StatusCode, out.Code, out.Message)
+		return "", &httpError{resp.StatusCode, fmt.Sprintf("tts: %s 返回 %d %s: %s", ep.Model, resp.StatusCode, out.Code, out.Message)}
 	}
 	if out.Output.Audio.URL == "" {
 		return "", fmt.Errorf("tts: %s 没有返回音频", ep.Model)

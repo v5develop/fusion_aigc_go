@@ -1,4 +1,4 @@
-// seed 批量导入运营数据：公共数字人、海报/长图模板、预置动作视频。
+// seed 批量导入运营数据：公共数字人、海报/长图模板、预置动作视频、数字人口播预设背景。
 //
 // 这些内容都放在现有系统的模板素材表里（运营也可在现有后台一条条维护），
 // 首次铺量时用这个工具更快。按 url 去重，可以重复执行。
@@ -12,6 +12,7 @@
 //	posterTemplate     title,url,poster_type,sort        # poster_type：social/marketing/festival/celebration/invitation/recruitment
 //	longImageTemplate  title,url,sort
 //	actionVideo        title,url,sort
+//	voiceoverBackground title,url,sort
 package main
 
 import (
@@ -35,15 +36,16 @@ const bizType = "localLife"
 var kinds = map[string]struct {
 	Module, Slot, AssetType, Desc string
 }{
-	"publicModel":       {"digitalHuman", "publicModel", "image", "公共数字人"},
-	"posterTemplate":    {"poster", "template", "image", "海报模板"},
-	"longImageTemplate": {"longImage", "template", "image", "长图模板"},
-	"actionVideo":       {"actionTransfer", "actionVideo", "video", "预置动作视频"},
+	"publicModel":         {"digitalHuman", "publicModel", "image", "公共数字人"},
+	"posterTemplate":      {"poster", "template", "image", "海报模板"},
+	"longImageTemplate":   {"longImage", "template", "image", "长图模板"},
+	"actionVideo":         {"actionTransfer", "actionVideo", "video", "预置动作视频"},
+	"voiceoverBackground": {"voiceover", "background", "image", "数字人口播预设背景"},
 }
 
 func main() {
 	dsn := flag.String("dsn", "", "MySQL DSN，如 user:pass@tcp(host:3306)/fusion_aigc")
-	kind := flag.String("kind", "", "publicModel / posterTemplate / longImageTemplate / actionVideo")
+	kind := flag.String("kind", "", "publicModel / posterTemplate / longImageTemplate / actionVideo / voiceoverBackground")
 	path := flag.String("csv", "", "CSV 文件路径")
 	dry := flag.Bool("dry", false, "只打印将要写入的内容，不落库")
 	flag.Parse()

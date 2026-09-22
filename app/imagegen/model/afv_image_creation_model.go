@@ -17,6 +17,7 @@ const (
 	KindPoster         = "poster"
 	KindLongImage      = "longImage"
 	KindActionTransfer = "actionTransfer"
+	KindVoiceover      = "voiceover" // 数字人口播
 )
 
 // 状态

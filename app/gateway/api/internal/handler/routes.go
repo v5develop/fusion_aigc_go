@@ -241,13 +241,13 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 					Handler: imagegen.RemoveHandler(serverCtx),
 				},
 				{
-					// 海报/长图表单配置
+					// 表单配置（海报/长图/动作迁移/数字人口播）
 					Method:  http.MethodGet,
 					Path:    "/image-creations/options",
 					Handler: imagegen.OptionsHandler(serverCtx),
 				},
 				{
-					// 模板列表（海报可按类型筛）
+					// 模板列表（海报可按类型筛；数字人口播为预设背景）
 					Method:  http.MethodGet,
 					Path:    "/image-creations/templates",
 					Handler: imagegen.TemplatesHandler(serverCtx),

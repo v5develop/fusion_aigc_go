@@ -47,14 +47,29 @@ var actionModels = []*pb.Option{
 	{Code: "lite", Label: "xiaoqi-video-1.0-lite"},
 }
 
-func validActionModel(code string) bool {
-	for _, m := range actionModels {
+// voiceoverModels 数字人口播的模型选择（设计稿），值直接作为执行面 92 的 model：
+// seedance2.5 留在云端 92；lite 路由到本地 GPU 的 91。第一项为默认。
+var voiceoverModels = []*pb.Option{
+	{Code: "seedance2.5", Label: "seedance 2.5"},
+	{Code: "lite", Label: "XQ Video 1.0 Lite"},
+}
+
+// voiceoverDurations 数字人口播的视频时长（秒），执行面 92 只支持这两档
+var voiceoverDurations = []int32{15, 30}
+
+// voiceoverSizes 数字人口播的视频比例
+var voiceoverSizes = []*pb.Option{{Code: "9:16", Label: "9:16"}, {Code: "16:9", Label: "16:9"}}
+
+func validModel(models []*pb.Option, code string) bool {
+	for _, m := range models {
 		if m.Code == code {
 			return true
 		}
 	}
 	return false
 }
+
+func validActionModel(code string) bool { return validModel(actionModels, code) }
 
 // posterSizes 海报图片比例（设计稿「生成设置」弹窗）
 var posterSizes = []*pb.Option{
@@ -99,6 +114,8 @@ func kindConf(svcCtx *svc.ServiceContext, kind string) (*config.KindConf, error)
 		return &svcCtx.Config.LongImage, nil
 	case model.KindActionTransfer:
 		return &svcCtx.Config.ActionTransfer, nil
+	case model.KindVoiceover:
+		return &svcCtx.Config.Voiceover, nil
 	}
 	return nil, xerr.Newf(xerr.ParamError, "不支持的类型 %s", kind)
 }
@@ -143,6 +160,7 @@ func toInfo(c *model.AfvImageCreation) *pb.ImageInfo {
 		Id: c.Id, UserId: c.UserId, Kind: c.Kind, Content: c.Content, MaterialUrls: parseList(c.MaterialUrls),
 		TemplateId: c.TemplateAssetId.Int64, TemplateUrl: c.TemplateUrl.String, PosterType: c.PosterType.String,
 		InputImageUrl: c.InputImageUrl.String, InputVideoUrl: c.InputVideoUrl.String, Model: c.Model,
+		InputBgUrl: c.InputBgUrl.String, Duration: int32(c.Duration),
 		PosterStyle: c.PosterStyle.String, Size: c.Size, ImageCount: int32(c.ImageCount),
 		ImageUrls: parseList(c.ImageUrls), Status: int32(c.Status), FailReason: c.FailReason.String,
 		CreateTime: c.CreateTime.UnixMilli(),

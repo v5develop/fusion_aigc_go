@@ -53,7 +53,7 @@ HTTP 状态码一律 200，用 `code` 判断：
 | 接口 | 说明 |
 |---|---|
 | `GET /copywriting/options` | 选项：内容类型、风格、行业、字数、当前模型、字数上限 |
-| `POST /copywriting/ai-write` | AI帮写（同步，几秒返回）。`scene`：`topic` 主题 / `selling_point` 卖点优化 / `dh_script` 数字人配音 / `note_topic` 笔记主题 / `poster_info` 海报信息润色 / `long_image` 长图内容 |
+| `POST /copywriting/ai-write` | AI帮写（同步，几秒返回）。`scene`：`topic` 主题 / `selling_point` 卖点优化 / `dh_script` 数字人配音 / `note_topic` 笔记主题 / `poster_info` 海报信息润色 / `long_image` 长图内容 / `voiceover` 数字人口播文案（字数不限，可传 `max_len` 约束） |
 | `POST /copywriting/generate` | 提交生成（`source`：`AI_WRITE` 帮写 / `IMITATE` 仿写），轮询详情 |
 | `POST /copywriting/:id/regenerate` | 重新生成，产生新记录 |
 | `POST /copywriting` | 自主撰写，直接保存 |
@@ -106,14 +106,14 @@ HTTP 状态码一律 200，用 `code` 判断：
 - 规划页的**套图数量只能改少**。改多要点「重新生成」重新构思，否则返回 1001。
 - 图上的排版文字是构思时定的，**改标题不会改图上的字**。
 
-## 四、AI海报 / AI长图 / 动作迁移
+## 四、AI海报 / AI长图 / 动作迁移 / 数字人口播
 
-三者共用一组接口，用 `kind` 区分：`poster`、`longImage`、`actionTransfer`。
+四者共用一组接口，用 `kind` 区分：`poster`、`longImage`、`actionTransfer`、`voiceover`。
 
 | 接口 | 说明 |
 |---|---|
-| `GET /image-creations/options?kind=` | 表单配置：海报类型与风格、比例、数量上限、模板是否必选、动作迁移的模型列表 |
-| `GET /image-creations/templates?kind=&poster_type=` | 模板列表（海报可按类型筛） |
+| `GET /image-creations/options?kind=` | 表单配置：海报类型与风格、比例、数量上限、模板是否必选；动作迁移、数字人口播的模型列表；数字人口播的时长 `durations` 与默认值 |
+| `GET /image-creations/templates?kind=&poster_type=` | 模板列表（海报可按类型筛）；`kind=voiceover` 返回数字人口播的**预设背景** |
 | `GET /action-videos` | 动作视频：`presets` 预置 + `mine` 我导入的 |
 | `POST /action-videos` | 导入动作视频（直传后回传 `url`，可带 `cover_url`），自动命名「我的动作N」 |
 | `DELETE /action-videos/:id` | 删除我导入的 |
@@ -129,14 +129,26 @@ HTTP 状态码一律 200，用 `code` 判断：
 {"kind":"poster","content":"海报信息","template_id":12,"poster_type":"festival",
  "poster_style":"flat","size":"3:4","image_count":2,"material_urls":["…"]}
 
-// 长图：模板可不选（AI智能匹配），比例固定 1:4
-{"kind":"longImage","content":"长图内容","template_id":0,"material_urls":["…"],"image_count":1}
+// 长图：模板必选（最新对接文档 76 的 template_url 必填），比例固定 1:4
+{"kind":"longImage","content":"长图内容","template_id":15,"material_urls":["…"],"image_count":1}
 
 // 动作迁移：人物图来源同数字人；动作视频二选一；模型必选
 {"kind":"actionTransfer","portrait_source":"UPLOAD","image_url":"…",
  "action_video_id":34,            // 或 "my_action_video_id": 7
  "model":"doubao-seedance-2-0-260128"}   // 或 "lite"
+
+// 数字人口播：文案必填（字数不限）；人物图来源同数字人；背景三选一；其余不传用默认
+{"kind":"voiceover","content":"欢迎光临我们的小店……",
+ "portrait_source":"PUBLIC","public_id":5,           // 或 UPLOAD + image_url / AI + portrait_id + image_index
+ "background_source":"PRESET","background_id":21,    // AI（默认，智能匹配）/ PRESET + background_id / UPLOAD + background_url
+ "model":"seedance2.5",                              // 默认；或 "lite"（XQ Video 1.0 Lite）
+ "duration":15,                                      // 15（默认）/ 30
+ "size":"9:16"}                                      // 9:16（默认）/ 16:9
 ```
+
+数字人口播一步出片（执行面 92），**没有「规划剧本」这一步**。按页面逐步对接的完整说明见 [`api-voiceover.md`](api-voiceover.md)。成品视频在 `image_urls[0]`，详情里另有 `input_bg_url`、`duration`。
+视频生成较慢（云端常见 2–10 分钟），轮询间隔建议 5–10 秒；超过 30 分钟未出结果按失败处理。
+「AI帮写」用 `POST /copywriting/ai-write`，`scene=voiceover`；「AI文案」用 `GET /copywriting?keyword=` 选一条，把正文填进 `content`。
 
 状态：`0` 生成中、`1` 已完成（**含部分成功**，`image_urls` 只返回成功的那几张）、`2` 全部失败。
 一次生成多张时，后端是每张一个任务，所以可能出现部分成功。

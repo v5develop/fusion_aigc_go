@@ -1,7 +1,11 @@
 package tts
 
 import (
+	"context"
 	"encoding/binary"
+	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -46,5 +50,40 @@ func TestWavDuration(t *testing.T) {
 func TestWavDurationInvalid(t *testing.T) {
 	if _, err := WavDuration([]byte("not a wav file at all")); err == nil {
 		t.Fatal("want error")
+	}
+}
+
+// 限流（429）会重试，参数错误（400）不重试。
+func TestSynthesizeRetry(t *testing.T) {
+	old := retryBackoff
+	retryBackoff = []time.Duration{time.Millisecond, time.Millisecond}
+	defer func() { retryBackoff = old }()
+
+	cases := []struct {
+		name      string
+		responses []int // 依次返回的状态码
+		wantCalls int32
+		wantOK    bool
+	}{
+		{"429 后成功", []int{429, 200}, 2, true},
+		{"一直 429，最多 3 次", []int{429, 429, 429, 429}, 3, false},
+		{"400 不重试", []int{400, 200}, 1, false},
+	}
+	for _, c := range cases {
+		var n atomic.Int32
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			code := c.responses[n.Add(1)-1]
+			w.WriteHeader(code)
+			if code == 200 {
+				_, _ = w.Write([]byte(`{"output":{"audio":{"url":"http://oss/a.wav"}}}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{"code":"Throttling.RateQuota","message":"rate limit"}`))
+		}))
+		url, err := New().Synthesize(context.Background(), Endpoint{BaseURL: srv.URL, APIKey: "k", Model: "m"}, "你好", "v")
+		srv.Close()
+		if (err == nil) != c.wantOK || n.Load() != c.wantCalls {
+			t.Errorf("%s: url=%q err=%v calls=%d, want ok=%v calls=%d", c.name, url, err, n.Load(), c.wantOK, c.wantCalls)
+		}
 	}
 }

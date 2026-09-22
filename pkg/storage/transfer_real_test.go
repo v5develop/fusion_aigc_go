@@ -62,3 +62,35 @@ func TestTransferReal(t *testing.T) {
 		t.Fatalf("公有桶地址应原样返回: %s %v", again, err)
 	}
 }
+
+// TestTransferTempReal 公有桶临时目录（74 返回的 aigc_temp/ 参考图）也要复制到我们的目录（默认跳过）：
+//
+//	OSS_REAL=1 OSS_DSN='…' OSS_TEMP_URL='https://xx-shop-img…/aigc_temp/x.jpg' go test ./pkg/storage -run TransferTempReal -v
+func TestTransferTempReal(t *testing.T) {
+	dsn, src := os.Getenv("OSS_DSN"), os.Getenv("OSS_TEMP_URL")
+	if os.Getenv("OSS_REAL") != "1" || dsn == "" || src == "" {
+		t.Skip("设置 OSS_REAL=1、OSS_DSN 与 OSS_TEMP_URL 后才会连真实账号")
+	}
+	s := New(Conf{Mode: "oss", Prefix: "aigc-life"}, sqlx.NewMysql(dsn)).(*ossStore)
+	ctx := context.Background()
+	got, err := s.Transfer(ctx, src, "note_ref", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("copied to: %s", got)
+	if got == src || !strings.Contains(got, "/aigc-life/note_ref/") {
+		t.Fatalf("临时目录的图没有复制到我们的目录: %s", got)
+	}
+	resp, err := http.Get(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("复制后的地址不可访问: HTTP %d", resp.StatusCode)
+	}
+	// 已经在我们目录里的再转存一次应原样返回
+	if again, err := s.Transfer(ctx, got, "note_ref", 1); err != nil || again != got {
+		t.Fatalf("自己目录下的地址不应再复制: %s %v", again, err)
+	}
+}

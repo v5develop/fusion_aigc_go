@@ -47,7 +47,7 @@ type Config struct {
 	Portrait struct {
 		Count          int    `json:",default=4"`
 		Size           string `json:",default=9:16"`
-		Model          string `json:",default=mini"`
+		Model          string `json:",default=max"`
 		TimeoutMinutes int    `json:",default=10"`
 	}
 	Video struct {

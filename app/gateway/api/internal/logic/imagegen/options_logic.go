@@ -37,5 +37,6 @@ func (l *OptionsLogic) Options(req *types.ImageGenOptionsReq) (resp *types.Image
 		PosterTypes: toOptions(out.PosterTypes), PosterStyles: toOptions(out.PosterStyles), Sizes: toOptions(out.Sizes),
 		DefaultSize: out.DefaultSize, MaxImages: out.MaxImages, MaxMaterials: out.MaxMaterials,
 		MaxContentLen: out.MaxContentLen, TemplateRequired: out.TemplateRequired, Models: toOptions(out.Models),
+		DefaultModel: out.DefaultModel, Durations: orEmptyInt(out.Durations), DefaultDuration: out.DefaultDuration,
 	}, nil
 }

@@ -48,6 +48,8 @@ func (l *AiWriteLogic) AiWrite(in *pb.AiWriteReq) (*pb.AiWriteResp, error) {
 		code = promptPosterInfo
 	case "long_image": // 长图内容
 		code = promptLongImage
+	case "voiceover": // 数字人口播文案，字数不限（前端传了 max_len 才约束）
+		code = promptVoiceover
 	default:
 		return nil, xerr.Newf(xerr.ParamError, "不支持的场景 %s", in.Scene)
 	}

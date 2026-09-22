@@ -80,14 +80,31 @@ func generate(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		// 真实行为：model=doubao-seedance-2-0-260128 会被路由到 86
-		if m, _ := body["model"].(string); m == "doubao-seedance-2-0-260128" {
+		// 真实行为：只有 model=lite 留在本地 9，缺省或其它值都路由到 86
+		if m, _ := body["model"].(string); m != "lite" {
 			t.Type = 86
 		}
-	case 76:
-		if s, _ := body["user_text"].(string); s == "" {
-			writeJSON(w, 400, map[string]any{"code": 400, "message": "task_type=76 缺少 user_text", "success": false})
+	case 92:
+		for _, k := range []string{"text", "CHAR_01_url"} {
+			if v, _ := body[k].(string); v == "" {
+				writeJSON(w, 400, map[string]any{"code": 400, "message": "task_type=92 缺少 " + k, "success": false})
+				return
+			}
+		}
+		if d, _ := body["duration"].(float64); d != 15 && d != 30 {
+			writeJSON(w, 400, map[string]any{"code": 400, "message": "task_type=92 duration 须为 15 或 30", "success": false})
 			return
+		}
+		// 真实行为：model=lite 路由到本地 91，缺省 / seedance2.5 留在云端 92
+		if m, _ := body["model"].(string); m == "lite" {
+			t.Type = 91
+		}
+	case 76:
+		for _, k := range []string{"user_text", "template_url"} {
+			if s, _ := body[k].(string); s == "" {
+				writeJSON(w, 400, map[string]any{"code": 400, "message": "task_type=76 缺少 " + k, "success": false})
+				return
+			}
 		}
 	case 78:
 		// 真实 78 的 materials 是否必填待 AIGC 确认；这里只校验 template
@@ -101,14 +118,14 @@ func generate(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, 400, map[string]any{"code": 400, "message": "task_type=75 缺少 images", "success": false})
 			return
 		}
-		// 与真实交互一致：参考图字段为 images_url，reference_materials 是它的 1 起下标
-		refs, _ := body["images_url"].([]any)
+		// 按最新对接文档：参考图字段为 image_urls，reference_materials 是它的 1 起下标
+		refs, _ := body["image_urls"].([]any)
 		for _, im := range imgs {
 			m, _ := im.(map[string]any)
 			rm, _ := m["reference_materials"].([]any)
 			for _, r := range rm {
 				if n, _ := r.(float64); int(n) < 1 || int(n) > len(refs) {
-					writeJSON(w, 400, map[string]any{"code": 400, "message": "task_type=75 reference_materials 超出 images_url", "success": false})
+					writeJSON(w, 400, map[string]any{"code": 400, "message": "task_type=75 reference_materials 超出 image_urls", "success": false})
 					return
 				}
 			}
@@ -213,7 +230,7 @@ func mockScript(id string, body map[string]any) map[string]any {
 
 var (
 	failRe    = regexp.MustCompile(`mock-fail(?:-(\d+))?`)
-	taskTypes = map[string]bool{"9": true, "45": true, "74": true, "75": true, "76": true, "78": true, "84": true, "85": true, "86": true}
+	taskTypes = map[string]bool{"9": true, "45": true, "74": true, "75": true, "76": true, "78": true, "85": true, "86": true, "91": true, "92": true}
 )
 
 // shouldFail "mock-fail-<任务号>" 只让该类型失败；其余 "mock-fail…"（包括后面跟的不是任务号）让所有类型失败。

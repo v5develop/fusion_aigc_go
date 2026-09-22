@@ -81,3 +81,20 @@ func TestNormalizeTags(t *testing.T) {
 		t.Fatalf("%v", got)
 	}
 }
+
+// 参考图转存后只替换 images_url，images 等其余字段原样保留。
+func TestReplaceImagesURL(t *testing.T) {
+	out, err := replaceImagesURL([]byte(sampleScript), []string{"https://pub/a.jpg", "https://pub/b.jpg", "https://pub/c.jpg"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := parseScript(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	orig, _ := parseScript([]byte(sampleScript))
+	if s.ImagesURL[0] != "https://pub/a.jpg" || len(s.ImagesURL) != 3 ||
+		s.Note.Title != orig.Note.Title || len(s.Images) != len(orig.Images) || s.Images[0].ImagePrompt != orig.Images[0].ImagePrompt {
+		t.Fatalf("rewritten %+v", s)
+	}
+}

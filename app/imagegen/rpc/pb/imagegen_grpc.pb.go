@@ -35,7 +35,7 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
-// AI 海报（78）、AI 长图（76）、动作迁移（9 / 86）。流程相同，用 kind 区分。
+// AI 海报（78）、AI 长图（76）、动作迁移（9 / 86）、数字人口播（92 / 91）。流程相同，用 kind 区分。
 type ImageGenClient interface {
 	// ---- App ----
 	// 表单配置：海报类型 / 风格 / 比例 / 数量与素材上限
@@ -167,7 +167,7 @@ func (c *imageGenClient) AdminList(ctx context.Context, in *ListReq, opts ...grp
 // All implementations must embed UnimplementedImageGenServer
 // for forward compatibility.
 //
-// AI 海报（78）、AI 长图（76）、动作迁移（9 / 86）。流程相同，用 kind 区分。
+// AI 海报（78）、AI 长图（76）、动作迁移（9 / 86）、数字人口播（92 / 91）。流程相同，用 kind 区分。
 type ImageGenServer interface {
 	// ---- App ----
 	// 表单配置：海报类型 / 风格 / 比例 / 数量与素材上限

@@ -40,7 +40,7 @@ func dumpTasks(t []imageTask) string {
 	return string(b)
 }
 
-// buildTask 按类型组装执行面入参：海报 78，长图 76。
+// buildTask 按类型组装执行面入参：海报 78，长图 76，动作迁移 9，数字人口播 92。
 //
 // poster_type / poster_style 是喂给模型的，传中文展示名（如「节日」「扁平插画」）；
 // 库里存的是编码，展示名在提交前查出来。
@@ -58,6 +58,12 @@ func buildTask(c *model.AfvImageCreation, cfg *config.KindConf, mats []string, t
 	if c.Kind == model.KindActionTransfer {
 		return aigc.MotionDrive{
 			InputVideo: c.InputVideoUrl.String, ReferenceImage: c.InputImageUrl.String, Model: c.Model,
+		}
+	}
+	if c.Kind == model.KindVoiceover {
+		return aigc.Voiceover{
+			Text: c.Content, CharURL: c.InputImageUrl.String, EnvURL: c.InputBgUrl.String, Duration: int(c.Duration),
+			AspectRatio: c.Size, Resolution: cfg.Resolution, Model: c.Model,
 		}
 	}
 	return aigc.LongImage{
@@ -80,7 +86,7 @@ func submit(ctx context.Context, svcCtx *svc.ServiceContext, c *model.AfvImageCr
 		tasks = append(tasks, imageTask{TaskID: id})
 	}
 	// TODO 计费：等计费方案确认后，这里预扣 100 点（按次还是按张待定），失败退回
-	// TODO 任务：确认后写 afv_creation_task（海报 mode=78 / 长图 mode=76）
+	// TODO 任务：确认后写 afv_creation_task（海报 mode=78 / 长图 mode=76 / 动作迁移 9 / 数字人口播 92）
 	return tasks
 }
 
@@ -129,9 +135,12 @@ func (p *Poller) tick(ctx context.Context) {
 		logx.WithContext(ctx).Errorf("list generating: %v", err)
 		return
 	}
-	timeout := time.Duration(svcCtx.Config.Poll.TimeoutMinutes) * time.Minute
 	for _, c := range rows {
-		p.pollOne(ctx, c, time.Since(c.UpdateTime) > timeout)
+		minutes := svcCtx.Config.Poll.TimeoutMinutes
+		if cfg, err := kindConf(svcCtx, c.Kind); err == nil {
+			minutes = cfg.Timeout(minutes)
+		}
+		p.pollOne(ctx, c, time.Since(c.UpdateTime) > time.Duration(minutes)*time.Minute)
 	}
 }
 
@@ -222,8 +231,11 @@ func saveAssets(ctx context.Context, svcCtx *svc.ServiceContext, c *model.AfvIma
 	}
 	props, _ := json.Marshal(map[string]any{"creationId": c.Id, "kind": c.Kind, "posterType": c.PosterType.String})
 	name := c.Content
-	if c.Kind == model.KindActionTransfer {
+	switch c.Kind {
+	case model.KindActionTransfer:
 		name = "动作迁移"
+	case model.KindVoiceover:
+		name = "数字人口播"
 	}
 	group := groupTaskID(c)
 	list := make([]asset.Asset, 0, len(urls))
@@ -247,9 +259,9 @@ func groupTaskID(c *model.AfvImageCreation) string {
 	return ""
 }
 
-// coverOf 素材库封面：动作迁移的成品是视频，用人物图当封面；图片类成品用自身。
+// coverOf 素材库封面：动作迁移、数字人口播的成品是视频，用人物图当封面；图片类成品用自身。
 func coverOf(c *model.AfvImageCreation, url string) string {
-	if c.Kind == model.KindActionTransfer && c.InputImageUrl.Valid {
+	if (c.Kind == model.KindActionTransfer || c.Kind == model.KindVoiceover) && c.InputImageUrl.Valid {
 		return c.InputImageUrl.String
 	}
 	return url

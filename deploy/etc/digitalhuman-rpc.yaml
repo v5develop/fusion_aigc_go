@@ -25,7 +25,7 @@ Agreement:
 Portrait:
   Count: 4
   Size: "9:16"
-  Model: mini
+  Model: max            # 本版 mini/plus/max 一律用 max
   TimeoutMinutes: 10
 Video:
   AspectRatio: "9:16"   # 设计稿不给选，固定
