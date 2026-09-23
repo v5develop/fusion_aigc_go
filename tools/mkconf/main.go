@@ -46,6 +46,9 @@ func main() {
 	aigc := flag.String("aigc", "", "AIGC 执行面地址（联调期为 mock-aigc）")
 	ports := flag.String("ports", "", "端口表，如 copywriting=19201,…,gateway=18888,admin=18889")
 	keepDays := flag.Int("keep-days", 7, "日志保留天数")
+	jwtSecret := flag.String("jwt-secret", "", "App 令牌签名密钥（只写进网关配置）")
+	authMode := flag.String("auth-mode", "", "网关鉴权模式：dev / token")
+	union := flag.String("union", "", "联盟用户服务地址（登录用）")
 	flag.Parse()
 	if *out == "" || *logs == "" || *dsn == "" || *aigc == "" || *ports == "" {
 		flag.Usage()
@@ -73,7 +76,8 @@ func main() {
 			log.Fatalf("%s: %v", file, err)
 		}
 		root := doc.Content[0]
-		e := editor{name: name, ports: portOf, dsn: *dsn, aigc: *aigc, logDir: filepath.Join(*logs, name), keepDays: *keepDays}
+		e := editor{name: name, ports: portOf, dsn: *dsn, aigc: *aigc, logDir: filepath.Join(*logs, name), keepDays: *keepDays,
+			jwtSecret: *jwtSecret, authMode: *authMode, union: *union}
 		if err := e.apply(root); err != nil {
 			log.Fatalf("%s: %v", file, err)
 		}
@@ -105,12 +109,15 @@ func parsePorts(s string) (map[string]int, error) {
 }
 
 type editor struct {
-	name     string
-	ports    map[string]int
-	dsn      string
-	aigc     string
-	logDir   string
-	keepDays int
+	jwtSecret string
+	authMode  string
+	union     string
+	name      string
+	ports     map[string]int
+	dsn       string
+	aigc      string
+	logDir    string
+	keepDays  int
 }
 
 func (e editor) apply(root *yaml.Node) error {
@@ -133,6 +140,17 @@ func (e editor) apply(root *yaml.Node) error {
 	}
 	if a := get(root, "Aigc"); a != nil {
 		set(a, "Endpoint", scalar(e.aigc))
+	}
+	if a := get(root, "Auth"); a != nil { // 网关与后台的鉴权
+		if e.authMode != "" {
+			set(a, "Mode", scalar(e.authMode))
+		}
+		if e.jwtSecret != "" && get(a, "Jwt") != nil {
+			set(get(a, "Jwt"), "Secret", scalar(e.jwtSecret))
+		}
+	}
+	if u := get(root, "Union"); u != nil && e.union != "" {
+		set(u, "BaseURL", scalar(e.union))
 	}
 	if s := get(root, "Storage"); s != nil {
 		set(s, "Mode", scalar("oss")) // 线上必须 oss：执行面要能访问、前端要直传

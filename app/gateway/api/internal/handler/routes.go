@@ -6,6 +6,7 @@ package handler
 import (
 	"net/http"
 
+	auth "aigc-life/app/gateway/api/internal/handler/auth"
 	common "aigc-life/app/gateway/api/internal/handler/common"
 	copywriting "aigc-life/app/gateway/api/internal/handler/copywriting"
 	digitalhuman "aigc-life/app/gateway/api/internal/handler/digitalhuman"
@@ -19,6 +20,33 @@ import (
 )
 
 func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
+	server.AddRoutes(
+		[]rest.Route{
+			{
+				// 用联盟 token 换本服务的令牌：没有的用户会自动建档
+				Method:  http.MethodPost,
+				Path:    "/auth/login",
+				Handler: auth.LoginHandler(serverCtx),
+			},
+		},
+		rest.WithPrefix("/api/v1"),
+	)
+
+	server.AddRoutes(
+		rest.WithMiddlewares(
+			[]rest.Middleware{serverCtx.Auth},
+			[]rest.Route{
+				{
+					// 当前登录用户
+					Method:  http.MethodGet,
+					Path:    "/auth/me",
+					Handler: auth.MeHandler(serverCtx),
+				},
+			}...,
+		),
+		rest.WithPrefix("/api/v1"),
+	)
+
 	server.AddRoutes(
 		rest.WithMiddlewares(
 			[]rest.Middleware{serverCtx.Auth},

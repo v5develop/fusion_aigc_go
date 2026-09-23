@@ -22,6 +22,7 @@ Go + go-zero，数据落在现有系统的 `fusion_aigc` 库，新表 `afv_` 前
 | `imagegen-rpc` | 9204 | 海报（78）、长图（76）、动作迁移（9/86）、数字人口播（92/91）、探店视频（72→73/81）、带货短剧（87→88/89）：模板与动作视频、提交、轮询；内置结果轮询器 |
 | `gateway-api` | 8888 | App 接口 `/api/v1/*`，直传凭证；本地存储模式下提供 `/files` 与代传上传 |
 | `admin-api` | 8889 | 运营后台 `/admin/v1/*` |
+| `mock-union` | 5056 | **仅本地**：模拟联盟用户服务的两个接口，登录联调用 |
 | `mock-aigc` | 5055 | **仅本地**：模拟 AIGC 执行面（9/70/71/72/73/74/75/76/78/85/87/88/92），正式地址提供前用它联调 |
 
 模型都不写在配置里，每次调用时从库里解析（地址与密钥在 `afv_ai_provider`）：
@@ -56,6 +57,7 @@ deploy/scripts/e2e-digitalhuman.sh  # AI数字人端到端测试（73 项，执�
 deploy/scripts/e2e-note.sh          # AI图文笔记端到端测试（62 项，执行面走 mock；SKIP_MODEL=1 跳过真实模型）
 deploy/scripts/e2e-imagegen.sh      # 海报/长图/动作迁移/数字人口播端到端测试（96 项，执行面走 mock；会临时插入并清理模板素材；SKIP_MODEL=1 跳过 AI帮写）
 deploy/scripts/e2e-video.sh         # 探店视频/带货短剧/爆款视频复刻端到端测试（58 项，两步流程走 mock）
+deploy/scripts/e2e-login.sh         # 登录端到端测试（16 项，联盟走本地 mock-union）
 deploy/scripts/e2e-real.sh          # 真实链路回归：对着已部署环境每个模块真实跑一条（会产生费用，见脚本头部）
 make stop-all
 ```
@@ -168,6 +170,22 @@ make stop-all
 
 目前已接入：AI文案（AI帮写/爆款仿写）、图文笔记（74）。探店视频、带货短剧做的时候一起带上。
 
+## 登录（联盟 token → 本服务令牌）
+
+App 带着联盟（xxlm）的 token 调 `POST /api/v1/auth/login`，网关做三件事：
+
+1. 调联盟 `GET /api/v1/user/auth/token` 换临时 token（对方 Redis 存 5 分钟、**用一次就失效**）；
+2. 调联盟 `GET /api/v1/auth/{临时token}/user` 拿用户信息（手机号是脱敏的）；
+3. 按联盟用户 id 查 `afv_app_user`，有就登录、没有就建档，然后签发我们自己的令牌（HS256 JWT，默认 7 天）。
+
+建档沿用现有数据的约定：`username=union_<联盟用户ID>`、`login_source=UNION`、`data_source=2`、密码是随机串的 BCrypt，
+这样同一个人在现有系统和本服务里是**同一行**。每次登录会把昵称、头像、手机号同步过来（联盟是权威源）。
+
+- 中间件优先认 `Authorization: Bearer <我们的令牌>`；`Auth.Mode=dev` 时没带令牌才退回 `X-User-Id`，**线上设成 `token`**。
+- 令牌密钥 `Auth.Jwt.Secret` 由部署脚本按环境生成写进配置（`deploy.env` 的 `JWT_SECRET`，留空自动生成）。
+- 不做 refresh token：联盟 token 在 App 手里，过期后再登录一次即可。
+- 本地联调有 `tools/mock-union`（:5056）模拟联盟这两个接口，`make run-all` 会启动。
+
 ## AI文案
 
 做：三条创作路径（AI帮写 / 爆款仿写 / 自主撰写）、AI帮写与AI优化、重新生成、列表搜索、详情编辑删除、后台选项维护、
@@ -199,7 +217,7 @@ make stop-all
 | 事项 | 卡在哪 | 代码位置 |
 |---|---|---|
 | **计费**：文案、AI 定制形象、数字人生成、笔记出图、海报/长图各 100 点，笔记构思 10 点 → 成功结算 / 失败退回 | 定价与 `action_type` 方案 | `generate_logic.go`（文案）、`flow.go` / `create_logic.go`（数字人） |
-| **用户鉴权**：接 `afv_app_user` | token 怎么验 | `gateway/.../auth_middleware.go` |
+| **用户鉴权**：上线前把 `Auth.Mode` 改成 `token`（关掉 X-User-Id 兜底） | 联调期先留着 dev | `gateway-api.yaml` |
 | **后台鉴权**：接 `afv_admin_*` | 登录态与权限校验方式 | `admin/.../adminauth_middleware.go` |
 | **创作任务**：写 `afv_creation_task` | `entry_code` / `feature_code` 命名确认；`mode`：文案与 TTS 为 0，笔记构思 74，出图 75，长图 76，海报 78，视频 85，动作迁移 9，数字人口播 92 | 各模块的 `flow.go` |
 | **AIGC 执行面正式地址** | 没有正式地址，本期只对 mock 联调 | 各服务 yaml 的 `Aigc.Endpoint` |

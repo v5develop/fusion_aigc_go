@@ -14,10 +14,10 @@ var _ AfvDigitalHumanModel = (*customAfvDigitalHumanModel)(nil)
 
 // 数字人状态
 const (
-	DhStatusDubbing    int64 = 0 // 配音中（TTS）
-	DhStatusRendering  int64 = 1 // 视频生成中（执行面 85）
-	DhStatusDone       int64 = 2
-	DhStatusFailed     int64 = 3
+	DhStatusDubbing   int64 = 0 // 配音中（TTS）
+	DhStatusRendering int64 = 1 // 视频生成中（执行面 85）
+	DhStatusDone      int64 = 2
+	DhStatusFailed    int64 = 3
 )
 
 // 形象来源

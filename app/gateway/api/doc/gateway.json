@@ -369,6 +369,149 @@
         }
       }
     },
+    "/api/v1/auth/login": {
+      "post": {
+        "consumes": [
+          "application/x-www-form-urlencoded"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "登录"
+        ],
+        "summary": "用联盟 token 换本服务的令牌：没有的用户会自动建档",
+        "operationId": "authLogin",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "联盟 token：Bearer \u003ctoken\u003e",
+            "name": "Authorization",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
+                  "type": "integer",
+                  "example": 0
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "expires_at": {
+                      "description": "过期时间（unix 毫秒），过期后用联盟 token 再登录一次",
+                      "type": "integer"
+                    },
+                    "token": {
+                      "description": "之后所有接口带 Authorization: Bearer \u003ctoken\u003e",
+                      "type": "string"
+                    },
+                    "user": {
+                      "type": "object",
+                      "required": [
+                        "id",
+                        "nickname",
+                        "avatar",
+                        "phone"
+                      ],
+                      "properties": {
+                        "avatar": {
+                          "type": "string"
+                        },
+                        "id": {
+                          "description": "本服务的用户 id",
+                          "type": "integer"
+                        },
+                        "nickname": {
+                          "type": "string"
+                        },
+                        "phone": {
+                          "description": "脱敏，如 130****7881",
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                },
+                "msg": {
+                  "description": "business message",
+                  "type": "string",
+                  "example": "ok"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/me": {
+      "get": {
+        "security": [
+          {
+            "auth": []
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "登录"
+        ],
+        "summary": "当前登录用户",
+        "operationId": "authMe",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
+                  "type": "integer",
+                  "example": 0
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "avatar": {
+                      "type": "string"
+                    },
+                    "id": {
+                      "description": "本服务的用户 id",
+                      "type": "integer"
+                    },
+                    "nickname": {
+                      "type": "string"
+                    },
+                    "phone": {
+                      "description": "脱敏，如 130****7881",
+                      "type": "string"
+                    }
+                  }
+                },
+                "msg": {
+                  "description": "business message",
+                  "type": "string",
+                  "example": "ok"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/copywriting": {
       "get": {
         "security": [
@@ -6045,7 +6188,7 @@
       "in": "header"
     }
   },
-  "x-date": "2026-09-23 14:00:18",
+  "x-date": "2026-09-23 15:12:49",
   "x-description": "This is a goctl generated swagger file.",
   "x-github": "https://github.com/zeromicro/go-zero",
   "x-go-zero-doc": "https://go-zero.dev/",

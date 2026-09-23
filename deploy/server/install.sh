@@ -44,6 +44,7 @@ load_env() {
   COPYWRITING_PORT=${COPYWRITING_PORT:-19201}; DIGITALHUMAN_PORT=${DIGITALHUMAN_PORT:-19202}
   NOTE_PORT=${NOTE_PORT:-19203}; IMAGEGEN_PORT=${IMAGEGEN_PORT:-19204}; MOCK_PORT=${MOCK_PORT:-15055}
   MOCK_ENABLED=${MOCK_ENABLED:-1}; LOG_KEEP_DAYS=${LOG_KEEP_DAYS:-7}
+  UNION_BASE_URL=${UNION_BASE_URL:-}; AUTH_MODE=${AUTH_MODE:-dev}; JWT_SECRET=${JWT_SECRET:-}
   if [[ $MOCK_ENABLED == 1 ]]; then
     AIGC_ENDPOINT=http://127.0.0.1:$MOCK_PORT
   fi
@@ -147,6 +148,18 @@ check_ports() {
   done
   [[ $bad == 0 ]] || die "请在 deploy.env 里换一个没被占用的端口后重试"
   green "  ✓ 端口都可用"
+}
+
+# ensure_jwt_secret 令牌签名密钥：没有就生成一串随机值写回 deploy.env（每个环境一份，升级时沿用）
+ensure_jwt_secret() {
+  [[ -n $JWT_SECRET ]] && return
+  JWT_SECRET=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')
+  if grep -q '^JWT_SECRET=' "$ENV_FILE"; then
+    sed -i.bak "s#^JWT_SECRET=.*#JWT_SECRET=$JWT_SECRET#" "$ENV_FILE" && rm -f "$ENV_FILE.bak"
+  else
+    printf '\nJWT_SECRET=%s\n' "$JWT_SECRET" >> "$ENV_FILE"
+  fi
+  green "  ✓ 已生成令牌签名密钥（写回 $ENV_FILE）"
 }
 
 # ---------- 服务 ----------
@@ -265,6 +278,7 @@ cmd_install() {
   migrate
 
   step "4/6 安装程序与配置 → $INSTALL_DIR"
+  ensure_jwt_secret
   mkdir -p "$INSTALL_DIR"/{bin,etc,logs,run}
   all_stop # 升级：先停旧进程
   cp -f "$PKG"/bin/* "$INSTALL_DIR/bin/"
@@ -275,6 +289,7 @@ cmd_install() {
   local dsn="$DB_USER:$DB_PASS@tcp($DB_HOST:$DB_PORT)/$DB_NAME?charset=utf8mb4&parseTime=true&loc=Asia%2FShanghai&time_zone=%27%2B08%3A00%27"
   "$INSTALL_DIR/bin/mkconf" -src "$PKG/etc-dev" -out "$INSTALL_DIR/etc" -logs "$INSTALL_DIR/logs" \
     -dsn "$dsn" -aigc "$AIGC_ENDPOINT" -keep-days "$LOG_KEEP_DAYS" \
+    -jwt-secret "$JWT_SECRET" -auth-mode "$AUTH_MODE" -union "$UNION_BASE_URL" \
     -ports "copywriting=$COPYWRITING_PORT,digitalhuman=$DIGITALHUMAN_PORT,note=$NOTE_PORT,imagegen=$IMAGEGEN_PORT,gateway=$GATEWAY_PORT,admin=$ADMIN_PORT"
 
   step "5/6 启动服务"

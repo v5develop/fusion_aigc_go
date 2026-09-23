@@ -7,7 +7,9 @@ import (
 	"aigc-life/app/gateway/api/internal/middleware"
 	"aigc-life/app/imagegen/rpc/imagegen"
 	"aigc-life/app/note/rpc/note"
+	"aigc-life/pkg/appuser"
 	"aigc-life/pkg/storage"
+	"aigc-life/pkg/unionauth"
 
 	"github.com/zeromicro/go-zero/core/stores/sqlx"
 	"github.com/zeromicro/go-zero/rest"
@@ -22,6 +24,8 @@ type ServiceContext struct {
 	NoteRpc         note.Note
 	ImageGenRpc     imagegen.ImageGen
 	Storage         storage.Store
+	Union           *unionauth.Client
+	AppUser         *appuser.Model
 }
 
 func NewServiceContext(c config.Config) *ServiceContext {
@@ -31,11 +35,13 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	}
 	return &ServiceContext{
 		Config:          c,
-		Auth:            middleware.NewAuthMiddleware(c.Auth.Mode).Handle,
+		Auth:            middleware.NewAuthMiddleware(c.Auth.Mode, c.Auth.Jwt).Handle,
 		CopywritingRpc:  copywriting.NewCopywriting(zrpc.MustNewClient(c.CopywritingRpc)),
 		DigitalHumanRpc: digitalhuman.NewDigitalHuman(zrpc.MustNewClient(c.DigitalHumanRpc)),
 		NoteRpc:         note.NewNote(zrpc.MustNewClient(c.NoteRpc)),
 		ImageGenRpc:     imagegen.NewImageGen(zrpc.MustNewClient(c.ImageGenRpc)),
 		Storage:         storage.New(c.Storage, conn),
+		Union:           unionauth.New(c.Union),
+		AppUser:         appuser.New(conn),
 	}
 }

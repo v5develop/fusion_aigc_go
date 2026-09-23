@@ -105,7 +105,10 @@ func submitPortrait(ctx context.Context, svcCtx *svc.ServiceContext, p *model.Af
 	// TODO 任务：确认后写 afv_creation_task（mode=75，execution_task_id=task_id）
 }
 
+// finishPortrait 写终态；同 failHuman，ctx 可能已经超时，写库要用新的。
 func finishPortrait(ctx context.Context, svcCtx *svc.ServiceContext, id, status int64, urls []string, reason string) {
+	ctx, cancel := detach(ctx, 10*time.Second)
+	defer cancel()
 	var js string
 	if len(urls) > 0 {
 		b, _ := json.Marshal(urls)
@@ -157,7 +160,13 @@ func startDigitalHuman(svcCtx *svc.ServiceContext, h *model.AfvDigitalHuman, voi
 	})
 }
 
+// failHuman 标记失败。
+//
+// 注意：调用方的 ctx 可能正是因为超时才走到这里（配音超时），用它写库会被直接拒，
+// 记录就永远停在「配音中」。所以这里另起一个短超时的 ctx。
 func failHuman(ctx context.Context, svcCtx *svc.ServiceContext, id, from int64, reason string) {
+	ctx, cancel := detach(ctx, 10*time.Second)
+	defer cancel()
 	if _, err := svcCtx.Human.Finish(ctx, id, from, model.DhStatusFailed, "", reason); err != nil {
 		logx.WithContext(ctx).Errorf("mark failed %d: %v", id, err)
 	}
@@ -377,4 +386,12 @@ func transferAll(ctx context.Context, svcCtx *svc.ServiceContext, srcURLs []stri
 		out = append(out, u)
 	}
 	return out
+}
+
+// detach ctx 已经结束时另起一个（只保留日志用的信息），保证终态一定写得进库。
+func detach(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	if ctx.Err() == nil {
+		return context.WithTimeout(ctx, timeout)
+	}
+	return context.WithTimeout(context.WithoutCancel(ctx), timeout)
 }

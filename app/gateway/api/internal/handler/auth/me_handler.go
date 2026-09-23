@@ -1,0 +1,25 @@
+// Code scaffolded by goctl. Safe to edit.
+// goctl 1.10.2
+
+package auth
+
+import (
+	"net/http"
+
+	"aigc-life/app/gateway/api/internal/logic/auth"
+	"aigc-life/app/gateway/api/internal/svc"
+	"github.com/zeromicro/go-zero/rest/httpx"
+)
+
+// 当前登录用户
+func MeHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		l := auth.NewMeLogic(r.Context(), svcCtx)
+		resp, err := l.Me()
+		if err != nil {
+			httpx.ErrorCtx(r.Context(), w, err)
+		} else {
+			httpx.OkJsonCtx(r.Context(), w, resp)
+		}
+	}
+}

@@ -2,6 +2,8 @@ package config
 
 import (
 	"aigc-life/pkg/storage"
+	"aigc-life/pkg/token"
+	"aigc-life/pkg/unionauth"
 
 	"github.com/zeromicro/go-zero/rest"
 	"github.com/zeromicro/go-zero/zrpc"
@@ -14,9 +16,14 @@ type Config struct {
 	// Cors 允许跨域（任意来源，含 App 离线包的 Origin: null），放行 X-User-Id、X-Request-Id 的预检
 	Cors bool `json:",default=true"`
 	Auth struct {
-		// dev：从请求头 X-User-Id 读取用户（接入现有用户体系前使用）
-		Mode string `json:",default=dev,options=dev"`
+		// Mode token：只认我们签发的令牌（线上用）；
+		// dev：没带令牌时退回信任请求头 X-User-Id，**仅联调环境**
+		Mode string `json:",default=dev,options=dev|token"`
+		// Jwt 我们自己签发的令牌
+		Jwt token.Conf
 	}
+	// Union 联盟（xxlm）用户服务：登录时用它的 token 换用户信息
+	Union           unionauth.Conf
 	CopywritingRpc  zrpc.RpcClientConf
 	DigitalHumanRpc zrpc.RpcClientConf
 	NoteRpc         zrpc.RpcClientConf

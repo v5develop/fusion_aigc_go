@@ -316,6 +316,23 @@ type ListVoicesReq struct {
 	Category string `form:"category,optional"`
 }
 
+type LoginReq struct {
+	Authorization string `header:"Authorization,optional"` // 联盟 token：Bearer <token>
+}
+
+type LoginResp struct {
+	Token     string    `json:"token"`      // 之后所有接口带 Authorization: Bearer <token>
+	ExpiresAt int64     `json:"expires_at"` // 过期时间（unix 毫秒），过期后用联盟 token 再登录一次
+	User      LoginUser `json:"user"`
+}
+
+type LoginUser struct {
+	Id       int64  `json:"id"` // 本服务的用户 id
+	Nickname string `json:"nickname"`
+	Avatar   string `json:"avatar"`
+	Phone    string `json:"phone"` // 脱敏，如 130****7881
+}
+
 type ModelInfo struct {
 	Name string `json:"name"`
 	Code string `json:"code"`

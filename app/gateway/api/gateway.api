@@ -828,3 +828,45 @@ service gateway-api {
 	delete /video-creations/:id (IdPath) returns (EmptyResp)
 }
 
+// ---------------- 登录（联盟 token → 我们的令牌）----------------
+type (
+	LoginReq {
+		Authorization string `header:"Authorization,optional"` // 联盟 token：Bearer <token>
+	}
+	LoginUser {
+		Id       int64  `json:"id"` // 本服务的用户 id
+		Nickname string `json:"nickname"`
+		Avatar   string `json:"avatar"`
+		Phone    string `json:"phone"` // 脱敏，如 130****7881
+	}
+	LoginResp {
+		Token     string    `json:"token"` // 之后所有接口带 Authorization: Bearer <token>
+		ExpiresAt int64     `json:"expires_at"` // 过期时间（unix 毫秒），过期后用联盟 token 再登录一次
+		User      LoginUser `json:"user"`
+	}
+)
+
+@server (
+	prefix: /api/v1
+	group:  auth
+	tags:   "登录"
+)
+service gateway-api {
+	@doc "用联盟 token 换本服务的令牌：没有的用户会自动建档"
+	@handler login
+	post /auth/login (LoginReq) returns (LoginResp)
+}
+
+@server (
+	prefix:     /api/v1
+	middleware: Auth
+	group:      auth
+	tags:       "登录"
+	authType:   auth
+)
+service gateway-api {
+	@doc "当前登录用户"
+	@handler me
+	get /auth/me returns (LoginUser)
+}
+

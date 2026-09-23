@@ -6,7 +6,30 @@
 
 ## 通用约定
 
-**身份**：所有接口都要带 `X-User-Id: <用户ID>`。这是开发模式，接入正式登录后会换成 token，届时只换请求头，接口本身不变。
+**身份**：登录后所有接口都带 `Authorization: Bearer <token>`（token 由下面的登录接口签发）。
+
+联调环境（`Auth.Mode=dev`）没带 token 时仍然认 `X-User-Id: <用户ID>`，方便前端先跑通业务；**线上会关掉**。
+
+### 登录
+
+| 接口 | 说明 |
+|---|---|
+| `POST /auth/login` | 请求头带**联盟 token**（`Authorization: Bearer <联盟token>`），无 body |
+| `GET /auth/me` | 当前登录用户（带我们的 token） |
+
+```json
+// POST /auth/login 返回
+{"code":0,"msg":"ok","data":{
+  "token":"eyJhbGciOi…",            // 之后所有接口带 Authorization: Bearer <token>
+  "expires_at":1790755825451,        // 过期时间（unix 毫秒）
+  "user":{"id":2,"nickname":"小林","avatar":"https://…","phone":"130****7881"}
+}}
+```
+
+- 后端拿联盟 token 去联盟换用户信息（两步：换临时 token → 换用户信息），**库里没有的用户会自动建档**，有的就直接登录。
+- `user.id` 是本服务的用户 id，业务数据都按它隔离。手机号是**脱敏**的，联盟那边就不给真实号码。
+- 令牌有效期 **7 天**。过期后接口返回 `1002`，`msg` 是「登录已过期，请重新登录」，端上**拿联盟 token 再调一次登录**即可（没有 refresh token）。
+- 联盟 token 失效时登录返回 `1002`「登录已失效，请重新登录」。
 
 **响应**：统一包一层，业务数据在 `data` 里。
 

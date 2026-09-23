@@ -7,7 +7,13 @@ MaxBytes: 11534336   # 请求体上限 11MB（上传照片 10MB）
 Log:
   Encoding: plain
 Auth:
-  Mode: dev
+  Mode: dev             # dev：没带令牌时信任 X-User-Id（仅联调）；token：只认我们签发的令牌
+  Jwt:
+    Secret: local-dev-secret-change-me   # 本地开发用；部署脚本会按环境生成随机值覆盖
+    ExpireHours: 168    # 7 天，过期后 App 用联盟 token 再登录一次（不做 refresh token）
+Union:                  # 联盟（xxlm）用户服务：登录时用它的 token 换用户信息
+  BaseURL: http://127.0.0.1:5056   # 本地指向 mock-union（make run-all 会启动）；线上填 https://agent.pengqiwl.com
+  TimeoutSeconds: 10
 CopywritingRpc:
   Etcd: {Hosts: [127.0.0.1:2379], Key: copywriting.rpc}
   Timeout: 60000
