@@ -92,7 +92,8 @@ check "缺少 request_id 被拒" "$(curl -sS -X POST -H "X-User-Id: $USER_ID" -H
 
 echo "== 构思（mock 74）→ 规划页"
 RID=$(uuidgen)
-BODY="{\"note_type\":\"explore\",\"topic\":\"西湖边新开的临湖咖啡店\",\"material_urls\":[\"$M1\",\"$M2\",\"$M3\"],\"digital_human_id\":$DH,\"image_count\":5}"
+SPID=$(api POST /shop-profiles '{"name":"临湖咖啡店","self_title":"店长小林","selling_points":"手冲单品、临湖景观位"}' | jq -r .id)
+BODY="{\"note_type\":\"explore\",\"topic\":\"西湖边新开的临湖咖啡店\",\"material_urls\":[\"$M1\",\"$M2\",\"$M3\"],\"digital_human_id\":$DH,\"image_count\":5,\"shop_profile_id\":$SPID}"
 N=$(api POST /notes/plan "$BODY" "$RID")
 NID=$(jq -r .id <<<"$N")
 check "构思中" "$(jq -r .status <<<"$N")" 0
@@ -105,6 +106,9 @@ check "话题统一带 # 并去重" "$(jq -r '.tags|join(" ")' <<<"$N")" "#本�
 check "套图数量不设上限：前端传 5 就是 5" "$(jq -r .image_count <<<"$N")" 5
 check "74 按 5 张出方案" "$(sql "SELECT JSON_LENGTH(plan_script, '$.images') FROM afv_image_text_note WHERE id=$NID")" 5
 check "类型名" "$(jq -r .note_type_label <<<"$N")" 探店
+check "关联的店铺档案存下来了" "$(sql "SELECT shop_profile_id FROM afv_image_text_note WHERE id=$NID")" "$SPID"
+T74=$(curl -sS "http://127.0.0.1:5055/mock/task/$(sql "SELECT plan_task_id FROM afv_image_text_note WHERE id=$NID")")
+check "74 收到拼好的店铺档案" "$(jq -r '.shop_profile|contains("店长小林") and contains("临湖咖啡店")' <<<"$T74")" true
 check "74 收到数字人形象 + 3 张素材" "$(sql "SELECT JSON_LENGTH(plan_script, '$.images_url') FROM afv_image_text_note WHERE id=$NID")" 4
 check "74 的 person_url 是数字人形象图" "$(sql "SELECT JSON_UNQUOTE(JSON_EXTRACT(plan_script, '$.images_url[0]')) FROM afv_image_text_note WHERE id=$NID")" "https://mock-oss.example.com/dh/person-$USER_ID.png"
 

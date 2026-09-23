@@ -79,6 +79,38 @@ func (s *CopywritingServer) Derivatives(ctx context.Context, in *pb.DerivativesR
 	return l.Derivatives(in)
 }
 
+// ---- 店铺档案（内容生产的数据底座，一个账号可建多条）----
+func (s *CopywritingServer) CreateShopProfile(ctx context.Context, in *pb.ShopProfileForm) (*pb.ShopProfile, error) {
+	l := logic.NewCreateShopProfileLogic(ctx, s.svcCtx)
+	return l.CreateShopProfile(in)
+}
+
+func (s *CopywritingServer) UpdateShopProfile(ctx context.Context, in *pb.ShopProfileForm) (*pb.ShopProfile, error) {
+	l := logic.NewUpdateShopProfileLogic(ctx, s.svcCtx)
+	return l.UpdateShopProfile(in)
+}
+
+func (s *CopywritingServer) GetShopProfile(ctx context.Context, in *pb.IdUserReq) (*pb.ShopProfile, error) {
+	l := logic.NewGetShopProfileLogic(ctx, s.svcCtx)
+	return l.GetShopProfile(in)
+}
+
+func (s *CopywritingServer) ListShopProfiles(ctx context.Context, in *pb.ShopProfileListReq) (*pb.ShopProfileList, error) {
+	l := logic.NewListShopProfilesLogic(ctx, s.svcCtx)
+	return l.ListShopProfiles(in)
+}
+
+func (s *CopywritingServer) DeleteShopProfile(ctx context.Context, in *pb.IdUserReq) (*pb.Empty, error) {
+	l := logic.NewDeleteShopProfileLogic(ctx, s.svcCtx)
+	return l.DeleteShopProfile(in)
+}
+
+// ProfileText 档案内容拼成一段文本，给各模块塞进执行面的 shop_profile 参数；id 为 0 或档案已删返回空串
+func (s *CopywritingServer) ProfileText(ctx context.Context, in *pb.IdUserReq) (*pb.TextResp, error) {
+	l := logic.NewProfileTextLogic(ctx, s.svcCtx)
+	return l.ProfileText(in)
+}
+
 // ---- 运营后台 ----
 func (s *CopywritingServer) AdminListOptions(ctx context.Context, in *pb.AdminListOptionsReq) (*pb.OptionList, error) {
 	l := logic.NewAdminListOptionsLogic(ctx, s.svcCtx)

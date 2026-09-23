@@ -34,6 +34,11 @@ type (
 	OptionList          = pb.OptionList
 	OptionsResp         = pb.OptionsResp
 	RegenerateReq       = pb.RegenerateReq
+	ShopProfile         = pb.ShopProfile
+	ShopProfileForm     = pb.ShopProfileForm
+	ShopProfileList     = pb.ShopProfileList
+	ShopProfileListReq  = pb.ShopProfileListReq
+	TextResp            = pb.TextResp
 	UpdateReq           = pb.UpdateReq
 
 	Copywriting interface {
@@ -53,6 +58,14 @@ type (
 		Delete(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*Empty, error)
 		// TODO 本版不交付：生成历史 / 已生成的内容。代码已实现但未启用，
 		Derivatives(ctx context.Context, in *DerivativesReq, opts ...grpc.CallOption) (*DerivativeList, error)
+		// ---- 店铺档案（内容生产的数据底座，一个账号可建多条）----
+		CreateShopProfile(ctx context.Context, in *ShopProfileForm, opts ...grpc.CallOption) (*ShopProfile, error)
+		UpdateShopProfile(ctx context.Context, in *ShopProfileForm, opts ...grpc.CallOption) (*ShopProfile, error)
+		GetShopProfile(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*ShopProfile, error)
+		ListShopProfiles(ctx context.Context, in *ShopProfileListReq, opts ...grpc.CallOption) (*ShopProfileList, error)
+		DeleteShopProfile(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*Empty, error)
+		// ProfileText 档案内容拼成一段文本，给各模块塞进执行面的 shop_profile 参数；id 为 0 或档案已删返回空串
+		ProfileText(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*TextResp, error)
 		// ---- 运营后台 ----
 		AdminListOptions(ctx context.Context, in *AdminListOptionsReq, opts ...grpc.CallOption) (*OptionList, error)
 		AdminSaveOption(ctx context.Context, in *OptionInfo, opts ...grpc.CallOption) (*OptionInfo, error)
@@ -128,6 +141,38 @@ func (m *defaultCopywriting) Delete(ctx context.Context, in *IdUserReq, opts ...
 func (m *defaultCopywriting) Derivatives(ctx context.Context, in *DerivativesReq, opts ...grpc.CallOption) (*DerivativeList, error) {
 	client := pb.NewCopywritingClient(m.cli.Conn())
 	return client.Derivatives(ctx, in, opts...)
+}
+
+// ---- 店铺档案（内容生产的数据底座，一个账号可建多条）----
+func (m *defaultCopywriting) CreateShopProfile(ctx context.Context, in *ShopProfileForm, opts ...grpc.CallOption) (*ShopProfile, error) {
+	client := pb.NewCopywritingClient(m.cli.Conn())
+	return client.CreateShopProfile(ctx, in, opts...)
+}
+
+func (m *defaultCopywriting) UpdateShopProfile(ctx context.Context, in *ShopProfileForm, opts ...grpc.CallOption) (*ShopProfile, error) {
+	client := pb.NewCopywritingClient(m.cli.Conn())
+	return client.UpdateShopProfile(ctx, in, opts...)
+}
+
+func (m *defaultCopywriting) GetShopProfile(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*ShopProfile, error) {
+	client := pb.NewCopywritingClient(m.cli.Conn())
+	return client.GetShopProfile(ctx, in, opts...)
+}
+
+func (m *defaultCopywriting) ListShopProfiles(ctx context.Context, in *ShopProfileListReq, opts ...grpc.CallOption) (*ShopProfileList, error) {
+	client := pb.NewCopywritingClient(m.cli.Conn())
+	return client.ListShopProfiles(ctx, in, opts...)
+}
+
+func (m *defaultCopywriting) DeleteShopProfile(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*Empty, error) {
+	client := pb.NewCopywritingClient(m.cli.Conn())
+	return client.DeleteShopProfile(ctx, in, opts...)
+}
+
+// ProfileText 档案内容拼成一段文本，给各模块塞进执行面的 shop_profile 参数；id 为 0 或档案已删返回空串
+func (m *defaultCopywriting) ProfileText(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*TextResp, error) {
+	client := pb.NewCopywritingClient(m.cli.Conn())
+	return client.ProfileText(ctx, in, opts...)
 }
 
 // ---- 运营后台 ----

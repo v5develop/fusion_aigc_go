@@ -29,6 +29,12 @@ const (
 	Copywriting_Update_FullMethodName                 = "/copywriting.Copywriting/Update"
 	Copywriting_Delete_FullMethodName                 = "/copywriting.Copywriting/Delete"
 	Copywriting_Derivatives_FullMethodName            = "/copywriting.Copywriting/Derivatives"
+	Copywriting_CreateShopProfile_FullMethodName      = "/copywriting.Copywriting/CreateShopProfile"
+	Copywriting_UpdateShopProfile_FullMethodName      = "/copywriting.Copywriting/UpdateShopProfile"
+	Copywriting_GetShopProfile_FullMethodName         = "/copywriting.Copywriting/GetShopProfile"
+	Copywriting_ListShopProfiles_FullMethodName       = "/copywriting.Copywriting/ListShopProfiles"
+	Copywriting_DeleteShopProfile_FullMethodName      = "/copywriting.Copywriting/DeleteShopProfile"
+	Copywriting_ProfileText_FullMethodName            = "/copywriting.Copywriting/ProfileText"
 	Copywriting_AdminListOptions_FullMethodName       = "/copywriting.Copywriting/AdminListOptions"
 	Copywriting_AdminSaveOption_FullMethodName        = "/copywriting.Copywriting/AdminSaveOption"
 	Copywriting_AdminDeleteOption_FullMethodName      = "/copywriting.Copywriting/AdminDeleteOption"
@@ -60,6 +66,14 @@ type CopywritingClient interface {
 	// TODO 本版不交付：生成历史 / 已生成的内容。代码已实现但未启用，
 	// 待「各标签对应 afv_asset.type」和「下游模块写 external_ref」确认后再开放。
 	Derivatives(ctx context.Context, in *DerivativesReq, opts ...grpc.CallOption) (*DerivativeList, error)
+	// ---- 店铺档案（内容生产的数据底座，一个账号可建多条）----
+	CreateShopProfile(ctx context.Context, in *ShopProfileForm, opts ...grpc.CallOption) (*ShopProfile, error)
+	UpdateShopProfile(ctx context.Context, in *ShopProfileForm, opts ...grpc.CallOption) (*ShopProfile, error)
+	GetShopProfile(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*ShopProfile, error)
+	ListShopProfiles(ctx context.Context, in *ShopProfileListReq, opts ...grpc.CallOption) (*ShopProfileList, error)
+	DeleteShopProfile(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*Empty, error)
+	// ProfileText 档案内容拼成一段文本，给各模块塞进执行面的 shop_profile 参数；id 为 0 或档案已删返回空串
+	ProfileText(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*TextResp, error)
 	// ---- 运营后台 ----
 	AdminListOptions(ctx context.Context, in *AdminListOptionsReq, opts ...grpc.CallOption) (*OptionList, error)
 	AdminSaveOption(ctx context.Context, in *OptionInfo, opts ...grpc.CallOption) (*OptionInfo, error)
@@ -178,6 +192,66 @@ func (c *copywritingClient) Derivatives(ctx context.Context, in *DerivativesReq,
 	return out, nil
 }
 
+func (c *copywritingClient) CreateShopProfile(ctx context.Context, in *ShopProfileForm, opts ...grpc.CallOption) (*ShopProfile, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ShopProfile)
+	err := c.cc.Invoke(ctx, Copywriting_CreateShopProfile_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *copywritingClient) UpdateShopProfile(ctx context.Context, in *ShopProfileForm, opts ...grpc.CallOption) (*ShopProfile, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ShopProfile)
+	err := c.cc.Invoke(ctx, Copywriting_UpdateShopProfile_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *copywritingClient) GetShopProfile(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*ShopProfile, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ShopProfile)
+	err := c.cc.Invoke(ctx, Copywriting_GetShopProfile_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *copywritingClient) ListShopProfiles(ctx context.Context, in *ShopProfileListReq, opts ...grpc.CallOption) (*ShopProfileList, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ShopProfileList)
+	err := c.cc.Invoke(ctx, Copywriting_ListShopProfiles_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *copywritingClient) DeleteShopProfile(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, Copywriting_DeleteShopProfile_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *copywritingClient) ProfileText(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*TextResp, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(TextResp)
+	err := c.cc.Invoke(ctx, Copywriting_ProfileText_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *copywritingClient) AdminListOptions(ctx context.Context, in *AdminListOptionsReq, opts ...grpc.CallOption) (*OptionList, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(OptionList)
@@ -261,6 +335,14 @@ type CopywritingServer interface {
 	// TODO 本版不交付：生成历史 / 已生成的内容。代码已实现但未启用，
 	// 待「各标签对应 afv_asset.type」和「下游模块写 external_ref」确认后再开放。
 	Derivatives(context.Context, *DerivativesReq) (*DerivativeList, error)
+	// ---- 店铺档案（内容生产的数据底座，一个账号可建多条）----
+	CreateShopProfile(context.Context, *ShopProfileForm) (*ShopProfile, error)
+	UpdateShopProfile(context.Context, *ShopProfileForm) (*ShopProfile, error)
+	GetShopProfile(context.Context, *IdUserReq) (*ShopProfile, error)
+	ListShopProfiles(context.Context, *ShopProfileListReq) (*ShopProfileList, error)
+	DeleteShopProfile(context.Context, *IdUserReq) (*Empty, error)
+	// ProfileText 档案内容拼成一段文本，给各模块塞进执行面的 shop_profile 参数；id 为 0 或档案已删返回空串
+	ProfileText(context.Context, *IdUserReq) (*TextResp, error)
 	// ---- 运营后台 ----
 	AdminListOptions(context.Context, *AdminListOptionsReq) (*OptionList, error)
 	AdminSaveOption(context.Context, *OptionInfo) (*OptionInfo, error)
@@ -308,6 +390,24 @@ func (UnimplementedCopywritingServer) Delete(context.Context, *IdUserReq) (*Empt
 }
 func (UnimplementedCopywritingServer) Derivatives(context.Context, *DerivativesReq) (*DerivativeList, error) {
 	return nil, status.Error(codes.Unimplemented, "method Derivatives not implemented")
+}
+func (UnimplementedCopywritingServer) CreateShopProfile(context.Context, *ShopProfileForm) (*ShopProfile, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateShopProfile not implemented")
+}
+func (UnimplementedCopywritingServer) UpdateShopProfile(context.Context, *ShopProfileForm) (*ShopProfile, error) {
+	return nil, status.Error(codes.Unimplemented, "method UpdateShopProfile not implemented")
+}
+func (UnimplementedCopywritingServer) GetShopProfile(context.Context, *IdUserReq) (*ShopProfile, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetShopProfile not implemented")
+}
+func (UnimplementedCopywritingServer) ListShopProfiles(context.Context, *ShopProfileListReq) (*ShopProfileList, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListShopProfiles not implemented")
+}
+func (UnimplementedCopywritingServer) DeleteShopProfile(context.Context, *IdUserReq) (*Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteShopProfile not implemented")
+}
+func (UnimplementedCopywritingServer) ProfileText(context.Context, *IdUserReq) (*TextResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method ProfileText not implemented")
 }
 func (UnimplementedCopywritingServer) AdminListOptions(context.Context, *AdminListOptionsReq) (*OptionList, error) {
 	return nil, status.Error(codes.Unimplemented, "method AdminListOptions not implemented")
@@ -528,6 +628,114 @@ func _Copywriting_Derivatives_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Copywriting_CreateShopProfile_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ShopProfileForm)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CopywritingServer).CreateShopProfile(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Copywriting_CreateShopProfile_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CopywritingServer).CreateShopProfile(ctx, req.(*ShopProfileForm))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Copywriting_UpdateShopProfile_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ShopProfileForm)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CopywritingServer).UpdateShopProfile(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Copywriting_UpdateShopProfile_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CopywritingServer).UpdateShopProfile(ctx, req.(*ShopProfileForm))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Copywriting_GetShopProfile_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(IdUserReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CopywritingServer).GetShopProfile(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Copywriting_GetShopProfile_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CopywritingServer).GetShopProfile(ctx, req.(*IdUserReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Copywriting_ListShopProfiles_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ShopProfileListReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CopywritingServer).ListShopProfiles(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Copywriting_ListShopProfiles_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CopywritingServer).ListShopProfiles(ctx, req.(*ShopProfileListReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Copywriting_DeleteShopProfile_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(IdUserReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CopywritingServer).DeleteShopProfile(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Copywriting_DeleteShopProfile_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CopywritingServer).DeleteShopProfile(ctx, req.(*IdUserReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Copywriting_ProfileText_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(IdUserReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CopywritingServer).ProfileText(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Copywriting_ProfileText_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CopywritingServer).ProfileText(ctx, req.(*IdUserReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Copywriting_AdminListOptions_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(AdminListOptionsReq)
 	if err := dec(in); err != nil {
@@ -682,6 +890,30 @@ var Copywriting_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Derivatives",
 			Handler:    _Copywriting_Derivatives_Handler,
+		},
+		{
+			MethodName: "CreateShopProfile",
+			Handler:    _Copywriting_CreateShopProfile_Handler,
+		},
+		{
+			MethodName: "UpdateShopProfile",
+			Handler:    _Copywriting_UpdateShopProfile_Handler,
+		},
+		{
+			MethodName: "GetShopProfile",
+			Handler:    _Copywriting_GetShopProfile_Handler,
+		},
+		{
+			MethodName: "ListShopProfiles",
+			Handler:    _Copywriting_ListShopProfiles_Handler,
+		},
+		{
+			MethodName: "DeleteShopProfile",
+			Handler:    _Copywriting_DeleteShopProfile_Handler,
+		},
+		{
+			MethodName: "ProfileText",
+			Handler:    _Copywriting_ProfileText_Handler,
 		},
 		{
 			MethodName: "AdminListOptions",

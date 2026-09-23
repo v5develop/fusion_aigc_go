@@ -299,6 +299,7 @@ type Note struct {
 	Topic          string   `json:"topic"`
 	MaterialUrls   []string `json:"material_urls"`
 	DigitalHumanId int64    `json:"digital_human_id"`
+	ShopProfileId  int64    `json:"shop_profile_id"`
 	Title          string   `json:"title"`
 	Content        string   `json:"content"`
 	Tags           []string `json:"tags"`
@@ -348,6 +349,7 @@ type OptionsResp struct {
 type PlanNoteReq struct {
 	RequestId      string   `header:"X-Request-Id"`
 	NoteType       string   `json:"note_type,options=explore|seeding|emotion|knowledge"`
+	ShopProfileId  int64    `json:"shop_profile_id,optional"` // 选填：关联店铺档案
 	Topic          string   `json:"topic"`
 	MaterialUrls   []string `json:"material_urls,optional"`
 	DigitalHumanId int64    `json:"digital_human_id,optional"`
@@ -399,6 +401,50 @@ type RegenerateReq struct {
 type ReplanNoteReq struct {
 	Id         int64 `path:"id"`
 	ImageCount int32 `json:"image_count,optional"` // 选填：换套图数量重新构思
+}
+
+type SaveShopProfileReq struct {
+	Id             int64  `path:"id"`
+	Name           string `json:"name"`
+	OpenDate       string `json:"open_date,optional"`
+	Address        string `json:"address,optional"`
+	Products       string `json:"products,optional"`
+	SellingPoints  string `json:"selling_points,optional"`
+	SelfTitle      string `json:"self_title,optional"`
+	TargetAudience string `json:"target_audience,optional"`
+}
+
+type ShopProfile struct {
+	Id             int64  `json:"id"`
+	Name           string `json:"name"`
+	OpenDate       string `json:"open_date"`
+	Address        string `json:"address"`
+	Products       string `json:"products"`
+	SellingPoints  string `json:"selling_points"`
+	SelfTitle      string `json:"self_title"`
+	TargetAudience string `json:"target_audience"`
+	CreateTime     int64  `json:"create_time"`
+	UpdateTime     int64  `json:"update_time"`
+}
+
+type ShopProfileForm struct {
+	Name           string `json:"name"`                     // 店铺名称，必填，≤20 字符（汉字算 2）
+	OpenDate       string `json:"open_date,optional"`       // 开店时间，日期选择器选中后按文本传，如 2025-10-03
+	Address        string `json:"address,optional"`         // ≤60
+	Products       string `json:"products,optional"`        // 提供商品/服务，≤180
+	SellingPoints  string `json:"selling_points,optional"`  // 核心卖点，≤220
+	SelfTitle      string `json:"self_title,optional"`      // 如何称呼自己，≤15
+	TargetAudience string `json:"target_audience,optional"` // 主要目标客群，≤40
+}
+
+type ShopProfileListReq struct {
+	Page     int64 `form:"page,optional,default=1"`
+	PageSize int64 `form:"page_size,optional,default=20"`
+}
+
+type ShopProfileListResp struct {
+	List  []ShopProfile `json:"list"`
+	Total int64         `json:"total"`
 }
 
 type UpdateNoteReq struct {

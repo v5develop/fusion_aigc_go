@@ -45,6 +45,7 @@ type (
 		MaterialUrls   sql.NullString `db:"material_urls"`    // 用户上传的参考素材 URL 数组（最多 3 张）
 		DigitalHumanId sql.NullInt64  `db:"digital_human_id"` // 选用的数字人（afv_digital_human.id）
 		PersonUrl      sql.NullString `db:"person_url"`       // 数字人形象图（74 的 person_url）
+		ShopProfileId  sql.NullInt64  `db:"shop_profile_id"`  // 关联店铺档案ID，选填
 		PlanTaskId     sql.NullString `db:"plan_task_id"`     // 构思任务ID（AIGC 执行面 task_type=74）
 		PlanScript     sql.NullString `db:"plan_script"`      // 74 返回的完整 script（images/images_url 原样转交 75）
 		Title          string         `db:"title"`            // 笔记标题（构思生成，用户可改）
@@ -104,14 +105,14 @@ func (m *defaultAfvImageTextNoteModel) FindOneByUserIdRequestId(ctx context.Cont
 }
 
 func (m *defaultAfvImageTextNoteModel) Insert(ctx context.Context, data *AfvImageTextNote) (sql.Result, error) {
-	query := fmt.Sprintf("insert into %s (%s) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", m.table, afvImageTextNoteRowsExpectAutoSet)
-	ret, err := m.conn.ExecCtx(ctx, query, data.UserId, data.NoteType, data.Topic, data.MaterialUrls, data.DigitalHumanId, data.PersonUrl, data.PlanTaskId, data.PlanScript, data.Title, data.Content, data.Tags, data.ImageCount, data.GenTaskId, data.ImageUrls, data.RequestId, data.Status, data.FailReason, data.Deleted)
+	query := fmt.Sprintf("insert into %s (%s) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", m.table, afvImageTextNoteRowsExpectAutoSet)
+	ret, err := m.conn.ExecCtx(ctx, query, data.UserId, data.NoteType, data.Topic, data.MaterialUrls, data.DigitalHumanId, data.PersonUrl, data.ShopProfileId, data.PlanTaskId, data.PlanScript, data.Title, data.Content, data.Tags, data.ImageCount, data.GenTaskId, data.ImageUrls, data.RequestId, data.Status, data.FailReason, data.Deleted)
 	return ret, err
 }
 
 func (m *defaultAfvImageTextNoteModel) Update(ctx context.Context, newData *AfvImageTextNote) error {
 	query := fmt.Sprintf("update %s set %s where `id` = ?", m.table, afvImageTextNoteRowsWithPlaceHolder)
-	_, err := m.conn.ExecCtx(ctx, query, newData.UserId, newData.NoteType, newData.Topic, newData.MaterialUrls, newData.DigitalHumanId, newData.PersonUrl, newData.PlanTaskId, newData.PlanScript, newData.Title, newData.Content, newData.Tags, newData.ImageCount, newData.GenTaskId, newData.ImageUrls, newData.RequestId, newData.Status, newData.FailReason, newData.Deleted, newData.Id)
+	_, err := m.conn.ExecCtx(ctx, query, newData.UserId, newData.NoteType, newData.Topic, newData.MaterialUrls, newData.DigitalHumanId, newData.PersonUrl, newData.ShopProfileId, newData.PlanTaskId, newData.PlanScript, newData.Title, newData.Content, newData.Tags, newData.ImageCount, newData.GenTaskId, newData.ImageUrls, newData.RequestId, newData.Status, newData.FailReason, newData.Deleted, newData.Id)
 	return err
 }
 

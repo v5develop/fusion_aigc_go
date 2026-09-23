@@ -22,6 +22,7 @@ func submitPlan(ctx context.Context, svcCtx *svc.ServiceContext, n *model.AfvIma
 	task := aigc.NoteScript{
 		UserText: n.Topic, NoteType: noteTypeLabel(n.NoteType), MaterialURLs: parseList(n.MaterialUrls),
 		PersonURL: n.PersonUrl.String, ImageCount: int(n.ImageCount),
+		ShopProfile: shopProfileText(ctx, svcCtx, n.ShopProfileId.Int64, n.UserId),
 	}
 	if _, err := svcCtx.Aigc.Submit(ctx, n.PlanTaskId.String, task); err != nil {
 		logx.WithContext(ctx).Errorf("submit plan %d: %v", n.Id, err)

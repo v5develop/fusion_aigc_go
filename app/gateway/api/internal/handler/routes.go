@@ -11,6 +11,7 @@ import (
 	digitalhuman "aigc-life/app/gateway/api/internal/handler/digitalhuman"
 	imagegen "aigc-life/app/gateway/api/internal/handler/imagegen"
 	note "aigc-life/app/gateway/api/internal/handler/note"
+	shopprofile "aigc-life/app/gateway/api/internal/handler/shopprofile"
 	"aigc-life/app/gateway/api/internal/svc"
 
 	"github.com/zeromicro/go-zero/rest"
@@ -314,6 +315,45 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 					Method:  http.MethodPost,
 					Path:    "/notes/plan",
 					Handler: note.PlanHandler(serverCtx),
+				},
+			}...,
+		),
+		rest.WithPrefix("/api/v1"),
+	)
+
+	server.AddRoutes(
+		rest.WithMiddlewares(
+			[]rest.Middleware{serverCtx.Auth},
+			[]rest.Route{
+				{
+					// 店铺档案列表
+					Method:  http.MethodGet,
+					Path:    "/shop-profiles",
+					Handler: shopprofile.ListShopProfilesHandler(serverCtx),
+				},
+				{
+					// 创建店铺档案
+					Method:  http.MethodPost,
+					Path:    "/shop-profiles",
+					Handler: shopprofile.CreateShopProfileHandler(serverCtx),
+				},
+				{
+					// 档案详情（编辑页回填）
+					Method:  http.MethodGet,
+					Path:    "/shop-profiles/:id",
+					Handler: shopprofile.GetShopProfileHandler(serverCtx),
+				},
+				{
+					// 保存店铺档案
+					Method:  http.MethodPut,
+					Path:    "/shop-profiles/:id",
+					Handler: shopprofile.SaveShopProfileHandler(serverCtx),
+				},
+				{
+					// 删除店铺档案
+					Method:  http.MethodDelete,
+					Path:    "/shop-profiles/:id",
+					Handler: shopprofile.RemoveShopProfileHandler(serverCtx),
 				},
 			}...,
 		),

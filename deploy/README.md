@@ -31,7 +31,7 @@ rpc 之间通过 etcd 发现，**只有两个网关需要对外暴露**。
 
 ## 2. 数据库变更
 
-按顺序执行，只新建表 / 插数据，不改现有表结构（112、113 只给本项目新建的 `afv_image_creation` 加列，**不能重复执行**）：
+按顺序执行，只新建表 / 插数据，不改现有表结构（112、113、115 是给本项目自己的表加列，**不能重复执行**；一键脚本会自动判断跳过）：
 
 ```bash
 mysql fusion_aigc < deploy/sql/V1.0.106__ai_copywriting.sql        # AI文案
@@ -41,6 +41,8 @@ mysql fusion_aigc < deploy/sql/V1.0.110__asset_category_localLife.sql   # 素材
 mysql fusion_aigc < deploy/sql/V1.0.111__ai_poster_long_image.sql  # 海报/长图
 mysql fusion_aigc < deploy/sql/V1.0.112__ai_action_transfer.sql    # 动作迁移
 mysql fusion_aigc < deploy/sql/V1.0.113__ai_voiceover.sql          # 数字人口播
+mysql fusion_aigc < deploy/sql/V1.0.114__shop_profile.sql          # 店铺档案
+mysql fusion_aigc < deploy/sql/V1.0.115__note_shop_profile.sql     # 图文笔记关联店铺档案
 ```
 
 还需要**手动加两行配置**（脚本不含，怕误改现有环境）：

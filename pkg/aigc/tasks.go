@@ -76,7 +76,8 @@ type NoteScript struct {
 	NoteType     string   `json:"note_type,omitempty"`
 	MaterialURLs []string `json:"material_urls,omitempty"` // ≤4
 	PersonURL    string   `json:"person_url,omitempty"`
-	ImageCount   int      `json:"image_count,omitempty"` // 默认 1
+	ShopProfile  string   `json:"shop_profile,omitempty"` // 店铺档案拼好的文本
+	ImageCount   int      `json:"image_count,omitempty"`  // 默认 1
 }
 
 func (NoteScript) TaskType() int { return TypeNoteScript }

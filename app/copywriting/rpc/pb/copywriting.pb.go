@@ -57,6 +57,387 @@ func (*Empty) Descriptor() ([]byte, []int) {
 	return file_copywriting_proto_rawDescGZIP(), []int{0}
 }
 
+type TextResp struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Text          string                 `protobuf:"bytes,1,opt,name=text,proto3" json:"text,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TextResp) Reset() {
+	*x = TextResp{}
+	mi := &file_copywriting_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TextResp) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TextResp) ProtoMessage() {}
+
+func (x *TextResp) ProtoReflect() protoreflect.Message {
+	mi := &file_copywriting_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TextResp.ProtoReflect.Descriptor instead.
+func (*TextResp) Descriptor() ([]byte, []int) {
+	return file_copywriting_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *TextResp) GetText() string {
+	if x != nil {
+		return x.Text
+	}
+	return ""
+}
+
+// ShopProfileForm 创建 / 保存店铺档案。字数上限见服务配置（汉字算 2 个字符，与设计稿便签一致）。
+type ShopProfileForm struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Id             int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"` // 保存时必填
+	UserId         int64                  `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	Name           string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`                                           // 店铺名称，必填，≤20
+	OpenDate       string                 `protobuf:"bytes,4,opt,name=open_date,json=openDate,proto3" json:"open_date,omitempty"`                   // 开店时间：前端日期选择器选中后按文本传，如 2025-10-03，≤10
+	Address        string                 `protobuf:"bytes,5,opt,name=address,proto3" json:"address,omitempty"`                                     // ≤60
+	Products       string                 `protobuf:"bytes,6,opt,name=products,proto3" json:"products,omitempty"`                                   // 提供商品/服务，≤180
+	SellingPoints  string                 `protobuf:"bytes,7,opt,name=selling_points,json=sellingPoints,proto3" json:"selling_points,omitempty"`    // 核心卖点，≤220
+	SelfTitle      string                 `protobuf:"bytes,8,opt,name=self_title,json=selfTitle,proto3" json:"self_title,omitempty"`                // 如何称呼自己，≤15
+	TargetAudience string                 `protobuf:"bytes,9,opt,name=target_audience,json=targetAudience,proto3" json:"target_audience,omitempty"` // 主要目标客群，≤40
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *ShopProfileForm) Reset() {
+	*x = ShopProfileForm{}
+	mi := &file_copywriting_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ShopProfileForm) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ShopProfileForm) ProtoMessage() {}
+
+func (x *ShopProfileForm) ProtoReflect() protoreflect.Message {
+	mi := &file_copywriting_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ShopProfileForm.ProtoReflect.Descriptor instead.
+func (*ShopProfileForm) Descriptor() ([]byte, []int) {
+	return file_copywriting_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *ShopProfileForm) GetId() int64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *ShopProfileForm) GetUserId() int64 {
+	if x != nil {
+		return x.UserId
+	}
+	return 0
+}
+
+func (x *ShopProfileForm) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *ShopProfileForm) GetOpenDate() string {
+	if x != nil {
+		return x.OpenDate
+	}
+	return ""
+}
+
+func (x *ShopProfileForm) GetAddress() string {
+	if x != nil {
+		return x.Address
+	}
+	return ""
+}
+
+func (x *ShopProfileForm) GetProducts() string {
+	if x != nil {
+		return x.Products
+	}
+	return ""
+}
+
+func (x *ShopProfileForm) GetSellingPoints() string {
+	if x != nil {
+		return x.SellingPoints
+	}
+	return ""
+}
+
+func (x *ShopProfileForm) GetSelfTitle() string {
+	if x != nil {
+		return x.SelfTitle
+	}
+	return ""
+}
+
+func (x *ShopProfileForm) GetTargetAudience() string {
+	if x != nil {
+		return x.TargetAudience
+	}
+	return ""
+}
+
+type ShopProfile struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Id             int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	Name           string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	OpenDate       string                 `protobuf:"bytes,3,opt,name=open_date,json=openDate,proto3" json:"open_date,omitempty"`
+	Address        string                 `protobuf:"bytes,4,opt,name=address,proto3" json:"address,omitempty"`
+	Products       string                 `protobuf:"bytes,5,opt,name=products,proto3" json:"products,omitempty"`
+	SellingPoints  string                 `protobuf:"bytes,6,opt,name=selling_points,json=sellingPoints,proto3" json:"selling_points,omitempty"`
+	SelfTitle      string                 `protobuf:"bytes,7,opt,name=self_title,json=selfTitle,proto3" json:"self_title,omitempty"`
+	TargetAudience string                 `protobuf:"bytes,8,opt,name=target_audience,json=targetAudience,proto3" json:"target_audience,omitempty"`
+	CreateTime     int64                  `protobuf:"varint,9,opt,name=create_time,json=createTime,proto3" json:"create_time,omitempty"`
+	UpdateTime     int64                  `protobuf:"varint,10,opt,name=update_time,json=updateTime,proto3" json:"update_time,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *ShopProfile) Reset() {
+	*x = ShopProfile{}
+	mi := &file_copywriting_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ShopProfile) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ShopProfile) ProtoMessage() {}
+
+func (x *ShopProfile) ProtoReflect() protoreflect.Message {
+	mi := &file_copywriting_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ShopProfile.ProtoReflect.Descriptor instead.
+func (*ShopProfile) Descriptor() ([]byte, []int) {
+	return file_copywriting_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *ShopProfile) GetId() int64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *ShopProfile) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *ShopProfile) GetOpenDate() string {
+	if x != nil {
+		return x.OpenDate
+	}
+	return ""
+}
+
+func (x *ShopProfile) GetAddress() string {
+	if x != nil {
+		return x.Address
+	}
+	return ""
+}
+
+func (x *ShopProfile) GetProducts() string {
+	if x != nil {
+		return x.Products
+	}
+	return ""
+}
+
+func (x *ShopProfile) GetSellingPoints() string {
+	if x != nil {
+		return x.SellingPoints
+	}
+	return ""
+}
+
+func (x *ShopProfile) GetSelfTitle() string {
+	if x != nil {
+		return x.SelfTitle
+	}
+	return ""
+}
+
+func (x *ShopProfile) GetTargetAudience() string {
+	if x != nil {
+		return x.TargetAudience
+	}
+	return ""
+}
+
+func (x *ShopProfile) GetCreateTime() int64 {
+	if x != nil {
+		return x.CreateTime
+	}
+	return 0
+}
+
+func (x *ShopProfile) GetUpdateTime() int64 {
+	if x != nil {
+		return x.UpdateTime
+	}
+	return 0
+}
+
+type ShopProfileListReq struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	Page          int64                  `protobuf:"varint,2,opt,name=page,proto3" json:"page,omitempty"`
+	PageSize      int64                  `protobuf:"varint,3,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ShopProfileListReq) Reset() {
+	*x = ShopProfileListReq{}
+	mi := &file_copywriting_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ShopProfileListReq) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ShopProfileListReq) ProtoMessage() {}
+
+func (x *ShopProfileListReq) ProtoReflect() protoreflect.Message {
+	mi := &file_copywriting_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ShopProfileListReq.ProtoReflect.Descriptor instead.
+func (*ShopProfileListReq) Descriptor() ([]byte, []int) {
+	return file_copywriting_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *ShopProfileListReq) GetUserId() int64 {
+	if x != nil {
+		return x.UserId
+	}
+	return 0
+}
+
+func (x *ShopProfileListReq) GetPage() int64 {
+	if x != nil {
+		return x.Page
+	}
+	return 0
+}
+
+func (x *ShopProfileListReq) GetPageSize() int64 {
+	if x != nil {
+		return x.PageSize
+	}
+	return 0
+}
+
+type ShopProfileList struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	List          []*ShopProfile         `protobuf:"bytes,1,rep,name=list,proto3" json:"list,omitempty"`
+	Total         int64                  `protobuf:"varint,2,opt,name=total,proto3" json:"total,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ShopProfileList) Reset() {
+	*x = ShopProfileList{}
+	mi := &file_copywriting_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ShopProfileList) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ShopProfileList) ProtoMessage() {}
+
+func (x *ShopProfileList) ProtoReflect() protoreflect.Message {
+	mi := &file_copywriting_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ShopProfileList.ProtoReflect.Descriptor instead.
+func (*ShopProfileList) Descriptor() ([]byte, []int) {
+	return file_copywriting_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *ShopProfileList) GetList() []*ShopProfile {
+	if x != nil {
+		return x.List
+	}
+	return nil
+}
+
+func (x *ShopProfileList) GetTotal() int64 {
+	if x != nil {
+		return x.Total
+	}
+	return 0
+}
+
 type IdReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -66,7 +447,7 @@ type IdReq struct {
 
 func (x *IdReq) Reset() {
 	*x = IdReq{}
-	mi := &file_copywriting_proto_msgTypes[1]
+	mi := &file_copywriting_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -78,7 +459,7 @@ func (x *IdReq) String() string {
 func (*IdReq) ProtoMessage() {}
 
 func (x *IdReq) ProtoReflect() protoreflect.Message {
-	mi := &file_copywriting_proto_msgTypes[1]
+	mi := &file_copywriting_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -91,7 +472,7 @@ func (x *IdReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use IdReq.ProtoReflect.Descriptor instead.
 func (*IdReq) Descriptor() ([]byte, []int) {
-	return file_copywriting_proto_rawDescGZIP(), []int{1}
+	return file_copywriting_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *IdReq) GetId() int64 {
@@ -111,7 +492,7 @@ type IdUserReq struct {
 
 func (x *IdUserReq) Reset() {
 	*x = IdUserReq{}
-	mi := &file_copywriting_proto_msgTypes[2]
+	mi := &file_copywriting_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -123,7 +504,7 @@ func (x *IdUserReq) String() string {
 func (*IdUserReq) ProtoMessage() {}
 
 func (x *IdUserReq) ProtoReflect() protoreflect.Message {
-	mi := &file_copywriting_proto_msgTypes[2]
+	mi := &file_copywriting_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -136,7 +517,7 @@ func (x *IdUserReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use IdUserReq.ProtoReflect.Descriptor instead.
 func (*IdUserReq) Descriptor() ([]byte, []int) {
-	return file_copywriting_proto_rawDescGZIP(), []int{2}
+	return file_copywriting_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *IdUserReq) GetId() int64 {
@@ -168,7 +549,7 @@ type OptionInfo struct {
 
 func (x *OptionInfo) Reset() {
 	*x = OptionInfo{}
-	mi := &file_copywriting_proto_msgTypes[3]
+	mi := &file_copywriting_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -180,7 +561,7 @@ func (x *OptionInfo) String() string {
 func (*OptionInfo) ProtoMessage() {}
 
 func (x *OptionInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_copywriting_proto_msgTypes[3]
+	mi := &file_copywriting_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -193,7 +574,7 @@ func (x *OptionInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OptionInfo.ProtoReflect.Descriptor instead.
 func (*OptionInfo) Descriptor() ([]byte, []int) {
-	return file_copywriting_proto_rawDescGZIP(), []int{3}
+	return file_copywriting_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *OptionInfo) GetId() int64 {
@@ -254,7 +635,7 @@ type OptionList struct {
 
 func (x *OptionList) Reset() {
 	*x = OptionList{}
-	mi := &file_copywriting_proto_msgTypes[4]
+	mi := &file_copywriting_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -266,7 +647,7 @@ func (x *OptionList) String() string {
 func (*OptionList) ProtoMessage() {}
 
 func (x *OptionList) ProtoReflect() protoreflect.Message {
-	mi := &file_copywriting_proto_msgTypes[4]
+	mi := &file_copywriting_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -279,7 +660,7 @@ func (x *OptionList) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OptionList.ProtoReflect.Descriptor instead.
 func (*OptionList) Descriptor() ([]byte, []int) {
-	return file_copywriting_proto_rawDescGZIP(), []int{4}
+	return file_copywriting_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *OptionList) GetList() []*OptionInfo {
@@ -301,7 +682,7 @@ type ModelInfo struct {
 
 func (x *ModelInfo) Reset() {
 	*x = ModelInfo{}
-	mi := &file_copywriting_proto_msgTypes[5]
+	mi := &file_copywriting_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -313,7 +694,7 @@ func (x *ModelInfo) String() string {
 func (*ModelInfo) ProtoMessage() {}
 
 func (x *ModelInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_copywriting_proto_msgTypes[5]
+	mi := &file_copywriting_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -326,7 +707,7 @@ func (x *ModelInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ModelInfo.ProtoReflect.Descriptor instead.
 func (*ModelInfo) Descriptor() ([]byte, []int) {
-	return file_copywriting_proto_rawDescGZIP(), []int{5}
+	return file_copywriting_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *ModelInfo) GetId() int64 {
@@ -372,7 +753,7 @@ type OptionsResp struct {
 
 func (x *OptionsResp) Reset() {
 	*x = OptionsResp{}
-	mi := &file_copywriting_proto_msgTypes[6]
+	mi := &file_copywriting_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -384,7 +765,7 @@ func (x *OptionsResp) String() string {
 func (*OptionsResp) ProtoMessage() {}
 
 func (x *OptionsResp) ProtoReflect() protoreflect.Message {
-	mi := &file_copywriting_proto_msgTypes[6]
+	mi := &file_copywriting_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -397,7 +778,7 @@ func (x *OptionsResp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OptionsResp.ProtoReflect.Descriptor instead.
 func (*OptionsResp) Descriptor() ([]byte, []int) {
-	return file_copywriting_proto_rawDescGZIP(), []int{6}
+	return file_copywriting_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *OptionsResp) GetContentTypes() []*OptionInfo {
@@ -464,7 +845,7 @@ type AiWriteReq struct {
 
 func (x *AiWriteReq) Reset() {
 	*x = AiWriteReq{}
-	mi := &file_copywriting_proto_msgTypes[7]
+	mi := &file_copywriting_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -476,7 +857,7 @@ func (x *AiWriteReq) String() string {
 func (*AiWriteReq) ProtoMessage() {}
 
 func (x *AiWriteReq) ProtoReflect() protoreflect.Message {
-	mi := &file_copywriting_proto_msgTypes[7]
+	mi := &file_copywriting_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -489,7 +870,7 @@ func (x *AiWriteReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AiWriteReq.ProtoReflect.Descriptor instead.
 func (*AiWriteReq) Descriptor() ([]byte, []int) {
-	return file_copywriting_proto_rawDescGZIP(), []int{7}
+	return file_copywriting_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *AiWriteReq) GetUserId() int64 {
@@ -550,7 +931,7 @@ type AiWriteResp struct {
 
 func (x *AiWriteResp) Reset() {
 	*x = AiWriteResp{}
-	mi := &file_copywriting_proto_msgTypes[8]
+	mi := &file_copywriting_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -562,7 +943,7 @@ func (x *AiWriteResp) String() string {
 func (*AiWriteResp) ProtoMessage() {}
 
 func (x *AiWriteResp) ProtoReflect() protoreflect.Message {
-	mi := &file_copywriting_proto_msgTypes[8]
+	mi := &file_copywriting_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -575,7 +956,7 @@ func (x *AiWriteResp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AiWriteResp.ProtoReflect.Descriptor instead.
 func (*AiWriteResp) Descriptor() ([]byte, []int) {
-	return file_copywriting_proto_rawDescGZIP(), []int{8}
+	return file_copywriting_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *AiWriteResp) GetText() string {
@@ -605,7 +986,7 @@ type GenerateReq struct {
 
 func (x *GenerateReq) Reset() {
 	*x = GenerateReq{}
-	mi := &file_copywriting_proto_msgTypes[9]
+	mi := &file_copywriting_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -617,7 +998,7 @@ func (x *GenerateReq) String() string {
 func (*GenerateReq) ProtoMessage() {}
 
 func (x *GenerateReq) ProtoReflect() protoreflect.Message {
-	mi := &file_copywriting_proto_msgTypes[9]
+	mi := &file_copywriting_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -630,7 +1011,7 @@ func (x *GenerateReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerateReq.ProtoReflect.Descriptor instead.
 func (*GenerateReq) Descriptor() ([]byte, []int) {
-	return file_copywriting_proto_rawDescGZIP(), []int{9}
+	return file_copywriting_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *GenerateReq) GetUserId() int64 {
@@ -728,7 +1109,7 @@ type RegenerateReq struct {
 
 func (x *RegenerateReq) Reset() {
 	*x = RegenerateReq{}
-	mi := &file_copywriting_proto_msgTypes[10]
+	mi := &file_copywriting_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -740,7 +1121,7 @@ func (x *RegenerateReq) String() string {
 func (*RegenerateReq) ProtoMessage() {}
 
 func (x *RegenerateReq) ProtoReflect() protoreflect.Message {
-	mi := &file_copywriting_proto_msgTypes[10]
+	mi := &file_copywriting_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -753,7 +1134,7 @@ func (x *RegenerateReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegenerateReq.ProtoReflect.Descriptor instead.
 func (*RegenerateReq) Descriptor() ([]byte, []int) {
-	return file_copywriting_proto_rawDescGZIP(), []int{10}
+	return file_copywriting_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *RegenerateReq) GetId() int64 {
@@ -790,7 +1171,7 @@ type CreateReq struct {
 
 func (x *CreateReq) Reset() {
 	*x = CreateReq{}
-	mi := &file_copywriting_proto_msgTypes[11]
+	mi := &file_copywriting_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -802,7 +1183,7 @@ func (x *CreateReq) String() string {
 func (*CreateReq) ProtoMessage() {}
 
 func (x *CreateReq) ProtoReflect() protoreflect.Message {
-	mi := &file_copywriting_proto_msgTypes[11]
+	mi := &file_copywriting_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -815,7 +1196,7 @@ func (x *CreateReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateReq.ProtoReflect.Descriptor instead.
 func (*CreateReq) Descriptor() ([]byte, []int) {
-	return file_copywriting_proto_rawDescGZIP(), []int{11}
+	return file_copywriting_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *CreateReq) GetUserId() int64 {
@@ -865,7 +1246,7 @@ type UpdateReq struct {
 
 func (x *UpdateReq) Reset() {
 	*x = UpdateReq{}
-	mi := &file_copywriting_proto_msgTypes[12]
+	mi := &file_copywriting_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -877,7 +1258,7 @@ func (x *UpdateReq) String() string {
 func (*UpdateReq) ProtoMessage() {}
 
 func (x *UpdateReq) ProtoReflect() protoreflect.Message {
-	mi := &file_copywriting_proto_msgTypes[12]
+	mi := &file_copywriting_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -890,7 +1271,7 @@ func (x *UpdateReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateReq.ProtoReflect.Descriptor instead.
 func (*UpdateReq) Descriptor() ([]byte, []int) {
-	return file_copywriting_proto_rawDescGZIP(), []int{12}
+	return file_copywriting_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *UpdateReq) GetId() int64 {
@@ -944,7 +1325,7 @@ type CopywritingInfo struct {
 
 func (x *CopywritingInfo) Reset() {
 	*x = CopywritingInfo{}
-	mi := &file_copywriting_proto_msgTypes[13]
+	mi := &file_copywriting_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -956,7 +1337,7 @@ func (x *CopywritingInfo) String() string {
 func (*CopywritingInfo) ProtoMessage() {}
 
 func (x *CopywritingInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_copywriting_proto_msgTypes[13]
+	mi := &file_copywriting_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -969,7 +1350,7 @@ func (x *CopywritingInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CopywritingInfo.ProtoReflect.Descriptor instead.
 func (*CopywritingInfo) Descriptor() ([]byte, []int) {
-	return file_copywriting_proto_rawDescGZIP(), []int{13}
+	return file_copywriting_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *CopywritingInfo) GetId() int64 {
@@ -1090,7 +1471,7 @@ type ListReq struct {
 
 func (x *ListReq) Reset() {
 	*x = ListReq{}
-	mi := &file_copywriting_proto_msgTypes[14]
+	mi := &file_copywriting_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1102,7 +1483,7 @@ func (x *ListReq) String() string {
 func (*ListReq) ProtoMessage() {}
 
 func (x *ListReq) ProtoReflect() protoreflect.Message {
-	mi := &file_copywriting_proto_msgTypes[14]
+	mi := &file_copywriting_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1115,7 +1496,7 @@ func (x *ListReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListReq.ProtoReflect.Descriptor instead.
 func (*ListReq) Descriptor() ([]byte, []int) {
-	return file_copywriting_proto_rawDescGZIP(), []int{14}
+	return file_copywriting_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *ListReq) GetUserId() int64 {
@@ -1163,7 +1544,7 @@ type CopywritingList struct {
 
 func (x *CopywritingList) Reset() {
 	*x = CopywritingList{}
-	mi := &file_copywriting_proto_msgTypes[15]
+	mi := &file_copywriting_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1175,7 +1556,7 @@ func (x *CopywritingList) String() string {
 func (*CopywritingList) ProtoMessage() {}
 
 func (x *CopywritingList) ProtoReflect() protoreflect.Message {
-	mi := &file_copywriting_proto_msgTypes[15]
+	mi := &file_copywriting_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1188,7 +1569,7 @@ func (x *CopywritingList) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CopywritingList.ProtoReflect.Descriptor instead.
 func (*CopywritingList) Descriptor() ([]byte, []int) {
-	return file_copywriting_proto_rawDescGZIP(), []int{15}
+	return file_copywriting_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *CopywritingList) GetList() []*CopywritingInfo {
@@ -1217,7 +1598,7 @@ type AdminListReq struct {
 
 func (x *AdminListReq) Reset() {
 	*x = AdminListReq{}
-	mi := &file_copywriting_proto_msgTypes[16]
+	mi := &file_copywriting_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1229,7 +1610,7 @@ func (x *AdminListReq) String() string {
 func (*AdminListReq) ProtoMessage() {}
 
 func (x *AdminListReq) ProtoReflect() protoreflect.Message {
-	mi := &file_copywriting_proto_msgTypes[16]
+	mi := &file_copywriting_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1242,7 +1623,7 @@ func (x *AdminListReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AdminListReq.ProtoReflect.Descriptor instead.
 func (*AdminListReq) Descriptor() ([]byte, []int) {
-	return file_copywriting_proto_rawDescGZIP(), []int{16}
+	return file_copywriting_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *AdminListReq) GetPage() int64 {
@@ -1282,7 +1663,7 @@ type AdminListOptionsReq struct {
 
 func (x *AdminListOptionsReq) Reset() {
 	*x = AdminListOptionsReq{}
-	mi := &file_copywriting_proto_msgTypes[17]
+	mi := &file_copywriting_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1294,7 +1675,7 @@ func (x *AdminListOptionsReq) String() string {
 func (*AdminListOptionsReq) ProtoMessage() {}
 
 func (x *AdminListOptionsReq) ProtoReflect() protoreflect.Message {
-	mi := &file_copywriting_proto_msgTypes[17]
+	mi := &file_copywriting_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1307,7 +1688,7 @@ func (x *AdminListOptionsReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AdminListOptionsReq.ProtoReflect.Descriptor instead.
 func (*AdminListOptionsReq) Descriptor() ([]byte, []int) {
-	return file_copywriting_proto_rawDescGZIP(), []int{17}
+	return file_copywriting_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *AdminListOptionsReq) GetOptionType() string {
@@ -1330,7 +1711,7 @@ type DerivativesReq struct {
 
 func (x *DerivativesReq) Reset() {
 	*x = DerivativesReq{}
-	mi := &file_copywriting_proto_msgTypes[18]
+	mi := &file_copywriting_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1342,7 +1723,7 @@ func (x *DerivativesReq) String() string {
 func (*DerivativesReq) ProtoMessage() {}
 
 func (x *DerivativesReq) ProtoReflect() protoreflect.Message {
-	mi := &file_copywriting_proto_msgTypes[18]
+	mi := &file_copywriting_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1355,7 +1736,7 @@ func (x *DerivativesReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DerivativesReq.ProtoReflect.Descriptor instead.
 func (*DerivativesReq) Descriptor() ([]byte, []int) {
-	return file_copywriting_proto_rawDescGZIP(), []int{18}
+	return file_copywriting_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *DerivativesReq) GetUserId() int64 {
@@ -1408,7 +1789,7 @@ type Derivative struct {
 
 func (x *Derivative) Reset() {
 	*x = Derivative{}
-	mi := &file_copywriting_proto_msgTypes[19]
+	mi := &file_copywriting_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1420,7 +1801,7 @@ func (x *Derivative) String() string {
 func (*Derivative) ProtoMessage() {}
 
 func (x *Derivative) ProtoReflect() protoreflect.Message {
-	mi := &file_copywriting_proto_msgTypes[19]
+	mi := &file_copywriting_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1433,7 +1814,7 @@ func (x *Derivative) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Derivative.ProtoReflect.Descriptor instead.
 func (*Derivative) Descriptor() ([]byte, []int) {
-	return file_copywriting_proto_rawDescGZIP(), []int{19}
+	return file_copywriting_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *Derivative) GetId() int64 {
@@ -1495,7 +1876,7 @@ type DerivativeList struct {
 
 func (x *DerivativeList) Reset() {
 	*x = DerivativeList{}
-	mi := &file_copywriting_proto_msgTypes[20]
+	mi := &file_copywriting_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1507,7 +1888,7 @@ func (x *DerivativeList) String() string {
 func (*DerivativeList) ProtoMessage() {}
 
 func (x *DerivativeList) ProtoReflect() protoreflect.Message {
-	mi := &file_copywriting_proto_msgTypes[20]
+	mi := &file_copywriting_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1520,7 +1901,7 @@ func (x *DerivativeList) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DerivativeList.ProtoReflect.Descriptor instead.
 func (*DerivativeList) Descriptor() ([]byte, []int) {
-	return file_copywriting_proto_rawDescGZIP(), []int{20}
+	return file_copywriting_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *DerivativeList) GetList() []*Derivative {
@@ -1542,7 +1923,42 @@ var File_copywriting_proto protoreflect.FileDescriptor
 const file_copywriting_proto_rawDesc = "" +
 	"\n" +
 	"\x11copywriting.proto\x12\vcopywriting\"\a\n" +
-	"\x05Empty\"\x17\n" +
+	"\x05Empty\"\x1e\n" +
+	"\bTextResp\x12\x12\n" +
+	"\x04text\x18\x01 \x01(\tR\x04text\"\x90\x02\n" +
+	"\x0fShopProfileForm\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x17\n" +
+	"\auser_id\x18\x02 \x01(\x03R\x06userId\x12\x12\n" +
+	"\x04name\x18\x03 \x01(\tR\x04name\x12\x1b\n" +
+	"\topen_date\x18\x04 \x01(\tR\bopenDate\x12\x18\n" +
+	"\aaddress\x18\x05 \x01(\tR\aaddress\x12\x1a\n" +
+	"\bproducts\x18\x06 \x01(\tR\bproducts\x12%\n" +
+	"\x0eselling_points\x18\a \x01(\tR\rsellingPoints\x12\x1d\n" +
+	"\n" +
+	"self_title\x18\b \x01(\tR\tselfTitle\x12'\n" +
+	"\x0ftarget_audience\x18\t \x01(\tR\x0etargetAudience\"\xb5\x02\n" +
+	"\vShopProfile\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1b\n" +
+	"\topen_date\x18\x03 \x01(\tR\bopenDate\x12\x18\n" +
+	"\aaddress\x18\x04 \x01(\tR\aaddress\x12\x1a\n" +
+	"\bproducts\x18\x05 \x01(\tR\bproducts\x12%\n" +
+	"\x0eselling_points\x18\x06 \x01(\tR\rsellingPoints\x12\x1d\n" +
+	"\n" +
+	"self_title\x18\a \x01(\tR\tselfTitle\x12'\n" +
+	"\x0ftarget_audience\x18\b \x01(\tR\x0etargetAudience\x12\x1f\n" +
+	"\vcreate_time\x18\t \x01(\x03R\n" +
+	"createTime\x12\x1f\n" +
+	"\vupdate_time\x18\n" +
+	" \x01(\x03R\n" +
+	"updateTime\"^\n" +
+	"\x12ShopProfileListReq\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x12\n" +
+	"\x04page\x18\x02 \x01(\x03R\x04page\x12\x1b\n" +
+	"\tpage_size\x18\x03 \x01(\x03R\bpageSize\"U\n" +
+	"\x0fShopProfileList\x12,\n" +
+	"\x04list\x18\x01 \x03(\v2\x18.copywriting.ShopProfileR\x04list\x12\x14\n" +
+	"\x05total\x18\x02 \x01(\x03R\x05total\"\x17\n" +
 	"\x05IdReq\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\"4\n" +
 	"\tIdUserReq\x12\x0e\n" +
@@ -1679,7 +2095,7 @@ const file_copywriting_proto_rawDesc = "" +
 	"createTime\"S\n" +
 	"\x0eDerivativeList\x12+\n" +
 	"\x04list\x18\x01 \x03(\v2\x17.copywriting.DerivativeR\x04list\x12\x14\n" +
-	"\x05total\x18\x02 \x01(\x03R\x05total2\xa9\b\n" +
+	"\x05total\x18\x02 \x01(\x03R\x05total2\xd9\v\n" +
 	"\vCopywriting\x127\n" +
 	"\aOptions\x12\x12.copywriting.Empty\x1a\x18.copywriting.OptionsResp\x12<\n" +
 	"\aAiWrite\x12\x17.copywriting.AiWriteReq\x1a\x18.copywriting.AiWriteResp\x12B\n" +
@@ -1691,7 +2107,13 @@ const file_copywriting_proto_rawDesc = "" +
 	"\x04List\x12\x14.copywriting.ListReq\x1a\x1c.copywriting.CopywritingList\x12>\n" +
 	"\x06Update\x12\x16.copywriting.UpdateReq\x1a\x1c.copywriting.CopywritingInfo\x124\n" +
 	"\x06Delete\x12\x16.copywriting.IdUserReq\x1a\x12.copywriting.Empty\x12G\n" +
-	"\vDerivatives\x12\x1b.copywriting.DerivativesReq\x1a\x1b.copywriting.DerivativeList\x12M\n" +
+	"\vDerivatives\x12\x1b.copywriting.DerivativesReq\x1a\x1b.copywriting.DerivativeList\x12K\n" +
+	"\x11CreateShopProfile\x12\x1c.copywriting.ShopProfileForm\x1a\x18.copywriting.ShopProfile\x12K\n" +
+	"\x11UpdateShopProfile\x12\x1c.copywriting.ShopProfileForm\x1a\x18.copywriting.ShopProfile\x12B\n" +
+	"\x0eGetShopProfile\x12\x16.copywriting.IdUserReq\x1a\x18.copywriting.ShopProfile\x12Q\n" +
+	"\x10ListShopProfiles\x12\x1f.copywriting.ShopProfileListReq\x1a\x1c.copywriting.ShopProfileList\x12?\n" +
+	"\x11DeleteShopProfile\x12\x16.copywriting.IdUserReq\x1a\x12.copywriting.Empty\x12<\n" +
+	"\vProfileText\x12\x16.copywriting.IdUserReq\x1a\x15.copywriting.TextResp\x12M\n" +
 	"\x10AdminListOptions\x12 .copywriting.AdminListOptionsReq\x1a\x17.copywriting.OptionList\x12C\n" +
 	"\x0fAdminSaveOption\x12\x17.copywriting.OptionInfo\x1a\x17.copywriting.OptionInfo\x12;\n" +
 	"\x11AdminDeleteOption\x12\x12.copywriting.IdReq\x1a\x12.copywriting.Empty\x12O\n" +
@@ -1711,76 +2133,94 @@ func file_copywriting_proto_rawDescGZIP() []byte {
 	return file_copywriting_proto_rawDescData
 }
 
-var file_copywriting_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
+var file_copywriting_proto_msgTypes = make([]protoimpl.MessageInfo, 26)
 var file_copywriting_proto_goTypes = []any{
 	(*Empty)(nil),               // 0: copywriting.Empty
-	(*IdReq)(nil),               // 1: copywriting.IdReq
-	(*IdUserReq)(nil),           // 2: copywriting.IdUserReq
-	(*OptionInfo)(nil),          // 3: copywriting.OptionInfo
-	(*OptionList)(nil),          // 4: copywriting.OptionList
-	(*ModelInfo)(nil),           // 5: copywriting.ModelInfo
-	(*OptionsResp)(nil),         // 6: copywriting.OptionsResp
-	(*AiWriteReq)(nil),          // 7: copywriting.AiWriteReq
-	(*AiWriteResp)(nil),         // 8: copywriting.AiWriteResp
-	(*GenerateReq)(nil),         // 9: copywriting.GenerateReq
-	(*RegenerateReq)(nil),       // 10: copywriting.RegenerateReq
-	(*CreateReq)(nil),           // 11: copywriting.CreateReq
-	(*UpdateReq)(nil),           // 12: copywriting.UpdateReq
-	(*CopywritingInfo)(nil),     // 13: copywriting.CopywritingInfo
-	(*ListReq)(nil),             // 14: copywriting.ListReq
-	(*CopywritingList)(nil),     // 15: copywriting.CopywritingList
-	(*AdminListReq)(nil),        // 16: copywriting.AdminListReq
-	(*AdminListOptionsReq)(nil), // 17: copywriting.AdminListOptionsReq
-	(*DerivativesReq)(nil),      // 18: copywriting.DerivativesReq
-	(*Derivative)(nil),          // 19: copywriting.Derivative
-	(*DerivativeList)(nil),      // 20: copywriting.DerivativeList
+	(*TextResp)(nil),            // 1: copywriting.TextResp
+	(*ShopProfileForm)(nil),     // 2: copywriting.ShopProfileForm
+	(*ShopProfile)(nil),         // 3: copywriting.ShopProfile
+	(*ShopProfileListReq)(nil),  // 4: copywriting.ShopProfileListReq
+	(*ShopProfileList)(nil),     // 5: copywriting.ShopProfileList
+	(*IdReq)(nil),               // 6: copywriting.IdReq
+	(*IdUserReq)(nil),           // 7: copywriting.IdUserReq
+	(*OptionInfo)(nil),          // 8: copywriting.OptionInfo
+	(*OptionList)(nil),          // 9: copywriting.OptionList
+	(*ModelInfo)(nil),           // 10: copywriting.ModelInfo
+	(*OptionsResp)(nil),         // 11: copywriting.OptionsResp
+	(*AiWriteReq)(nil),          // 12: copywriting.AiWriteReq
+	(*AiWriteResp)(nil),         // 13: copywriting.AiWriteResp
+	(*GenerateReq)(nil),         // 14: copywriting.GenerateReq
+	(*RegenerateReq)(nil),       // 15: copywriting.RegenerateReq
+	(*CreateReq)(nil),           // 16: copywriting.CreateReq
+	(*UpdateReq)(nil),           // 17: copywriting.UpdateReq
+	(*CopywritingInfo)(nil),     // 18: copywriting.CopywritingInfo
+	(*ListReq)(nil),             // 19: copywriting.ListReq
+	(*CopywritingList)(nil),     // 20: copywriting.CopywritingList
+	(*AdminListReq)(nil),        // 21: copywriting.AdminListReq
+	(*AdminListOptionsReq)(nil), // 22: copywriting.AdminListOptionsReq
+	(*DerivativesReq)(nil),      // 23: copywriting.DerivativesReq
+	(*Derivative)(nil),          // 24: copywriting.Derivative
+	(*DerivativeList)(nil),      // 25: copywriting.DerivativeList
 }
 var file_copywriting_proto_depIdxs = []int32{
-	3,  // 0: copywriting.OptionList.list:type_name -> copywriting.OptionInfo
-	3,  // 1: copywriting.OptionsResp.content_types:type_name -> copywriting.OptionInfo
-	3,  // 2: copywriting.OptionsResp.styles:type_name -> copywriting.OptionInfo
-	3,  // 3: copywriting.OptionsResp.industries:type_name -> copywriting.OptionInfo
-	3,  // 4: copywriting.OptionsResp.word_counts:type_name -> copywriting.OptionInfo
-	5,  // 5: copywriting.OptionsResp.model:type_name -> copywriting.ModelInfo
-	13, // 6: copywriting.CopywritingList.list:type_name -> copywriting.CopywritingInfo
-	19, // 7: copywriting.DerivativeList.list:type_name -> copywriting.Derivative
-	0,  // 8: copywriting.Copywriting.Options:input_type -> copywriting.Empty
-	7,  // 9: copywriting.Copywriting.AiWrite:input_type -> copywriting.AiWriteReq
-	9,  // 10: copywriting.Copywriting.Generate:input_type -> copywriting.GenerateReq
-	10, // 11: copywriting.Copywriting.Regenerate:input_type -> copywriting.RegenerateReq
-	11, // 12: copywriting.Copywriting.Create:input_type -> copywriting.CreateReq
-	2,  // 13: copywriting.Copywriting.Get:input_type -> copywriting.IdUserReq
-	14, // 14: copywriting.Copywriting.List:input_type -> copywriting.ListReq
-	12, // 15: copywriting.Copywriting.Update:input_type -> copywriting.UpdateReq
-	2,  // 16: copywriting.Copywriting.Delete:input_type -> copywriting.IdUserReq
-	18, // 17: copywriting.Copywriting.Derivatives:input_type -> copywriting.DerivativesReq
-	17, // 18: copywriting.Copywriting.AdminListOptions:input_type -> copywriting.AdminListOptionsReq
-	3,  // 19: copywriting.Copywriting.AdminSaveOption:input_type -> copywriting.OptionInfo
-	1,  // 20: copywriting.Copywriting.AdminDeleteOption:input_type -> copywriting.IdReq
-	16, // 21: copywriting.Copywriting.AdminListCopywriting:input_type -> copywriting.AdminListReq
-	1,  // 22: copywriting.Copywriting.AdminDeleteCopywriting:input_type -> copywriting.IdReq
-	0,  // 23: copywriting.Copywriting.AdminGetModel:input_type -> copywriting.Empty
-	6,  // 24: copywriting.Copywriting.Options:output_type -> copywriting.OptionsResp
-	8,  // 25: copywriting.Copywriting.AiWrite:output_type -> copywriting.AiWriteResp
-	13, // 26: copywriting.Copywriting.Generate:output_type -> copywriting.CopywritingInfo
-	13, // 27: copywriting.Copywriting.Regenerate:output_type -> copywriting.CopywritingInfo
-	13, // 28: copywriting.Copywriting.Create:output_type -> copywriting.CopywritingInfo
-	13, // 29: copywriting.Copywriting.Get:output_type -> copywriting.CopywritingInfo
-	15, // 30: copywriting.Copywriting.List:output_type -> copywriting.CopywritingList
-	13, // 31: copywriting.Copywriting.Update:output_type -> copywriting.CopywritingInfo
-	0,  // 32: copywriting.Copywriting.Delete:output_type -> copywriting.Empty
-	20, // 33: copywriting.Copywriting.Derivatives:output_type -> copywriting.DerivativeList
-	4,  // 34: copywriting.Copywriting.AdminListOptions:output_type -> copywriting.OptionList
-	3,  // 35: copywriting.Copywriting.AdminSaveOption:output_type -> copywriting.OptionInfo
-	0,  // 36: copywriting.Copywriting.AdminDeleteOption:output_type -> copywriting.Empty
-	15, // 37: copywriting.Copywriting.AdminListCopywriting:output_type -> copywriting.CopywritingList
-	0,  // 38: copywriting.Copywriting.AdminDeleteCopywriting:output_type -> copywriting.Empty
-	5,  // 39: copywriting.Copywriting.AdminGetModel:output_type -> copywriting.ModelInfo
-	24, // [24:40] is the sub-list for method output_type
-	8,  // [8:24] is the sub-list for method input_type
-	8,  // [8:8] is the sub-list for extension type_name
-	8,  // [8:8] is the sub-list for extension extendee
-	0,  // [0:8] is the sub-list for field type_name
+	3,  // 0: copywriting.ShopProfileList.list:type_name -> copywriting.ShopProfile
+	8,  // 1: copywriting.OptionList.list:type_name -> copywriting.OptionInfo
+	8,  // 2: copywriting.OptionsResp.content_types:type_name -> copywriting.OptionInfo
+	8,  // 3: copywriting.OptionsResp.styles:type_name -> copywriting.OptionInfo
+	8,  // 4: copywriting.OptionsResp.industries:type_name -> copywriting.OptionInfo
+	8,  // 5: copywriting.OptionsResp.word_counts:type_name -> copywriting.OptionInfo
+	10, // 6: copywriting.OptionsResp.model:type_name -> copywriting.ModelInfo
+	18, // 7: copywriting.CopywritingList.list:type_name -> copywriting.CopywritingInfo
+	24, // 8: copywriting.DerivativeList.list:type_name -> copywriting.Derivative
+	0,  // 9: copywriting.Copywriting.Options:input_type -> copywriting.Empty
+	12, // 10: copywriting.Copywriting.AiWrite:input_type -> copywriting.AiWriteReq
+	14, // 11: copywriting.Copywriting.Generate:input_type -> copywriting.GenerateReq
+	15, // 12: copywriting.Copywriting.Regenerate:input_type -> copywriting.RegenerateReq
+	16, // 13: copywriting.Copywriting.Create:input_type -> copywriting.CreateReq
+	7,  // 14: copywriting.Copywriting.Get:input_type -> copywriting.IdUserReq
+	19, // 15: copywriting.Copywriting.List:input_type -> copywriting.ListReq
+	17, // 16: copywriting.Copywriting.Update:input_type -> copywriting.UpdateReq
+	7,  // 17: copywriting.Copywriting.Delete:input_type -> copywriting.IdUserReq
+	23, // 18: copywriting.Copywriting.Derivatives:input_type -> copywriting.DerivativesReq
+	2,  // 19: copywriting.Copywriting.CreateShopProfile:input_type -> copywriting.ShopProfileForm
+	2,  // 20: copywriting.Copywriting.UpdateShopProfile:input_type -> copywriting.ShopProfileForm
+	7,  // 21: copywriting.Copywriting.GetShopProfile:input_type -> copywriting.IdUserReq
+	4,  // 22: copywriting.Copywriting.ListShopProfiles:input_type -> copywriting.ShopProfileListReq
+	7,  // 23: copywriting.Copywriting.DeleteShopProfile:input_type -> copywriting.IdUserReq
+	7,  // 24: copywriting.Copywriting.ProfileText:input_type -> copywriting.IdUserReq
+	22, // 25: copywriting.Copywriting.AdminListOptions:input_type -> copywriting.AdminListOptionsReq
+	8,  // 26: copywriting.Copywriting.AdminSaveOption:input_type -> copywriting.OptionInfo
+	6,  // 27: copywriting.Copywriting.AdminDeleteOption:input_type -> copywriting.IdReq
+	21, // 28: copywriting.Copywriting.AdminListCopywriting:input_type -> copywriting.AdminListReq
+	6,  // 29: copywriting.Copywriting.AdminDeleteCopywriting:input_type -> copywriting.IdReq
+	0,  // 30: copywriting.Copywriting.AdminGetModel:input_type -> copywriting.Empty
+	11, // 31: copywriting.Copywriting.Options:output_type -> copywriting.OptionsResp
+	13, // 32: copywriting.Copywriting.AiWrite:output_type -> copywriting.AiWriteResp
+	18, // 33: copywriting.Copywriting.Generate:output_type -> copywriting.CopywritingInfo
+	18, // 34: copywriting.Copywriting.Regenerate:output_type -> copywriting.CopywritingInfo
+	18, // 35: copywriting.Copywriting.Create:output_type -> copywriting.CopywritingInfo
+	18, // 36: copywriting.Copywriting.Get:output_type -> copywriting.CopywritingInfo
+	20, // 37: copywriting.Copywriting.List:output_type -> copywriting.CopywritingList
+	18, // 38: copywriting.Copywriting.Update:output_type -> copywriting.CopywritingInfo
+	0,  // 39: copywriting.Copywriting.Delete:output_type -> copywriting.Empty
+	25, // 40: copywriting.Copywriting.Derivatives:output_type -> copywriting.DerivativeList
+	3,  // 41: copywriting.Copywriting.CreateShopProfile:output_type -> copywriting.ShopProfile
+	3,  // 42: copywriting.Copywriting.UpdateShopProfile:output_type -> copywriting.ShopProfile
+	3,  // 43: copywriting.Copywriting.GetShopProfile:output_type -> copywriting.ShopProfile
+	5,  // 44: copywriting.Copywriting.ListShopProfiles:output_type -> copywriting.ShopProfileList
+	0,  // 45: copywriting.Copywriting.DeleteShopProfile:output_type -> copywriting.Empty
+	1,  // 46: copywriting.Copywriting.ProfileText:output_type -> copywriting.TextResp
+	9,  // 47: copywriting.Copywriting.AdminListOptions:output_type -> copywriting.OptionList
+	8,  // 48: copywriting.Copywriting.AdminSaveOption:output_type -> copywriting.OptionInfo
+	0,  // 49: copywriting.Copywriting.AdminDeleteOption:output_type -> copywriting.Empty
+	20, // 50: copywriting.Copywriting.AdminListCopywriting:output_type -> copywriting.CopywritingList
+	0,  // 51: copywriting.Copywriting.AdminDeleteCopywriting:output_type -> copywriting.Empty
+	10, // 52: copywriting.Copywriting.AdminGetModel:output_type -> copywriting.ModelInfo
+	31, // [31:53] is the sub-list for method output_type
+	9,  // [9:31] is the sub-list for method input_type
+	9,  // [9:9] is the sub-list for extension type_name
+	9,  // [9:9] is the sub-list for extension extendee
+	0,  // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_copywriting_proto_init() }
@@ -1794,7 +2234,7 @@ func file_copywriting_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_copywriting_proto_rawDesc), len(file_copywriting_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   21,
+			NumMessages:   26,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

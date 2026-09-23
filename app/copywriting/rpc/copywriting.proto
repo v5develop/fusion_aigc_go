@@ -23,6 +23,15 @@ service Copywriting {
   // 待「各标签对应 afv_asset.type」和「下游模块写 external_ref」确认后再开放。
   rpc Derivatives(DerivativesReq) returns (DerivativeList);
 
+  // ---- 店铺档案（内容生产的数据底座，一个账号可建多条）----
+  rpc CreateShopProfile(ShopProfileForm) returns (ShopProfile);
+  rpc UpdateShopProfile(ShopProfileForm) returns (ShopProfile);
+  rpc GetShopProfile(IdUserReq) returns (ShopProfile);
+  rpc ListShopProfiles(ShopProfileListReq) returns (ShopProfileList);
+  rpc DeleteShopProfile(IdUserReq) returns (Empty);
+  // ProfileText 档案内容拼成一段文本，给各模块塞进执行面的 shop_profile 参数；id 为 0 或档案已删返回空串
+  rpc ProfileText(IdUserReq) returns (TextResp);
+
   // ---- 运营后台 ----
   rpc AdminListOptions(AdminListOptionsReq) returns (OptionList);
   rpc AdminSaveOption(OptionInfo) returns (OptionInfo);
@@ -34,6 +43,47 @@ service Copywriting {
 }
 
 message Empty {}
+
+message TextResp {
+  string text = 1;
+}
+
+// ShopProfileForm 创建 / 保存店铺档案。字数上限见服务配置（汉字算 2 个字符，与设计稿便签一致）。
+message ShopProfileForm {
+  int64 id = 1;               // 保存时必填
+  int64 user_id = 2;
+  string name = 3;            // 店铺名称，必填，≤20
+  string open_date = 4;       // 开店时间：前端日期选择器选中后按文本传，如 2025-10-03，≤10
+  string address = 5;         // ≤60
+  string products = 6;        // 提供商品/服务，≤180
+  string selling_points = 7;  // 核心卖点，≤220
+  string self_title = 8;      // 如何称呼自己，≤15
+  string target_audience = 9; // 主要目标客群，≤40
+}
+
+message ShopProfile {
+  int64 id = 1;
+  string name = 2;
+  string open_date = 3;
+  string address = 4;
+  string products = 5;
+  string selling_points = 6;
+  string self_title = 7;
+  string target_audience = 8;
+  int64 create_time = 9;
+  int64 update_time = 10;
+}
+
+message ShopProfileListReq {
+  int64 user_id = 1;
+  int64 page = 2;
+  int64 page_size = 3;
+}
+
+message ShopProfileList {
+  repeated ShopProfile list = 1;
+  int64 total = 2;
+}
 
 message IdReq {
   int64 id = 1;

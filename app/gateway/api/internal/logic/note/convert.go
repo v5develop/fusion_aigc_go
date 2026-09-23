@@ -15,7 +15,8 @@ func orEmpty(v []string) []string {
 func toNote(n *note.NoteInfo) *types.Note {
 	return &types.Note{
 		Id: n.Id, NoteType: n.NoteType, NoteTypeLabel: n.NoteTypeLabel, Topic: n.Topic,
-		MaterialUrls: orEmpty(n.MaterialUrls), DigitalHumanId: n.DigitalHumanId, Title: n.Title, Content: n.Content,
+		MaterialUrls: orEmpty(n.MaterialUrls), DigitalHumanId: n.DigitalHumanId, ShopProfileId: n.ShopProfileId,
+		Title: n.Title, Content: n.Content,
 		Tags: orEmpty(n.Tags), ImageCount: n.ImageCount, ImageUrls: orEmpty(n.ImageUrls), Status: n.Status,
 		FailReason: n.FailReason, CreateTime: n.CreateTime,
 	}

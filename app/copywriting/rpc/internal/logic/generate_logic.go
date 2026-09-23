@@ -75,7 +75,8 @@ func (l *GenerateLogic) Generate(in *pb.GenerateReq) (*pb.CopywritingInfo, error
 	if parts.TargetWords <= 0 {
 		parts.TargetWords = cfg.DefaultWords
 	}
-	// TODO 店铺档案：等该模块接口确定后，用 shop_profile_id 取店名与特色填进提示词
+	// 关联的店铺档案拼进提示词（选填；档案不存在或已删就当没选）
+	parts.ShopInfo = shopProfileTextOf(l.ctx, l.svcCtx, in.ShopProfileId, in.UserId)
 
 	mc, err := endpoint(l.ctx, l.svcCtx)
 	if err != nil {

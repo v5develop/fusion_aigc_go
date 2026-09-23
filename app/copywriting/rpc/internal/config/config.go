@@ -12,6 +12,8 @@ type Config struct {
 	Task TaskConf
 	// Billing 计费接入。等 entry_code / offer / 定价确认后打开。
 	Billing BillingConf
+	// ShopProfile 店铺档案：条数与各字段字数上限（字符数，汉字算 2，与设计稿便签一致）
+	ShopProfile ShopProfileConf
 	// Moderation 内容审核：keyword-关键词过滤（词库见 afv_copywriting_option 的 BLOCKWORD）、off-不审核
 	Moderation struct {
 		Mode string `json:",default=keyword,options=keyword|off"`
@@ -26,6 +28,18 @@ type GenerateConf struct {
 	MaxReferenceLen int `json:",default=5000"`
 	DefaultWords    int `json:",default=200"`
 	TimeoutSeconds  int `json:",default=120"`
+}
+
+// ShopProfileConf 店铺档案的限制。字段上限来自设计稿便签。
+type ShopProfileConf struct {
+	MaxCount          int `json:",default=20"`  // 一个账号最多几条
+	MaxName           int `json:",default=20"`  // 店铺名称（10 个汉字）
+	MaxOpenDate       int `json:",default=10"`  // 开店时间
+	MaxAddress        int `json:",default=60"`  // 店铺地址
+	MaxProducts       int `json:",default=180"` // 提供商品/服务
+	MaxSellingPoints  int `json:",default=220"` // 核心卖点
+	MaxSelfTitle      int `json:",default=15"`  // 如何称呼自己
+	MaxTargetAudience int `json:",default=40"`  // 主要目标客群
 }
 
 type TaskConf struct {

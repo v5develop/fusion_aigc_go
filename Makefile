@@ -22,6 +22,7 @@ gen-api:
 
 gen-model:
 	goctl model mysql ddl -src deploy/sql/V1.0.106__ai_copywriting.sql -dir app/copywriting/model --style=go_zero --home $(GOCTL_HOME)
+	goctl model mysql ddl -src deploy/sql/V1.0.114__shop_profile.sql -dir app/copywriting/model --style=go_zero --home $(GOCTL_HOME)
 	goctl model mysql ddl -src deploy/sql/V1.0.108__ai_digital_human.sql -dir app/digitalhuman/model --style=go_zero --home $(GOCTL_HOME)
 	goctl model mysql ddl -src deploy/sql/V1.0.109__ai_image_text_note.sql -dir app/note/model --style=go_zero --home $(GOCTL_HOME)
 	@echo '注意：V1.0.111 含 INSERT..SELECT，goctl 解析不了，改表结构时手工截出 CREATE TABLE 再生成 app/imagegen/model'
@@ -33,6 +34,7 @@ db:
 	docker exec -i mysql-8.0.36 mysql --default-character-set=utf8mb4 -uroot -p123456 fusion_aigc < deploy/sql/V1.0.109__ai_image_text_note.sql
 	docker exec -i mysql-8.0.36 mysql --default-character-set=utf8mb4 -uroot -p123456 fusion_aigc < deploy/sql/V1.0.110__asset_category_localLife.sql
 	docker exec -i mysql-8.0.36 mysql --default-character-set=utf8mb4 -uroot -p123456 fusion_aigc < deploy/sql/V1.0.111__ai_poster_long_image.sql
+	docker exec -i mysql-8.0.36 mysql --default-character-set=utf8mb4 -uroot -p123456 fusion_aigc < deploy/sql/V1.0.114__shop_profile.sql
 
 build:
 	@mkdir -p bin

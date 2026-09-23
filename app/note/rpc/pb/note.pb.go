@@ -260,6 +260,7 @@ type PlanReq struct {
 	Topic          string                 `protobuf:"bytes,3,opt,name=topic,proto3" json:"topic,omitempty"`
 	MaterialUrls   []string               `protobuf:"bytes,4,rep,name=material_urls,json=materialUrls,proto3" json:"material_urls,omitempty"`          // 上传接口返回的地址，最多 3 张
 	DigitalHumanId int64                  `protobuf:"varint,5,opt,name=digital_human_id,json=digitalHumanId,proto3" json:"digital_human_id,omitempty"` // 选填：我的数字人（须已生成完成）
+	ShopProfileId  int64                  `protobuf:"varint,11,opt,name=shop_profile_id,json=shopProfileId,proto3" json:"shop_profile_id,omitempty"`   // 选填：关联店铺档案，构思时拼进 74 的 shop_profile
 	RequestId      string                 `protobuf:"bytes,6,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`                   // 幂等
 	ImageCount     int32                  `protobuf:"varint,7,opt,name=image_count,json=imageCount,proto3" json:"image_count,omitempty"`               // 套图数量，传给 74；不传用默认值
 	unknownFields  protoimpl.UnknownFields
@@ -327,6 +328,13 @@ func (x *PlanReq) GetMaterialUrls() []string {
 func (x *PlanReq) GetDigitalHumanId() int64 {
 	if x != nil {
 		return x.DigitalHumanId
+	}
+	return 0
+}
+
+func (x *PlanReq) GetShopProfileId() int64 {
+	if x != nil {
+		return x.ShopProfileId
 	}
 	return 0
 }
@@ -583,6 +591,7 @@ type NoteInfo struct {
 	Topic          string                 `protobuf:"bytes,5,opt,name=topic,proto3" json:"topic,omitempty"`
 	MaterialUrls   []string               `protobuf:"bytes,6,rep,name=material_urls,json=materialUrls,proto3" json:"material_urls,omitempty"`
 	DigitalHumanId int64                  `protobuf:"varint,7,opt,name=digital_human_id,json=digitalHumanId,proto3" json:"digital_human_id,omitempty"`
+	ShopProfileId  int64                  `protobuf:"varint,21,opt,name=shop_profile_id,json=shopProfileId,proto3" json:"shop_profile_id,omitempty"`
 	Title          string                 `protobuf:"bytes,8,opt,name=title,proto3" json:"title,omitempty"`
 	Content        string                 `protobuf:"bytes,9,opt,name=content,proto3" json:"content,omitempty"`
 	Tags           []string               `protobuf:"bytes,10,rep,name=tags,proto3" json:"tags,omitempty"`
@@ -670,6 +679,13 @@ func (x *NoteInfo) GetMaterialUrls() []string {
 func (x *NoteInfo) GetDigitalHumanId() int64 {
 	if x != nil {
 		return x.DigitalHumanId
+	}
+	return 0
+}
+
+func (x *NoteInfo) GetShopProfileId() int64 {
+	if x != nil {
+		return x.ShopProfileId
 	}
 	return 0
 }
@@ -870,13 +886,14 @@ const file_note_proto_rawDesc = "" +
 	"\rmax_materials\x18\x02 \x01(\x05R\fmaxMaterials\x12%\n" +
 	"\x0edefault_images\x18\x03 \x01(\x05R\rdefaultImages\x12&\n" +
 	"\x0fmax_edit_images\x18\x04 \x01(\x05R\rmaxEditImages\x12\"\n" +
-	"\rmax_topic_len\x18\x05 \x01(\x05R\vmaxTopicLen\"\xe4\x01\n" +
+	"\rmax_topic_len\x18\x05 \x01(\x05R\vmaxTopicLen\"\x8c\x02\n" +
 	"\aPlanReq\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x1b\n" +
 	"\tnote_type\x18\x02 \x01(\tR\bnoteType\x12\x14\n" +
 	"\x05topic\x18\x03 \x01(\tR\x05topic\x12#\n" +
 	"\rmaterial_urls\x18\x04 \x03(\tR\fmaterialUrls\x12(\n" +
-	"\x10digital_human_id\x18\x05 \x01(\x03R\x0edigitalHumanId\x12\x1d\n" +
+	"\x10digital_human_id\x18\x05 \x01(\x03R\x0edigitalHumanId\x12&\n" +
+	"\x0fshop_profile_id\x18\v \x01(\x03R\rshopProfileId\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x06 \x01(\tR\trequestId\x12\x1f\n" +
 	"\vimage_count\x18\a \x01(\x05R\n" +
@@ -901,7 +918,7 @@ const file_note_proto_rawDesc = "" +
 	"\acontent\x18\x04 \x01(\tR\acontent\x12\x12\n" +
 	"\x04tags\x18\x05 \x03(\tR\x04tags\x12\x1d\n" +
 	"\n" +
-	"image_urls\x18\x06 \x03(\tR\timageUrls\"\xbb\x03\n" +
+	"image_urls\x18\x06 \x03(\tR\timageUrls\"\xe3\x03\n" +
 	"\bNoteInfo\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x17\n" +
 	"\auser_id\x18\x02 \x01(\x03R\x06userId\x12\x1b\n" +
@@ -909,7 +926,8 @@ const file_note_proto_rawDesc = "" +
 	"\x0fnote_type_label\x18\x04 \x01(\tR\rnoteTypeLabel\x12\x14\n" +
 	"\x05topic\x18\x05 \x01(\tR\x05topic\x12#\n" +
 	"\rmaterial_urls\x18\x06 \x03(\tR\fmaterialUrls\x12(\n" +
-	"\x10digital_human_id\x18\a \x01(\x03R\x0edigitalHumanId\x12\x14\n" +
+	"\x10digital_human_id\x18\a \x01(\x03R\x0edigitalHumanId\x12&\n" +
+	"\x0fshop_profile_id\x18\x15 \x01(\x03R\rshopProfileId\x12\x14\n" +
 	"\x05title\x18\b \x01(\tR\x05title\x12\x18\n" +
 	"\acontent\x18\t \x01(\tR\acontent\x12\x12\n" +
 	"\x04tags\x18\n" +

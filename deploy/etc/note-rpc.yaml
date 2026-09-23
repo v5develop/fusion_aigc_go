@@ -21,6 +21,9 @@ Storage:                # 须与网关一致
 DigitalHumanRpc:
   Etcd: {Hosts: [127.0.0.1:2379], Key: digitalhuman.rpc}
   NonBlock: true
+CopywritingRpc:               # 取店铺档案拼好的文本
+  Etcd: {Hosts: [127.0.0.1:2379], Key: copywriting.rpc}
+  NonBlock: true
 TaskIDPrefix: aigclife
 Limits:
   MaxTopicLen: 500

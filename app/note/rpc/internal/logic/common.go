@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"aigc-life/app/copywriting/rpc/copywriting"
 	"aigc-life/app/note/model"
 	"aigc-life/app/note/rpc/internal/svc"
 	"aigc-life/app/note/rpc/pb"
@@ -67,7 +68,8 @@ func parseList(s sql.NullString) []string {
 func toInfo(n *model.AfvImageTextNote) *pb.NoteInfo {
 	return &pb.NoteInfo{
 		Id: n.Id, UserId: n.UserId, NoteType: n.NoteType, NoteTypeLabel: noteTypeLabel(n.NoteType), Topic: n.Topic,
-		MaterialUrls: parseList(n.MaterialUrls), DigitalHumanId: n.DigitalHumanId.Int64, Title: n.Title,
+		MaterialUrls: parseList(n.MaterialUrls), DigitalHumanId: n.DigitalHumanId.Int64,
+		ShopProfileId: n.ShopProfileId.Int64, Title: n.Title,
 		Content: n.Content.String, Tags: parseList(n.Tags), ImageCount: int32(n.ImageCount),
 		ImageUrls: parseList(n.ImageUrls), Status: int32(n.Status), FailReason: n.FailReason.String,
 		CreateTime: n.CreateTime.UnixMilli(),
@@ -219,4 +221,18 @@ func list(ctx context.Context, svcCtx *svc.ServiceContext, in *pb.ListReq) (*pb.
 		resp.List = append(resp.List, toInfo(n))
 	}
 	return resp, nil
+}
+
+// shopProfileText 取关联店铺档案拼好的文本（档案在 AI文案服务里）。
+// 没关联、档案已删或服务暂时不可用时返回空串——档案是选填项，不该挡住构思。
+func shopProfileText(ctx context.Context, svcCtx *svc.ServiceContext, profileID, userID int64) string {
+	if profileID <= 0 {
+		return ""
+	}
+	out, err := svcCtx.CopywritingRpc.ProfileText(ctx, &copywriting.IdUserReq{Id: profileID, UserId: userID})
+	if err != nil {
+		logx.WithContext(ctx).Errorf("note: 取店铺档案 %d 失败: %v", profileID, err)
+		return ""
+	}
+	return out.Text
 }

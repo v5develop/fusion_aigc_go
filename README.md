@@ -1,11 +1,12 @@
 # AIGC 本地生活 · 后端
 
 Go + go-zero，数据落在现有系统的 `fusion_aigc` 库，新表 `afv_` 前缀，现有表只读、不改结构。
-目前有四个服务模块：**AI文案**、**AI数字人**、**AI图文笔记**、**AI海报/长图/动作迁移/数字人口播**。
+目前有四个服务模块：**AI文案（含店铺档案）**、**AI数字人**、**AI图文笔记**、**AI海报/长图/动作迁移/数字人口播**。
 
 | 模块 | 设计方案 | 建表脚本 |
 |---|---|---|
 | AI文案 | `~/Documents/echo/ai-copywriting-design.md` | `deploy/sql/V1.0.106__ai_copywriting.sql` |
+| 店铺档案 | `~/Documents/echo/shop-profile-design.md` | `deploy/sql/V1.0.114__shop_profile.sql`、`V1.0.115__note_shop_profile.sql` |
 | AI数字人 | `~/Documents/echo/digital-human-design.md` | `deploy/sql/V1.0.108__ai_digital_human.sql` |
 | AI图文笔记 | `~/Documents/echo/image-text-note-design.md` | `deploy/sql/V1.0.109__ai_image_text_note.sql` |
 | AI海报/长图/动作迁移/数字人口播 | `~/Documents/echo/image-video-creation-design.md` | `deploy/sql/V1.0.111__ai_poster_long_image.sql`、`V1.0.112__ai_action_transfer.sql`、`V1.0.113__ai_voiceover.sql` |
@@ -14,7 +15,7 @@ Go + go-zero，数据落在现有系统的 `fusion_aigc` 库，新表 `afv_` 前
 
 | 服务 | 端口 | 职责 |
 |---|---|---|
-| `copywriting-rpc` | 9201 | 文案生成与增删改查、选项字典、AI帮写（含数字人配音内容） |
+| `copywriting-rpc` | 9201 | 文案生成与增删改查、选项字典、AI帮写（含数字人配音内容）、**店铺档案**（各模块通过 rpc 取拼好的文本） |
 | `digitalhuman-rpc` | 9202 | 使用约定、公共数字人（只读）、AI 定制形象、系统音色、数字人生成；内置结果轮询器 |
 | `note-rpc` | 9203 | 图文笔记：构思（执行面 74）→ 规划 → 出图（75）、编辑；内置结果轮询器 |
 | `imagegen-rpc` | 9204 | 海报（78）、长图（76）、动作迁移（9/86）、数字人口播（92/91）：模板与动作视频、提交、轮询；内置结果轮询器 |
@@ -134,6 +135,15 @@ make stop-all
 - 已知限制：出图提示词里写死了图内文字，规划页改标题不会改图上的字。
 - 表单里的数字人 = 我的数字人（须已生成完成），它的形象图作为 74 的 `person_url`；note-rpc 通过 digitalhuman-rpc 校验。
 - AI帮写新增场景 `note_topic`（带 `note_type`）。
+
+## 店铺档案
+
+一个账号最多 20 条（`afv_shop_profile`），7 个字段：店铺名称（必填）、开店时间、地址、提供商品/服务、核心卖点、如何称呼自己、主要目标客群。
+字数上限按设计稿便签，**汉字算 2 个字符**（`charLen`）。放在 `copywriting` 服务里：AI文案直接用，其他模块通过 rpc `ProfileText` 取拼好的文本，
+塞进执行面的 `shop_profile` 参数。开店时间存文本（前端日期选择器选中后回传），拼提示词时若能解析成日期会顺带算出「已开店 N 年 M 个月」。
+删除是逻辑删除，已生成的历史内容不受影响（提示词在生成时就拼好了）。
+
+目前已接入：AI文案（AI帮写/爆款仿写）、图文笔记（74）。探店视频、带货短剧做的时候一起带上。
 
 ## AI文案
 

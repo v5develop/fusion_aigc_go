@@ -16,6 +16,7 @@ type ServiceContext struct {
 	Config      config.Config
 	Copywriting model.AfvCopywritingModel
 	Option      model.AfvCopywritingOptionModel
+	ShopProfile model.AfvShopProfileModel
 	Shared      *model.SharedModel
 	LLM         *llm.Client
 	Moderation  moderation.Checker
@@ -30,6 +31,7 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		Config:      c,
 		Copywriting: model.NewAfvCopywritingModel(conn),
 		Option:      option,
+		ShopProfile: model.NewAfvShopProfileModel(conn),
 		Shared:      model.NewSharedModel(conn),
 		LLM:         llm.New(),
 		Moderation:  moderation.New(c.Moderation.Mode, blockWords(option)),

@@ -1,6 +1,7 @@
 package svc
 
 import (
+	"aigc-life/app/copywriting/rpc/copywriting"
 	"aigc-life/app/digitalhuman/rpc/digitalhuman"
 	"aigc-life/app/note/model"
 	"aigc-life/app/note/rpc/internal/config"
@@ -22,6 +23,7 @@ type ServiceContext struct {
 	Storage         storage.Store
 	Moderation      moderation.Checker
 	DigitalHumanRpc digitalhuman.DigitalHuman
+	CopywritingRpc  copywriting.Copywriting
 }
 
 func NewServiceContext(c config.Config) *ServiceContext {
@@ -36,5 +38,6 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		Storage:         storage.New(c.Storage, conn),
 		Moderation:      moderation.New(c.Moderation.Mode, shared.BlockWords),
 		DigitalHumanRpc: digitalhuman.NewDigitalHuman(zrpc.MustNewClient(c.DigitalHumanRpc)),
+		CopywritingRpc:  copywriting.NewCopywriting(zrpc.MustNewClient(c.CopywritingRpc)),
 	}
 }

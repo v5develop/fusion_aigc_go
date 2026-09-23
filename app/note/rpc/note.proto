@@ -52,6 +52,7 @@ message PlanReq {
   string topic = 3;
   repeated string material_urls = 4;  // 上传接口返回的地址，最多 3 张
   int64 digital_human_id = 5;         // 选填：我的数字人（须已生成完成）
+  int64 shop_profile_id = 11;         // 选填：关联店铺档案，构思时拼进 74 的 shop_profile
   string request_id = 6;              // 幂等
   int32 image_count = 7;              // 套图数量，传给 74；不传用默认值
 }
@@ -89,6 +90,7 @@ message NoteInfo {
   string topic = 5;
   repeated string material_urls = 6;
   int64 digital_human_id = 7;
+  int64 shop_profile_id = 21;
   string title = 8;
   string content = 9;
   repeated string tags = 10;
