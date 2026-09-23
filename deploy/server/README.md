@@ -121,6 +121,22 @@ curl -s -H 'X-User-Id: 1' http://127.0.0.1:18888/api/v1/image-creations/options?
 成品统一是 `deploy.env` 里 `MOCK_SAMPLE_IMAGE` / `MOCK_SAMPLE_VIDEO` 这两个示例文件（会真实转存到 OSS，前端能打开/播放）。
 在文案里写 `mock-fail` 可以模拟生成失败。
 
+## 四·五、真实链路回归（切到正式执行面后跑一次）
+
+`e2e-real.sh` 对着已部署的环境，每个模块真实跑一条，确认返回结构与耗时：
+
+```bash
+cd /opt/aigc-life
+GW=http://127.0.0.1:18888/api/v1 bash scripts/e2e-real.sh          # 只跑便宜的（文案/档案/笔记/海报/长图）
+GW=http://127.0.0.1:18888/api/v1 bash scripts/e2e-real.sh video    # 出视频的（口播/动作迁移/探店/短剧/复刻/数字人）
+GW=http://127.0.0.1:18888/api/v1 bash scripts/e2e-real.sh all      # 全部
+```
+
+- **出视频的模块会真实产生费用**，而且慢（云端 2–10 分钟，本地 GPU 可能十几分钟），脚本最多等 45 分钟。
+- 素材会自动下载示例图/视频再上传成我们自己的地址，不用提前准备。
+- 海报、长图要运营先配模板，没配会显示「跳过」。数字人要先跑过 `install.sh voices`。
+- 测试数据记在固定用户（默认 990909）名下，跑完脚本会打印清理用的 SQL。
+
 ## 五、日常操作
 
 ```bash

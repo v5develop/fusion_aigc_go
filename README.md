@@ -55,7 +55,8 @@ deploy/scripts/e2e.sh               # AI文案端到端测试（49 项，真实�
 deploy/scripts/e2e-digitalhuman.sh  # AI数字人端到端测试（73 项，执行面走 mock，TTS 真实调用；会临时插入并清理模板素材测试数据）
 deploy/scripts/e2e-note.sh          # AI图文笔记端到端测试（62 项，执行面走 mock；SKIP_MODEL=1 跳过真实模型）
 deploy/scripts/e2e-imagegen.sh      # 海报/长图/动作迁移/数字人口播端到端测试（96 项，执行面走 mock；会临时插入并清理模板素材；SKIP_MODEL=1 跳过 AI帮写）
-deploy/scripts/e2e-video.sh         # 探店视频/带货短剧/爆款视频复刻端到端测试（56 项，两步流程走 mock）
+deploy/scripts/e2e-video.sh         # 探店视频/带货短剧/爆款视频复刻端到端测试（58 项，两步流程走 mock）
+deploy/scripts/e2e-real.sh          # 真实链路回归：对着已部署环境每个模块真实跑一条（会产生费用，见脚本头部）
 make stop-all
 ```
 
