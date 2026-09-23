@@ -76,7 +76,7 @@ package:
 	done
 	cp deploy/etc/*.yaml dist/aigc-life/etc-dev/
 	cp deploy/sql/V*.sql dist/aigc-life/sql/
-	cp deploy/scripts/gen-voice-previews.sh dist/aigc-life/scripts/
+	cp deploy/scripts/gen-voice-previews.sh deploy/scripts/e2e-real.sh dist/aigc-life/scripts/
 	cp docs/*.md dist/aigc-life/docs/
 	cp deploy/server/install.sh deploy/server/deploy.env.example deploy/server/README.md dist/aigc-life/
 	@echo $(VERSION) > dist/aigc-life/VERSION
