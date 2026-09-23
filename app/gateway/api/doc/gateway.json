@@ -680,7 +680,9 @@
                     "note_topic",
                     "poster_info",
                     "long_image",
-                    "voiceover"
+                    "voiceover",
+                    "explore_shop",
+                    "short_drama"
                   ]
                 }
               }
@@ -3305,6 +3307,7 @@
                           "topic",
                           "material_urls",
                           "digital_human_id",
+                          "shop_profile_id",
                           "title",
                           "content",
                           "tags",
@@ -3350,6 +3353,9 @@
                           },
                           "note_type_label": {
                             "type": "string"
+                          },
+                          "shop_profile_id": {
+                            "type": "integer"
                           },
                           "status": {
                             "type": "integer"
@@ -3531,6 +3537,10 @@
                     "knowledge"
                   ]
                 },
+                "shop_profile_id": {
+                  "description": "选填：关联店铺档案",
+                  "type": "integer"
+                },
                 "topic": {
                   "type": "string"
                 }
@@ -3587,6 +3597,9 @@
                     },
                     "note_type_label": {
                       "type": "string"
+                    },
+                    "shop_profile_id": {
+                      "type": "integer"
                     },
                     "status": {
                       "type": "integer"
@@ -3691,6 +3704,9 @@
                     },
                     "note_type_label": {
                       "type": "string"
+                    },
+                    "shop_profile_id": {
+                      "type": "integer"
                     },
                     "status": {
                       "type": "integer"
@@ -3829,6 +3845,9 @@
                     },
                     "note_type_label": {
                       "type": "string"
+                    },
+                    "shop_profile_id": {
+                      "type": "integer"
                     },
                     "status": {
                       "type": "integer"
@@ -4014,6 +4033,9 @@
                     "note_type_label": {
                       "type": "string"
                     },
+                    "shop_profile_id": {
+                      "type": "integer"
+                    },
                     "status": {
                       "type": "integer"
                     },
@@ -4135,6 +4157,9 @@
                     "note_type_label": {
                       "type": "string"
                     },
+                    "shop_profile_id": {
+                      "type": "integer"
+                    },
                     "status": {
                       "type": "integer"
                     },
@@ -4151,6 +4176,494 @@
                       "type": "string"
                     }
                   }
+                },
+                "msg": {
+                  "description": "business message",
+                  "type": "string",
+                  "example": "ok"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/shop-profiles": {
+      "get": {
+        "security": [
+          {
+            "auth": []
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "店铺档案"
+        ],
+        "summary": "店铺档案列表",
+        "operationId": "shopprofileListShopProfiles",
+        "parameters": [
+          {
+            "type": "integer",
+            "default": 1,
+            "example": 1,
+            "name": "page",
+            "in": "query",
+            "allowEmptyValue": true
+          },
+          {
+            "type": "integer",
+            "default": 20,
+            "example": 20,
+            "name": "page_size",
+            "in": "query",
+            "allowEmptyValue": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
+                  "type": "integer",
+                  "example": 0
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "list": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "name",
+                          "open_date",
+                          "address",
+                          "products",
+                          "selling_points",
+                          "self_title",
+                          "target_audience",
+                          "create_time",
+                          "update_time"
+                        ],
+                        "properties": {
+                          "address": {
+                            "type": "string"
+                          },
+                          "create_time": {
+                            "type": "integer"
+                          },
+                          "id": {
+                            "type": "integer"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "open_date": {
+                            "type": "string"
+                          },
+                          "products": {
+                            "type": "string"
+                          },
+                          "self_title": {
+                            "type": "string"
+                          },
+                          "selling_points": {
+                            "type": "string"
+                          },
+                          "target_audience": {
+                            "type": "string"
+                          },
+                          "update_time": {
+                            "type": "integer"
+                          }
+                        }
+                      }
+                    },
+                    "total": {
+                      "type": "integer"
+                    }
+                  }
+                },
+                "msg": {
+                  "description": "business message",
+                  "type": "string",
+                  "example": "ok"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "security": [
+          {
+            "auth": []
+          }
+        ],
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "店铺档案"
+        ],
+        "summary": "创建店铺档案",
+        "operationId": "shopprofileCreateShopProfile",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "required": [
+                "name"
+              ],
+              "properties": {
+                "address": {
+                  "description": "≤60",
+                  "type": "string"
+                },
+                "name": {
+                  "description": "店铺名称，必填，≤20 字符（汉字算 2）",
+                  "type": "string"
+                },
+                "open_date": {
+                  "description": "开店时间，日期选择器选中后按文本传，如 2025-10-03",
+                  "type": "string"
+                },
+                "products": {
+                  "description": "提供商品/服务，≤180",
+                  "type": "string"
+                },
+                "self_title": {
+                  "description": "如何称呼自己，≤15",
+                  "type": "string"
+                },
+                "selling_points": {
+                  "description": "核心卖点，≤220",
+                  "type": "string"
+                },
+                "target_audience": {
+                  "description": "主要目标客群，≤40",
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
+                  "type": "integer",
+                  "example": 0
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "address": {
+                      "type": "string"
+                    },
+                    "create_time": {
+                      "type": "integer"
+                    },
+                    "id": {
+                      "type": "integer"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "open_date": {
+                      "type": "string"
+                    },
+                    "products": {
+                      "type": "string"
+                    },
+                    "self_title": {
+                      "type": "string"
+                    },
+                    "selling_points": {
+                      "type": "string"
+                    },
+                    "target_audience": {
+                      "type": "string"
+                    },
+                    "update_time": {
+                      "type": "integer"
+                    }
+                  }
+                },
+                "msg": {
+                  "description": "business message",
+                  "type": "string",
+                  "example": "ok"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/shop-profiles/{id}": {
+      "get": {
+        "security": [
+          {
+            "auth": []
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "店铺档案"
+        ],
+        "summary": "档案详情（编辑页回填）",
+        "operationId": "shopprofileGetShopProfile",
+        "parameters": [
+          {
+            "type": "integer",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
+                  "type": "integer",
+                  "example": 0
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "address": {
+                      "type": "string"
+                    },
+                    "create_time": {
+                      "type": "integer"
+                    },
+                    "id": {
+                      "type": "integer"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "open_date": {
+                      "type": "string"
+                    },
+                    "products": {
+                      "type": "string"
+                    },
+                    "self_title": {
+                      "type": "string"
+                    },
+                    "selling_points": {
+                      "type": "string"
+                    },
+                    "target_audience": {
+                      "type": "string"
+                    },
+                    "update_time": {
+                      "type": "integer"
+                    }
+                  }
+                },
+                "msg": {
+                  "description": "business message",
+                  "type": "string",
+                  "example": "ok"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "security": [
+          {
+            "auth": []
+          }
+        ],
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "店铺档案"
+        ],
+        "summary": "保存店铺档案",
+        "operationId": "shopprofileSaveShopProfile",
+        "parameters": [
+          {
+            "type": "integer",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "required": [
+                "name"
+              ],
+              "properties": {
+                "address": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "open_date": {
+                  "type": "string"
+                },
+                "products": {
+                  "type": "string"
+                },
+                "self_title": {
+                  "type": "string"
+                },
+                "selling_points": {
+                  "type": "string"
+                },
+                "target_audience": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
+                  "type": "integer",
+                  "example": 0
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "address": {
+                      "type": "string"
+                    },
+                    "create_time": {
+                      "type": "integer"
+                    },
+                    "id": {
+                      "type": "integer"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "open_date": {
+                      "type": "string"
+                    },
+                    "products": {
+                      "type": "string"
+                    },
+                    "self_title": {
+                      "type": "string"
+                    },
+                    "selling_points": {
+                      "type": "string"
+                    },
+                    "target_audience": {
+                      "type": "string"
+                    },
+                    "update_time": {
+                      "type": "integer"
+                    }
+                  }
+                },
+                "msg": {
+                  "description": "business message",
+                  "type": "string",
+                  "example": "ok"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "security": [
+          {
+            "auth": []
+          }
+        ],
+        "consumes": [
+          "application/x-www-form-urlencoded"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "店铺档案"
+        ],
+        "summary": "删除店铺档案",
+        "operationId": "shopprofileRemoveShopProfile",
+        "parameters": [
+          {
+            "type": "integer",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
+                  "type": "integer",
+                  "example": 0
+                },
+                "data": {
+                  "type": "object"
                 },
                 "msg": {
                   "description": "business message",
@@ -4389,6 +4902,841 @@
         }
       }
     },
+    "/api/v1/video-creations": {
+      "get": {
+        "security": [
+          {
+            "auth": []
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "探店视频 / 带货短剧"
+        ],
+        "summary": "列表",
+        "operationId": "videogenListVideos",
+        "parameters": [
+          {
+            "enum": [
+              "exploreShop",
+              "shortDrama"
+            ],
+            "type": "string",
+            "name": "kind",
+            "in": "query",
+            "allowEmptyValue": true
+          },
+          {
+            "type": "integer",
+            "default": -1,
+            "example": -1,
+            "name": "status",
+            "in": "query",
+            "allowEmptyValue": true
+          },
+          {
+            "type": "integer",
+            "default": 1,
+            "example": 1,
+            "name": "page",
+            "in": "query",
+            "allowEmptyValue": true
+          },
+          {
+            "type": "integer",
+            "default": 20,
+            "example": 20,
+            "name": "page_size",
+            "in": "query",
+            "allowEmptyValue": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
+                  "type": "integer",
+                  "example": 0
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "list": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "kind",
+                          "user_text",
+                          "selling_points",
+                          "shop_profile_id",
+                          "char_url",
+                          "env1_url",
+                          "env2_url",
+                          "prop_url",
+                          "duration",
+                          "size",
+                          "model",
+                          "script",
+                          "video_url",
+                          "status",
+                          "fail_reason",
+                          "create_time"
+                        ],
+                        "properties": {
+                          "char_url": {
+                            "type": "string"
+                          },
+                          "create_time": {
+                            "type": "integer"
+                          },
+                          "duration": {
+                            "type": "integer"
+                          },
+                          "env1_url": {
+                            "type": "string"
+                          },
+                          "env2_url": {
+                            "type": "string"
+                          },
+                          "fail_reason": {
+                            "type": "string"
+                          },
+                          "id": {
+                            "type": "integer"
+                          },
+                          "kind": {
+                            "type": "string"
+                          },
+                          "model": {
+                            "type": "string"
+                          },
+                          "prop_url": {
+                            "type": "string"
+                          },
+                          "script": {
+                            "description": "剧本 JSON 原文（状态 1 起有值）",
+                            "type": "string"
+                          },
+                          "selling_points": {
+                            "type": "string"
+                          },
+                          "shop_profile_id": {
+                            "type": "integer"
+                          },
+                          "size": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "description": "0-构思中 1-待确认 2-生成中 3-已完成 4-失败",
+                            "type": "integer"
+                          },
+                          "user_text": {
+                            "type": "string"
+                          },
+                          "video_url": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "total": {
+                      "type": "integer"
+                    }
+                  }
+                },
+                "msg": {
+                  "description": "business message",
+                  "type": "string",
+                  "example": "ok"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "security": [
+          {
+            "auth": []
+          }
+        ],
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "探店视频 / 带货短剧"
+        ],
+        "summary": "提交表单，开始构思剧本（探店 72 / 短剧 87）",
+        "operationId": "videogenCreateVideo",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "X-Request-Id",
+            "in": "header"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "required": [
+                "kind",
+                "user_text"
+              ],
+              "properties": {
+                "duration": {
+                  "type": "integer"
+                },
+                "env1_url": {
+                  "type": "string"
+                },
+                "env2_url": {
+                  "type": "string"
+                },
+                "image_index": {
+                  "type": "integer"
+                },
+                "image_url": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "exploreShop",
+                    "shortDrama"
+                  ]
+                },
+                "model": {
+                  "type": "string"
+                },
+                "portrait_id": {
+                  "type": "integer"
+                },
+                "portrait_source": {
+                  "type": "string",
+                  "enum": [
+                    "UPLOAD",
+                    "PUBLIC",
+                    "AI"
+                  ]
+                },
+                "prop_url": {
+                  "type": "string"
+                },
+                "public_id": {
+                  "type": "integer"
+                },
+                "selling_points": {
+                  "description": "短剧：商品卖点",
+                  "type": "string"
+                },
+                "shop_profile_id": {
+                  "description": "选填：关联店铺档案",
+                  "type": "integer"
+                },
+                "size": {
+                  "type": "string"
+                },
+                "user_text": {
+                  "description": "探店：视频文案；短剧：短剧主题",
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
+                  "type": "integer",
+                  "example": 0
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "char_url": {
+                      "type": "string"
+                    },
+                    "create_time": {
+                      "type": "integer"
+                    },
+                    "duration": {
+                      "type": "integer"
+                    },
+                    "env1_url": {
+                      "type": "string"
+                    },
+                    "env2_url": {
+                      "type": "string"
+                    },
+                    "fail_reason": {
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "integer"
+                    },
+                    "kind": {
+                      "type": "string"
+                    },
+                    "model": {
+                      "type": "string"
+                    },
+                    "prop_url": {
+                      "type": "string"
+                    },
+                    "script": {
+                      "description": "剧本 JSON 原文（状态 1 起有值）",
+                      "type": "string"
+                    },
+                    "selling_points": {
+                      "type": "string"
+                    },
+                    "shop_profile_id": {
+                      "type": "integer"
+                    },
+                    "size": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "description": "0-构思中 1-待确认 2-生成中 3-已完成 4-失败",
+                      "type": "integer"
+                    },
+                    "user_text": {
+                      "type": "string"
+                    },
+                    "video_url": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "msg": {
+                  "description": "business message",
+                  "type": "string",
+                  "example": "ok"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/video-creations/options": {
+      "get": {
+        "security": [
+          {
+            "auth": []
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "探店视频 / 带货短剧"
+        ],
+        "summary": "表单配置（模型/时长/比例/字数上限）",
+        "operationId": "videogenVideoOptions",
+        "parameters": [
+          {
+            "enum": [
+              "exploreShop",
+              "shortDrama"
+            ],
+            "type": "string",
+            "name": "kind",
+            "in": "query",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
+                  "type": "integer",
+                  "example": 0
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "default_duration": {
+                      "type": "integer"
+                    },
+                    "default_model": {
+                      "type": "string"
+                    },
+                    "default_size": {
+                      "type": "string"
+                    },
+                    "durations": {
+                      "type": "array",
+                      "items": {
+                        "type": "integer"
+                      }
+                    },
+                    "max_selling_points_len": {
+                      "type": "integer"
+                    },
+                    "max_user_text_len": {
+                      "type": "integer"
+                    },
+                    "models": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "code",
+                          "label"
+                        ],
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "prop_required": {
+                      "description": "短剧的商品图必填",
+                      "type": "boolean"
+                    },
+                    "sizes": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "code",
+                          "label"
+                        ],
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "msg": {
+                  "description": "business message",
+                  "type": "string",
+                  "example": "ok"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/video-creations/{id}": {
+      "get": {
+        "security": [
+          {
+            "auth": []
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "探店视频 / 带货短剧"
+        ],
+        "summary": "详情（构思中、生成中都轮询这个）",
+        "operationId": "videogenGetVideo",
+        "parameters": [
+          {
+            "type": "integer",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
+                  "type": "integer",
+                  "example": 0
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "char_url": {
+                      "type": "string"
+                    },
+                    "create_time": {
+                      "type": "integer"
+                    },
+                    "duration": {
+                      "type": "integer"
+                    },
+                    "env1_url": {
+                      "type": "string"
+                    },
+                    "env2_url": {
+                      "type": "string"
+                    },
+                    "fail_reason": {
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "integer"
+                    },
+                    "kind": {
+                      "type": "string"
+                    },
+                    "model": {
+                      "type": "string"
+                    },
+                    "prop_url": {
+                      "type": "string"
+                    },
+                    "script": {
+                      "description": "剧本 JSON 原文（状态 1 起有值）",
+                      "type": "string"
+                    },
+                    "selling_points": {
+                      "type": "string"
+                    },
+                    "shop_profile_id": {
+                      "type": "integer"
+                    },
+                    "size": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "description": "0-构思中 1-待确认 2-生成中 3-已完成 4-失败",
+                      "type": "integer"
+                    },
+                    "user_text": {
+                      "type": "string"
+                    },
+                    "video_url": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "msg": {
+                  "description": "business message",
+                  "type": "string",
+                  "example": "ok"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "security": [
+          {
+            "auth": []
+          }
+        ],
+        "consumes": [
+          "application/x-www-form-urlencoded"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "探店视频 / 带货短剧"
+        ],
+        "summary": "删除",
+        "operationId": "videogenRemoveVideo",
+        "parameters": [
+          {
+            "type": "integer",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
+                  "type": "integer",
+                  "example": 0
+                },
+                "data": {
+                  "type": "object"
+                },
+                "msg": {
+                  "description": "business message",
+                  "type": "string",
+                  "example": "ok"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/video-creations/{id}/generate": {
+      "post": {
+        "security": [
+          {
+            "auth": []
+          }
+        ],
+        "consumes": [
+          "application/x-www-form-urlencoded"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "探店视频 / 带货短剧"
+        ],
+        "summary": "确认剧本，开始生成视频（探店 73 / 短剧 88）",
+        "operationId": "videogenGenerateVideo",
+        "parameters": [
+          {
+            "type": "integer",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
+                  "type": "integer",
+                  "example": 0
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "char_url": {
+                      "type": "string"
+                    },
+                    "create_time": {
+                      "type": "integer"
+                    },
+                    "duration": {
+                      "type": "integer"
+                    },
+                    "env1_url": {
+                      "type": "string"
+                    },
+                    "env2_url": {
+                      "type": "string"
+                    },
+                    "fail_reason": {
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "integer"
+                    },
+                    "kind": {
+                      "type": "string"
+                    },
+                    "model": {
+                      "type": "string"
+                    },
+                    "prop_url": {
+                      "type": "string"
+                    },
+                    "script": {
+                      "description": "剧本 JSON 原文（状态 1 起有值）",
+                      "type": "string"
+                    },
+                    "selling_points": {
+                      "type": "string"
+                    },
+                    "shop_profile_id": {
+                      "type": "integer"
+                    },
+                    "size": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "description": "0-构思中 1-待确认 2-生成中 3-已完成 4-失败",
+                      "type": "integer"
+                    },
+                    "user_text": {
+                      "type": "string"
+                    },
+                    "video_url": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "msg": {
+                  "description": "business message",
+                  "type": "string",
+                  "example": "ok"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/video-creations/{id}/replan": {
+      "post": {
+        "security": [
+          {
+            "auth": []
+          }
+        ],
+        "consumes": [
+          "application/x-www-form-urlencoded"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "探店视频 / 带货短剧"
+        ],
+        "summary": "规划剧本页的「重新生成」：重新构思",
+        "operationId": "videogenReplanVideo",
+        "parameters": [
+          {
+            "type": "integer",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
+                  "type": "integer",
+                  "example": 0
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "char_url": {
+                      "type": "string"
+                    },
+                    "create_time": {
+                      "type": "integer"
+                    },
+                    "duration": {
+                      "type": "integer"
+                    },
+                    "env1_url": {
+                      "type": "string"
+                    },
+                    "env2_url": {
+                      "type": "string"
+                    },
+                    "fail_reason": {
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "integer"
+                    },
+                    "kind": {
+                      "type": "string"
+                    },
+                    "model": {
+                      "type": "string"
+                    },
+                    "prop_url": {
+                      "type": "string"
+                    },
+                    "script": {
+                      "description": "剧本 JSON 原文（状态 1 起有值）",
+                      "type": "string"
+                    },
+                    "selling_points": {
+                      "type": "string"
+                    },
+                    "shop_profile_id": {
+                      "type": "integer"
+                    },
+                    "size": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "description": "0-构思中 1-待确认 2-生成中 3-已完成 4-失败",
+                      "type": "integer"
+                    },
+                    "user_text": {
+                      "type": "string"
+                    },
+                    "video_url": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "msg": {
+                  "description": "business message",
+                  "type": "string",
+                  "example": "ok"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/voices": {
       "get": {
         "security": [
@@ -4555,7 +5903,7 @@
       "in": "header"
     }
   },
-  "x-date": "2026-09-22 18:26:18",
+  "x-date": "2026-09-23 13:07:13",
   "x-description": "This is a goctl generated swagger file.",
   "x-github": "https://github.com/zeromicro/go-zero",
   "x-go-zero-doc": "https://go-zero.dev/",

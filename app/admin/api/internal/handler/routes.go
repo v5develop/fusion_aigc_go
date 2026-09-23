@@ -152,6 +152,12 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 					Path:    "/image-creations",
 					Handler: imagegen.ListHandler(serverCtx),
 				},
+				{
+					// 用户探店视频/带货短剧列表（只读，排查用）
+					Method:  http.MethodGet,
+					Path:    "/video-creations",
+					Handler: imagegen.ListVideosHandler(serverCtx),
+				},
 			}...,
 		),
 		rest.WithPrefix("/admin/v1"),

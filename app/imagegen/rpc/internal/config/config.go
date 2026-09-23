@@ -23,6 +23,15 @@ type Config struct {
 	ActionTransfer KindConf
 	// LongImage 长图：模板必选（76 的 template_url 必填），比例固定，Model 留空不传（对接文档里 76 没有 model 参数）
 	LongImage KindConf
+	// ExploreShop 探店视频：72 出剧本 → 73 出片（缺省 model 走云端 81）
+	ExploreShop VideoKindConf
+	// ShortDrama 带货短剧：87 出剧本 → 88 出片（缺省 model 走云端 89）
+	ShortDrama VideoKindConf
+	// VideoLimits 两个视频模块的文本长度上限
+	VideoLimits struct {
+		MaxUserTextLen      int `json:",default=500"`
+		MaxSellingPointsLen int `json:",default=500"`
+	}
 	// Voiceover 数字人口播：口播文案 + 人物图（+ 背景图）→ 视频（执行面 92，lite 路由到 91）
 	Voiceover    KindConf
 	TaskIDPrefix string `json:",default=aigclife"`
@@ -33,7 +42,9 @@ type Config struct {
 	}
 	// DigitalHumanRpc 解析人物图来源（上传 / 公共数字人 / AI定制形象）
 	DigitalHumanRpc zrpc.RpcClientConf
-	Poll            struct {
+	// CopywritingRpc 取店铺档案拼好的文本
+	CopywritingRpc zrpc.RpcClientConf
+	Poll           struct {
 		IntervalSeconds int `json:",default=5"`
 		TimeoutMinutes  int `json:",default=10"`
 	}
@@ -61,6 +72,21 @@ type KindConf struct {
 	TimeoutMinutes int `json:",optional"`
 	// Resolution 视频分辨率（数字人口播，仅云端 92 生效）；留空不传
 	Resolution string `json:",optional"`
+}
+
+// VideoKindConf 探店视频 / 带货短剧的生成与归档参数。
+type VideoKindConf struct {
+	// DefaultModel 不选时用哪个档位；DefaultSize / DefaultDuration 同理
+	DefaultModel    string `json:",default=seedance2.5"`
+	DefaultSize     string `json:",default=9:16"`
+	DefaultDuration int    `json:",default=15"`
+	// Resolution 仅云端（81 / 89）生效
+	Resolution string `json:",optional"`
+	// PlanTimeoutMinutes 出剧本超时；GenTimeoutMinutes 出成片超时
+	PlanTimeoutMinutes int    `json:",default=10"`
+	GenTimeoutMinutes  int    `json:",default=40"`
+	AssetType          string `json:",optional"`
+	AssetEntryCode     string `json:",optional"`
 }
 
 func (c *KindConf) Timeout(defMinutes int) int {

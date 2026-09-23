@@ -20,8 +20,21 @@ service ImageGen {
   rpc ImportActionVideo(ImportActionVideoReq) returns (ActionVideo);
   rpc DeleteActionVideo(IdUserReq) returns (Empty);
 
+  // ---- 探店视频（72→73）/ 带货短剧（87→88）：两步，先出剧本再出片 ----
+  rpc VideoOptions(KindReq) returns (VideoOptionsResp);
+  // CreateVideo 提交表单，出剧本（72 / 87），轮询 GetVideo
+  rpc CreateVideo(CreateVideoReq) returns (VideoInfo);
+  rpc GetVideo(IdUserReq) returns (VideoInfo);
+  // ReplanVideo 规划剧本页的「重新生成」
+  rpc ReplanVideo(IdUserReq) returns (VideoInfo);
+  // GenerateVideo 确认剧本，出成片（73 / 88）
+  rpc GenerateVideo(IdUserReq) returns (VideoInfo);
+  rpc ListVideos(VideoListReq) returns (VideoList);
+  rpc DeleteVideo(IdUserReq) returns (Empty);
+
   // ---- 运营后台 ----
   rpc AdminList(ListReq) returns (ImageList);
+  rpc AdminListVideos(VideoListReq) returns (VideoList);
 }
 
 message Empty {}
@@ -152,5 +165,78 @@ message ListReq {
 
 message ImageList {
   repeated ImageInfo list = 1;
+  int64 total = 2;
+}
+
+// ---- 探店视频 / 带货短剧 ----
+
+message VideoOptionsResp {
+  repeated Option models = 1;      // seedance 2.5 / XQ Video 1.0 Lite
+  string default_model = 2;
+  repeated int32 durations = 3;    // 15 / 30
+  int32 default_duration = 4;
+  repeated Option sizes = 5;       // 9:16 / 16:9
+  string default_size = 6;
+  int32 max_user_text_len = 7;     // 探店：视频文案；短剧：短剧主题
+  int32 max_selling_points_len = 8; // 短剧：商品卖点
+  bool prop_required = 9;          // 短剧的商品图必填
+}
+
+message CreateVideoReq {
+  int64 user_id = 1;
+  string kind = 2;                 // exploreShop / shortDrama
+  string request_id = 3;
+  string user_text = 4;            // 探店：视频文案；短剧：短剧主题
+  string selling_points = 5;       // 短剧：商品卖点
+  int64 shop_profile_id = 6;       // 选填：关联店铺档案
+
+  // 出镜人物图：三种来源，同动作迁移 / 数字人口播
+  string portrait_source = 7;      // UPLOAD / PUBLIC / AI；不选就不传人物图
+  string image_url = 8;
+  int64 public_id = 9;
+  int64 portrait_id = 10;
+  int32 image_index = 11;
+
+  // 素材图（直传后的地址）：探店 门店图/店内图/道具图；短剧 环境图/商品图
+  string env1_url = 12;
+  string env2_url = 13;
+  string prop_url = 14;
+
+  int32 duration = 15;             // 15 / 30
+  string size = 16;                // 9:16 / 16:9
+  string model = 17;               // seedance2.5(默认) / lite
+}
+
+message VideoInfo {
+  int64 id = 1;
+  int64 user_id = 2;
+  string kind = 3;
+  string user_text = 4;
+  string selling_points = 5;
+  int64 shop_profile_id = 6;
+  string char_url = 7;
+  string env1_url = 8;
+  string env2_url = 9;
+  string prop_url = 10;
+  int32 duration = 11;
+  string size = 12;
+  string model = 13;
+  string script = 14;              // 剧本 JSON 原文（状态 1 起有值），前端解析后展示分幕
+  string video_url = 15;
+  int32 status = 16;               // 0-构思中 1-待确认 2-生成中 3-已完成 4-失败
+  string fail_reason = 17;
+  int64 create_time = 18;
+}
+
+message VideoListReq {
+  int64 user_id = 1;
+  string kind = 2;
+  int32 status = 3;                // -1 表示全部
+  int64 page = 4;
+  int64 page_size = 5;
+}
+
+message VideoList {
+  repeated VideoInfo list = 1;
   int64 total = 2;
 }

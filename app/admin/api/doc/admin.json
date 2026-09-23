@@ -2027,6 +2027,154 @@
           }
         }
       }
+    },
+    "/admin/v1/video-creations": {
+      "get": {
+        "security": [
+          {
+            "auth": []
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "海报 / 长图 / 动作迁移 / 数字人口播"
+        ],
+        "summary": "用户探店视频/带货短剧列表（只读，排查用）",
+        "operationId": "imagegenListVideos",
+        "parameters": [
+          {
+            "type": "integer",
+            "name": "user_id",
+            "in": "query",
+            "allowEmptyValue": true
+          },
+          {
+            "enum": [
+              "exploreShop",
+              "shortDrama"
+            ],
+            "type": "string",
+            "name": "kind",
+            "in": "query",
+            "allowEmptyValue": true
+          },
+          {
+            "type": "integer",
+            "default": -1,
+            "example": -1,
+            "name": "status",
+            "in": "query",
+            "allowEmptyValue": true
+          },
+          {
+            "type": "integer",
+            "default": 1,
+            "example": 1,
+            "name": "page",
+            "in": "query",
+            "allowEmptyValue": true
+          },
+          {
+            "type": "integer",
+            "default": 20,
+            "example": 20,
+            "name": "page_size",
+            "in": "query",
+            "allowEmptyValue": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
+                  "type": "integer",
+                  "example": 0
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "list": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "user_id",
+                          "kind",
+                          "user_text",
+                          "selling_points",
+                          "duration",
+                          "size",
+                          "model",
+                          "video_url",
+                          "status",
+                          "fail_reason",
+                          "create_time"
+                        ],
+                        "properties": {
+                          "create_time": {
+                            "type": "integer"
+                          },
+                          "duration": {
+                            "type": "integer"
+                          },
+                          "fail_reason": {
+                            "type": "string"
+                          },
+                          "id": {
+                            "type": "integer"
+                          },
+                          "kind": {
+                            "type": "string"
+                          },
+                          "model": {
+                            "type": "string"
+                          },
+                          "selling_points": {
+                            "type": "string"
+                          },
+                          "size": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "integer"
+                          },
+                          "user_id": {
+                            "type": "integer"
+                          },
+                          "user_text": {
+                            "type": "string"
+                          },
+                          "video_url": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "total": {
+                      "type": "integer"
+                    }
+                  }
+                },
+                "msg": {
+                  "description": "business message",
+                  "type": "string",
+                  "example": "ok"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "securityDefinitions": {
@@ -2037,7 +2185,7 @@
       "in": "header"
     }
   },
-  "x-date": "2026-09-22 18:26:18",
+  "x-date": "2026-09-23 13:07:13",
   "x-description": "This is a goctl generated swagger file.",
   "x-github": "https://github.com/zeromicro/go-zero",
   "x-go-zero-doc": "https://go-zero.dev/",

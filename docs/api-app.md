@@ -95,7 +95,7 @@ OSS 已允许跨域 PUT。文件大小与类型由前端控制；后端只校验
 | 接口 | 说明 |
 |---|---|
 | `GET /copywriting/options` | 选项：内容类型、风格、行业、字数、当前模型、字数上限 |
-| `POST /copywriting/ai-write` | AI帮写（同步，几秒返回）。`scene`：`topic` 主题 / `selling_point` 卖点优化 / `dh_script` 数字人配音 / `note_topic` 笔记主题 / `poster_info` 海报信息润色 / `long_image` 长图内容 / `voiceover` 数字人口播文案（字数不限，可传 `max_len` 约束） |
+| `POST /copywriting/ai-write` | AI帮写（同步，几秒返回）。`scene`：`topic` 主题 / `selling_point` 卖点优化 / `dh_script` 数字人配音 / `note_topic` 笔记主题 / `poster_info` 海报信息润色 / `long_image` 长图内容 / `voiceover` 数字人口播文案 / `explore_shop` 探店视频文案 / `short_drama` 带货短剧主题（都不限字数，可传 `max_len` 约束） |
 | `POST /copywriting/generate` | 提交生成（`source`：`AI_WRITE` 帮写 / `IMITATE` 仿写），轮询详情 |
 | `POST /copywriting/:id/regenerate` | 重新生成，产生新记录 |
 | `POST /copywriting` | 自主撰写，直接保存 |
@@ -195,12 +195,57 @@ OSS 已允许跨域 PUT。文件大小与类型由前端控制；后端只校验
 状态：`0` 生成中、`1` 已完成（**含部分成功**，`image_urls` 只返回成功的那几张）、`2` 全部失败。
 一次生成多张时，后端是每张一个任务，所以可能出现部分成功。
 
-## 五、产物地址
+## 五、探店视频 / 带货短剧
+
+两者共用一组接口，用 `kind` 区分：`exploreShop`、`shortDrama`。和其他模块不同，**这两个是两步**：
+先出分镜剧本给用户确认，再出成片。
+
+| 接口 | 说明 |
+|---|---|
+| `GET /video-creations/options?kind=` | 表单配置：模型、时长（15/30）、比例、字数上限、商品图是否必填 |
+| `POST /video-creations` | 提交表单，开始构思剧本（探店 72 / 短剧 87） |
+| `GET /video-creations/:id` | 详情（构思中、生成中都轮询这个） |
+| `POST /video-creations/:id/replan` | 规划剧本页的「重新生成」 |
+| `POST /video-creations/:id/generate` | 确认剧本，开始生成视频（探店 73 / 短剧 88） |
+| `GET /video-creations?kind=&status=&page=` | 列表 |
+| `DELETE /video-creations/:id` | 删除 |
+
+提交参数：
+
+```jsonc
+// 探店视频：文案必填；门店图/店内图/道具图、出镜达人、店铺档案都选填
+{"kind":"exploreShop","user_text":"西湖边新开的临湖咖啡店，主打手冲",
+ "portrait_source":"PUBLIC","public_id":5,        // 出镜达人：同数字人的三种来源，可不传
+ "env1_url":"…",                                   // 门店图
+ "env2_url":"…",                                   // 店内图
+ "prop_url":"…",                                   // 道具图
+ "shop_profile_id":3,                              // 关联店铺档案，选填
+ "duration":15,"size":"9:16","model":"seedance2.5"}
+
+// 带货短剧：主题必填、商品图必填；卖点、环境图、出镜人物、店铺档案选填
+{"kind":"shortDrama","user_text":"上班族早餐反转短剧",
+ "selling_points":"便携榨汁杯、30秒出汁、USB充电",
+ "prop_url":"…",                                   // 商品图，必填
+ "env1_url":"…",                                   // 环境图
+ "portrait_source":"AI","portrait_id":12,"image_index":0,
+ "duration":30,"size":"9:16"}
+```
+
+**状态**：`0` 构思中 → `1` 待确认（剧本已出）→ `2` 生成中 → `3` 已完成 → `4` 失败。
+
+- 状态 `1` 时 `script` 是剧本 JSON 原文，前端解析后展示分幕：`scenes[]` 每项有 `scene_name`、`start_sec`/`end_sec`、
+  `camera`（镜头）、`dialogue`（台词）、`image_ref`（用到哪张图，如 `ENV_01`、`PROP_01+CHAR_01`）。
+  **剧本只读**，不满意就调 `replan` 重新生成。
+- 失败（`4`）后可以再调 `replan`（重新构思）或 `generate`（重新出片）。
+- `model`：`seedance2.5`（默认，云端）或 `lite`（执行面本地 GPU，慢很多）。出视频耗时见第四节的说明，超时 40 分钟。
+- 成品在 `video_url`，封面用出镜人物图（没传人物图就用成片地址）。
+
+## 六、产物地址
 
 生成成功后返回的图片 / 视频地址都在我们自己的公有桶上（`https://xx-shop-img.oss-cn-hangzhou.aliyuncs.com/aigc-life/...`），
 长期有效，可以直接展示、下载、保存。AI 执行面自己返回的是会过期的临时地址，后端已经统一转存，前端不会拿到那种地址。
 
-## 六、待办（会影响前端的）
+## 七、待办（会影响前端的）
 
 - **登录**：现在用 `X-User-Id`，接正式登录后改成 token。
 - **扣点数**：各生成动作标的 100 点、笔记构思 10 点，目前**不会真的扣**，也不会因为点数不足而失败。

@@ -8,17 +8,23 @@ import (
 // 任务类型
 const (
 	TypeMotionDrive  = 9  // 动作驱动
+	TypeShopScript   = 72 // 探店视频剧本
+	TypeShopVideo    = 73 // 探店视频成片
 	TypeNoteScript   = 74 // 图文笔记文案
 	TypeNoteImages   = 75 // 图文笔记出图
 	TypeLongImage    = 76 // 长图
 	TypePoster       = 78 // 海报
 	TypeDigitalHuman = 85 // AI 数字人
+	TypeDramaScript  = 87 // 带货短剧剧本
+	TypeDramaVideo   = 88 // 带货短剧成片
 	TypeVoiceover    = 92 // 数字人口播
 
 	// 路由后才会出现的类型，只在返回值里看到
 	TypeDigitalHumanLite = 45 // 85 + model=lite
 	TypeMotionDriveV2    = 86 // 9 + model 缺省/非 lite（云端 Seedance 2.0）
 	TypeVoiceoverLite    = 91 // 92 + model=lite（本地 GPU）
+	TypeShopVideoCloud   = 81 // 73 + model 缺省/seedance2.5（云端）
+	TypeDramaVideoCloud  = 89 // 88 + model 缺省/seedance2.5（云端）
 )
 
 // DigitalHuman 85 AI 数字人：图+音频→视频。产物 GeneratedImagePath（mp4）。
@@ -197,6 +203,95 @@ func (t Voiceover) Validate() error {
 		required("text", t.Text),
 		required("CHAR_01_url", t.CharURL),
 	)
+}
+
+// ---- 探店视频 / 带货短剧：都是两步，先出剧本（72 / 87），再把剧本原样回传出片（73 / 88）----
+
+// ShopScript 72 探店视频剧本（LLM）。产物在 Result.Script。
+type ShopScript struct {
+	UserText    string `json:"user_text"`
+	Duration    int    `json:"duration"` // 15 / 30，用于分幕节奏
+	ShopProfile string `json:"shop_profile,omitempty"`
+	PersonURL   string `json:"person_url,omitempty"`  // 达人图（进件 id CHAR_01）
+	Env1URL     string `json:"ENV_01_url,omitempty"`  // 门店图
+	Env2URL     string `json:"ENV_02_url,omitempty"`  // 店内图
+	PropURL     string `json:"PROP_01_url,omitempty"` // 道具图
+}
+
+func (ShopScript) TaskType() int { return TypeShopScript }
+
+func (t ShopScript) Validate() error {
+	return first(required("user_text", t.UserText), duration1530(t.Duration))
+}
+
+// ShopVideo 73 探店视频成片。Script 原样回传 72 的产物。产物 GeneratedImagePath（mp4）。
+type ShopVideo struct {
+	Script      any    `json:"script"`
+	PersonURL   string `json:"person_url,omitempty"`
+	Env1URL     string `json:"ENV_01_url,omitempty"`
+	Env2URL     string `json:"ENV_02_url,omitempty"`
+	PropURL     string `json:"PROP_01_url,omitempty"`
+	Duration    int    `json:"duration"`
+	AspectRatio string `json:"aspectRatio,omitempty"`
+	Resolution  string `json:"resolution,omitempty"` // 仅云端 81 生效
+	// Model 缺省 / seedance2.5 → 云端 81；lite → 本地 GPU 的 73
+	Model string `json:"model,omitempty"`
+}
+
+func (ShopVideo) TaskType() int { return TypeShopVideo }
+
+func (t ShopVideo) Validate() error {
+	if t.Script == nil {
+		return errors.New("缺少 script")
+	}
+	return duration1530(t.Duration)
+}
+
+// DramaScript 87 带货短剧剧本（LLM）。产物在 Result.Script。
+type DramaScript struct {
+	PropURL       string `json:"PROP_01_url"` // 商品图，必填
+	EnvURL        string `json:"ENV_01_url,omitempty"`
+	CharURL       string `json:"CHAR_01_url,omitempty"`
+	Theme         string `json:"theme,omitempty"`
+	SellingPoints string `json:"selling_points,omitempty"`
+	ShopProfile   string `json:"shop_profile,omitempty"`
+	Duration      int    `json:"duration"`
+	AspectRatio   string `json:"aspect_ratio,omitempty"`
+}
+
+func (DramaScript) TaskType() int { return TypeDramaScript }
+
+func (t DramaScript) Validate() error {
+	return first(required("PROP_01_url", t.PropURL), duration1530(t.Duration))
+}
+
+// DramaVideo 88 带货短剧成片。Script 原样回传 87 的产物。产物 GeneratedImagePath（mp4）。
+type DramaVideo struct {
+	Script      any    `json:"script"`
+	PropURL     string `json:"PROP_01_url"`
+	EnvURL      string `json:"ENV_01_url,omitempty"`
+	CharURL     string `json:"CHAR_01_url,omitempty"`
+	Duration    int    `json:"duration"`
+	AspectRatio string `json:"aspectRatio,omitempty"`
+	Resolution  string `json:"resolution,omitempty"` // 仅云端 89 生效
+	// Model 缺省 / seedance2.5 → 云端 89；lite → 本地 GPU 的 88
+	Model string `json:"model,omitempty"`
+}
+
+func (DramaVideo) TaskType() int { return TypeDramaVideo }
+
+func (t DramaVideo) Validate() error {
+	if t.Script == nil {
+		return errors.New("缺少 script")
+	}
+	return first(required("PROP_01_url", t.PropURL), duration1530(t.Duration))
+}
+
+func duration1530(d int) error {
+	if d != 15 && d != 30 {
+		return fmt.Errorf("duration 须为 15 或 30，当前 %d", d)
+	}
+	return nil
 }
 
 func first(errs ...error) error {

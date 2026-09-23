@@ -50,6 +50,10 @@ func (l *AiWriteLogic) AiWrite(in *pb.AiWriteReq) (*pb.AiWriteResp, error) {
 		code = promptLongImage
 	case "voiceover": // 数字人口播文案，字数不限（前端传了 max_len 才约束）
 		code = promptVoiceover
+	case "explore_shop": // 探店视频文案
+		code = promptExploreShop
+	case "short_drama": // 带货短剧主题
+		code = promptShortDrama
 	default:
 		return nil, xerr.Newf(xerr.ParamError, "不支持的场景 %s", in.Scene)
 	}

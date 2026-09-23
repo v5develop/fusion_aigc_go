@@ -35,6 +35,7 @@ db:
 	docker exec -i mysql-8.0.36 mysql --default-character-set=utf8mb4 -uroot -p123456 fusion_aigc < deploy/sql/V1.0.110__asset_category_localLife.sql
 	docker exec -i mysql-8.0.36 mysql --default-character-set=utf8mb4 -uroot -p123456 fusion_aigc < deploy/sql/V1.0.111__ai_poster_long_image.sql
 	docker exec -i mysql-8.0.36 mysql --default-character-set=utf8mb4 -uroot -p123456 fusion_aigc < deploy/sql/V1.0.114__shop_profile.sql
+	docker exec -i mysql-8.0.36 mysql --default-character-set=utf8mb4 -uroot -p123456 fusion_aigc < deploy/sql/V1.0.116__ai_video_creation.sql
 
 build:
 	@mkdir -p bin

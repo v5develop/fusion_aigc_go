@@ -87,3 +87,34 @@ func TestSynthesizeRetry(t *testing.T) {
 		}
 	}
 }
+
+// 下载音频：网络/5xx 重试，4xx 不重试。
+func TestDownloadRetry(t *testing.T) {
+	old := retryBackoff
+	retryBackoff = []time.Duration{time.Millisecond, time.Millisecond}
+	defer func() { retryBackoff = old }()
+
+	cases := []struct {
+		name      string
+		responses []int
+		wantCalls int32
+		wantOK    bool
+	}{
+		{"503 后成功", []int{503, 200}, 2, true},
+		{"一直 503，最多 3 次", []int{503, 503, 503, 503}, 3, false},
+		{"404 不重试", []int{404, 200}, 1, false},
+	}
+	for _, c := range cases {
+		var n atomic.Int32
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			code := c.responses[n.Add(1)-1]
+			w.WriteHeader(code)
+			_, _ = w.Write([]byte("audio"))
+		}))
+		_, err := New().Download(context.Background(), srv.URL)
+		srv.Close()
+		if (err == nil) != c.wantOK || n.Load() != c.wantCalls {
+			t.Errorf("%s: err=%v calls=%d, want ok=%v calls=%d", c.name, err, n.Load(), c.wantOK, c.wantCalls)
+		}
+	}
+}

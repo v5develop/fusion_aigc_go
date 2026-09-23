@@ -23,7 +23,7 @@ type AgreementResp struct {
 }
 
 type AiWriteReq struct {
-	Scene       string `json:"scene,options=topic|selling_point|dh_script|note_topic|poster_info|long_image|voiceover"`
+	Scene       string `json:"scene,options=topic|selling_point|dh_script|note_topic|poster_info|long_image|voiceover|explore_shop|short_drama"`
 	ContentType string `json:"content_type,optional"`
 	Industry    string `json:"industry,optional"`
 	Context     string `json:"context,optional"` // 用户已输入的内容，可为空，最多 500 字
@@ -100,6 +100,25 @@ type CreatePortraitReq struct {
 type CreateReq struct {
 	Title string `json:"title,optional"`
 	Body  string `json:"body"`
+}
+
+type CreateVideoReq struct {
+	RequestId      string `header:"X-Request-Id"`
+	Kind           string `json:"kind,options=exploreShop|shortDrama"`
+	UserText       string `json:"user_text"`                // 探店：视频文案；短剧：短剧主题
+	SellingPoints  string `json:"selling_points,optional"`  // 短剧：商品卖点
+	ShopProfileId  int64  `json:"shop_profile_id,optional"` // 选填：关联店铺档案
+	PortraitSource string `json:"portrait_source,optional,options=|UPLOAD|PUBLIC|AI"`
+	ImageUrl       string `json:"image_url,optional"`
+	PublicId       int64  `json:"public_id,optional"`
+	PortraitId     int64  `json:"portrait_id,optional"`
+	ImageIndex     int32  `json:"image_index,optional"`
+	Env1Url        string `json:"env1_url,optional"`
+	Env2Url        string `json:"env2_url,optional"`
+	PropUrl        string `json:"prop_url,optional"`
+	Duration       int32  `json:"duration,optional"`
+	Size           string `json:"size,optional"`
+	Model          string `json:"model,optional"`
 }
 
 type Derivative struct {
@@ -281,6 +300,13 @@ type ListReq struct {
 type ListResp struct {
 	List  []Copywriting `json:"list"`
 	Total int64         `json:"total"`
+}
+
+type ListVideoCreationsReq struct {
+	Kind     string `form:"kind,optional,options=|exploreShop|shortDrama"`
+	Status   int32  `form:"status,optional,default=-1"`
+	Page     int64  `form:"page,optional,default=1"`
+	PageSize int64  `form:"page_size,optional,default=20"`
 }
 
 type ListVoicesReq struct {
@@ -480,6 +506,47 @@ type UploadResp struct {
 	Url         string `json:"url"`
 	Size        int64  `json:"size"`
 	ContentType string `json:"content_type"`
+}
+
+type VideoCreation struct {
+	Id            int64  `json:"id"`
+	Kind          string `json:"kind"`
+	UserText      string `json:"user_text"`
+	SellingPoints string `json:"selling_points"`
+	ShopProfileId int64  `json:"shop_profile_id"`
+	CharUrl       string `json:"char_url"`
+	Env1Url       string `json:"env1_url"`
+	Env2Url       string `json:"env2_url"`
+	PropUrl       string `json:"prop_url"`
+	Duration      int32  `json:"duration"`
+	Size          string `json:"size"`
+	Model         string `json:"model"`
+	Script        string `json:"script"` // 剧本 JSON 原文（状态 1 起有值）
+	VideoUrl      string `json:"video_url"`
+	Status        int32  `json:"status"` // 0-构思中 1-待确认 2-生成中 3-已完成 4-失败
+	FailReason    string `json:"fail_reason"`
+	CreateTime    int64  `json:"create_time"`
+}
+
+type VideoCreationListResp struct {
+	List  []VideoCreation `json:"list"`
+	Total int64           `json:"total"`
+}
+
+type VideoOptionsReq struct {
+	Kind string `form:"kind,options=exploreShop|shortDrama"`
+}
+
+type VideoOptionsResp struct {
+	Models              []ImageGenOption `json:"models"`
+	DefaultModel        string           `json:"default_model"`
+	Durations           []int32          `json:"durations"`
+	DefaultDuration     int32            `json:"default_duration"`
+	Sizes               []ImageGenOption `json:"sizes"`
+	DefaultSize         string           `json:"default_size"`
+	MaxUserTextLen      int32            `json:"max_user_text_len"`
+	MaxSellingPointsLen int32            `json:"max_selling_points_len"`
+	PropRequired        bool             `json:"prop_required"` // 短剧的商品图必填
 }
 
 type Voice struct {

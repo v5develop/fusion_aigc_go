@@ -25,6 +25,8 @@ const (
 	promptPosterInfo     = "ai_write_poster_info"
 	promptLongImage      = "ai_write_long_image"
 	promptVoiceover      = "ai_write_voiceover"
+	promptExploreShop    = "ai_write_explore_shop"
+	promptShortDrama     = "ai_write_short_drama"
 )
 
 var fallbackPrompts = map[string]string{
@@ -38,6 +40,8 @@ var fallbackPrompts = map[string]string{
 	promptPosterInfo:     "你帮商家把海报信息整理清楚：按主标题、副标题、时间、地点、卖点分行列出，保留原有事实，不编造。只输出整理后的文本。",
 	promptLongImage:      "你帮本地生活商家写一段适合做成长图的图文内容：分几个小段，每段一个要点，语言简洁易读。只输出内容本身。",
 	promptVoiceover:      "你帮本地生活商家写一段数字人口播视频的文案：口语化、有开场有卖点有引导，像真人对着镜头说话，不要表情符号、话题标签和镜头说明，只输出口播文案本身。",
+	promptExploreShop:    "你帮本地生活商家写一段探店视频的文案：交代店在哪、有什么特色、值得去的理由，像达人探店那样口语化、有画面感，只输出文案本身。",
+	promptShortDrama:     "你帮本地生活商家构思一个带货短剧的主题：一句话说清人物、场景和反转点，能自然带出商品卖点，只输出主题本身。",
 }
 
 // prompt 取模板：库里有且非空就用库里的，否则用内置。

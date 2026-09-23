@@ -1227,6 +1227,596 @@ func (x *ImageList) GetTotal() int64 {
 	return 0
 }
 
+type VideoOptionsResp struct {
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	Models              []*Option              `protobuf:"bytes,1,rep,name=models,proto3" json:"models,omitempty"` // seedance 2.5 / XQ Video 1.0 Lite
+	DefaultModel        string                 `protobuf:"bytes,2,opt,name=default_model,json=defaultModel,proto3" json:"default_model,omitempty"`
+	Durations           []int32                `protobuf:"varint,3,rep,packed,name=durations,proto3" json:"durations,omitempty"` // 15 / 30
+	DefaultDuration     int32                  `protobuf:"varint,4,opt,name=default_duration,json=defaultDuration,proto3" json:"default_duration,omitempty"`
+	Sizes               []*Option              `protobuf:"bytes,5,rep,name=sizes,proto3" json:"sizes,omitempty"` // 9:16 / 16:9
+	DefaultSize         string                 `protobuf:"bytes,6,opt,name=default_size,json=defaultSize,proto3" json:"default_size,omitempty"`
+	MaxUserTextLen      int32                  `protobuf:"varint,7,opt,name=max_user_text_len,json=maxUserTextLen,proto3" json:"max_user_text_len,omitempty"`                // 探店：视频文案；短剧：短剧主题
+	MaxSellingPointsLen int32                  `protobuf:"varint,8,opt,name=max_selling_points_len,json=maxSellingPointsLen,proto3" json:"max_selling_points_len,omitempty"` // 短剧：商品卖点
+	PropRequired        bool                   `protobuf:"varint,9,opt,name=prop_required,json=propRequired,proto3" json:"prop_required,omitempty"`                          // 短剧的商品图必填
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
+}
+
+func (x *VideoOptionsResp) Reset() {
+	*x = VideoOptionsResp{}
+	mi := &file_imagegen_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *VideoOptionsResp) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*VideoOptionsResp) ProtoMessage() {}
+
+func (x *VideoOptionsResp) ProtoReflect() protoreflect.Message {
+	mi := &file_imagegen_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use VideoOptionsResp.ProtoReflect.Descriptor instead.
+func (*VideoOptionsResp) Descriptor() ([]byte, []int) {
+	return file_imagegen_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *VideoOptionsResp) GetModels() []*Option {
+	if x != nil {
+		return x.Models
+	}
+	return nil
+}
+
+func (x *VideoOptionsResp) GetDefaultModel() string {
+	if x != nil {
+		return x.DefaultModel
+	}
+	return ""
+}
+
+func (x *VideoOptionsResp) GetDurations() []int32 {
+	if x != nil {
+		return x.Durations
+	}
+	return nil
+}
+
+func (x *VideoOptionsResp) GetDefaultDuration() int32 {
+	if x != nil {
+		return x.DefaultDuration
+	}
+	return 0
+}
+
+func (x *VideoOptionsResp) GetSizes() []*Option {
+	if x != nil {
+		return x.Sizes
+	}
+	return nil
+}
+
+func (x *VideoOptionsResp) GetDefaultSize() string {
+	if x != nil {
+		return x.DefaultSize
+	}
+	return ""
+}
+
+func (x *VideoOptionsResp) GetMaxUserTextLen() int32 {
+	if x != nil {
+		return x.MaxUserTextLen
+	}
+	return 0
+}
+
+func (x *VideoOptionsResp) GetMaxSellingPointsLen() int32 {
+	if x != nil {
+		return x.MaxSellingPointsLen
+	}
+	return 0
+}
+
+func (x *VideoOptionsResp) GetPropRequired() bool {
+	if x != nil {
+		return x.PropRequired
+	}
+	return false
+}
+
+type CreateVideoReq struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	Kind          string                 `protobuf:"bytes,2,opt,name=kind,proto3" json:"kind,omitempty"` // exploreShop / shortDrama
+	RequestId     string                 `protobuf:"bytes,3,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	UserText      string                 `protobuf:"bytes,4,opt,name=user_text,json=userText,proto3" json:"user_text,omitempty"`                   // 探店：视频文案；短剧：短剧主题
+	SellingPoints string                 `protobuf:"bytes,5,opt,name=selling_points,json=sellingPoints,proto3" json:"selling_points,omitempty"`    // 短剧：商品卖点
+	ShopProfileId int64                  `protobuf:"varint,6,opt,name=shop_profile_id,json=shopProfileId,proto3" json:"shop_profile_id,omitempty"` // 选填：关联店铺档案
+	// 出镜人物图：三种来源，同动作迁移 / 数字人口播
+	PortraitSource string `protobuf:"bytes,7,opt,name=portrait_source,json=portraitSource,proto3" json:"portrait_source,omitempty"` // UPLOAD / PUBLIC / AI；不选就不传人物图
+	ImageUrl       string `protobuf:"bytes,8,opt,name=image_url,json=imageUrl,proto3" json:"image_url,omitempty"`
+	PublicId       int64  `protobuf:"varint,9,opt,name=public_id,json=publicId,proto3" json:"public_id,omitempty"`
+	PortraitId     int64  `protobuf:"varint,10,opt,name=portrait_id,json=portraitId,proto3" json:"portrait_id,omitempty"`
+	ImageIndex     int32  `protobuf:"varint,11,opt,name=image_index,json=imageIndex,proto3" json:"image_index,omitempty"`
+	// 素材图（直传后的地址）：探店 门店图/店内图/道具图；短剧 环境图/商品图
+	Env1Url       string `protobuf:"bytes,12,opt,name=env1_url,json=env1Url,proto3" json:"env1_url,omitempty"`
+	Env2Url       string `protobuf:"bytes,13,opt,name=env2_url,json=env2Url,proto3" json:"env2_url,omitempty"`
+	PropUrl       string `protobuf:"bytes,14,opt,name=prop_url,json=propUrl,proto3" json:"prop_url,omitempty"`
+	Duration      int32  `protobuf:"varint,15,opt,name=duration,proto3" json:"duration,omitempty"` // 15 / 30
+	Size          string `protobuf:"bytes,16,opt,name=size,proto3" json:"size,omitempty"`          // 9:16 / 16:9
+	Model         string `protobuf:"bytes,17,opt,name=model,proto3" json:"model,omitempty"`        // seedance2.5(默认) / lite
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateVideoReq) Reset() {
+	*x = CreateVideoReq{}
+	mi := &file_imagegen_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateVideoReq) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateVideoReq) ProtoMessage() {}
+
+func (x *CreateVideoReq) ProtoReflect() protoreflect.Message {
+	mi := &file_imagegen_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateVideoReq.ProtoReflect.Descriptor instead.
+func (*CreateVideoReq) Descriptor() ([]byte, []int) {
+	return file_imagegen_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *CreateVideoReq) GetUserId() int64 {
+	if x != nil {
+		return x.UserId
+	}
+	return 0
+}
+
+func (x *CreateVideoReq) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *CreateVideoReq) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+func (x *CreateVideoReq) GetUserText() string {
+	if x != nil {
+		return x.UserText
+	}
+	return ""
+}
+
+func (x *CreateVideoReq) GetSellingPoints() string {
+	if x != nil {
+		return x.SellingPoints
+	}
+	return ""
+}
+
+func (x *CreateVideoReq) GetShopProfileId() int64 {
+	if x != nil {
+		return x.ShopProfileId
+	}
+	return 0
+}
+
+func (x *CreateVideoReq) GetPortraitSource() string {
+	if x != nil {
+		return x.PortraitSource
+	}
+	return ""
+}
+
+func (x *CreateVideoReq) GetImageUrl() string {
+	if x != nil {
+		return x.ImageUrl
+	}
+	return ""
+}
+
+func (x *CreateVideoReq) GetPublicId() int64 {
+	if x != nil {
+		return x.PublicId
+	}
+	return 0
+}
+
+func (x *CreateVideoReq) GetPortraitId() int64 {
+	if x != nil {
+		return x.PortraitId
+	}
+	return 0
+}
+
+func (x *CreateVideoReq) GetImageIndex() int32 {
+	if x != nil {
+		return x.ImageIndex
+	}
+	return 0
+}
+
+func (x *CreateVideoReq) GetEnv1Url() string {
+	if x != nil {
+		return x.Env1Url
+	}
+	return ""
+}
+
+func (x *CreateVideoReq) GetEnv2Url() string {
+	if x != nil {
+		return x.Env2Url
+	}
+	return ""
+}
+
+func (x *CreateVideoReq) GetPropUrl() string {
+	if x != nil {
+		return x.PropUrl
+	}
+	return ""
+}
+
+func (x *CreateVideoReq) GetDuration() int32 {
+	if x != nil {
+		return x.Duration
+	}
+	return 0
+}
+
+func (x *CreateVideoReq) GetSize() string {
+	if x != nil {
+		return x.Size
+	}
+	return ""
+}
+
+func (x *CreateVideoReq) GetModel() string {
+	if x != nil {
+		return x.Model
+	}
+	return ""
+}
+
+type VideoInfo struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	UserId        int64                  `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	Kind          string                 `protobuf:"bytes,3,opt,name=kind,proto3" json:"kind,omitempty"`
+	UserText      string                 `protobuf:"bytes,4,opt,name=user_text,json=userText,proto3" json:"user_text,omitempty"`
+	SellingPoints string                 `protobuf:"bytes,5,opt,name=selling_points,json=sellingPoints,proto3" json:"selling_points,omitempty"`
+	ShopProfileId int64                  `protobuf:"varint,6,opt,name=shop_profile_id,json=shopProfileId,proto3" json:"shop_profile_id,omitempty"`
+	CharUrl       string                 `protobuf:"bytes,7,opt,name=char_url,json=charUrl,proto3" json:"char_url,omitempty"`
+	Env1Url       string                 `protobuf:"bytes,8,opt,name=env1_url,json=env1Url,proto3" json:"env1_url,omitempty"`
+	Env2Url       string                 `protobuf:"bytes,9,opt,name=env2_url,json=env2Url,proto3" json:"env2_url,omitempty"`
+	PropUrl       string                 `protobuf:"bytes,10,opt,name=prop_url,json=propUrl,proto3" json:"prop_url,omitempty"`
+	Duration      int32                  `protobuf:"varint,11,opt,name=duration,proto3" json:"duration,omitempty"`
+	Size          string                 `protobuf:"bytes,12,opt,name=size,proto3" json:"size,omitempty"`
+	Model         string                 `protobuf:"bytes,13,opt,name=model,proto3" json:"model,omitempty"`
+	Script        string                 `protobuf:"bytes,14,opt,name=script,proto3" json:"script,omitempty"` // 剧本 JSON 原文（状态 1 起有值），前端解析后展示分幕
+	VideoUrl      string                 `protobuf:"bytes,15,opt,name=video_url,json=videoUrl,proto3" json:"video_url,omitempty"`
+	Status        int32                  `protobuf:"varint,16,opt,name=status,proto3" json:"status,omitempty"` // 0-构思中 1-待确认 2-生成中 3-已完成 4-失败
+	FailReason    string                 `protobuf:"bytes,17,opt,name=fail_reason,json=failReason,proto3" json:"fail_reason,omitempty"`
+	CreateTime    int64                  `protobuf:"varint,18,opt,name=create_time,json=createTime,proto3" json:"create_time,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *VideoInfo) Reset() {
+	*x = VideoInfo{}
+	mi := &file_imagegen_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *VideoInfo) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*VideoInfo) ProtoMessage() {}
+
+func (x *VideoInfo) ProtoReflect() protoreflect.Message {
+	mi := &file_imagegen_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use VideoInfo.ProtoReflect.Descriptor instead.
+func (*VideoInfo) Descriptor() ([]byte, []int) {
+	return file_imagegen_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *VideoInfo) GetId() int64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *VideoInfo) GetUserId() int64 {
+	if x != nil {
+		return x.UserId
+	}
+	return 0
+}
+
+func (x *VideoInfo) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *VideoInfo) GetUserText() string {
+	if x != nil {
+		return x.UserText
+	}
+	return ""
+}
+
+func (x *VideoInfo) GetSellingPoints() string {
+	if x != nil {
+		return x.SellingPoints
+	}
+	return ""
+}
+
+func (x *VideoInfo) GetShopProfileId() int64 {
+	if x != nil {
+		return x.ShopProfileId
+	}
+	return 0
+}
+
+func (x *VideoInfo) GetCharUrl() string {
+	if x != nil {
+		return x.CharUrl
+	}
+	return ""
+}
+
+func (x *VideoInfo) GetEnv1Url() string {
+	if x != nil {
+		return x.Env1Url
+	}
+	return ""
+}
+
+func (x *VideoInfo) GetEnv2Url() string {
+	if x != nil {
+		return x.Env2Url
+	}
+	return ""
+}
+
+func (x *VideoInfo) GetPropUrl() string {
+	if x != nil {
+		return x.PropUrl
+	}
+	return ""
+}
+
+func (x *VideoInfo) GetDuration() int32 {
+	if x != nil {
+		return x.Duration
+	}
+	return 0
+}
+
+func (x *VideoInfo) GetSize() string {
+	if x != nil {
+		return x.Size
+	}
+	return ""
+}
+
+func (x *VideoInfo) GetModel() string {
+	if x != nil {
+		return x.Model
+	}
+	return ""
+}
+
+func (x *VideoInfo) GetScript() string {
+	if x != nil {
+		return x.Script
+	}
+	return ""
+}
+
+func (x *VideoInfo) GetVideoUrl() string {
+	if x != nil {
+		return x.VideoUrl
+	}
+	return ""
+}
+
+func (x *VideoInfo) GetStatus() int32 {
+	if x != nil {
+		return x.Status
+	}
+	return 0
+}
+
+func (x *VideoInfo) GetFailReason() string {
+	if x != nil {
+		return x.FailReason
+	}
+	return ""
+}
+
+func (x *VideoInfo) GetCreateTime() int64 {
+	if x != nil {
+		return x.CreateTime
+	}
+	return 0
+}
+
+type VideoListReq struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	Kind          string                 `protobuf:"bytes,2,opt,name=kind,proto3" json:"kind,omitempty"`
+	Status        int32                  `protobuf:"varint,3,opt,name=status,proto3" json:"status,omitempty"` // -1 表示全部
+	Page          int64                  `protobuf:"varint,4,opt,name=page,proto3" json:"page,omitempty"`
+	PageSize      int64                  `protobuf:"varint,5,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *VideoListReq) Reset() {
+	*x = VideoListReq{}
+	mi := &file_imagegen_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *VideoListReq) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*VideoListReq) ProtoMessage() {}
+
+func (x *VideoListReq) ProtoReflect() protoreflect.Message {
+	mi := &file_imagegen_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use VideoListReq.ProtoReflect.Descriptor instead.
+func (*VideoListReq) Descriptor() ([]byte, []int) {
+	return file_imagegen_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *VideoListReq) GetUserId() int64 {
+	if x != nil {
+		return x.UserId
+	}
+	return 0
+}
+
+func (x *VideoListReq) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *VideoListReq) GetStatus() int32 {
+	if x != nil {
+		return x.Status
+	}
+	return 0
+}
+
+func (x *VideoListReq) GetPage() int64 {
+	if x != nil {
+		return x.Page
+	}
+	return 0
+}
+
+func (x *VideoListReq) GetPageSize() int64 {
+	if x != nil {
+		return x.PageSize
+	}
+	return 0
+}
+
+type VideoList struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	List          []*VideoInfo           `protobuf:"bytes,1,rep,name=list,proto3" json:"list,omitempty"`
+	Total         int64                  `protobuf:"varint,2,opt,name=total,proto3" json:"total,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *VideoList) Reset() {
+	*x = VideoList{}
+	mi := &file_imagegen_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *VideoList) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*VideoList) ProtoMessage() {}
+
+func (x *VideoList) ProtoReflect() protoreflect.Message {
+	mi := &file_imagegen_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use VideoList.ProtoReflect.Descriptor instead.
+func (*VideoList) Descriptor() ([]byte, []int) {
+	return file_imagegen_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *VideoList) GetList() []*VideoInfo {
+	if x != nil {
+		return x.List
+	}
+	return nil
+}
+
+func (x *VideoList) GetTotal() int64 {
+	if x != nil {
+		return x.Total
+	}
+	return 0
+}
+
 var File_imagegen_proto protoreflect.FileDescriptor
 
 const file_imagegen_proto_rawDesc = "" +
@@ -1347,7 +1937,70 @@ const file_imagegen_proto_rawDesc = "" +
 	"\tpage_size\x18\x05 \x01(\x03R\bpageSize\"J\n" +
 	"\tImageList\x12'\n" +
 	"\x04list\x18\x01 \x03(\v2\x13.imagegen.ImageInfoR\x04list\x12\x14\n" +
-	"\x05total\x18\x02 \x01(\x03R\x05total2\xc9\x04\n" +
+	"\x05total\x18\x02 \x01(\x03R\x05total\"\xfa\x02\n" +
+	"\x10VideoOptionsResp\x12(\n" +
+	"\x06models\x18\x01 \x03(\v2\x10.imagegen.OptionR\x06models\x12#\n" +
+	"\rdefault_model\x18\x02 \x01(\tR\fdefaultModel\x12\x1c\n" +
+	"\tdurations\x18\x03 \x03(\x05R\tdurations\x12)\n" +
+	"\x10default_duration\x18\x04 \x01(\x05R\x0fdefaultDuration\x12&\n" +
+	"\x05sizes\x18\x05 \x03(\v2\x10.imagegen.OptionR\x05sizes\x12!\n" +
+	"\fdefault_size\x18\x06 \x01(\tR\vdefaultSize\x12)\n" +
+	"\x11max_user_text_len\x18\a \x01(\x05R\x0emaxUserTextLen\x123\n" +
+	"\x16max_selling_points_len\x18\b \x01(\x05R\x13maxSellingPointsLen\x12#\n" +
+	"\rprop_required\x18\t \x01(\bR\fpropRequired\"\x84\x04\n" +
+	"\x0eCreateVideoReq\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x12\n" +
+	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x03 \x01(\tR\trequestId\x12\x1b\n" +
+	"\tuser_text\x18\x04 \x01(\tR\buserText\x12%\n" +
+	"\x0eselling_points\x18\x05 \x01(\tR\rsellingPoints\x12&\n" +
+	"\x0fshop_profile_id\x18\x06 \x01(\x03R\rshopProfileId\x12'\n" +
+	"\x0fportrait_source\x18\a \x01(\tR\x0eportraitSource\x12\x1b\n" +
+	"\timage_url\x18\b \x01(\tR\bimageUrl\x12\x1b\n" +
+	"\tpublic_id\x18\t \x01(\x03R\bpublicId\x12\x1f\n" +
+	"\vportrait_id\x18\n" +
+	" \x01(\x03R\n" +
+	"portraitId\x12\x1f\n" +
+	"\vimage_index\x18\v \x01(\x05R\n" +
+	"imageIndex\x12\x19\n" +
+	"\benv1_url\x18\f \x01(\tR\aenv1Url\x12\x19\n" +
+	"\benv2_url\x18\r \x01(\tR\aenv2Url\x12\x19\n" +
+	"\bprop_url\x18\x0e \x01(\tR\apropUrl\x12\x1a\n" +
+	"\bduration\x18\x0f \x01(\x05R\bduration\x12\x12\n" +
+	"\x04size\x18\x10 \x01(\tR\x04size\x12\x14\n" +
+	"\x05model\x18\x11 \x01(\tR\x05model\"\xf5\x03\n" +
+	"\tVideoInfo\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x17\n" +
+	"\auser_id\x18\x02 \x01(\x03R\x06userId\x12\x12\n" +
+	"\x04kind\x18\x03 \x01(\tR\x04kind\x12\x1b\n" +
+	"\tuser_text\x18\x04 \x01(\tR\buserText\x12%\n" +
+	"\x0eselling_points\x18\x05 \x01(\tR\rsellingPoints\x12&\n" +
+	"\x0fshop_profile_id\x18\x06 \x01(\x03R\rshopProfileId\x12\x19\n" +
+	"\bchar_url\x18\a \x01(\tR\acharUrl\x12\x19\n" +
+	"\benv1_url\x18\b \x01(\tR\aenv1Url\x12\x19\n" +
+	"\benv2_url\x18\t \x01(\tR\aenv2Url\x12\x19\n" +
+	"\bprop_url\x18\n" +
+	" \x01(\tR\apropUrl\x12\x1a\n" +
+	"\bduration\x18\v \x01(\x05R\bduration\x12\x12\n" +
+	"\x04size\x18\f \x01(\tR\x04size\x12\x14\n" +
+	"\x05model\x18\r \x01(\tR\x05model\x12\x16\n" +
+	"\x06script\x18\x0e \x01(\tR\x06script\x12\x1b\n" +
+	"\tvideo_url\x18\x0f \x01(\tR\bvideoUrl\x12\x16\n" +
+	"\x06status\x18\x10 \x01(\x05R\x06status\x12\x1f\n" +
+	"\vfail_reason\x18\x11 \x01(\tR\n" +
+	"failReason\x12\x1f\n" +
+	"\vcreate_time\x18\x12 \x01(\x03R\n" +
+	"createTime\"\x84\x01\n" +
+	"\fVideoListReq\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x12\n" +
+	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x16\n" +
+	"\x06status\x18\x03 \x01(\x05R\x06status\x12\x12\n" +
+	"\x04page\x18\x04 \x01(\x03R\x04page\x12\x1b\n" +
+	"\tpage_size\x18\x05 \x01(\x03R\bpageSize\"J\n" +
+	"\tVideoList\x12'\n" +
+	"\x04list\x18\x01 \x03(\v2\x13.imagegen.VideoInfoR\x04list\x12\x14\n" +
+	"\x05total\x18\x02 \x01(\x03R\x05total2\xa0\b\n" +
 	"\bImageGen\x123\n" +
 	"\aOptions\x12\x11.imagegen.KindReq\x1a\x15.imagegen.OptionsResp\x12C\n" +
 	"\rListTemplates\x12\x1a.imagegen.ListTemplatesReq\x1a\x16.imagegen.TemplateList\x122\n" +
@@ -1357,8 +2010,17 @@ const file_imagegen_proto_rawDesc = "" +
 	"\x06Delete\x12\x13.imagegen.IdUserReq\x1a\x0f.imagegen.Empty\x12B\n" +
 	"\x10ListActionVideos\x12\x13.imagegen.IdUserReq\x1a\x19.imagegen.ActionVideoList\x12J\n" +
 	"\x11ImportActionVideo\x12\x1e.imagegen.ImportActionVideoReq\x1a\x15.imagegen.ActionVideo\x129\n" +
-	"\x11DeleteActionVideo\x12\x13.imagegen.IdUserReq\x1a\x0f.imagegen.Empty\x123\n" +
-	"\tAdminList\x12\x11.imagegen.ListReq\x1a\x13.imagegen.ImageListB\x06Z\x04./pbb\x06proto3"
+	"\x11DeleteActionVideo\x12\x13.imagegen.IdUserReq\x1a\x0f.imagegen.Empty\x12=\n" +
+	"\fVideoOptions\x12\x11.imagegen.KindReq\x1a\x1a.imagegen.VideoOptionsResp\x12<\n" +
+	"\vCreateVideo\x12\x18.imagegen.CreateVideoReq\x1a\x13.imagegen.VideoInfo\x124\n" +
+	"\bGetVideo\x12\x13.imagegen.IdUserReq\x1a\x13.imagegen.VideoInfo\x127\n" +
+	"\vReplanVideo\x12\x13.imagegen.IdUserReq\x1a\x13.imagegen.VideoInfo\x129\n" +
+	"\rGenerateVideo\x12\x13.imagegen.IdUserReq\x1a\x13.imagegen.VideoInfo\x129\n" +
+	"\n" +
+	"ListVideos\x12\x16.imagegen.VideoListReq\x1a\x13.imagegen.VideoList\x123\n" +
+	"\vDeleteVideo\x12\x13.imagegen.IdUserReq\x1a\x0f.imagegen.Empty\x123\n" +
+	"\tAdminList\x12\x11.imagegen.ListReq\x1a\x13.imagegen.ImageList\x12>\n" +
+	"\x0fAdminListVideos\x12\x16.imagegen.VideoListReq\x1a\x13.imagegen.VideoListB\x06Z\x04./pbb\x06proto3"
 
 var (
 	file_imagegen_proto_rawDescOnce sync.Once
@@ -1372,7 +2034,7 @@ func file_imagegen_proto_rawDescGZIP() []byte {
 	return file_imagegen_proto_rawDescData
 }
 
-var file_imagegen_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
+var file_imagegen_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
 var file_imagegen_proto_goTypes = []any{
 	(*Empty)(nil),                // 0: imagegen.Empty
 	(*IdUserReq)(nil),            // 1: imagegen.IdUserReq
@@ -1389,6 +2051,11 @@ var file_imagegen_proto_goTypes = []any{
 	(*ImageInfo)(nil),            // 12: imagegen.ImageInfo
 	(*ListReq)(nil),              // 13: imagegen.ListReq
 	(*ImageList)(nil),            // 14: imagegen.ImageList
+	(*VideoOptionsResp)(nil),     // 15: imagegen.VideoOptionsResp
+	(*CreateVideoReq)(nil),       // 16: imagegen.CreateVideoReq
+	(*VideoInfo)(nil),            // 17: imagegen.VideoInfo
+	(*VideoListReq)(nil),         // 18: imagegen.VideoListReq
+	(*VideoList)(nil),            // 19: imagegen.VideoList
 }
 var file_imagegen_proto_depIdxs = []int32{
 	4,  // 0: imagegen.ActionVideoList.presets:type_name -> imagegen.ActionVideo
@@ -1399,31 +2066,50 @@ var file_imagegen_proto_depIdxs = []int32{
 	3,  // 5: imagegen.OptionsResp.models:type_name -> imagegen.Option
 	9,  // 6: imagegen.TemplateList.list:type_name -> imagegen.Template
 	12, // 7: imagegen.ImageList.list:type_name -> imagegen.ImageInfo
-	2,  // 8: imagegen.ImageGen.Options:input_type -> imagegen.KindReq
-	8,  // 9: imagegen.ImageGen.ListTemplates:input_type -> imagegen.ListTemplatesReq
-	11, // 10: imagegen.ImageGen.Create:input_type -> imagegen.CreateReq
-	1,  // 11: imagegen.ImageGen.Get:input_type -> imagegen.IdUserReq
-	13, // 12: imagegen.ImageGen.List:input_type -> imagegen.ListReq
-	1,  // 13: imagegen.ImageGen.Delete:input_type -> imagegen.IdUserReq
-	1,  // 14: imagegen.ImageGen.ListActionVideos:input_type -> imagegen.IdUserReq
-	6,  // 15: imagegen.ImageGen.ImportActionVideo:input_type -> imagegen.ImportActionVideoReq
-	1,  // 16: imagegen.ImageGen.DeleteActionVideo:input_type -> imagegen.IdUserReq
-	13, // 17: imagegen.ImageGen.AdminList:input_type -> imagegen.ListReq
-	7,  // 18: imagegen.ImageGen.Options:output_type -> imagegen.OptionsResp
-	10, // 19: imagegen.ImageGen.ListTemplates:output_type -> imagegen.TemplateList
-	12, // 20: imagegen.ImageGen.Create:output_type -> imagegen.ImageInfo
-	12, // 21: imagegen.ImageGen.Get:output_type -> imagegen.ImageInfo
-	14, // 22: imagegen.ImageGen.List:output_type -> imagegen.ImageList
-	0,  // 23: imagegen.ImageGen.Delete:output_type -> imagegen.Empty
-	5,  // 24: imagegen.ImageGen.ListActionVideos:output_type -> imagegen.ActionVideoList
-	4,  // 25: imagegen.ImageGen.ImportActionVideo:output_type -> imagegen.ActionVideo
-	0,  // 26: imagegen.ImageGen.DeleteActionVideo:output_type -> imagegen.Empty
-	14, // 27: imagegen.ImageGen.AdminList:output_type -> imagegen.ImageList
-	18, // [18:28] is the sub-list for method output_type
-	8,  // [8:18] is the sub-list for method input_type
-	8,  // [8:8] is the sub-list for extension type_name
-	8,  // [8:8] is the sub-list for extension extendee
-	0,  // [0:8] is the sub-list for field type_name
+	3,  // 8: imagegen.VideoOptionsResp.models:type_name -> imagegen.Option
+	3,  // 9: imagegen.VideoOptionsResp.sizes:type_name -> imagegen.Option
+	17, // 10: imagegen.VideoList.list:type_name -> imagegen.VideoInfo
+	2,  // 11: imagegen.ImageGen.Options:input_type -> imagegen.KindReq
+	8,  // 12: imagegen.ImageGen.ListTemplates:input_type -> imagegen.ListTemplatesReq
+	11, // 13: imagegen.ImageGen.Create:input_type -> imagegen.CreateReq
+	1,  // 14: imagegen.ImageGen.Get:input_type -> imagegen.IdUserReq
+	13, // 15: imagegen.ImageGen.List:input_type -> imagegen.ListReq
+	1,  // 16: imagegen.ImageGen.Delete:input_type -> imagegen.IdUserReq
+	1,  // 17: imagegen.ImageGen.ListActionVideos:input_type -> imagegen.IdUserReq
+	6,  // 18: imagegen.ImageGen.ImportActionVideo:input_type -> imagegen.ImportActionVideoReq
+	1,  // 19: imagegen.ImageGen.DeleteActionVideo:input_type -> imagegen.IdUserReq
+	2,  // 20: imagegen.ImageGen.VideoOptions:input_type -> imagegen.KindReq
+	16, // 21: imagegen.ImageGen.CreateVideo:input_type -> imagegen.CreateVideoReq
+	1,  // 22: imagegen.ImageGen.GetVideo:input_type -> imagegen.IdUserReq
+	1,  // 23: imagegen.ImageGen.ReplanVideo:input_type -> imagegen.IdUserReq
+	1,  // 24: imagegen.ImageGen.GenerateVideo:input_type -> imagegen.IdUserReq
+	18, // 25: imagegen.ImageGen.ListVideos:input_type -> imagegen.VideoListReq
+	1,  // 26: imagegen.ImageGen.DeleteVideo:input_type -> imagegen.IdUserReq
+	13, // 27: imagegen.ImageGen.AdminList:input_type -> imagegen.ListReq
+	18, // 28: imagegen.ImageGen.AdminListVideos:input_type -> imagegen.VideoListReq
+	7,  // 29: imagegen.ImageGen.Options:output_type -> imagegen.OptionsResp
+	10, // 30: imagegen.ImageGen.ListTemplates:output_type -> imagegen.TemplateList
+	12, // 31: imagegen.ImageGen.Create:output_type -> imagegen.ImageInfo
+	12, // 32: imagegen.ImageGen.Get:output_type -> imagegen.ImageInfo
+	14, // 33: imagegen.ImageGen.List:output_type -> imagegen.ImageList
+	0,  // 34: imagegen.ImageGen.Delete:output_type -> imagegen.Empty
+	5,  // 35: imagegen.ImageGen.ListActionVideos:output_type -> imagegen.ActionVideoList
+	4,  // 36: imagegen.ImageGen.ImportActionVideo:output_type -> imagegen.ActionVideo
+	0,  // 37: imagegen.ImageGen.DeleteActionVideo:output_type -> imagegen.Empty
+	15, // 38: imagegen.ImageGen.VideoOptions:output_type -> imagegen.VideoOptionsResp
+	17, // 39: imagegen.ImageGen.CreateVideo:output_type -> imagegen.VideoInfo
+	17, // 40: imagegen.ImageGen.GetVideo:output_type -> imagegen.VideoInfo
+	17, // 41: imagegen.ImageGen.ReplanVideo:output_type -> imagegen.VideoInfo
+	17, // 42: imagegen.ImageGen.GenerateVideo:output_type -> imagegen.VideoInfo
+	19, // 43: imagegen.ImageGen.ListVideos:output_type -> imagegen.VideoList
+	0,  // 44: imagegen.ImageGen.DeleteVideo:output_type -> imagegen.Empty
+	14, // 45: imagegen.ImageGen.AdminList:output_type -> imagegen.ImageList
+	19, // 46: imagegen.ImageGen.AdminListVideos:output_type -> imagegen.VideoList
+	29, // [29:47] is the sub-list for method output_type
+	11, // [11:29] is the sub-list for method input_type
+	11, // [11:11] is the sub-list for extension type_name
+	11, // [11:11] is the sub-list for extension extendee
+	0,  // [0:11] is the sub-list for field type_name
 }
 
 func init() { file_imagegen_proto_init() }
@@ -1437,7 +2123,7 @@ func file_imagegen_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_imagegen_proto_rawDesc), len(file_imagegen_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   15,
+			NumMessages:   20,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

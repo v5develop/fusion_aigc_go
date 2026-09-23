@@ -67,3 +67,27 @@ Voiceover:              # 数字人口播（92；lite 路由到 91）
 DigitalHumanRpc:
   Etcd: {Hosts: [127.0.0.1:2379], Key: digitalhuman.rpc}
   NonBlock: true
+CopywritingRpc:         # 取店铺档案拼好的文本
+  Etcd: {Hosts: [127.0.0.1:2379], Key: copywriting.rpc}
+  NonBlock: true
+ExploreShop:            # 探店视频（72 出剧本 → 73 出片；缺省 model 走云端 81）
+  DefaultModel: seedance2.5
+  DefaultSize: "9:16"
+  DefaultDuration: 15
+  Resolution: 720p
+  PlanTimeoutMinutes: 10
+  GenTimeoutMinutes: 40
+  AssetType: video
+  AssetEntryCode: exploreShop
+ShortDrama:             # 带货短剧（87 出剧本 → 88 出片；缺省 model 走云端 89）
+  DefaultModel: seedance2.5
+  DefaultSize: "9:16"
+  DefaultDuration: 15
+  Resolution: 720p
+  PlanTimeoutMinutes: 10
+  GenTimeoutMinutes: 40
+  AssetType: video
+  AssetEntryCode: shortDrama
+VideoLimits:
+  MaxUserTextLen: 500
+  MaxSellingPointsLen: 500

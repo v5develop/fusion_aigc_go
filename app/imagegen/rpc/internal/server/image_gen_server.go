@@ -72,8 +72,52 @@ func (s *ImageGenServer) DeleteActionVideo(ctx context.Context, in *pb.IdUserReq
 	return l.DeleteActionVideo(in)
 }
 
+// ---- 探店视频（72→73）/ 带货短剧（87→88）：两步，先出剧本再出片 ----
+func (s *ImageGenServer) VideoOptions(ctx context.Context, in *pb.KindReq) (*pb.VideoOptionsResp, error) {
+	l := logic.NewVideoOptionsLogic(ctx, s.svcCtx)
+	return l.VideoOptions(in)
+}
+
+// CreateVideo 提交表单，出剧本（72 / 87），轮询 GetVideo
+func (s *ImageGenServer) CreateVideo(ctx context.Context, in *pb.CreateVideoReq) (*pb.VideoInfo, error) {
+	l := logic.NewCreateVideoLogic(ctx, s.svcCtx)
+	return l.CreateVideo(in)
+}
+
+func (s *ImageGenServer) GetVideo(ctx context.Context, in *pb.IdUserReq) (*pb.VideoInfo, error) {
+	l := logic.NewGetVideoLogic(ctx, s.svcCtx)
+	return l.GetVideo(in)
+}
+
+// ReplanVideo 规划剧本页的「重新生成」
+func (s *ImageGenServer) ReplanVideo(ctx context.Context, in *pb.IdUserReq) (*pb.VideoInfo, error) {
+	l := logic.NewReplanVideoLogic(ctx, s.svcCtx)
+	return l.ReplanVideo(in)
+}
+
+// GenerateVideo 确认剧本，出成片（73 / 88）
+func (s *ImageGenServer) GenerateVideo(ctx context.Context, in *pb.IdUserReq) (*pb.VideoInfo, error) {
+	l := logic.NewGenerateVideoLogic(ctx, s.svcCtx)
+	return l.GenerateVideo(in)
+}
+
+func (s *ImageGenServer) ListVideos(ctx context.Context, in *pb.VideoListReq) (*pb.VideoList, error) {
+	l := logic.NewListVideosLogic(ctx, s.svcCtx)
+	return l.ListVideos(in)
+}
+
+func (s *ImageGenServer) DeleteVideo(ctx context.Context, in *pb.IdUserReq) (*pb.Empty, error) {
+	l := logic.NewDeleteVideoLogic(ctx, s.svcCtx)
+	return l.DeleteVideo(in)
+}
+
 // ---- 运营后台 ----
 func (s *ImageGenServer) AdminList(ctx context.Context, in *pb.ListReq) (*pb.ImageList, error) {
 	l := logic.NewAdminListLogic(ctx, s.svcCtx)
 	return l.AdminList(in)
+}
+
+func (s *ImageGenServer) AdminListVideos(ctx context.Context, in *pb.VideoListReq) (*pb.VideoList, error) {
+	l := logic.NewAdminListVideosLogic(ctx, s.svcCtx)
+	return l.AdminListVideos(in)
 }

@@ -3,6 +3,34 @@
 
 package types
 
+type AdminVideoCreation struct {
+	Id            int64  `json:"id"`
+	UserId        int64  `json:"user_id"`
+	Kind          string `json:"kind"`
+	UserText      string `json:"user_text"`
+	SellingPoints string `json:"selling_points"`
+	Duration      int32  `json:"duration"`
+	Size          string `json:"size"`
+	Model         string `json:"model"`
+	VideoUrl      string `json:"video_url"`
+	Status        int32  `json:"status"`
+	FailReason    string `json:"fail_reason"`
+	CreateTime    int64  `json:"create_time"`
+}
+
+type AdminVideoListReq struct {
+	UserId   int64  `form:"user_id,optional"`
+	Kind     string `form:"kind,optional,options=|exploreShop|shortDrama"`
+	Status   int32  `form:"status,optional,default=-1"`
+	Page     int64  `form:"page,optional,default=1"`
+	PageSize int64  `form:"page_size,optional,default=20"`
+}
+
+type AdminVideoListResp struct {
+	List  []AdminVideoCreation `json:"list"`
+	Total int64                `json:"total"`
+}
+
 type Copywriting struct {
 	Id               int64  `json:"id"`
 	Source           string `json:"source"`

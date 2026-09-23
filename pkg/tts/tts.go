@@ -133,20 +133,45 @@ func (c *Client) once(ctx context.Context, ep Endpoint, body []byte, timeout tim
 }
 
 // Download 下载音频（合成结果只保留 24 小时，需转存）。
+// 网络抖动与 5xx 自动重试：合成已经花了钱，不该因为下载失败就整单失败。
 func (c *Client) Download(ctx context.Context, url string) ([]byte, error) {
+	var lastErr error
+	for attempt := 0; ; attempt++ {
+		data, retryable, err := c.download(ctx, url)
+		if err == nil {
+			return data, nil
+		}
+		lastErr = err
+		if attempt >= len(retryBackoff) || !retryable || ctx.Err() != nil {
+			return nil, lastErr
+		}
+		select {
+		case <-ctx.Done():
+			return nil, lastErr
+		case <-time.After(retryBackoff[attempt]):
+		}
+	}
+}
+
+func (c *Client) download(ctx context.Context, url string) ([]byte, bool, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	resp, err := c.hc.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("tts: 下载音频失败: %w", err)
+		return nil, true, fmt.Errorf("tts: 下载音频失败: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("tts: 下载音频返回 %d", resp.StatusCode)
+		return nil, resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests,
+			fmt.Errorf("tts: 下载音频返回 %d", resp.StatusCode)
 	}
-	return io.ReadAll(io.LimitReader(resp.Body, 50<<20))
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 50<<20))
+	if err != nil {
+		return nil, true, fmt.Errorf("tts: 读取音频失败: %w", err)
+	}
+	return data, false, nil
 }
 
 // WavDuration 计算 wav 时长。

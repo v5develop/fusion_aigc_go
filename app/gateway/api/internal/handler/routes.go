@@ -12,6 +12,7 @@ import (
 	imagegen "aigc-life/app/gateway/api/internal/handler/imagegen"
 	note "aigc-life/app/gateway/api/internal/handler/note"
 	shopprofile "aigc-life/app/gateway/api/internal/handler/shopprofile"
+	videogen "aigc-life/app/gateway/api/internal/handler/videogen"
 	"aigc-life/app/gateway/api/internal/svc"
 
 	"github.com/zeromicro/go-zero/rest"
@@ -354,6 +355,57 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 					Method:  http.MethodDelete,
 					Path:    "/shop-profiles/:id",
 					Handler: shopprofile.RemoveShopProfileHandler(serverCtx),
+				},
+			}...,
+		),
+		rest.WithPrefix("/api/v1"),
+	)
+
+	server.AddRoutes(
+		rest.WithMiddlewares(
+			[]rest.Middleware{serverCtx.Auth},
+			[]rest.Route{
+				{
+					// 提交表单，开始构思剧本（探店 72 / 短剧 87）
+					Method:  http.MethodPost,
+					Path:    "/video-creations",
+					Handler: videogen.CreateVideoHandler(serverCtx),
+				},
+				{
+					// 列表
+					Method:  http.MethodGet,
+					Path:    "/video-creations",
+					Handler: videogen.ListVideosHandler(serverCtx),
+				},
+				{
+					// 详情（构思中、生成中都轮询这个）
+					Method:  http.MethodGet,
+					Path:    "/video-creations/:id",
+					Handler: videogen.GetVideoHandler(serverCtx),
+				},
+				{
+					// 删除
+					Method:  http.MethodDelete,
+					Path:    "/video-creations/:id",
+					Handler: videogen.RemoveVideoHandler(serverCtx),
+				},
+				{
+					// 确认剧本，开始生成视频（探店 73 / 短剧 88）
+					Method:  http.MethodPost,
+					Path:    "/video-creations/:id/generate",
+					Handler: videogen.GenerateVideoHandler(serverCtx),
+				},
+				{
+					// 规划剧本页的「重新生成」：重新构思
+					Method:  http.MethodPost,
+					Path:    "/video-creations/:id/replan",
+					Handler: videogen.ReplanVideoHandler(serverCtx),
+				},
+				{
+					// 表单配置（模型/时长/比例/字数上限）
+					Method:  http.MethodGet,
+					Path:    "/video-creations/options",
+					Handler: videogen.VideoOptionsHandler(serverCtx),
 				},
 			}...,
 		),

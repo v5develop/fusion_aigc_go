@@ -9,6 +9,7 @@ Go + go-zero，数据落在现有系统的 `fusion_aigc` 库，新表 `afv_` 前
 | 店铺档案 | `~/Documents/echo/shop-profile-design.md` | `deploy/sql/V1.0.114__shop_profile.sql`、`V1.0.115__note_shop_profile.sql` |
 | AI数字人 | `~/Documents/echo/digital-human-design.md` | `deploy/sql/V1.0.108__ai_digital_human.sql` |
 | AI图文笔记 | `~/Documents/echo/image-text-note-design.md` | `deploy/sql/V1.0.109__ai_image_text_note.sql` |
+| 探店视频/带货短剧 | `~/Documents/echo/explore-shop-short-drama-design.md` | `deploy/sql/V1.0.116__ai_video_creation.sql` |
 | AI海报/长图/动作迁移/数字人口播 | `~/Documents/echo/image-video-creation-design.md` | `deploy/sql/V1.0.111__ai_poster_long_image.sql`、`V1.0.112__ai_action_transfer.sql`、`V1.0.113__ai_voiceover.sql` |
 
 ## 服务
@@ -18,10 +19,10 @@ Go + go-zero，数据落在现有系统的 `fusion_aigc` 库，新表 `afv_` 前
 | `copywriting-rpc` | 9201 | 文案生成与增删改查、选项字典、AI帮写（含数字人配音内容）、**店铺档案**（各模块通过 rpc 取拼好的文本） |
 | `digitalhuman-rpc` | 9202 | 使用约定、公共数字人（只读）、AI 定制形象、系统音色、数字人生成；内置结果轮询器 |
 | `note-rpc` | 9203 | 图文笔记：构思（执行面 74）→ 规划 → 出图（75）、编辑；内置结果轮询器 |
-| `imagegen-rpc` | 9204 | 海报（78）、长图（76）、动作迁移（9/86）、数字人口播（92/91）：模板与动作视频、提交、轮询；内置结果轮询器 |
+| `imagegen-rpc` | 9204 | 海报（78）、长图（76）、动作迁移（9/86）、数字人口播（92/91）、探店视频（72→73/81）、带货短剧（87→88/89）：模板与动作视频、提交、轮询；内置结果轮询器 |
 | `gateway-api` | 8888 | App 接口 `/api/v1/*`，直传凭证；本地存储模式下提供 `/files` 与代传上传 |
 | `admin-api` | 8889 | 运营后台 `/admin/v1/*` |
-| `mock-aigc` | 5055 | **仅本地**：模拟 AIGC 执行面（9/74/75/76/78/85/92），正式地址提供前用它联调 |
+| `mock-aigc` | 5055 | **仅本地**：模拟 AIGC 执行面（9/72/73/74/75/76/78/85/87/88/92），正式地址提供前用它联调 |
 
 模型都不写在配置里，每次调用时从库里解析（地址与密钥在 `afv_ai_provider`）：
 
@@ -54,6 +55,7 @@ deploy/scripts/e2e.sh               # AI文案端到端测试（49 项，真实�
 deploy/scripts/e2e-digitalhuman.sh  # AI数字人端到端测试（73 项，执行面走 mock，TTS 真实调用；会临时插入并清理模板素材测试数据）
 deploy/scripts/e2e-note.sh          # AI图文笔记端到端测试（62 项，执行面走 mock；SKIP_MODEL=1 跳过真实模型）
 deploy/scripts/e2e-imagegen.sh      # 海报/长图/动作迁移/数字人口播端到端测试（96 项，执行面走 mock；会临时插入并清理模板素材；SKIP_MODEL=1 跳过 AI帮写）
+deploy/scripts/e2e-video.sh         # 探店视频/带货短剧端到端测试（42 项，两步流程走 mock）
 make stop-all
 ```
 
@@ -121,6 +123,21 @@ make stop-all
   `localLife/voiceover/background` / 用户导入）→ 执行面 **92** 一步出片（lite 路由到本地 91），时长 15/30 秒、比例 9:16/16:9、
   分辨率固定 720p。剧本由执行面内部生成，设计稿已去掉「规划剧本」页。超时 40 分钟（实测本地 GPU 出 15 秒视频约 14 分钟）。成品进素材库「数字人口播」分类，
   封面用人物图。AI帮写新增场景 `voiceover`（字数不限）。生成完不跳转，后端只返回数据，由前端处理。
+
+## 探店视频 / 带货短剧
+
+同在 `imagegen` 服务，另一张表 `afv_video_creation`，用 `kind`（exploreShop / shortDrama）区分。和其他模块不同，**这两个是两步**：
+
+```
+填表单 → 出剧本（72 / 87）→ 待确认（规划剧本页，只读，可「重新生成」）
+      → 确认出片（73 / 88；缺省 model 走云端 81 / 89）→ 转存 → 素材库
+```
+
+- 状态：0 构思中 / 1 待确认 / 2 生成中 / 3 已完成 / 4 失败。剧本原文存 `plan_script`，出片时**原样回传**给执行面。
+- 探店：文案必填，门店图/店内图/道具图对应 `ENV_01`/`ENV_02`/`PROP_01`，出镜达人复用数字人的三种来源。
+- 短剧：主题必填、**商品图必填**（87 的要求，设计稿同步改成必填），另有商品卖点、环境图、出镜人物。
+- 两者都能关联店铺档案，构思时通过 rpc 取拼好的文本塞进 `shop_profile`。
+- 超时：构思 10 分钟、出片 40 分钟。AI帮写新增场景 `explore_shop`、`short_drama`。
 
 ## AI图文笔记
 

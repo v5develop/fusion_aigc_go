@@ -86,6 +86,34 @@ func generate(w http.ResponseWriter, r *http.Request) {
 		if m, _ := body["model"].(string); m != "lite" {
 			t.Type = 86
 		}
+	case 72, 87:
+		need := "user_text"
+		if t.Type == 87 {
+			need = "PROP_01_url"
+		}
+		if v, _ := body[need].(string); v == "" {
+			writeJSON(w, 400, map[string]any{"code": 400, "message": fmt.Sprintf("task_type=%d 缺少 %s", t.Type, need), "success": false})
+			return
+		}
+		if d, _ := body["duration"].(float64); d != 15 && d != 30 {
+			writeJSON(w, 400, map[string]any{"code": 400, "message": fmt.Sprintf("task_type=%d duration 须为 15 或 30", t.Type), "success": false})
+			return
+		}
+	case 73, 88:
+		if body["script"] == nil {
+			writeJSON(w, 400, map[string]any{"code": 400, "message": fmt.Sprintf("task_type=%d 缺少 script", t.Type), "success": false})
+			return
+		}
+		if t.Type == 88 {
+			if v, _ := body["PROP_01_url"].(string); v == "" {
+				writeJSON(w, 400, map[string]any{"code": 400, "message": "task_type=88 缺少 PROP_01_url", "success": false})
+				return
+			}
+		}
+		// 真实行为：缺省 / seedance2.5 走云端（73→81、88→89），lite 留在本地 GPU
+		if m, _ := body["model"].(string); m != "lite" {
+			t.Type += 8 // 73→81、88→89
+		}
 	case 92:
 		for _, k := range []string{"text", "CHAR_01_url"} {
 			if v, _ := body[k].(string); v == "" {
@@ -171,6 +199,9 @@ func getRes(w http.ResponseWriter, r *http.Request) {
 	case t.Fail:
 		writeJSON(w, 200, map[string]any{"task_id": id, "task_type": t.Type, "status": "failed",
 			"error_msg": "mock: 模拟生成失败", "error_code": nil, "upstream": nil, "pool": "platform", "cost": 0})
+	case t.Type == 72 || t.Type == 87:
+		writeJSON(w, 200, map[string]any{"task_id": id, "task_type": t.Type, "status": "success",
+			"generated_image_path": nil, "pool": "platform", "cost": 0, "script": mockVideoScript(t.Type, t.Body)})
 	case t.Type == 74:
 		writeJSON(w, 200, map[string]any{"task_id": id, "task_type": 74, "status": "success",
 			"generated_image_path": nil, "pool": "platform", "cost": 0, "script": mockScript(id, t.Body)})
@@ -248,9 +279,37 @@ func mockScript(id string, body map[string]any) map[string]any {
 	}
 }
 
+// mockVideoScript 按对接文档的结构造一份分镜剧本：meta + scenes[]。
+func mockVideoScript(taskType int, body map[string]any) map[string]any {
+	topic, _ := body["user_text"].(string)
+	if taskType == 87 {
+		topic, _ = body["theme"].(string)
+	}
+	d, _ := body["duration"].(float64)
+	if d == 0 {
+		d = 15
+	}
+	refs := []string{"ENV_01", "PROP_01", "CHAR_01"}
+	scenes := make([]any, 0, 3)
+	per := d / 3
+	for i := 0; i < 3; i++ {
+		scenes = append(scenes, map[string]any{
+			"index": i + 1, "scene_name": fmt.Sprintf("mock 场景%d", i+1),
+			"start_sec": per * float64(i), "end_sec": per * float64(i+1), "duration_sec": per,
+			"camera": fmt.Sprintf("mock 镜头%d", i+1), "dialogue": fmt.Sprintf("mock 台词%d：%s", i+1, topic),
+			"image_ref": refs[i],
+		})
+	}
+	return map[string]any{
+		"meta":   map[string]any{"topic": topic, "aspect_ratio": "9:16", "duration": d},
+		"scenes": scenes,
+	}
+}
+
 var (
 	failRe    = regexp.MustCompile(`mock-fail(?:-(\d+))?`)
-	taskTypes = map[string]bool{"9": true, "45": true, "74": true, "75": true, "76": true, "78": true, "85": true, "86": true, "91": true, "92": true}
+	taskTypes = map[string]bool{"9": true, "45": true, "72": true, "73": true, "74": true, "75": true, "76": true,
+		"78": true, "81": true, "85": true, "86": true, "87": true, "88": true, "89": true, "91": true, "92": true}
 )
 
 // shouldFail "mock-fail-<任务号>" 只让该类型失败；其余 "mock-fail…"（包括后面跟的不是任务号）让所有类型失败。

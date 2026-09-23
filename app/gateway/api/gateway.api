@@ -36,7 +36,7 @@ type (
 		MaxReferenceLen int32     `json:"max_reference_len"`
 	}
 	AiWriteReq {
-		Scene       string `json:"scene,options=topic|selling_point|dh_script|note_topic|poster_info|long_image|voiceover"`
+		Scene       string `json:"scene,options=topic|selling_point|dh_script|note_topic|poster_info|long_image|voiceover|explore_shop|short_drama"`
 		ContentType string `json:"content_type,optional"`
 		Industry    string `json:"industry,optional"`
 		Context     string `json:"context,optional"` // 用户已输入的内容，可为空，最多 500 字
@@ -709,5 +709,109 @@ service gateway-api {
 	@doc "删除店铺档案"
 	@handler removeShopProfile
 	delete /shop-profiles/:id (IdPath) returns (EmptyResp)
+}
+
+// ---------------- 探店视频 / 带货短剧（两步：先出剧本，确认后出片）----------------
+type (
+	VideoOptionsReq {
+		Kind string `form:"kind,options=exploreShop|shortDrama"`
+	}
+	VideoOptionsResp {
+		Models              []ImageGenOption `json:"models"`
+		DefaultModel        string           `json:"default_model"`
+		Durations           []int32          `json:"durations"`
+		DefaultDuration     int32            `json:"default_duration"`
+		Sizes               []ImageGenOption `json:"sizes"`
+		DefaultSize         string           `json:"default_size"`
+		MaxUserTextLen      int32            `json:"max_user_text_len"`
+		MaxSellingPointsLen int32            `json:"max_selling_points_len"`
+		PropRequired        bool             `json:"prop_required"` // 短剧的商品图必填
+	}
+	CreateVideoReq {
+		RequestId     string `header:"X-Request-Id"`
+		Kind          string `json:"kind,options=exploreShop|shortDrama"`
+		UserText      string `json:"user_text"` // 探店：视频文案；短剧：短剧主题
+		SellingPoints string `json:"selling_points,optional"` // 短剧：商品卖点
+		ShopProfileId int64  `json:"shop_profile_id,optional"` // 选填：关联店铺档案
+		// 出镜人物图（选填）：来源同动作迁移 / 数字人口播
+		PortraitSource string `json:"portrait_source,optional,options=|UPLOAD|PUBLIC|AI"`
+		ImageUrl       string `json:"image_url,optional"`
+		PublicId       int64  `json:"public_id,optional"`
+		PortraitId     int64  `json:"portrait_id,optional"`
+		ImageIndex     int32  `json:"image_index,optional"`
+		// 素材图（直传后的地址）：探店 门店图/店内图/道具图；短剧 环境图/商品图（商品图必填）
+		Env1Url  string `json:"env1_url,optional"`
+		Env2Url  string `json:"env2_url,optional"`
+		PropUrl  string `json:"prop_url,optional"`
+		Duration int32  `json:"duration,optional"`
+		Size     string `json:"size,optional"`
+		Model    string `json:"model,optional"`
+	}
+	VideoCreation {
+		Id            int64  `json:"id"`
+		Kind          string `json:"kind"`
+		UserText      string `json:"user_text"`
+		SellingPoints string `json:"selling_points"`
+		ShopProfileId int64  `json:"shop_profile_id"`
+		CharUrl       string `json:"char_url"`
+		Env1Url       string `json:"env1_url"`
+		Env2Url       string `json:"env2_url"`
+		PropUrl       string `json:"prop_url"`
+		Duration      int32  `json:"duration"`
+		Size          string `json:"size"`
+		Model         string `json:"model"`
+		Script        string `json:"script"` // 剧本 JSON 原文（状态 1 起有值）
+		VideoUrl      string `json:"video_url"`
+		Status        int32  `json:"status"` // 0-构思中 1-待确认 2-生成中 3-已完成 4-失败
+		FailReason    string `json:"fail_reason"`
+		CreateTime    int64  `json:"create_time"`
+	}
+	ListVideoCreationsReq {
+		Kind     string `form:"kind,optional,options=|exploreShop|shortDrama"`
+		Status   int32  `form:"status,optional,default=-1"`
+		Page     int64  `form:"page,optional,default=1"`
+		PageSize int64  `form:"page_size,optional,default=20"`
+	}
+	VideoCreationListResp {
+		List  []VideoCreation `json:"list"`
+		Total int64           `json:"total"`
+	}
+)
+
+@server (
+	prefix:     /api/v1
+	middleware: Auth
+	group:      videogen
+	tags:       "探店视频 / 带货短剧"
+	authType:   auth
+)
+service gateway-api {
+	@doc "表单配置（模型/时长/比例/字数上限）"
+	@handler videoOptions
+	get /video-creations/options (VideoOptionsReq) returns (VideoOptionsResp)
+
+	@doc "提交表单，开始构思剧本（探店 72 / 短剧 87）"
+	@handler createVideo
+	post /video-creations (CreateVideoReq) returns (VideoCreation)
+
+	@doc "详情（构思中、生成中都轮询这个）"
+	@handler getVideo
+	get /video-creations/:id (IdPath) returns (VideoCreation)
+
+	@doc "规划剧本页的「重新生成」：重新构思"
+	@handler replanVideo
+	post /video-creations/:id/replan (IdPath) returns (VideoCreation)
+
+	@doc "确认剧本，开始生成视频（探店 73 / 短剧 88）"
+	@handler generateVideo
+	post /video-creations/:id/generate (IdPath) returns (VideoCreation)
+
+	@doc "列表"
+	@handler listVideos
+	get /video-creations (ListVideoCreationsReq) returns (VideoCreationListResp)
+
+	@doc "删除"
+	@handler removeVideo
+	delete /video-creations/:id (IdPath) returns (EmptyResp)
 }
 

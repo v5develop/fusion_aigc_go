@@ -1,6 +1,7 @@
 package svc
 
 import (
+	"aigc-life/app/copywriting/rpc/copywriting"
 	"aigc-life/app/digitalhuman/rpc/digitalhuman"
 	"aigc-life/app/imagegen/model"
 	"aigc-life/app/imagegen/rpc/internal/config"
@@ -19,6 +20,8 @@ type ServiceContext struct {
 	ActionVideo model.AfvActionVideoModel
 	// DigitalHumanRpc 解析动作迁移的人物图来源
 	DigitalHumanRpc digitalhuman.DigitalHuman
+	CopywritingRpc  copywriting.Copywriting
+	Video           model.AfvVideoCreationModel
 	Shared          *model.SharedModel
 	Aigc            *aigc.Client
 	Asset           *asset.Writer
@@ -34,6 +37,8 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		Creation:        model.NewAfvImageCreationModel(conn),
 		ActionVideo:     model.NewAfvActionVideoModel(conn),
 		DigitalHumanRpc: digitalhuman.NewDigitalHuman(zrpc.MustNewClient(c.DigitalHumanRpc)),
+		CopywritingRpc:  copywriting.NewCopywriting(zrpc.MustNewClient(c.CopywritingRpc)),
+		Video:           model.NewAfvVideoCreationModel(conn),
 		Shared:          shared,
 		Aigc:            aigc.New(c.Aigc),
 		Asset:           asset.NewWriter(conn),

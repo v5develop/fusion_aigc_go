@@ -17,6 +17,7 @@ type (
 	ActionVideo          = pb.ActionVideo
 	ActionVideoList      = pb.ActionVideoList
 	CreateReq            = pb.CreateReq
+	CreateVideoReq       = pb.CreateVideoReq
 	Empty                = pb.Empty
 	IdUserReq            = pb.IdUserReq
 	ImageInfo            = pb.ImageInfo
@@ -29,6 +30,10 @@ type (
 	OptionsResp          = pb.OptionsResp
 	Template             = pb.Template
 	TemplateList         = pb.TemplateList
+	VideoInfo            = pb.VideoInfo
+	VideoList            = pb.VideoList
+	VideoListReq         = pb.VideoListReq
+	VideoOptionsResp     = pb.VideoOptionsResp
 
 	ImageGen interface {
 		// ---- App ----
@@ -44,8 +49,20 @@ type (
 		ListActionVideos(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*ActionVideoList, error)
 		ImportActionVideo(ctx context.Context, in *ImportActionVideoReq, opts ...grpc.CallOption) (*ActionVideo, error)
 		DeleteActionVideo(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*Empty, error)
+		// ---- 探店视频（72→73）/ 带货短剧（87→88）：两步，先出剧本再出片 ----
+		VideoOptions(ctx context.Context, in *KindReq, opts ...grpc.CallOption) (*VideoOptionsResp, error)
+		// CreateVideo 提交表单，出剧本（72 / 87），轮询 GetVideo
+		CreateVideo(ctx context.Context, in *CreateVideoReq, opts ...grpc.CallOption) (*VideoInfo, error)
+		GetVideo(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*VideoInfo, error)
+		// ReplanVideo 规划剧本页的「重新生成」
+		ReplanVideo(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*VideoInfo, error)
+		// GenerateVideo 确认剧本，出成片（73 / 88）
+		GenerateVideo(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*VideoInfo, error)
+		ListVideos(ctx context.Context, in *VideoListReq, opts ...grpc.CallOption) (*VideoList, error)
+		DeleteVideo(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*Empty, error)
 		// ---- 运营后台 ----
 		AdminList(ctx context.Context, in *ListReq, opts ...grpc.CallOption) (*ImageList, error)
+		AdminListVideos(ctx context.Context, in *VideoListReq, opts ...grpc.CallOption) (*VideoList, error)
 	}
 
 	defaultImageGen struct {
@@ -108,8 +125,52 @@ func (m *defaultImageGen) DeleteActionVideo(ctx context.Context, in *IdUserReq, 
 	return client.DeleteActionVideo(ctx, in, opts...)
 }
 
+// ---- 探店视频（72→73）/ 带货短剧（87→88）：两步，先出剧本再出片 ----
+func (m *defaultImageGen) VideoOptions(ctx context.Context, in *KindReq, opts ...grpc.CallOption) (*VideoOptionsResp, error) {
+	client := pb.NewImageGenClient(m.cli.Conn())
+	return client.VideoOptions(ctx, in, opts...)
+}
+
+// CreateVideo 提交表单，出剧本（72 / 87），轮询 GetVideo
+func (m *defaultImageGen) CreateVideo(ctx context.Context, in *CreateVideoReq, opts ...grpc.CallOption) (*VideoInfo, error) {
+	client := pb.NewImageGenClient(m.cli.Conn())
+	return client.CreateVideo(ctx, in, opts...)
+}
+
+func (m *defaultImageGen) GetVideo(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*VideoInfo, error) {
+	client := pb.NewImageGenClient(m.cli.Conn())
+	return client.GetVideo(ctx, in, opts...)
+}
+
+// ReplanVideo 规划剧本页的「重新生成」
+func (m *defaultImageGen) ReplanVideo(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*VideoInfo, error) {
+	client := pb.NewImageGenClient(m.cli.Conn())
+	return client.ReplanVideo(ctx, in, opts...)
+}
+
+// GenerateVideo 确认剧本，出成片（73 / 88）
+func (m *defaultImageGen) GenerateVideo(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*VideoInfo, error) {
+	client := pb.NewImageGenClient(m.cli.Conn())
+	return client.GenerateVideo(ctx, in, opts...)
+}
+
+func (m *defaultImageGen) ListVideos(ctx context.Context, in *VideoListReq, opts ...grpc.CallOption) (*VideoList, error) {
+	client := pb.NewImageGenClient(m.cli.Conn())
+	return client.ListVideos(ctx, in, opts...)
+}
+
+func (m *defaultImageGen) DeleteVideo(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*Empty, error) {
+	client := pb.NewImageGenClient(m.cli.Conn())
+	return client.DeleteVideo(ctx, in, opts...)
+}
+
 // ---- 运营后台 ----
 func (m *defaultImageGen) AdminList(ctx context.Context, in *ListReq, opts ...grpc.CallOption) (*ImageList, error) {
 	client := pb.NewImageGenClient(m.cli.Conn())
 	return client.AdminList(ctx, in, opts...)
+}
+
+func (m *defaultImageGen) AdminListVideos(ctx context.Context, in *VideoListReq, opts ...grpc.CallOption) (*VideoList, error) {
+	client := pb.NewImageGenClient(m.cli.Conn())
+	return client.AdminListVideos(ctx, in, opts...)
 }

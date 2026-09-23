@@ -130,6 +130,7 @@ const pollBatch = 100
 
 func (p *Poller) tick(ctx context.Context) {
 	svcCtx := p.svcCtx
+	p.pollVideos(ctx) // 探店视频 / 带货短剧（两步）
 	rows, err := svcCtx.Creation.ListGenerating(ctx, time.Now(), pollBatch)
 	if err != nil {
 		logx.WithContext(ctx).Errorf("list generating: %v", err)
