@@ -140,7 +140,8 @@ make stop-all
 - 超时：构思 10 分钟、出片 40 分钟。AI帮写新增场景 `explore_shop`、`short_drama`。
 - **爆款视频复刻**（`videoRemake`，70 解析 → 71 复刻）：两种来源——上传本地视频，或粘贴抖音/快手/小红书/bilibili 分享链接。
   源视频限制 50M、3 分钟（设计稿文案），提交前用 HEAD / Range 探体积与格式，时长等 70 返回再判。
-  **链接解析（分享链接 → 可下载地址）现有系统没有，待确认由谁提供**；`VideoRemake.LinkResolver` 留空时这个入口不开放。
+  **链接解析（分享链接 → 可下载地址）是同事的接口，还没提供**；`VideoRemake.LinkResolver` 留空时这个入口不开放，
+  代码里的 TODO（`create_video_logic.go`）写了接口到位后要补的三步：解析 → 探体积格式 → 边下边数并转存。
   第一步的产物是剧情文本（不是分镜剧本），成品归到素材库现有的「视频复刻」分类。
 
 ## AI图文笔记
@@ -201,6 +202,7 @@ make stop-all
 | **后台鉴权**：接 `afv_admin_*` | 登录态与权限校验方式 | `admin/.../adminauth_middleware.go` |
 | **创作任务**：写 `afv_creation_task` | `entry_code` / `feature_code` 命名确认；`mode`：文案与 TTS 为 0，笔记构思 74，出图 75，长图 76，海报 78，视频 85，动作迁移 9，数字人口播 92 | 各模块的 `flow.go` |
 | **AIGC 执行面正式地址** | 没有正式地址，本期只对 mock 联调 | 各服务 yaml 的 `Aigc.Endpoint` |
+| **链接解析接口**：爆款视频复刻的「链接查视频」 | 同事的接口还没给；到位后填 `VideoRemake.LinkResolver`，并补 create_video_logic.go 里 TODO 写的三步 | `imagegen-rpc.yaml`、`create_video_logic.go` |
 | **6 个系统音色合成报 411** | 阿里云账号是否开通（已先停用，可用 22 个） | `afv_digital_human_voice.status` |
 | **店铺档案**：店铺信息拼进文案提示词 | 该模块接口 | `generate_logic.go` |
 | **审核接易盾** + 写 `afv_moderation_log` | 易盾凭证；provider 取值与 task_id 约定 | `pkg/moderation` |

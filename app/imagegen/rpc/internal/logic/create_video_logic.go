@@ -184,12 +184,15 @@ func (l *CreateVideoLogic) createRemake(in *pb.CreateVideoReq) (*pb.VideoInfo, e
 		if strings.TrimSpace(in.Link) == "" {
 			return nil, xerr.Param("请粘贴视频链接")
 		}
-		// TODO 链接解析：抖音/快手/小红书/bilibili 分享链接 → 可下载地址 + 标题 + 封面。
-		// 这个能力现有系统里没有，等确认由谁提供后接上（配置 VideoRemake.LinkResolver）。
-		// 接上后这里的流程是：解析 → ProbeVideo 探体积与格式 → 边下边数（超 50M 断流）→ 转存到我们的桶 → 交给 70。
-		if cfg.LinkResolver == "" {
-			return nil, xerr.New(xerr.NotReady, "链接解析暂未开放，请先用「上传视频」")
-		}
+		// TODO 链接解析：等同事提供接口（抖音/快手/小红书/bilibili 分享链接 → 可下载地址 + 标题 + 封面），
+		// 地址填在配置 VideoRemake.LinkResolver，留空时这个入口不开放。
+		//
+		// 接口给过来之后，这里补三步（产品已确认的做法）：
+		//  1. 调同事的接口解析链接，拿到下载地址、标题、封面；
+		//  2. ProbeVideo 探体积与格式，超 50M 或格式不支持直接拒（不下载）；
+		//  3. 边下边数下载：到 50M 就断连接删文件报错；下完转存到我们的桶（临时目录，1 小时后清理），
+		//     再把地址交给执行面 70。
+		// 落库时 source_url 存用户粘贴的原链接，source_video_url 存转存后的地址，title / cover_url 存解析返回的。
 		return nil, xerr.New(xerr.NotReady, "链接解析暂未开放，请先用「上传视频」")
 	default:
 		return nil, xerr.Param("请选择分析方式")
