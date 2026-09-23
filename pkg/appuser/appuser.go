@@ -5,6 +5,9 @@
 // source_app_key/external_user_id 成对写、密码是随机串的 BCrypt（本地登不进来），
 // 并且**建号和建团队在一个事务里**（afv_team + afv_team_member），
 // 这样同一个人在现有系统和本服务里是同一行、也有团队，两边都认。
+//
+// 配了 Java 服务的开放接口（见 WithRegistrar / pkg/fusion）时，建档直接交给它，
+// 我们只负责回查——这样连口径都不用自己维护。下面那套写表是没配时的兜底。
 package appuser
 
 import (
@@ -51,7 +54,17 @@ type Profile struct {
 	Province       string
 	City           string
 	RealNameStatus string
-	Enabled        bool // 联盟侧状态是否正常，用 Active() 判
+	Roles          []string
+	Status         string // 联盟侧原值：active / frozen / deactivating / deactivated
+	Enabled        bool   // 上面那个状态是否算正常，用 Active() 判
+}
+
+// Registrar 把建档交给现有 Java 服务（它写同一张表，还会建团队等）。
+// 没配就我们自己写，见 create()。
+type Registrar interface {
+	Enabled() bool
+	// Register 建档/同步；人已经存在（并发撞键）也算成功。
+	Register(ctx context.Context, p Profile) error
 }
 
 // Active 把联盟的状态映射成启用与否：frozen / deactivating / deactivated 是禁用，其余（含空）都算正常。
@@ -65,13 +78,22 @@ func Active(unionStatus string) bool {
 }
 
 type Model struct {
-	conn sqlx.SqlConn
+	conn      sqlx.SqlConn
+	registrar Registrar
 
 	appKeyOnce sync.Once
 	appKey     string // 内置应用的 app_key，建号时写进 source_app_key
 }
 
 func New(conn sqlx.SqlConn) *Model { return &Model{conn: conn} }
+
+// WithRegistrar 配了 Java 服务就让它建档，我们只负责回查。
+func (m *Model) WithRegistrar(r Registrar) *Model {
+	if r != nil && r.Enabled() {
+		m.registrar = r
+	}
+	return m
+}
 
 // ErrNoDB 网关没配 DataSource 时（本地存储模式可能不配），登录相关接口直接拒绝而不是崩掉。
 var ErrNoDB = errors.New("appuser: 未配置数据库")
@@ -113,7 +135,7 @@ func (m *Model) Upsert(ctx context.Context, p Profile) (*User, error) {
 		}
 		return m.FindByUnionID(ctx, p.UnionUserID)
 	}
-	if err := m.create(ctx, p); err != nil {
+	if err := m.register(ctx, p); err != nil {
 		// 并发下可能刚被另一个请求建上（username / union_user_id 唯一）。
 		// 撞键这条路径不补建团队——已有的那行本来就有。
 		if again, ferr := m.FindByUnionID(ctx, p.UnionUserID); ferr == nil && again != nil {
@@ -121,7 +143,22 @@ func (m *Model) Upsert(ctx context.Context, p Profile) (*User, error) {
 		}
 		return nil, err
 	}
-	return m.FindByUnionID(ctx, p.UnionUserID)
+	u, err = m.FindByUnionID(ctx, p.UnionUserID)
+	if err != nil {
+		return nil, err
+	}
+	if u == nil {
+		return nil, fmt.Errorf("appuser: 建档后回查不到用户 %s", p.UnionUserID)
+	}
+	return u, nil
+}
+
+// register 建档：配了 Java 服务就交给它（它写同一张表），否则我们自己写。
+func (m *Model) register(ctx context.Context, p Profile) error {
+	if m.registrar != nil {
+		return m.registrar.Register(ctx, p)
+	}
+	return m.create(ctx, p)
 }
 
 // create 建号 + 建团队，一个事务：Java 那边所有用户都有团队，少建会让 currentTeamId 取空。

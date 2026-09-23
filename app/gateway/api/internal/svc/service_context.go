@@ -8,6 +8,7 @@ import (
 	"aigc-life/app/imagegen/rpc/imagegen"
 	"aigc-life/app/note/rpc/note"
 	"aigc-life/pkg/appuser"
+	"aigc-life/pkg/fusion"
 	"aigc-life/pkg/storage"
 	"aigc-life/pkg/unionauth"
 
@@ -42,6 +43,6 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		ImageGenRpc:     imagegen.NewImageGen(zrpc.MustNewClient(c.ImageGenRpc)),
 		Storage:         storage.New(c.Storage, conn),
 		Union:           unionauth.New(c.Union),
-		AppUser:         appuser.New(conn),
+		AppUser:         appuser.New(conn).WithRegistrar(fusionRegistrar{fusion.New(c.Fusion)}),
 	}
 }

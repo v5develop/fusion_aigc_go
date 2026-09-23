@@ -49,6 +49,10 @@ func main() {
 	jwtSecret := flag.String("jwt-secret", "", "App 令牌签名密钥（只写进网关配置）")
 	authMode := flag.String("auth-mode", "", "网关鉴权模式：dev / token")
 	union := flag.String("union", "", "联盟用户服务地址（登录用）")
+	fusionURL := flag.String("fusion-url", "", "现有 Java 服务地址（建档交给它；留空则我们自己写表）")
+	fusionKey := flag.String("fusion-key", "", "Java 服务分配的 appKey")
+	fusionSecret := flag.String("fusion-secret", "", "Java 服务分配的 appSecret")
+	fusionKeyVer := flag.String("fusion-key-version", "", "密钥版本，留空则不带")
 	flag.Parse()
 	if *out == "" || *logs == "" || *dsn == "" || *aigc == "" || *ports == "" {
 		flag.Usage()
@@ -77,7 +81,8 @@ func main() {
 		}
 		root := doc.Content[0]
 		e := editor{name: name, ports: portOf, dsn: *dsn, aigc: *aigc, logDir: filepath.Join(*logs, name), keepDays: *keepDays,
-			jwtSecret: *jwtSecret, authMode: *authMode, union: *union}
+			jwtSecret: *jwtSecret, authMode: *authMode, union: *union,
+			fusionURL: *fusionURL, fusionKey: *fusionKey, fusionSecret: *fusionSecret, fusionKeyVer: *fusionKeyVer}
 		if err := e.apply(root); err != nil {
 			log.Fatalf("%s: %v", file, err)
 		}
@@ -109,15 +114,19 @@ func parsePorts(s string) (map[string]int, error) {
 }
 
 type editor struct {
-	jwtSecret string
-	authMode  string
-	union     string
-	name      string
-	ports     map[string]int
-	dsn       string
-	aigc      string
-	logDir    string
-	keepDays  int
+	jwtSecret    string
+	authMode     string
+	union        string
+	fusionURL    string
+	fusionKey    string
+	fusionSecret string
+	fusionKeyVer string
+	name         string
+	ports        map[string]int
+	dsn          string
+	aigc         string
+	logDir       string
+	keepDays     int
 }
 
 func (e editor) apply(root *yaml.Node) error {
@@ -152,6 +161,19 @@ func (e editor) apply(root *yaml.Node) error {
 	if u := get(root, "Union"); u != nil && e.union != "" {
 		set(u, "BaseURL", scalar(e.union))
 	}
+	// 建档交给现有 Java 服务；三样齐了才写，缺一样就走我们自己写表那条路
+	if get(root, "Union") != nil && e.fusionURL != "" && e.fusionKey != "" && e.fusionSecret != "" {
+		f := mapping(
+			"BaseURL", scalar(e.fusionURL),
+			"AppKey", quoted(e.fusionKey), // appKey 常是纯数字，不加引号会被当成数字
+			"AppSecret", quoted(e.fusionSecret),
+			"TimeoutSeconds", scalar("10"),
+		)
+		if e.fusionKeyVer != "" {
+			set(f, "KeyVersion", quoted(e.fusionKeyVer))
+		}
+		set(root, "Fusion", f)
+	}
 	if s := get(root, "Storage"); s != nil {
 		set(s, "Mode", scalar("oss")) // 线上必须 oss：执行面要能访问、前端要直传
 	}
@@ -179,6 +201,11 @@ func (e editor) apply(root *yaml.Node) error {
 }
 
 func scalar(v string) *yaml.Node { return &yaml.Node{Kind: yaml.ScalarNode, Value: v} }
+
+// quoted 强制带引号：纯数字的 appKey 不加引号会被解析成数字，服务起不来
+func quoted(v string) *yaml.Node {
+	return &yaml.Node{Kind: yaml.ScalarNode, Value: v, Style: yaml.DoubleQuotedStyle}
+}
 
 func mapping(kv ...any) *yaml.Node {
 	n := &yaml.Node{Kind: yaml.MappingNode}

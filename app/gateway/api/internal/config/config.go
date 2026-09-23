@@ -1,6 +1,7 @@
 package config
 
 import (
+	"aigc-life/pkg/fusion"
 	"aigc-life/pkg/storage"
 	"aigc-life/pkg/token"
 	"aigc-life/pkg/unionauth"
@@ -23,7 +24,11 @@ type Config struct {
 		Jwt token.Conf
 	}
 	// Union 联盟（xxlm）用户服务：登录时用前端给的临时 token 换用户信息
-	Union           unionauth.Conf
+	Union unionauth.Conf
+	// Fusion 现有 Java 服务的联盟开放接口：配了就由它建档（它写同一张表，还会建团队），
+	// 没配就我们自己写表
+	Fusion fusion.Conf
+
 	CopywritingRpc  zrpc.RpcClientConf
 	DigitalHumanRpc zrpc.RpcClientConf
 	NoteRpc         zrpc.RpcClientConf

@@ -11,9 +11,15 @@ Auth:
   Jwt:
     Secret: local-dev-secret-change-me   # 本地开发用；部署脚本会按环境生成随机值覆盖
     ExpireHours: 168    # 7 天，过期后 App 用联盟 token 再登录一次（不做 refresh token）
-Union:                  # 联盟（xxlm）用户服务：登录时用它的 token 换用户信息
+Union:                  # 联盟（xxlm）用户服务：登录时用前端给的临时 token 换用户信息
   BaseURL: http://127.0.0.1:5056   # 本地指向 mock-union（make run-all 会启动）；线上填 https://agent.pengqiwl.com
   TimeoutSeconds: 10
+# 建档交给现有 Java 服务（可选）。配了这三样就由它的 /api/v1/union/user-register 建，
+# 没配就本服务自己写表。本地想试这条路：bash deploy/scripts/e2e-login-fusion.sh
+# Fusion:
+#   BaseURL: http://127.0.0.1:5057
+#   AppKey: "12345678910"
+#   AppSecret: mock-secret
 CopywritingRpc:
   Etcd: {Hosts: [127.0.0.1:2379], Key: copywriting.rpc}
   Timeout: 60000
