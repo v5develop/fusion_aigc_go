@@ -18,7 +18,11 @@ check() {
   if [[ "$2" == "$3" ]]; then green "  ✓ $1"; PASS=$((PASS+1)); else red "  ✗ $1: got [$2] want [$3]"; exit 1; fi
 }
 
-cleanup() { sql "DELETE FROM afv_app_user WHERE union_user_id LIKE '999%'"; }
+cleanup() {
+  sql "DELETE tm FROM afv_team_member tm JOIN afv_app_user u ON u.id = tm.user_id WHERE u.union_user_id LIKE '999%'"
+  sql "DELETE t FROM afv_team t JOIN afv_app_user u ON u.id = t.owner_user_id WHERE u.union_user_id LIKE '999%'"
+  sql "DELETE FROM afv_app_user WHERE union_user_id LIKE '999%'"
+}
 trap cleanup EXIT
 cleanup   # 上一次跑剩下的
 
@@ -31,11 +35,36 @@ check "返回令牌与过期时间" "$(jq -r '[(.data.token|length>20),(.data.ex
 check "手机号是脱敏的" "$(jq -r .data.user.phone <<<"$R")" "130****7881"
 check "按联盟约定建档" "$(sql "SELECT CONCAT_WS('|',username,login_source,data_source,union_bound,status) FROM afv_app_user WHERE union_user_id='$UNION_ID'")" "union_$UNION_ID|UNION|2|1|1"
 check "密码是 BCrypt（本地登不进来）" "$(sql "SELECT LEFT(password,4) FROM afv_app_user WHERE union_user_id='$UNION_ID'")" '$2a$'
+# uk_app_external_user(source_app_key, external_user_id) 要成对写，少写一个唯一键就形同虚设
+check "唯一键两列都写了" "$(sql "SELECT CONCAT_WS('|',IFNULL(source_app_key,'空'),IFNULL(external_user_id,'空')) FROM afv_app_user WHERE union_user_id='$UNION_ID'")" \
+  "$(sql "SELECT app_key FROM afv_open_app WHERE is_builtin=1 AND status=1 ORDER BY id LIMIT 1")|$UNION_ID"
+
+echo "== 建号同时建团队（Java 那边所有用户都有团队）"
+check "有个人团队且本人是拥有者" "$(sql "SELECT CONCAT_WS('|',t.name,t.owner_user_id,t.status,tm.role,tm.status) FROM afv_team_member tm JOIN afv_team t ON t.id=tm.team_id WHERE tm.user_id=$UID1")" \
+  "$(sql "SELECT nickname FROM afv_app_user WHERE id=$UID1")|$UID1|1|1|1"
 
 echo "== 登录：老用户不重复建档"
 R2=$(curl -sS -X POST -H "Authorization: Bearer u$UNION_ID" "$GW/auth/login")
 check "还是同一个用户" "$(jq -r .data.user.id <<<"$R2")" "$UID1"
 check "库里只有一条" "$(sql "SELECT COUNT(*) FROM afv_app_user WHERE union_user_id='$UNION_ID'")" 1
+check "团队没重复建" "$(sql "SELECT COUNT(*) FROM afv_team_member WHERE user_id=$UID1")" 1
+
+echo "== 联盟没给昵称头像（很常见）"
+NO_PROFILE=999000000000000043
+R3=$(curl -sS -X POST -H "Authorization: Bearer n$NO_PROFILE" "$GW/auth/login")
+UID2=$(jq -r .data.user.id <<<"$R3")
+check "昵称兜底成「用户{id}」" "$(sql "SELECT nickname FROM afv_app_user WHERE id=$UID2")" "用户$UID2"
+check "团队名跟着兜底的昵称" "$(sql "SELECT t.name FROM afv_team t WHERE t.owner_user_id=$UID2")" "用户$UID2"
+curl -sS -o /dev/null -X POST -H "Authorization: Bearer u$NO_PROFILE" "$GW/auth/login"   # 用户在联盟补了资料
+check "补了资料会同步过来" "$(sql "SELECT nickname FROM afv_app_user WHERE id=$UID2")" "mock 用户0043"
+curl -sS -o /dev/null -X POST -H "Authorization: Bearer n$NO_PROFILE" "$GW/auth/login"   # 又拿到一份空资料
+check "空值不覆盖，昵称没被抹掉" "$(sql "SELECT nickname FROM afv_app_user WHERE id=$UID2")" "mock 用户0043"
+check "头像也没被抹掉" "$(sql "SELECT IFNULL(avatar,'空') FROM afv_app_user WHERE id=$UID2")" "https://mock-oss.example.com/avatar.png"
+
+echo "== 联盟侧冻结的账号"
+FROZEN=999000000000000044
+check "冻结的登不进来" "$(curl -sS -X POST -H "Authorization: Bearer f$FROZEN" "$GW/auth/login" | jq -r .code)" 1004
+check "本地也标成禁用" "$(sql "SELECT status FROM afv_app_user WHERE union_user_id='$FROZEN'")" 0
 
 echo "== 用我们的令牌访问接口"
 check "当前用户" "$(curl -sS -H "Authorization: Bearer $TOKEN" "$GW/auth/me" | jq -r .data.id)" "$UID1"

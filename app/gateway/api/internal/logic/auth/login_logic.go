@@ -54,8 +54,8 @@ func (l *LoginLogic) Login(req *types.LoginReq) (resp *types.LoginResp, err erro
 	}
 	user, err := l.svcCtx.AppUser.Upsert(l.ctx, appuser.Profile{
 		UnionUserID: u.UserID.String(), Nickname: u.Nickname, Avatar: u.Avatar, Phone: u.Phone,
-		Gender: u.Gender, Province: u.Province, City: u.City, RealNameStatus: u.RealNameStatus,
-		Enabled: u.Status == "" || u.Status == "active",
+		Gender: u.Gender, Birthday: u.Birthday, Province: u.Province, City: u.City,
+		RealNameStatus: u.RealNameStatus, Enabled: appuser.Active(u.Status),
 	})
 	if err != nil {
 		l.Errorf("upsert app user %s: %v", u.UserID, err)
