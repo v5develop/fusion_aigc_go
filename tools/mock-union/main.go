@@ -3,9 +3,9 @@
 //	GET /api/v1/user/auth/token        带 Authorization: Bearer <联盟token> → 临时 token（5 分钟、用一次就失效）
 //	GET /api/v1/auth/{临时token}/user   → 用户信息（手机号脱敏）
 //
-// 联盟 token 里带什么用户由 token 本身决定：token 形如 "<标记><数字>" 时就是该用户，
-// 标记 u = 资料齐全、n = 没昵称没头像（上游很常见）、f = 账号被冻结；
-// 其他值按固定用户返回；token 为 "bad" 时一律当登录失效。
+// 联盟 token 里带什么用户由 token 本身决定：token 形如 "<标记><数字>"，
+// 标记 u = 资料齐全（可省略）、n = 没昵称没头像（上游很常见）、f = 账号被冻结。
+// 不是这个形状的（比如乱写的字符串）一律当登录失效，和真实联盟一样。
 package main
 
 import (
@@ -30,6 +30,7 @@ type tempToken struct {
 var (
 	mu     sync.Mutex
 	tokens = map[string]tempToken{}
+	calls  int // 换临时 token 的次数，e2e 用它验证缓存有没有生效
 )
 
 func main() {
@@ -37,13 +38,23 @@ func main() {
 	flag.Parse()
 	http.HandleFunc("/api/v1/user/auth/token", authToken)
 	http.HandleFunc("/api/v1/auth/", userInfo)
+	http.HandleFunc("/debug/calls", func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		n := calls
+		if r.URL.Query().Get("reset") != "" {
+			calls = 0
+		}
+		mu.Unlock()
+		writeJSON(w, 200, map[string]any{"calls": n})
+	})
 	log.Printf("mock-union listening on %s", *addr)
 	log.Fatal(http.ListenAndServe(*addr, nil))
 }
 
 func authToken(w http.ResponseWriter, r *http.Request) {
 	bearer := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
-	if bearer == "" || bearer == "bad" {
+	userID, flag, ok := parseBearer(bearer)
+	if !ok {
 		writeJSON(w, 200, map[string]any{"code": 401, "message": "token 无效或已过期"})
 		return
 	}
@@ -53,14 +64,28 @@ func authToken(w http.ResponseWriter, r *http.Request) {
 
 	// 默认用一个明显是假的 ID：真实的联盟 ID 会命中库里已有的真人，
 	// 登录会把昵称/头像同步成 mock 的，别污染真实数据
-	userID, flag := "999000000000000001", byte('u')
-	if len(bearer) > 1 && strings.ContainsRune("unf", rune(bearer[0])) {
-		userID, flag = bearer[1:], bearer[0]
-	}
 	mu.Lock()
+	calls++
 	tokens[t] = tempToken{userID: userID, flag: flag, expires: time.Now().Add(5 * time.Minute)}
 	mu.Unlock()
 	writeJSON(w, 200, map[string]any{"code": 1, "message": "ok", "data": map[string]any{"tempToken": t}})
+}
+
+// parseBearer 解析 "<标记><数字>"：标记可省略，数字就是联盟用户 ID。
+func parseBearer(bearer string) (userID string, flag byte, ok bool) {
+	flag = 'u'
+	if len(bearer) > 1 && strings.ContainsRune("unf", rune(bearer[0])) {
+		flag, bearer = bearer[0], bearer[1:]
+	}
+	if len(bearer) < 6 {
+		return "", 0, false
+	}
+	for _, c := range bearer {
+		if c < '0' || c > '9' {
+			return "", 0, false
+		}
+	}
+	return bearer, flag, true
 }
 
 func userInfo(w http.ResponseWriter, r *http.Request) {

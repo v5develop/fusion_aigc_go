@@ -7,6 +7,7 @@
 set -euo pipefail
 
 GW=${GW:-http://127.0.0.1:8888/api/v1}
+MOCKUNION=${MOCKUNION:-http://127.0.0.1:5056}
 UNION_ID=${UNION_ID:-999000000000000042}
 PASS=0
 MYSQL=(docker exec -i mysql-8.0.36 mysql --default-character-set=utf8mb4 -uroot -p123456 fusion_aigc -N)
@@ -65,6 +66,17 @@ echo "== 联盟侧冻结的账号"
 FROZEN=999000000000000044
 check "冻结的登不进来" "$(curl -sS -X POST -H "Authorization: Bearer f$FROZEN" "$GW/auth/login" | jq -r .code)" 1004
 check "本地也标成禁用" "$(sql "SELECT status FROM afv_app_user WHERE union_user_id='$FROZEN'")" 0
+
+echo "== 前端直接拿联盟 token 调业务接口（不用换我们的令牌）"
+UNION_TOKEN="u$UNION_ID"
+curl -sS -o /dev/null "$MOCKUNION/debug/calls?reset=1"
+check "联盟 token 直接放行" "$(curl -sS -H "Authorization: Bearer $UNION_TOKEN" "$GW/copywriting/options" | jq -r .code)" 0
+check "认出的是同一个用户" "$(curl -sS -H "Authorization: Bearer $UNION_TOKEN" "$GW/auth/me" | jq -r .data.id)" "$UID1"
+for _ in 1 2 3; do curl -sS -o /dev/null -H "Authorization: Bearer $UNION_TOKEN" "$GW/copywriting/options"; done
+check "缓存生效：只问了联盟一次" "$(curl -sS "$MOCKUNION/debug/calls" | jq -r .calls)" 1
+check "没建档的联盟用户首次调接口就建档" "$(curl -sS -H "Authorization: Bearer u999000000000000045" "$GW/auth/me" | jq -r '.data.nickname')" "mock 用户0045"
+check "冻结用户的联盟 token 也拦得住" "$(curl -sS -H "Authorization: Bearer f999000000000000046" "$GW/copywriting/options" | jq -r .code)" 1004
+check "乱写的联盟 token" "$(curl -sS -H "Authorization: Bearer bad" "$GW/copywriting/options" | jq -r .code)" 1002
 
 echo "== 用我们的令牌访问接口"
 check "当前用户" "$(curl -sS -H "Authorization: Bearer $TOKEN" "$GW/auth/me" | jq -r .data.id)" "$UID1"

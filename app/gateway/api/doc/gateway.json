@@ -383,7 +383,7 @@
         "tags": [
           "登录"
         ],
-        "summary": "用联盟 token 换本服务的令牌：没有的用户会自动建档",
+        "summary": "用联盟 token 换本服务的令牌（可选，联盟不可用时的后路）：没有的用户会自动建档",
         "operationId": "authLogin",
         "parameters": [
           {
@@ -412,7 +412,7 @@
                       "type": "integer"
                     },
                     "token": {
-                      "description": "之后所有接口带 Authorization: Bearer \u003ctoken\u003e",
+                      "description": "本服务签发的令牌（可选后路；正常直接带联盟 token 即可）",
                       "type": "string"
                     },
                     "user": {
@@ -6182,13 +6182,13 @@
   },
   "securityDefinitions": {
     "auth": {
-      "description": "当前用户 ID（开发模式；接入正式登录后换成 token）",
+      "description": "Bearer \u003c联盟token\u003e；联调也可改填 X-User-Id 请求头",
       "type": "apiKey",
-      "name": "X-User-Id",
+      "name": "Authorization",
       "in": "header"
     }
   },
-  "x-date": "2026-09-23 15:12:49",
+  "x-date": "2026-09-23 17:09:13",
   "x-description": "This is a goctl generated swagger file.",
   "x-github": "https://github.com/zeromicro/go-zero",
   "x-go-zero-doc": "https://go-zero.dev/",
