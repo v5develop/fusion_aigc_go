@@ -30,5 +30,7 @@ type Config struct {
 		MaxImageBytes int64 `json:",default=10485760"`
 		// CredentialTTLMinutes 直传凭证有效期
 		CredentialTTLMinutes int `json:",default=30"`
+		// MaxVideoBytes 仅网关代传（开发用）：视频上限
+		MaxVideoBytes int64 `json:",default=52428800"`
 	}
 }

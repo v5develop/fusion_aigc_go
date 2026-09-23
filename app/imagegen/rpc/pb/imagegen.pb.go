@@ -111,7 +111,7 @@ func (x *IdUserReq) GetUserId() int64 {
 
 type KindReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Kind          string                 `protobuf:"bytes,1,opt,name=kind,proto3" json:"kind,omitempty"` // poster / longImage / actionTransfer / voiceover
+	Kind          string                 `protobuf:"bytes,1,opt,name=kind,proto3" json:"kind,omitempty"` // poster / longImage / actionTransfer / voiceover / exploreShop / shortDrama / videoRemake
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1238,8 +1238,13 @@ type VideoOptionsResp struct {
 	MaxUserTextLen      int32                  `protobuf:"varint,7,opt,name=max_user_text_len,json=maxUserTextLen,proto3" json:"max_user_text_len,omitempty"`                // 探店：视频文案；短剧：短剧主题
 	MaxSellingPointsLen int32                  `protobuf:"varint,8,opt,name=max_selling_points_len,json=maxSellingPointsLen,proto3" json:"max_selling_points_len,omitempty"` // 短剧：商品卖点
 	PropRequired        bool                   `protobuf:"varint,9,opt,name=prop_required,json=propRequired,proto3" json:"prop_required,omitempty"`                          // 短剧的商品图必填
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	// 以下仅视频复刻（videoRemake）
+	MaxVideoBytes   int64    `protobuf:"varint,10,opt,name=max_video_bytes,json=maxVideoBytes,proto3" json:"max_video_bytes,omitempty"`       // 源视频体积上限
+	MaxVideoSeconds int32    `protobuf:"varint,11,opt,name=max_video_seconds,json=maxVideoSeconds,proto3" json:"max_video_seconds,omitempty"` // 源视频时长上限
+	VideoFormats    []string `protobuf:"bytes,12,rep,name=video_formats,json=videoFormats,proto3" json:"video_formats,omitempty"`             // 支持的视频格式
+	LinkEnabled     bool     `protobuf:"varint,13,opt,name=link_enabled,json=linkEnabled,proto3" json:"link_enabled,omitempty"`               // 「链接查视频」是否可用（链接解析未接入时为 false）
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *VideoOptionsResp) Reset() {
@@ -1335,6 +1340,34 @@ func (x *VideoOptionsResp) GetPropRequired() bool {
 	return false
 }
 
+func (x *VideoOptionsResp) GetMaxVideoBytes() int64 {
+	if x != nil {
+		return x.MaxVideoBytes
+	}
+	return 0
+}
+
+func (x *VideoOptionsResp) GetMaxVideoSeconds() int32 {
+	if x != nil {
+		return x.MaxVideoSeconds
+	}
+	return 0
+}
+
+func (x *VideoOptionsResp) GetVideoFormats() []string {
+	if x != nil {
+		return x.VideoFormats
+	}
+	return nil
+}
+
+func (x *VideoOptionsResp) GetLinkEnabled() bool {
+	if x != nil {
+		return x.LinkEnabled
+	}
+	return false
+}
+
 type CreateVideoReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
@@ -1350,12 +1383,16 @@ type CreateVideoReq struct {
 	PortraitId     int64  `protobuf:"varint,10,opt,name=portrait_id,json=portraitId,proto3" json:"portrait_id,omitempty"`
 	ImageIndex     int32  `protobuf:"varint,11,opt,name=image_index,json=imageIndex,proto3" json:"image_index,omitempty"`
 	// 素材图（直传后的地址）：探店 门店图/店内图/道具图；短剧 环境图/商品图
-	Env1Url       string `protobuf:"bytes,12,opt,name=env1_url,json=env1Url,proto3" json:"env1_url,omitempty"`
-	Env2Url       string `protobuf:"bytes,13,opt,name=env2_url,json=env2Url,proto3" json:"env2_url,omitempty"`
-	PropUrl       string `protobuf:"bytes,14,opt,name=prop_url,json=propUrl,proto3" json:"prop_url,omitempty"`
-	Duration      int32  `protobuf:"varint,15,opt,name=duration,proto3" json:"duration,omitempty"` // 15 / 30
-	Size          string `protobuf:"bytes,16,opt,name=size,proto3" json:"size,omitempty"`          // 9:16 / 16:9
-	Model         string `protobuf:"bytes,17,opt,name=model,proto3" json:"model,omitempty"`        // seedance2.5(默认) / lite
+	Env1Url  string `protobuf:"bytes,12,opt,name=env1_url,json=env1Url,proto3" json:"env1_url,omitempty"`
+	Env2Url  string `protobuf:"bytes,13,opt,name=env2_url,json=env2Url,proto3" json:"env2_url,omitempty"`
+	PropUrl  string `protobuf:"bytes,14,opt,name=prop_url,json=propUrl,proto3" json:"prop_url,omitempty"`
+	Duration int32  `protobuf:"varint,15,opt,name=duration,proto3" json:"duration,omitempty"` // 15 / 30
+	Size     string `protobuf:"bytes,16,opt,name=size,proto3" json:"size,omitempty"`          // 9:16 / 16:9
+	Model    string `protobuf:"bytes,17,opt,name=model,proto3" json:"model,omitempty"`        // seedance2.5(默认) / lite
+	// ---- 爆款视频复刻（videoRemake）----
+	Source        string `protobuf:"bytes,18,opt,name=source,proto3" json:"source,omitempty"`                     // upload-上传本地视频 / link-粘贴链接
+	VideoUrl      string `protobuf:"bytes,19,opt,name=video_url,json=videoUrl,proto3" json:"video_url,omitempty"` // upload：直传后的视频地址
+	Link          string `protobuf:"bytes,20,opt,name=link,proto3" json:"link,omitempty"`                         // link：用户粘贴的分享链接
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1509,6 +1546,27 @@ func (x *CreateVideoReq) GetModel() string {
 	return ""
 }
 
+func (x *CreateVideoReq) GetSource() string {
+	if x != nil {
+		return x.Source
+	}
+	return ""
+}
+
+func (x *CreateVideoReq) GetVideoUrl() string {
+	if x != nil {
+		return x.VideoUrl
+	}
+	return ""
+}
+
+func (x *CreateVideoReq) GetLink() string {
+	if x != nil {
+		return x.Link
+	}
+	return ""
+}
+
 type VideoInfo struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -1526,11 +1584,17 @@ type VideoInfo struct {
 	Model         string                 `protobuf:"bytes,13,opt,name=model,proto3" json:"model,omitempty"`
 	Script        string                 `protobuf:"bytes,14,opt,name=script,proto3" json:"script,omitempty"` // 剧本 JSON 原文（状态 1 起有值），前端解析后展示分幕
 	VideoUrl      string                 `protobuf:"bytes,15,opt,name=video_url,json=videoUrl,proto3" json:"video_url,omitempty"`
-	Status        int32                  `protobuf:"varint,16,opt,name=status,proto3" json:"status,omitempty"` // 0-构思中 1-待确认 2-生成中 3-已完成 4-失败
-	FailReason    string                 `protobuf:"bytes,17,opt,name=fail_reason,json=failReason,proto3" json:"fail_reason,omitempty"`
-	CreateTime    int64                  `protobuf:"varint,18,opt,name=create_time,json=createTime,proto3" json:"create_time,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Status        int32                  `protobuf:"varint,16,opt,name=status,proto3" json:"status,omitempty"`
+	// 以下仅视频复刻
+	Source         string `protobuf:"bytes,19,opt,name=source,proto3" json:"source,omitempty"`
+	SourceUrl      string `protobuf:"bytes,20,opt,name=source_url,json=sourceUrl,proto3" json:"source_url,omitempty"`                  // 用户粘贴的原始链接
+	SourceVideoUrl string `protobuf:"bytes,21,opt,name=source_video_url,json=sourceVideoUrl,proto3" json:"source_video_url,omitempty"` // 待解析视频地址
+	Title          string `protobuf:"bytes,22,opt,name=title,proto3" json:"title,omitempty"`                                           // 原视频标题
+	CoverUrl       string `protobuf:"bytes,23,opt,name=cover_url,json=coverUrl,proto3" json:"cover_url,omitempty"`                     // 原视频封面               // 0-构思中 1-待确认 2-生成中 3-已完成 4-失败
+	FailReason     string `protobuf:"bytes,17,opt,name=fail_reason,json=failReason,proto3" json:"fail_reason,omitempty"`
+	CreateTime     int64  `protobuf:"varint,18,opt,name=create_time,json=createTime,proto3" json:"create_time,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *VideoInfo) Reset() {
@@ -1673,6 +1737,41 @@ func (x *VideoInfo) GetStatus() int32 {
 		return x.Status
 	}
 	return 0
+}
+
+func (x *VideoInfo) GetSource() string {
+	if x != nil {
+		return x.Source
+	}
+	return ""
+}
+
+func (x *VideoInfo) GetSourceUrl() string {
+	if x != nil {
+		return x.SourceUrl
+	}
+	return ""
+}
+
+func (x *VideoInfo) GetSourceVideoUrl() string {
+	if x != nil {
+		return x.SourceVideoUrl
+	}
+	return ""
+}
+
+func (x *VideoInfo) GetTitle() string {
+	if x != nil {
+		return x.Title
+	}
+	return ""
+}
+
+func (x *VideoInfo) GetCoverUrl() string {
+	if x != nil {
+		return x.CoverUrl
+	}
+	return ""
 }
 
 func (x *VideoInfo) GetFailReason() string {
@@ -1937,7 +2036,7 @@ const file_imagegen_proto_rawDesc = "" +
 	"\tpage_size\x18\x05 \x01(\x03R\bpageSize\"J\n" +
 	"\tImageList\x12'\n" +
 	"\x04list\x18\x01 \x03(\v2\x13.imagegen.ImageInfoR\x04list\x12\x14\n" +
-	"\x05total\x18\x02 \x01(\x03R\x05total\"\xfa\x02\n" +
+	"\x05total\x18\x02 \x01(\x03R\x05total\"\x96\x04\n" +
 	"\x10VideoOptionsResp\x12(\n" +
 	"\x06models\x18\x01 \x03(\v2\x10.imagegen.OptionR\x06models\x12#\n" +
 	"\rdefault_model\x18\x02 \x01(\tR\fdefaultModel\x12\x1c\n" +
@@ -1947,7 +2046,12 @@ const file_imagegen_proto_rawDesc = "" +
 	"\fdefault_size\x18\x06 \x01(\tR\vdefaultSize\x12)\n" +
 	"\x11max_user_text_len\x18\a \x01(\x05R\x0emaxUserTextLen\x123\n" +
 	"\x16max_selling_points_len\x18\b \x01(\x05R\x13maxSellingPointsLen\x12#\n" +
-	"\rprop_required\x18\t \x01(\bR\fpropRequired\"\x84\x04\n" +
+	"\rprop_required\x18\t \x01(\bR\fpropRequired\x12&\n" +
+	"\x0fmax_video_bytes\x18\n" +
+	" \x01(\x03R\rmaxVideoBytes\x12*\n" +
+	"\x11max_video_seconds\x18\v \x01(\x05R\x0fmaxVideoSeconds\x12#\n" +
+	"\rvideo_formats\x18\f \x03(\tR\fvideoFormats\x12!\n" +
+	"\flink_enabled\x18\r \x01(\bR\vlinkEnabled\"\xcd\x04\n" +
 	"\x0eCreateVideoReq\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x1d\n" +
@@ -1969,7 +2073,10 @@ const file_imagegen_proto_rawDesc = "" +
 	"\bprop_url\x18\x0e \x01(\tR\apropUrl\x12\x1a\n" +
 	"\bduration\x18\x0f \x01(\x05R\bduration\x12\x12\n" +
 	"\x04size\x18\x10 \x01(\tR\x04size\x12\x14\n" +
-	"\x05model\x18\x11 \x01(\tR\x05model\"\xf5\x03\n" +
+	"\x05model\x18\x11 \x01(\tR\x05model\x12\x16\n" +
+	"\x06source\x18\x12 \x01(\tR\x06source\x12\x1b\n" +
+	"\tvideo_url\x18\x13 \x01(\tR\bvideoUrl\x12\x12\n" +
+	"\x04link\x18\x14 \x01(\tR\x04link\"\x89\x05\n" +
 	"\tVideoInfo\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x17\n" +
 	"\auser_id\x18\x02 \x01(\x03R\x06userId\x12\x12\n" +
@@ -1987,7 +2094,13 @@ const file_imagegen_proto_rawDesc = "" +
 	"\x05model\x18\r \x01(\tR\x05model\x12\x16\n" +
 	"\x06script\x18\x0e \x01(\tR\x06script\x12\x1b\n" +
 	"\tvideo_url\x18\x0f \x01(\tR\bvideoUrl\x12\x16\n" +
-	"\x06status\x18\x10 \x01(\x05R\x06status\x12\x1f\n" +
+	"\x06status\x18\x10 \x01(\x05R\x06status\x12\x16\n" +
+	"\x06source\x18\x13 \x01(\tR\x06source\x12\x1d\n" +
+	"\n" +
+	"source_url\x18\x14 \x01(\tR\tsourceUrl\x12(\n" +
+	"\x10source_video_url\x18\x15 \x01(\tR\x0esourceVideoUrl\x12\x14\n" +
+	"\x05title\x18\x16 \x01(\tR\x05title\x12\x1b\n" +
+	"\tcover_url\x18\x17 \x01(\tR\bcoverUrl\x12\x1f\n" +
 	"\vfail_reason\x18\x11 \x01(\tR\n" +
 	"failReason\x12\x1f\n" +
 	"\vcreate_time\x18\x12 \x01(\x03R\n" +

@@ -26,6 +26,14 @@ func NewVideoOptionsLogic(ctx context.Context, svcCtx *svc.ServiceContext) *Vide
 
 // ---- 探店视频（72→73）/ 带货短剧（87→88）：两步，先出剧本再出片 ----
 func (l *VideoOptionsLogic) VideoOptions(in *pb.KindReq) (*pb.VideoOptionsResp, error) {
+	if in.Kind == model.KindVideoRemake {
+		c := &l.svcCtx.Config.VideoRemake
+		lim := videoLimits(c)
+		return &pb.VideoOptionsResp{
+			MaxVideoBytes: lim.MaxBytes, MaxVideoSeconds: int32(lim.MaxSeconds),
+			VideoFormats: lim.Formats, LinkEnabled: c.LinkResolver != "",
+		}, nil
+	}
 	cfg, err := videoKindConf(l.svcCtx, in.Kind)
 	if err != nil {
 		return nil, err

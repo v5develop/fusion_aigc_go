@@ -3,6 +3,8 @@ package logic
 import (
 	"context"
 	"encoding/json"
+	"math"
+	"strings"
 	"time"
 
 	"aigc-life/app/imagegen/model"
@@ -27,6 +29,10 @@ func (p *Poller) pollVideoPlans(ctx context.Context) {
 		return
 	}
 	for _, c := range rows {
+		if c.Kind == model.KindVideoRemake {
+			p.pollVideoParse(ctx, c)
+			continue
+		}
 		cfg, err := videoKindConf(svcCtx, c.Kind)
 		if err != nil {
 			continue
@@ -48,6 +54,39 @@ func (p *Poller) pollVideoPlans(ctx context.Context) {
 	}
 }
 
+// pollVideoParse 视频复刻第一步：70 返回剧情文本与原片时长。
+// 时长在这里才拿得到，超过上限就到此为止，不让用户花钱去复刻一条超长视频。
+func (p *Poller) pollVideoParse(ctx context.Context, c *model.AfvVideoCreation) {
+	svcCtx := p.svcCtx
+	cfg := &svcCtx.Config.VideoRemake
+	r := p.query(ctx, c.PlanTaskId.String)
+	switch {
+	case r != nil && r.Status == aigc.StatusSuccess:
+		text := strings.TrimSpace(r.Text)
+		if text == "" {
+			failVideo(ctx, svcCtx, c.Id, model.VideoPlanning, "没能解析出剧情，换一个视频试试")
+			return
+		}
+		seconds := int(math.Round(r.Duration))
+		if cfg.MaxVideoSeconds > 0 && seconds > cfg.MaxVideoSeconds {
+			failVideo(ctx, svcCtx, c.Id, model.VideoPlanning, videoLimits(cfg).LimitMsg())
+			return
+		}
+		if seconds <= 0 {
+			seconds = 1 // 71 要求 duration > 0
+		}
+		script, _ := json.Marshal(text)
+		if _, err := svcCtx.Video.FinishParse(ctx, c.Id, string(script), int64(seconds)); err != nil {
+			logx.WithContext(ctx).Errorf("finish parse %d: %v", c.Id, err)
+		}
+	case r != nil && r.Done():
+		logx.WithContext(ctx).Infof("videoRemake %d parse %s %s: %s", c.Id, c.PlanTaskId.String, r.Status, r.ErrorMsg)
+		failVideo(ctx, svcCtx, c.Id, model.VideoPlanning, "视频解析失败，换一个视频试试")
+	case time.Since(c.UpdateTime) > time.Duration(cfg.ParseTimeoutMinutes)*time.Minute:
+		failVideo(ctx, svcCtx, c.Id, model.VideoPlanning, "视频解析超时，请重试")
+	}
+}
+
 func finishVideoPlan(ctx context.Context, svcCtx *svc.ServiceContext, c *model.AfvVideoCreation, script, reason string, status int64) {
 	if _, err := svcCtx.Video.FinishPlan(ctx, c.Id, script, reason, status); err != nil {
 		logx.WithContext(ctx).Errorf("finish plan %s %d: %v", c.Kind, c.Id, err)
@@ -62,9 +101,13 @@ func (p *Poller) pollVideoGenerates(ctx context.Context) {
 		return
 	}
 	for _, c := range rows {
-		cfg, err := videoKindConf(svcCtx, c.Kind)
-		if err != nil {
-			continue
+		genTimeout := svcCtx.Config.VideoRemake.GenTimeoutMinutes
+		if c.Kind != model.KindVideoRemake {
+			cfg, err := videoKindConf(svcCtx, c.Kind)
+			if err != nil {
+				continue
+			}
+			genTimeout = cfg.GenTimeoutMinutes
 		}
 		r := p.query(ctx, c.GenTaskId.String)
 		switch {
@@ -87,7 +130,7 @@ func (p *Poller) pollVideoGenerates(ctx context.Context) {
 		case r != nil && r.Done():
 			logx.WithContext(ctx).Infof("%s %d generate %s %s: %s", c.Kind, c.Id, c.GenTaskId.String, r.Status, r.ErrorMsg)
 			failVideo(ctx, svcCtx, c.Id, model.VideoGenerating, "生成失败，请重试")
-		case time.Since(c.UpdateTime) > time.Duration(cfg.GenTimeoutMinutes)*time.Minute:
+		case time.Since(c.UpdateTime) > time.Duration(genTimeout)*time.Minute:
 			failVideo(ctx, svcCtx, c.Id, model.VideoGenerating, "生成超时，请重试")
 		}
 	}
@@ -98,18 +141,31 @@ func saveVideoAsset(ctx context.Context, svcCtx *svc.ServiceContext, c *model.Af
 	if !svcCtx.Config.Asset.Enabled {
 		return
 	}
-	cfg, err := videoKindConf(svcCtx, c.Kind)
-	if err != nil {
-		return
+	assetType, entryCode := svcCtx.Config.VideoRemake.AssetType, svcCtx.Config.VideoRemake.AssetEntryCode
+	if c.Kind != model.KindVideoRemake {
+		cfg, err := videoKindConf(svcCtx, c.Kind)
+		if err != nil {
+			return
+		}
+		assetType, entryCode = cfg.AssetType, cfg.AssetEntryCode
 	}
 	cover := url
-	if c.CharUrl.Valid && c.CharUrl.String != "" {
-		cover = c.CharUrl.String
+	switch {
+	case c.CharUrl.Valid && c.CharUrl.String != "":
+		cover = c.CharUrl.String // 探店 / 短剧：出镜人物图
+	case c.CoverUrl.Valid && c.CoverUrl.String != "":
+		cover = c.CoverUrl.String // 视频复刻：原视频封面
 	}
 	name := c.UserText.String
+	if c.Kind == model.KindVideoRemake {
+		name = c.Title.String
+		if name == "" {
+			name = "爆款视频复刻"
+		}
+	}
 	props, _ := json.Marshal(map[string]any{"videoCreationId": c.Id, "kind": c.Kind, "duration": c.Duration})
 	a := asset.Asset{
-		UserID: c.UserId, SourceTaskID: c.GenTaskId.String, Type: cfg.AssetType, EntryCode: cfg.AssetEntryCode,
+		UserID: c.UserId, SourceTaskID: c.GenTaskId.String, Type: assetType, EntryCode: entryCode,
 		Name: name, CoverURL: cover, ResultURL: url, AspectRatio: c.Size, AIPrompt: name,
 		Properties: string(props),
 	}

@@ -38,29 +38,34 @@ type (
 	}
 
 	AfvVideoCreation struct {
-		Id            int64          `db:"id"`              // 主键ID
-		UserId        int64          `db:"user_id"`         // 创建用户ID
-		Kind          string         `db:"kind"`            // 类型：exploreShop-探店视频(72/73) shortDrama-带货短剧(87/88)
-		UserText      sql.NullString `db:"user_text"`       // 探店：视频文案；短剧：短剧主题
-		SellingPoints sql.NullString `db:"selling_points"`  // 商品卖点（短剧，≤500 字）
-		ShopProfileId sql.NullInt64  `db:"shop_profile_id"` // 关联店铺档案ID（afv_shop_profile.id），选填
-		CharUrl       sql.NullString `db:"char_url"`        // 出镜人物图：探店达人 / 短剧角色（进件 id CHAR_01）
-		Env1Url       sql.NullString `db:"env1_url"`        // 探店：门店图；短剧：环境图（ENV_01）
-		Env2Url       sql.NullString `db:"env2_url"`        // 探店：店内图（ENV_02）；短剧不用
-		PropUrl       sql.NullString `db:"prop_url"`        // 探店：道具图；短剧：商品图（PROP_01，短剧必填）
-		Duration      int64          `db:"duration"`        // 视频时长秒数：15 / 30
-		Size          string         `db:"size"`            // 视频比例：9:16 / 16:9
-		Model         string         `db:"model"`           // 模型：seedance2.5(云端 81/89) 或 lite(本地 GPU 73/88)
-		PlanTaskId    sql.NullString `db:"plan_task_id"`    // 出剧本的执行面任务号（72 / 87）
-		PlanScript    sql.NullString `db:"plan_script"`     // 执行面返回的剧本原文，出片时原样回传
-		GenTaskId     sql.NullString `db:"gen_task_id"`     // 出成片的执行面任务号（73 / 88）
-		VideoUrl      sql.NullString `db:"video_url"`       // 成片地址（转存到公有桶后）
-		RequestId     sql.NullString `db:"request_id"`      // 客户端幂等键（X-Request-Id）
-		Status        int64          `db:"status"`          // 状态：0-构思中 1-待确认(剧本已出) 2-生成中 3-已完成 4-失败
-		FailReason    sql.NullString `db:"fail_reason"`     // 失败原因
-		Deleted       int64          `db:"deleted"`         // 逻辑删除标志
-		CreateTime    time.Time      `db:"create_time"`     // 创建时间
-		UpdateTime    time.Time      `db:"update_time"`     // 更新时间
+		Id             int64          `db:"id"`               // 主键ID
+		UserId         int64          `db:"user_id"`          // 创建用户ID
+		Kind           string         `db:"kind"`             // 类型：exploreShop-探店视频(72/73) shortDrama-带货短剧(87/88)
+		Source         sql.NullString `db:"source"`           // 视频复刻来源：upload-上传 link-粘贴链接
+		SourceUrl      sql.NullString `db:"source_url"`       // 用户粘贴的原始分享链接
+		SourceVideoUrl sql.NullString `db:"source_video_url"` // 待解析视频的公网地址（交给 70）
+		Title          sql.NullString `db:"title"`            // 原视频标题
+		CoverUrl       sql.NullString `db:"cover_url"`        // 原视频封面
+		UserText       sql.NullString `db:"user_text"`        // 探店：视频文案；短剧：短剧主题
+		SellingPoints  sql.NullString `db:"selling_points"`   // 商品卖点（短剧，≤500 字）
+		ShopProfileId  sql.NullInt64  `db:"shop_profile_id"`  // 关联店铺档案ID（afv_shop_profile.id），选填
+		CharUrl        sql.NullString `db:"char_url"`         // 出镜人物图：探店达人 / 短剧角色（进件 id CHAR_01）
+		Env1Url        sql.NullString `db:"env1_url"`         // 探店：门店图；短剧：环境图（ENV_01）
+		Env2Url        sql.NullString `db:"env2_url"`         // 探店：店内图（ENV_02）；短剧不用
+		PropUrl        sql.NullString `db:"prop_url"`         // 探店：道具图；短剧：商品图（PROP_01，短剧必填）
+		Duration       int64          `db:"duration"`         // 视频时长秒数：15 / 30
+		Size           string         `db:"size"`             // 视频比例：9:16 / 16:9
+		Model          string         `db:"model"`            // 模型：seedance2.5(云端 81/89) 或 lite(本地 GPU 73/88)
+		PlanTaskId     sql.NullString `db:"plan_task_id"`     // 出剧本的执行面任务号（72 / 87）
+		PlanScript     sql.NullString `db:"plan_script"`      // 执行面返回的剧本原文，出片时原样回传
+		GenTaskId      sql.NullString `db:"gen_task_id"`      // 出成片的执行面任务号（73 / 88）
+		VideoUrl       sql.NullString `db:"video_url"`        // 成片地址（转存到公有桶后）
+		RequestId      sql.NullString `db:"request_id"`       // 客户端幂等键（X-Request-Id）
+		Status         int64          `db:"status"`           // 状态：0-构思中 1-待确认(剧本已出) 2-生成中 3-已完成 4-失败
+		FailReason     sql.NullString `db:"fail_reason"`      // 失败原因
+		Deleted        int64          `db:"deleted"`          // 逻辑删除标志
+		CreateTime     time.Time      `db:"create_time"`      // 创建时间
+		UpdateTime     time.Time      `db:"update_time"`      // 更新时间
 	}
 )
 
@@ -106,14 +111,14 @@ func (m *defaultAfvVideoCreationModel) FindOneByUserIdRequestId(ctx context.Cont
 }
 
 func (m *defaultAfvVideoCreationModel) Insert(ctx context.Context, data *AfvVideoCreation) (sql.Result, error) {
-	query := fmt.Sprintf("insert into %s (%s) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", m.table, afvVideoCreationRowsExpectAutoSet)
-	ret, err := m.conn.ExecCtx(ctx, query, data.UserId, data.Kind, data.UserText, data.SellingPoints, data.ShopProfileId, data.CharUrl, data.Env1Url, data.Env2Url, data.PropUrl, data.Duration, data.Size, data.Model, data.PlanTaskId, data.PlanScript, data.GenTaskId, data.VideoUrl, data.RequestId, data.Status, data.FailReason, data.Deleted)
+	query := fmt.Sprintf("insert into %s (%s) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", m.table, afvVideoCreationRowsExpectAutoSet)
+	ret, err := m.conn.ExecCtx(ctx, query, data.UserId, data.Kind, data.Source, data.SourceUrl, data.SourceVideoUrl, data.Title, data.CoverUrl, data.UserText, data.SellingPoints, data.ShopProfileId, data.CharUrl, data.Env1Url, data.Env2Url, data.PropUrl, data.Duration, data.Size, data.Model, data.PlanTaskId, data.PlanScript, data.GenTaskId, data.VideoUrl, data.RequestId, data.Status, data.FailReason, data.Deleted)
 	return ret, err
 }
 
 func (m *defaultAfvVideoCreationModel) Update(ctx context.Context, newData *AfvVideoCreation) error {
 	query := fmt.Sprintf("update %s set %s where `id` = ?", m.table, afvVideoCreationRowsWithPlaceHolder)
-	_, err := m.conn.ExecCtx(ctx, query, newData.UserId, newData.Kind, newData.UserText, newData.SellingPoints, newData.ShopProfileId, newData.CharUrl, newData.Env1Url, newData.Env2Url, newData.PropUrl, newData.Duration, newData.Size, newData.Model, newData.PlanTaskId, newData.PlanScript, newData.GenTaskId, newData.VideoUrl, newData.RequestId, newData.Status, newData.FailReason, newData.Deleted, newData.Id)
+	_, err := m.conn.ExecCtx(ctx, query, newData.UserId, newData.Kind, newData.Source, newData.SourceUrl, newData.SourceVideoUrl, newData.Title, newData.CoverUrl, newData.UserText, newData.SellingPoints, newData.ShopProfileId, newData.CharUrl, newData.Env1Url, newData.Env2Url, newData.PropUrl, newData.Duration, newData.Size, newData.Model, newData.PlanTaskId, newData.PlanScript, newData.GenTaskId, newData.VideoUrl, newData.RequestId, newData.Status, newData.FailReason, newData.Deleted, newData.Id)
 	return err
 }
 

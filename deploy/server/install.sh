@@ -95,6 +95,7 @@ migrate() {
       V1.0.114__*) has_table afv_shop_profile && done_=1 ;;
       V1.0.115__*) has_column afv_image_text_note shop_profile_id && done_=1 ;;
       V1.0.116__*) has_table afv_video_creation && done_=1 ;;
+      V1.0.117__*) has_column afv_video_creation source_video_url && done_=1 ;;
       *) die "不认识的迁移脚本 $name：请在 install.sh 的 migrate() 里补上它的判断条件" ;;
     esac
     if [[ $done_ == 1 ]]; then

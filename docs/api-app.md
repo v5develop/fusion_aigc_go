@@ -195,18 +195,18 @@ OSS 已允许跨域 PUT。文件大小与类型由前端控制；后端只校验
 状态：`0` 生成中、`1` 已完成（**含部分成功**，`image_urls` 只返回成功的那几张）、`2` 全部失败。
 一次生成多张时，后端是每张一个任务，所以可能出现部分成功。
 
-## 五、探店视频 / 带货短剧
+## 五、探店视频 / 带货短剧 / 爆款视频复刻
 
-两者共用一组接口，用 `kind` 区分：`exploreShop`、`shortDrama`。和其他模块不同，**这两个是两步**：
-先出分镜剧本给用户确认，再出成片。
+三者共用一组接口，用 `kind` 区分：`exploreShop`、`shortDrama`、`videoRemake`。和其他模块不同，**这三个都是两步**：
+先出中间产物（分镜剧本 / 剧情分析）给用户确认，再出成片。
 
 | 接口 | 说明 |
 |---|---|
 | `GET /video-creations/options?kind=` | 表单配置：模型、时长（15/30）、比例、字数上限、商品图是否必填 |
-| `POST /video-creations` | 提交表单，开始构思剧本（探店 72 / 短剧 87） |
+| `POST /video-creations` | 提交表单，开始构思剧本（探店 72 / 短剧 87）或解析原片（复刻 70） |
 | `GET /video-creations/:id` | 详情（构思中、生成中都轮询这个） |
-| `POST /video-creations/:id/replan` | 规划剧本页的「重新生成」 |
-| `POST /video-creations/:id/generate` | 确认剧本，开始生成视频（探店 73 / 短剧 88） |
+| `POST /video-creations/:id/replan` | 规划剧本页的「重新生成」（复刻是重新解析） |
+| `POST /video-creations/:id/generate` | 确认剧本/剧情，开始生成视频（探店 73 / 短剧 88 / 复刻 71） |
 | `GET /video-creations?kind=&status=&page=` | 列表 |
 | `DELETE /video-creations/:id` | 删除 |
 
@@ -229,7 +229,21 @@ OSS 已允许跨域 PUT。文件大小与类型由前端控制；后端只校验
  "env1_url":"…",                                   // 环境图
  "portrait_source":"AI","portrait_id":12,"image_index":0,
  "duration":30,"size":"9:16"}
+
+// 爆款视频复刻：两种来源二选一
+{"kind":"videoRemake","source":"upload","video_url":"…"}          // 上传本地视频（直传后的地址）
+{"kind":"videoRemake","source":"link","link":"https://v.douyin.com/…"}  // 粘贴分享链接（见下）
 ```
+
+**爆款视频复刻**的几点不同：
+
+- 表单配置里另有 `max_video_bytes`（50M）、`max_video_seconds`（180）、`video_formats`（mp4/avi/mkv/mov/flv/wmv）、
+  `link_enabled`。**`link_enabled=false` 时「链接查视频」不要放出来**，只显示「上传视频」。
+- 提交前后端会探一下体积和格式，超限直接返回 1001，文案就是设计稿那句「仅支持 3 分钟、50M 以内的视频，请重新上传」。
+  时长在提交时拿不到，等解析完成（70 返回原片时长）才知道，超过 3 分钟会把这条记录标成失败、给同样的提示。
+- 状态 `1`（待确认）时，`script` 是**剧情分析文本**（JSON 字符串，不是分镜数组），对应设计稿「自动生成的剧情分析」；
+  `duration` 是原片时长。用户点「复刻视频」即调 `generate`。
+- 详情里另有 `source`、`source_url`（用户粘贴的链接）、`source_video_url`（待解析的视频地址）、`title`、`cover_url`。
 
 **状态**：`0` 构思中 → `1` 待确认（剧本已出）→ `2` 生成中 → `3` 已完成 → `4` 失败。
 

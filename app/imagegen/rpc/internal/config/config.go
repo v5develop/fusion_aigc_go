@@ -27,6 +27,8 @@ type Config struct {
 	ExploreShop VideoKindConf
 	// ShortDrama 带货短剧：87 出剧本 → 88 出片（缺省 model 走云端 89）
 	ShortDrama VideoKindConf
+	// VideoRemake 爆款视频复刻：70 解析 → 71 复刻
+	VideoRemake VideoRemakeConf
 	// VideoLimits 两个视频模块的文本长度上限
 	VideoLimits struct {
 		MaxUserTextLen      int `json:",default=500"`
@@ -72,6 +74,20 @@ type KindConf struct {
 	TimeoutMinutes int `json:",optional"`
 	// Resolution 视频分辨率（数字人口播，仅云端 92 生效）；留空不传
 	Resolution string `json:",optional"`
+}
+
+// VideoRemakeConf 爆款视频复刻。源视频的限制见设计稿：仅支持 3 分钟、50M 以内。
+type VideoRemakeConf struct {
+	MaxVideoBytes   int64    `json:",default=52428800"` // 50M
+	MaxVideoSeconds int      `json:",default=180"`      // 3 分钟
+	Formats         []string `json:",optional"`         // 允许的扩展名，留空用内置白名单
+	// LinkResolver 链接解析服务（抖音/快手/小红书/bilibili 分享链接 → 可下载地址）。
+	// 留空表示「链接查视频」暂未开放，App 端只显示「上传视频」。
+	LinkResolver        string `json:",optional"`
+	ParseTimeoutMinutes int    `json:",default=15"`
+	GenTimeoutMinutes   int    `json:",default=40"`
+	AssetType           string `json:",optional"`
+	AssetEntryCode      string `json:",optional"`
 }
 
 // VideoKindConf 探店视频 / 带货短剧的生成与归档参数。

@@ -41,6 +41,15 @@ func videoKindConf(svcCtx *svc.ServiceContext, kind string) (*config.VideoKindCo
 	return nil, xerr.Newf(xerr.ParamError, "不支持的类型 %s", kind)
 }
 
+// videoLimits 源视频限制（视频复刻）。Formats 留空时用内置白名单。
+func videoLimits(cfg *config.VideoRemakeConf) aigc.VideoLimits {
+	formats := cfg.Formats
+	if len(formats) == 0 {
+		formats = []string{"mp4", "avi", "mkv", "mov", "flv", "wmv"}
+	}
+	return aigc.VideoLimits{MaxBytes: cfg.MaxVideoBytes, MaxSeconds: cfg.MaxVideoSeconds, Formats: formats}
+}
+
 func toVideoInfo(c *model.AfvVideoCreation) *pb.VideoInfo {
 	return &pb.VideoInfo{
 		Id: c.Id, UserId: c.UserId, Kind: c.Kind, UserText: c.UserText.String,
@@ -48,6 +57,8 @@ func toVideoInfo(c *model.AfvVideoCreation) *pb.VideoInfo {
 		CharUrl: c.CharUrl.String, Env1Url: c.Env1Url.String, Env2Url: c.Env2Url.String, PropUrl: c.PropUrl.String,
 		Duration: int32(c.Duration), Size: c.Size, Model: c.Model, Script: c.PlanScript.String,
 		VideoUrl: c.VideoUrl.String, Status: int32(c.Status), FailReason: c.FailReason.String,
+		Source: c.Source.String, SourceUrl: c.SourceUrl.String, SourceVideoUrl: c.SourceVideoUrl.String,
+		Title: c.Title.String, CoverUrl: c.CoverUrl.String,
 		CreateTime: c.CreateTime.UnixMilli(),
 	}
 }
@@ -84,8 +95,11 @@ func videoShopProfileText(ctx context.Context, svcCtx *svc.ServiceContext, profi
 	return out.Text
 }
 
-// planTask 第一步：出剧本（探店 72 / 短剧 87）。
+// planTask 第一步：探店 72 出剧本 / 短剧 87 出剧本 / 视频复刻 70 解析原片。
 func planTask(c *model.AfvVideoCreation, shopProfile string) aigc.Task {
+	if c.Kind == model.KindVideoRemake {
+		return aigc.VideoParse{VideoURL: c.SourceVideoUrl.String}
+	}
 	if c.Kind == model.KindShortDrama {
 		return aigc.DramaScript{
 			PropURL: c.PropUrl.String, EnvURL: c.Env1Url.String, CharURL: c.CharUrl.String,
@@ -97,6 +111,16 @@ func planTask(c *model.AfvVideoCreation, shopProfile string) aigc.Task {
 		UserText: c.UserText.String, Duration: int(c.Duration), ShopProfile: shopProfile,
 		PersonURL: c.CharUrl.String, Env1URL: c.Env1Url.String, Env2URL: c.Env2Url.String, PropURL: c.PropUrl.String,
 	}
+}
+
+// remakeTask 视频复刻第二步：把 70 解析出的剧情文本交给 71。
+// 不传 model，用执行面默认（doubao-seedance-2-0）；不传 aspectRatio，让成片跟原片走。
+func remakeTask(c *model.AfvVideoCreation) (aigc.Task, error) {
+	var text string
+	if err := json.Unmarshal([]byte(c.PlanScript.String), &text); err != nil {
+		return nil, xerr.New(xerr.ServerError, "剧情内容异常，请重新解析")
+	}
+	return aigc.VideoRemake{Script: text, Duration: int(c.Duration)}, nil
 }
 
 // genTask 第二步：把剧本原样回传出片（探店 73 / 短剧 88）。

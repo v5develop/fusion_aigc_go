@@ -6,6 +6,7 @@ import (
 	"aigc-life/app/imagegen/model"
 	"aigc-life/app/imagegen/rpc/internal/svc"
 	"aigc-life/app/imagegen/rpc/pb"
+	"aigc-life/pkg/aigc"
 	"aigc-life/pkg/xerr"
 
 	"github.com/zeromicro/go-zero/core/logx"
@@ -40,13 +41,19 @@ func (l *GenerateVideoLogic) GenerateVideo(in *pb.IdUserReq) (*pb.VideoInfo, err
 	if err := requireAigc(l.svcCtx); err != nil {
 		return nil, err
 	}
-	cfg, err := videoKindConf(l.svcCtx, c.Kind)
-	if err != nil {
-		return nil, err
-	}
-	task, err := genTask(c, cfg)
-	if err != nil {
-		return nil, err
+	var task aigc.Task
+	if c.Kind == model.KindVideoRemake {
+		if task, err = remakeTask(c); err != nil {
+			return nil, err
+		}
+	} else {
+		cfg, kerr := videoKindConf(l.svcCtx, c.Kind)
+		if kerr != nil {
+			return nil, kerr
+		}
+		if task, err = genTask(c, cfg); err != nil {
+			return nil, err
+		}
 	}
 	taskID := newTaskID(l.svcCtx)
 	ok, err := l.svcCtx.Video.StartGenerate(l.ctx, c.Id, taskID)

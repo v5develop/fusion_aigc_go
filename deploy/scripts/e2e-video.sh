@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# 探店视频 / 带货短剧端到端测试（依赖 make run-all 已启动）
-# 两步流程：出剧本（72 / 87）→ 确认 → 出成片（73→81 / 88→89），执行面走本地 mock-aigc。
+# 探店视频 / 带货短剧 / 爆款视频复刻端到端测试（依赖 make run-all 已启动）
+# 两步流程：出剧本（72 / 87）或解析原片（70）→ 确认 → 出成片（73→81 / 88 / 71），执行面走本地 mock-aigc。
 # AI帮写真实调用模型（SKIP_MODEL=1 可跳过）。
 set -euo pipefail
 
@@ -50,6 +50,11 @@ poll() { # poll ID 目标状态 → data（到达目标状态或失败就返回�
 upload() { # 本地存储模式下用网关代传，线上是前端直传
   printf '\x89PNG\r\n\x1a\n' > "$TMP/$1.png"; head -c 600 /dev/urandom >> "$TMP/$1.png"
   curl -sS -H "X-User-Id: $USER_ID" -F "file=@$TMP/$1.png" "$GW/upload" | jq -r .data.url
+}
+
+upload_video() { # 造一个小 mp4 占位（mock 不校验内容）
+  printf '\x00\x00\x00\x18ftypmp42' > "$TMP/$1.mp4"; head -c 2000 /dev/urandom >> "$TMP/$1.mp4"
+  curl -sS -H "X-User-Id: $USER_ID" -F "file=@$TMP/$1.mp4" "$GW/upload" | jq -r .data.url
 }
 
 task_body() { curl -sS "$MOCK/mock/task/$1"; }
@@ -142,22 +147,63 @@ GT2=$(sql "SELECT gen_task_id FROM afv_video_creation WHERE id=$DID")
 check "lite 留在本地 GPU 的 88" "$(curl -sS "$MOCK/aigc/getRes/$GT2" | jq -r .task_type)" 88
 check "88 入参：剧本 + 商品图" "$(task_body "$GT2" | jq -c '[(.script.scenes|length),(.PROP_01_url|length>0),.duration]')" '[3,true,30]'
 
+echo "== 爆款视频复刻：表单配置"
+RO=$(api GET '/video-creations/options?kind=videoRemake')
+check "限制：50M / 180 秒" "$(jq -r '[.max_video_bytes,.max_video_seconds]|map(tostring)|join(",")' <<<"$RO")" "52428800,180"
+check "支持 6 种格式" "$(jq -r '.video_formats|join(",")' <<<"$RO")" "mp4,avi,mkv,mov,flv,wmv"
+check "链接解析未接入时不开放" "$(jq -r .link_enabled <<<"$RO")" false
+
+echo "== 爆款视频复刻：校验"
+check "没选来源被拒" "$(api_code POST /video-creations '{"kind":"videoRemake"}')" 1001
+check "上传来源缺地址被拒" "$(api_code POST /video-creations '{"kind":"videoRemake","source":"upload"}')" 1001
+B=$(jq -nc --arg v "$M1" '{kind:"videoRemake",source:"upload",video_url:$v}')
+check "非视频格式被拒（png）" "$(api_code POST /video-creations "$B")" 1001
+B='{"kind":"videoRemake","source":"upload","video_url":"https://evil.example.com/a.mp4"}'
+check "外链视频被拒" "$(api_code POST /video-creations "$B")" 1001
+B='{"kind":"videoRemake","source":"link","link":"https://v.douyin.com/xxxx/"}'
+check "链接解析暂未开放" "$(api_code POST /video-creations "$B")" 1006
+
+echo "== 爆款视频复刻：解析（mock 70）→ 复刻（mock 71）"
+V1=$(upload_video v1)
+B=$(jq -nc --arg v "$V1" '{kind:"videoRemake",source:"upload",video_url:$v}')
+R1=$(api POST /video-creations "$B" "$(uuidgen)")
+RID2=$(jq -r .id <<<"$R1")
+check "解析中" "$(jq -r '[.status,.source]|join(",")' <<<"$R1")" "0,upload"
+B70=$(task_body "$(sql "SELECT plan_task_id FROM afv_video_creation WHERE id=$RID2")")
+check "70 入参：video_url" "$(jq -c '[.task_type,(.video_url|length>0)]' <<<"$B70")" '[70,true]'
+R1=$(poll "$RID2" 1)
+check "解析完成，拿到剧情与原片时长" "$(jq -r '[.status,(.script|fromjson|startswith("mock 剧情分析")),.duration]|map(tostring)|join(",")' <<<"$R1")" "1,true,15"
+api POST "/video-creations/$RID2/generate" '' > /dev/null
+R1=$(poll "$RID2" 3)
+check "复刻完成，有成片" "$(jq -r '[.status,(.video_url|length>0)]|map(tostring)|join(",")' <<<"$R1")" 3,true
+B71=$(task_body "$(sql "SELECT gen_task_id FROM afv_video_creation WHERE id=$RID2")")
+check "71 入参：剧情文本 + 原片时长" "$(jq -c '[.task_type,(.script|length>0),.duration]' <<<"$B71")" '[71,true,15]'
+check "成品进素材库（视频复刻分类）" "$(sql "SELECT CONCAT_WS('|',type,entry_code) FROM afv_asset WHERE user_id=$USER_ID AND entry_code='videoRemake'")" "video|videoRemake"
+
+echo "== 爆款视频复刻：超过 3 分钟的原片"
+curl -sS -X POST "$MOCK/mock/next-duration?secs=300" > /dev/null   # 让下一条 70 返回 5 分钟
+V2=$(upload_video v2)
+B=$(jq -nc --arg v "$V2" '{kind:"videoRemake",source:"upload",video_url:$v}')
+LONG=$(poll "$(api POST /video-creations "$B" "$(uuidgen)" | jq -r .id)" 1)
+check "解析后按真实时长拒掉" "$(jq -r '[.status,.fail_reason]|map(tostring)|join(",")' <<<"$LONG")" "4,仅支持 3 分钟、50M 以内的视频，请重新上传"
+
 echo "== 失败与列表"
 B=$(vb '{"user_text":"这条构思会失败 mock-fail-72"}')
 FID=$(api POST /video-creations "$B" "$(uuidgen)" | jq -r .id)
 F=$(poll "$FID" 1)
 check "构思失败有原因" "$(jq -r '[.status,.fail_reason]|map(tostring)|join(",")' <<<"$F")" "4,构思失败，请重试"
 check "失败后可以重新构思" "$(api POST "/video-creations/$FID/replan" '' | jq -r .status)" 0
-check "全部 3 条" "$(api GET /video-creations | jq .total)" 3
+check "全部 5 条" "$(api GET /video-creations | jq .total)" 5
 check "按 kind 筛：探店 2 条" "$(api GET '/video-creations?kind=exploreShop' | jq .total)" 2
 check "按 kind 筛：短剧 1 条" "$(api GET '/video-creations?kind=shortDrama' | jq .total)" 1
+check "按 kind 筛：视频复刻 2 条" "$(api GET '/video-creations?kind=videoRemake' | jq .total)" 2
 check "别人看不到" "$(curl -sS -H 'X-User-Id: 999999' "$GW/video-creations/$EID" | jq -r .code)" 1003
 api DELETE "/video-creations/$EID" > /dev/null
 check "删除后不可见" "$(api_code GET "/video-creations/$EID")" 1003
 check "删除时素材库同步删除" "$(sql "SELECT count(*) FROM afv_asset WHERE user_id=$USER_ID AND entry_code='exploreShop' AND deleted=0")" 0
 
 echo "== 运营后台"
-check "后台按用户查" "$(curl -sS -H 'X-Admin-Id: 1' "$ADMIN/video-creations?user_id=$USER_ID" | jq '.data.total')" 2
+check "后台按用户查（已删的不算）" "$(curl -sS -H 'X-Admin-Id: 1' "$ADMIN/video-creations?user_id=$USER_ID" | jq '.data.total')" 4
 check "后台按 kind 查" "$(curl -sS -H 'X-Admin-Id: 1' "$ADMIN/video-creations?user_id=$USER_ID&kind=shortDrama" | jq '.data.total')" 1
 
 if [[ ${SKIP_MODEL:-0} != 1 ]]; then

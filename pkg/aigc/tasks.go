@@ -8,6 +8,8 @@ import (
 // 任务类型
 const (
 	TypeMotionDrive  = 9  // 动作驱动
+	TypeVideoParse   = 70 // 视频解析（爆款视频复刻第一步）
+	TypeVideoRemake  = 71 // 爆款视频复刻（第二步）
 	TypeShopScript   = 72 // 探店视频剧本
 	TypeShopVideo    = 73 // 探店视频成片
 	TypeNoteScript   = 74 // 图文笔记文案
@@ -25,6 +27,7 @@ const (
 	TypeVoiceoverLite    = 91 // 92 + model=lite（本地 GPU）
 	TypeShopVideoCloud   = 81 // 73 + model 缺省/seedance2.5（云端）
 	TypeDramaVideoCloud  = 89 // 88 + model 缺省/seedance2.5（云端）
+	TypeVideoRemakeLite  = 83 // 71 + model=lite（本地 GPU）
 )
 
 // DigitalHuman 85 AI 数字人：图+音频→视频。产物 GeneratedImagePath（mp4）。
@@ -203,6 +206,35 @@ func (t Voiceover) Validate() error {
 		required("text", t.Text),
 		required("CHAR_01_url", t.CharURL),
 	)
+}
+
+// ---- 爆款视频复刻：70 解析出剧情文本，71 按剧情复刻 ----
+
+// VideoParse 70 视频解析。执行面自己下载 VideoURL，产物在 Result.Text 与 Result.Duration。
+type VideoParse struct {
+	VideoURL string `json:"video_url"` // 待解析视频的公网 URL
+}
+
+func (VideoParse) TaskType() int { return TypeVideoParse }
+
+func (t VideoParse) Validate() error { return required("video_url", t.VideoURL) }
+
+// VideoRemake 71 爆款视频复刻。Script 是 70 返回的剧情文本。产物 GeneratedImagePath（mp4）。
+type VideoRemake struct {
+	Script      string `json:"script"`
+	Duration    int    `json:"duration"` // 原片时长（秒，必须 > 0）
+	AspectRatio string `json:"aspectRatio,omitempty"`
+	// Model 默认 doubao-seedance-2-0-260128；lite → 路由到 83（本地 GPU）
+	Model string `json:"model,omitempty"`
+}
+
+func (VideoRemake) TaskType() int { return TypeVideoRemake }
+
+func (t VideoRemake) Validate() error {
+	if t.Duration <= 0 {
+		return fmt.Errorf("duration 须大于 0，当前 %d", t.Duration)
+	}
+	return required("script", t.Script)
 }
 
 // ---- 探店视频 / 带货短剧：都是两步，先出剧本（72 / 87），再把剧本原样回传出片（73 / 88）----

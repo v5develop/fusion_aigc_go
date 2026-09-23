@@ -6,10 +6,12 @@ import (
 	"aigc-life/app/imagegen/rpc/internal/svc"
 	"aigc-life/app/imagegen/rpc/pb"
 	"errors"
+	"net/http"
 	"strings"
 
 	"aigc-life/app/digitalhuman/rpc/digitalhuman"
 	"aigc-life/app/imagegen/model"
+	"aigc-life/pkg/storage"
 	"aigc-life/pkg/xerr"
 
 	"github.com/zeromicro/go-zero/core/logx"
@@ -41,11 +43,14 @@ func (l *CreateVideoLogic) CreateVideo(in *pb.CreateVideoReq) (*pb.VideoInfo, er
 	} else if !errors.Is(err, model.ErrNotFound) {
 		return nil, err
 	}
-	cfg, err := videoKindConf(l.svcCtx, in.Kind)
-	if err != nil {
+	if err := requireAigc(l.svcCtx); err != nil {
 		return nil, err
 	}
-	if err := requireAigc(l.svcCtx); err != nil {
+	if in.Kind == model.KindVideoRemake {
+		return l.createRemake(in)
+	}
+	cfg, err := videoKindConf(l.svcCtx, in.Kind)
+	if err != nil {
 		return nil, err
 	}
 	lim := l.svcCtx.Config.VideoLimits
@@ -144,6 +149,73 @@ func (l *CreateVideoLogic) CreateVideo(in *pb.CreateVideoReq) (*pb.VideoInfo, er
 	}
 	if err := submitPlan(l.ctx, l.svcCtx, row, videoShopProfileText(l.ctx, l.svcCtx, in.ShopProfileId, in.UserId)); err != nil {
 		failVideo(l.ctx, l.svcCtx, row.Id, model.VideoPlanning, "提交构思失败，请重试")
+		return nil, err
+	}
+	cur, err := findOwnedVideo(l.ctx, l.svcCtx, row.Id, in.UserId)
+	if err != nil {
+		return nil, err
+	}
+	return toVideoInfo(cur), nil
+}
+
+// createRemake 爆款视频复刻：拿到一个能下载的视频地址，交给执行面 70 解析。
+//
+// 两种来源：上传本地视频（直传后的地址，我们自己的桶）、粘贴分享链接（需链接解析服务，未接入时不开放）。
+// 提交前先探一下体积与格式，超限直接拒，不让用户白等一场解析（时长 HEAD 拿不到，等 70 返回再判）。
+func (l *CreateVideoLogic) createRemake(in *pb.CreateVideoReq) (*pb.VideoInfo, error) {
+	cfg := &l.svcCtx.Config.VideoRemake
+	var row *model.AfvVideoCreation
+	switch in.Source {
+	case model.SourceUpload:
+		videoURL := strings.TrimSpace(in.VideoUrl)
+		if videoURL == "" {
+			return nil, xerr.Param("请先上传视频")
+		}
+		if err := storage.Owned(l.svcCtx.Storage, videoURL); err != nil {
+			return nil, xerr.Param("请先通过上传接口上传视频")
+		}
+		if err := videoLimits(cfg).ProbeVideo(l.ctx, http.DefaultClient, videoURL); err != nil {
+			return nil, xerr.Param(err.Error())
+		}
+		row = &model.AfvVideoCreation{
+			Source: nullStr(model.SourceUpload), SourceVideoUrl: nullStr(videoURL),
+		}
+	case model.SourceLink:
+		if strings.TrimSpace(in.Link) == "" {
+			return nil, xerr.Param("请粘贴视频链接")
+		}
+		// TODO 链接解析：抖音/快手/小红书/bilibili 分享链接 → 可下载地址 + 标题 + 封面。
+		// 这个能力现有系统里没有，等确认由谁提供后接上（配置 VideoRemake.LinkResolver）。
+		// 接上后这里的流程是：解析 → ProbeVideo 探体积与格式 → 边下边数（超 50M 断流）→ 转存到我们的桶 → 交给 70。
+		if cfg.LinkResolver == "" {
+			return nil, xerr.New(xerr.NotReady, "链接解析暂未开放，请先用「上传视频」")
+		}
+		return nil, xerr.New(xerr.NotReady, "链接解析暂未开放，请先用「上传视频」")
+	default:
+		return nil, xerr.Param("请选择分析方式")
+	}
+
+	row.UserId, row.Kind = in.UserId, in.Kind
+	row.PlanTaskId = nullStr(newTaskID(l.svcCtx))
+	row.RequestId = nullStr(in.RequestId)
+	row.Status = model.VideoPlanning
+	row.Duration = 0 // 原片时长等 70 返回后回填
+	res, err := l.svcCtx.Video.Insert(l.ctx, row)
+	if err != nil {
+		if isDuplicate(err) {
+			old, ferr := l.svcCtx.Video.FindByRequestID(l.ctx, in.UserId, in.RequestId)
+			if ferr != nil {
+				return nil, ferr
+			}
+			return toVideoInfo(old), nil
+		}
+		return nil, err
+	}
+	if row.Id, err = res.LastInsertId(); err != nil {
+		return nil, err
+	}
+	if err := submitPlan(l.ctx, l.svcCtx, row, ""); err != nil {
+		failVideo(l.ctx, l.svcCtx, row.Id, model.VideoPlanning, "提交解析失败，请重试")
 		return nil, err
 	}
 	cur, err := findOwnedVideo(l.ctx, l.svcCtx, row.Id, in.UserId)

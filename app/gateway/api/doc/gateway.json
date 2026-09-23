@@ -4924,7 +4924,8 @@
           {
             "enum": [
               "exploreShop",
-              "shortDrama"
+              "shortDrama",
+              "videoRemake"
             ],
             "type": "string",
             "name": "kind",
@@ -4990,11 +4991,20 @@
                           "script",
                           "video_url",
                           "status",
+                          "source",
+                          "source_url",
+                          "source_video_url",
+                          "title",
+                          "cover_url",
                           "fail_reason",
                           "create_time"
                         ],
                         "properties": {
                           "char_url": {
+                            "type": "string"
+                          },
+                          "cover_url": {
+                            "description": "视频复刻：原视频封面",
                             "type": "string"
                           },
                           "create_time": {
@@ -5037,9 +5047,25 @@
                           "size": {
                             "type": "string"
                           },
+                          "source": {
+                            "description": "视频复刻：upload / link",
+                            "type": "string"
+                          },
+                          "source_url": {
+                            "description": "视频复刻：用户粘贴的原链接",
+                            "type": "string"
+                          },
+                          "source_video_url": {
+                            "description": "视频复刻：待解析的视频地址",
+                            "type": "string"
+                          },
                           "status": {
                             "description": "0-构思中 1-待确认 2-生成中 3-已完成 4-失败",
                             "type": "integer"
+                          },
+                          "title": {
+                            "description": "视频复刻：原视频标题",
+                            "type": "string"
                           },
                           "user_text": {
                             "type": "string"
@@ -5098,8 +5124,7 @@
             "schema": {
               "type": "object",
               "required": [
-                "kind",
-                "user_text"
+                "kind"
               ],
               "properties": {
                 "duration": {
@@ -5121,8 +5146,13 @@
                   "type": "string",
                   "enum": [
                     "exploreShop",
-                    "shortDrama"
+                    "shortDrama",
+                    "videoRemake"
                   ]
+                },
+                "link": {
+                  "description": "link：用户粘贴的分享链接",
+                  "type": "string"
                 },
                 "model": {
                   "type": "string"
@@ -5155,8 +5185,20 @@
                 "size": {
                   "type": "string"
                 },
+                "source": {
+                  "description": "upload 上传本地视频 / link 粘贴链接",
+                  "type": "string",
+                  "enum": [
+                    "upload",
+                    "link"
+                  ]
+                },
                 "user_text": {
-                  "description": "探店：视频文案；短剧：短剧主题",
+                  "description": "探店：视频文案；短剧：短剧主题；视频复刻不用",
+                  "type": "string"
+                },
+                "video_url": {
+                  "description": "upload：直传后的视频地址",
                   "type": "string"
                 }
               }
@@ -5178,6 +5220,10 @@
                   "type": "object",
                   "properties": {
                     "char_url": {
+                      "type": "string"
+                    },
+                    "cover_url": {
+                      "description": "视频复刻：原视频封面",
                       "type": "string"
                     },
                     "create_time": {
@@ -5220,9 +5266,25 @@
                     "size": {
                       "type": "string"
                     },
+                    "source": {
+                      "description": "视频复刻：upload / link",
+                      "type": "string"
+                    },
+                    "source_url": {
+                      "description": "视频复刻：用户粘贴的原链接",
+                      "type": "string"
+                    },
+                    "source_video_url": {
+                      "description": "视频复刻：待解析的视频地址",
+                      "type": "string"
+                    },
                     "status": {
                       "description": "0-构思中 1-待确认 2-生成中 3-已完成 4-失败",
                       "type": "integer"
+                    },
+                    "title": {
+                      "description": "视频复刻：原视频标题",
+                      "type": "string"
                     },
                     "user_text": {
                       "type": "string"
@@ -5265,7 +5327,8 @@
           {
             "enum": [
               "exploreShop",
-              "shortDrama"
+              "shortDrama",
+              "videoRemake"
             ],
             "type": "string",
             "name": "kind",
@@ -5302,10 +5365,22 @@
                         "type": "integer"
                       }
                     },
+                    "link_enabled": {
+                      "description": "视频复刻：「链接查视频」是否可用",
+                      "type": "boolean"
+                    },
                     "max_selling_points_len": {
                       "type": "integer"
                     },
                     "max_user_text_len": {
+                      "type": "integer"
+                    },
+                    "max_video_bytes": {
+                      "description": "视频复刻：源视频体积上限",
+                      "type": "integer"
+                    },
+                    "max_video_seconds": {
+                      "description": "视频复刻：源视频时长上限",
                       "type": "integer"
                     },
                     "models": {
@@ -5346,6 +5421,13 @@
                             "type": "string"
                           }
                         }
+                      }
+                    },
+                    "video_formats": {
+                      "description": "视频复刻：支持的格式",
+                      "type": "array",
+                      "items": {
+                        "type": "string"
                       }
                     }
                   }
@@ -5404,6 +5486,10 @@
                     "char_url": {
                       "type": "string"
                     },
+                    "cover_url": {
+                      "description": "视频复刻：原视频封面",
+                      "type": "string"
+                    },
                     "create_time": {
                       "type": "integer"
                     },
@@ -5444,9 +5530,25 @@
                     "size": {
                       "type": "string"
                     },
+                    "source": {
+                      "description": "视频复刻：upload / link",
+                      "type": "string"
+                    },
+                    "source_url": {
+                      "description": "视频复刻：用户粘贴的原链接",
+                      "type": "string"
+                    },
+                    "source_video_url": {
+                      "description": "视频复刻：待解析的视频地址",
+                      "type": "string"
+                    },
                     "status": {
                       "description": "0-构思中 1-待确认 2-生成中 3-已完成 4-失败",
                       "type": "integer"
+                    },
+                    "title": {
+                      "description": "视频复刻：原视频标题",
+                      "type": "string"
                     },
                     "user_text": {
                       "type": "string"
@@ -5565,6 +5667,10 @@
                     "char_url": {
                       "type": "string"
                     },
+                    "cover_url": {
+                      "description": "视频复刻：原视频封面",
+                      "type": "string"
+                    },
                     "create_time": {
                       "type": "integer"
                     },
@@ -5605,9 +5711,25 @@
                     "size": {
                       "type": "string"
                     },
+                    "source": {
+                      "description": "视频复刻：upload / link",
+                      "type": "string"
+                    },
+                    "source_url": {
+                      "description": "视频复刻：用户粘贴的原链接",
+                      "type": "string"
+                    },
+                    "source_video_url": {
+                      "description": "视频复刻：待解析的视频地址",
+                      "type": "string"
+                    },
                     "status": {
                       "description": "0-构思中 1-待确认 2-生成中 3-已完成 4-失败",
                       "type": "integer"
+                    },
+                    "title": {
+                      "description": "视频复刻：原视频标题",
+                      "type": "string"
                     },
                     "user_text": {
                       "type": "string"
@@ -5674,6 +5796,10 @@
                     "char_url": {
                       "type": "string"
                     },
+                    "cover_url": {
+                      "description": "视频复刻：原视频封面",
+                      "type": "string"
+                    },
                     "create_time": {
                       "type": "integer"
                     },
@@ -5714,9 +5840,25 @@
                     "size": {
                       "type": "string"
                     },
+                    "source": {
+                      "description": "视频复刻：upload / link",
+                      "type": "string"
+                    },
+                    "source_url": {
+                      "description": "视频复刻：用户粘贴的原链接",
+                      "type": "string"
+                    },
+                    "source_video_url": {
+                      "description": "视频复刻：待解析的视频地址",
+                      "type": "string"
+                    },
                     "status": {
                       "description": "0-构思中 1-待确认 2-生成中 3-已完成 4-失败",
                       "type": "integer"
+                    },
+                    "title": {
+                      "description": "视频复刻：原视频标题",
+                      "type": "string"
                     },
                     "user_text": {
                       "type": "string"
@@ -5903,7 +6045,7 @@
       "in": "header"
     }
   },
-  "x-date": "2026-09-23 13:07:13",
+  "x-date": "2026-09-23 14:00:18",
   "x-description": "This is a goctl generated swagger file.",
   "x-github": "https://github.com/zeromicro/go-zero",
   "x-go-zero-doc": "https://go-zero.dev/",

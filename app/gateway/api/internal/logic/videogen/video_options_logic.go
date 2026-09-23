@@ -38,6 +38,7 @@ func (l *VideoOptionsLogic) VideoOptions(req *types.VideoOptionsReq) (resp *type
 		Durations: orEmptyInt32(out.Durations), DefaultDuration: out.DefaultDuration,
 		Sizes: toOptions(out.Sizes), DefaultSize: out.DefaultSize,
 		MaxUserTextLen: out.MaxUserTextLen, MaxSellingPointsLen: out.MaxSellingPointsLen,
-		PropRequired: out.PropRequired,
+		PropRequired: out.PropRequired, MaxVideoBytes: out.MaxVideoBytes, MaxVideoSeconds: out.MaxVideoSeconds,
+		VideoFormats: orEmptyStr(out.VideoFormats), LinkEnabled: out.LinkEnabled,
 	}, nil
 }

@@ -37,6 +37,7 @@ func (l *CreateVideoLogic) CreateVideo(req *types.CreateVideoReq) (resp *types.V
 		PortraitId: req.PortraitId, ImageIndex: req.ImageIndex,
 		Env1Url: req.Env1Url, Env2Url: req.Env2Url, PropUrl: req.PropUrl,
 		Duration: req.Duration, Size: req.Size, Model: req.Model,
+		Source: req.Source, VideoUrl: req.VideoUrl, Link: req.Link,
 	})
 	if err != nil {
 		return nil, err

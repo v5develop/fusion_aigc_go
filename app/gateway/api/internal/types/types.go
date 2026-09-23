@@ -104,8 +104,8 @@ type CreateReq struct {
 
 type CreateVideoReq struct {
 	RequestId      string `header:"X-Request-Id"`
-	Kind           string `json:"kind,options=exploreShop|shortDrama"`
-	UserText       string `json:"user_text"`                // 探店：视频文案；短剧：短剧主题
+	Kind           string `json:"kind,options=exploreShop|shortDrama|videoRemake"`
+	UserText       string `json:"user_text,optional"`       // 探店：视频文案；短剧：短剧主题；视频复刻不用
 	SellingPoints  string `json:"selling_points,optional"`  // 短剧：商品卖点
 	ShopProfileId  int64  `json:"shop_profile_id,optional"` // 选填：关联店铺档案
 	PortraitSource string `json:"portrait_source,optional,options=|UPLOAD|PUBLIC|AI"`
@@ -119,6 +119,9 @@ type CreateVideoReq struct {
 	Duration       int32  `json:"duration,optional"`
 	Size           string `json:"size,optional"`
 	Model          string `json:"model,optional"`
+	Source         string `json:"source,optional,options=|upload|link"` // upload 上传本地视频 / link 粘贴链接
+	VideoUrl       string `json:"video_url,optional"`                   // upload：直传后的视频地址
+	Link           string `json:"link,optional"`                        // link：用户粘贴的分享链接
 }
 
 type Derivative struct {
@@ -303,7 +306,7 @@ type ListResp struct {
 }
 
 type ListVideoCreationsReq struct {
-	Kind     string `form:"kind,optional,options=|exploreShop|shortDrama"`
+	Kind     string `form:"kind,optional,options=|exploreShop|shortDrama|videoRemake"`
 	Status   int32  `form:"status,optional,default=-1"`
 	Page     int64  `form:"page,optional,default=1"`
 	PageSize int64  `form:"page_size,optional,default=20"`
@@ -509,23 +512,28 @@ type UploadResp struct {
 }
 
 type VideoCreation struct {
-	Id            int64  `json:"id"`
-	Kind          string `json:"kind"`
-	UserText      string `json:"user_text"`
-	SellingPoints string `json:"selling_points"`
-	ShopProfileId int64  `json:"shop_profile_id"`
-	CharUrl       string `json:"char_url"`
-	Env1Url       string `json:"env1_url"`
-	Env2Url       string `json:"env2_url"`
-	PropUrl       string `json:"prop_url"`
-	Duration      int32  `json:"duration"`
-	Size          string `json:"size"`
-	Model         string `json:"model"`
-	Script        string `json:"script"` // 剧本 JSON 原文（状态 1 起有值）
-	VideoUrl      string `json:"video_url"`
-	Status        int32  `json:"status"` // 0-构思中 1-待确认 2-生成中 3-已完成 4-失败
-	FailReason    string `json:"fail_reason"`
-	CreateTime    int64  `json:"create_time"`
+	Id             int64  `json:"id"`
+	Kind           string `json:"kind"`
+	UserText       string `json:"user_text"`
+	SellingPoints  string `json:"selling_points"`
+	ShopProfileId  int64  `json:"shop_profile_id"`
+	CharUrl        string `json:"char_url"`
+	Env1Url        string `json:"env1_url"`
+	Env2Url        string `json:"env2_url"`
+	PropUrl        string `json:"prop_url"`
+	Duration       int32  `json:"duration"`
+	Size           string `json:"size"`
+	Model          string `json:"model"`
+	Script         string `json:"script"` // 剧本 JSON 原文（状态 1 起有值）
+	VideoUrl       string `json:"video_url"`
+	Status         int32  `json:"status"`           // 0-构思中 1-待确认 2-生成中 3-已完成 4-失败
+	Source         string `json:"source"`           // 视频复刻：upload / link
+	SourceUrl      string `json:"source_url"`       // 视频复刻：用户粘贴的原链接
+	SourceVideoUrl string `json:"source_video_url"` // 视频复刻：待解析的视频地址
+	Title          string `json:"title"`            // 视频复刻：原视频标题
+	CoverUrl       string `json:"cover_url"`        // 视频复刻：原视频封面
+	FailReason     string `json:"fail_reason"`
+	CreateTime     int64  `json:"create_time"`
 }
 
 type VideoCreationListResp struct {
@@ -534,7 +542,7 @@ type VideoCreationListResp struct {
 }
 
 type VideoOptionsReq struct {
-	Kind string `form:"kind,options=exploreShop|shortDrama"`
+	Kind string `form:"kind,options=exploreShop|shortDrama|videoRemake"`
 }
 
 type VideoOptionsResp struct {
@@ -546,7 +554,11 @@ type VideoOptionsResp struct {
 	DefaultSize         string           `json:"default_size"`
 	MaxUserTextLen      int32            `json:"max_user_text_len"`
 	MaxSellingPointsLen int32            `json:"max_selling_points_len"`
-	PropRequired        bool             `json:"prop_required"` // 短剧的商品图必填
+	PropRequired        bool             `json:"prop_required"`     // 短剧的商品图必填
+	MaxVideoBytes       int64            `json:"max_video_bytes"`   // 视频复刻：源视频体积上限
+	MaxVideoSeconds     int32            `json:"max_video_seconds"` // 视频复刻：源视频时长上限
+	VideoFormats        []string         `json:"video_formats"`     // 视频复刻：支持的格式
+	LinkEnabled         bool             `json:"link_enabled"`      // 视频复刻：「链接查视频」是否可用
 }
 
 type Voice struct {

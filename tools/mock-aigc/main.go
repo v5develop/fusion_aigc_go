@@ -42,7 +42,8 @@ func main() {
 	flag.Parse()
 	http.HandleFunc("/aigc/generate", generate)
 	http.HandleFunc("/aigc/getRes/", getRes)
-	http.HandleFunc("/mock/task/", taskBody) // 仅测试用：查看某任务收到的请求体
+	http.HandleFunc("/mock/task/", taskBody)                // 仅测试用：查看某任务收到的请求体
+	http.HandleFunc("/mock/next-duration", setNextDuration) // 仅测试用：指定下一条 70 返回的时长
 	log.Printf("mock aigc listening on %s", *addr)
 	log.Fatal(http.ListenAndServe(*addr, nil))
 }
@@ -85,6 +86,24 @@ func generate(w http.ResponseWriter, r *http.Request) {
 		// 真实行为：只有 model=lite 留在本地 9，缺省或其它值都路由到 86
 		if m, _ := body["model"].(string); m != "lite" {
 			t.Type = 86
+		}
+	case 70:
+		if v, _ := body["video_url"].(string); v == "" {
+			writeJSON(w, 400, map[string]any{"code": 400, "message": "task_type=70 缺少 video_url", "success": false})
+			return
+		}
+	case 71:
+		if v, _ := body["script"].(string); v == "" {
+			writeJSON(w, 400, map[string]any{"code": 400, "message": "task_type=71 缺少 script", "success": false})
+			return
+		}
+		if d, _ := body["duration"].(float64); d <= 0 {
+			writeJSON(w, 400, map[string]any{"code": 400, "message": "task_type=71 duration 须大于 0", "success": false})
+			return
+		}
+		// 真实行为：model=lite 路由到本地 GPU 的 83
+		if m, _ := body["model"].(string); m == "lite" {
+			t.Type = 83
 		}
 	case 72, 87:
 		need := "user_text"
@@ -199,6 +218,12 @@ func getRes(w http.ResponseWriter, r *http.Request) {
 	case t.Fail:
 		writeJSON(w, 200, map[string]any{"task_id": id, "task_type": t.Type, "status": "failed",
 			"error_msg": "mock: 模拟生成失败", "error_code": nil, "upstream": nil, "pool": "platform", "cost": 0})
+	case t.Type == 70:
+		// 70 的产物是剧情文本 + 原片时长；时长可以用 POST /mock/next-duration?secs=300 指定（一次性）
+		secs := takeNextDuration()
+		writeJSON(w, 200, map[string]any{"task_id": id, "task_type": 70, "status": "success",
+			"generated_image_path": nil, "pool": "platform", "cost": 0,
+			"text": "mock 剧情分析：\n### 视觉风格\n现代商业生活方式风格……", "duration": secs})
 	case t.Type == 72 || t.Type == 87:
 		writeJSON(w, 200, map[string]any{"task_id": id, "task_type": t.Type, "status": "success",
 			"generated_image_path": nil, "pool": "platform", "cost": 0, "script": mockVideoScript(t.Type, t.Body)})
@@ -306,10 +331,35 @@ func mockVideoScript(taskType int, body map[string]any) map[string]any {
 	}
 }
 
+// nextDuration 下一条 70 返回的时长（秒），0 表示用默认值 15。测「超过 3 分钟」的分支用。
+var nextDuration float64
+
+func takeNextDuration() float64 {
+	mu.Lock()
+	defer mu.Unlock()
+	if nextDuration <= 0 {
+		return 15
+	}
+	d := nextDuration
+	nextDuration = 0
+	return d
+}
+
+// setNextDuration POST /mock/next-duration?secs=300
+func setNextDuration(w http.ResponseWriter, r *http.Request) {
+	var secs float64
+	fmt.Sscan(r.URL.Query().Get("secs"), &secs)
+	mu.Lock()
+	nextDuration = secs
+	mu.Unlock()
+	writeJSON(w, 200, map[string]any{"next_duration": secs})
+}
+
 var (
 	failRe    = regexp.MustCompile(`mock-fail(?:-(\d+))?`)
-	taskTypes = map[string]bool{"9": true, "45": true, "72": true, "73": true, "74": true, "75": true, "76": true,
-		"78": true, "81": true, "85": true, "86": true, "87": true, "88": true, "89": true, "91": true, "92": true}
+	taskTypes = map[string]bool{"9": true, "45": true, "70": true, "71": true, "72": true, "73": true, "74": true,
+		"75": true, "76": true, "78": true, "81": true, "83": true, "85": true, "86": true, "87": true, "88": true,
+		"89": true, "91": true, "92": true}
 )
 
 // shouldFail "mock-fail-<任务号>" 只让该类型失败；其余 "mock-fail…"（包括后面跟的不是任务号）让所有类型失败。

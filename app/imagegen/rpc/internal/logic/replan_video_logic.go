@@ -36,6 +36,9 @@ func (l *ReplanVideoLogic) ReplanVideo(in *pb.IdUserReq) (*pb.VideoInfo, error) 
 	if c.Status != model.VideoPlanned && c.Status != model.VideoFailed {
 		return nil, xerr.New(xerr.Conflict, "当前状态不能重新构思")
 	}
+	if c.Kind == model.KindVideoRemake && !c.SourceVideoUrl.Valid {
+		return nil, xerr.New(xerr.Conflict, "没有可解析的视频")
+	}
 	if err := requireAigc(l.svcCtx); err != nil {
 		return nil, err
 	}

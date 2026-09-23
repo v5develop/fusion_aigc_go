@@ -31,7 +31,7 @@ rpc 之间通过 etcd 发现，**只有两个网关需要对外暴露**。
 
 ## 2. 数据库变更
 
-按顺序执行，只新建表 / 插数据，不改现有表结构（112、113、115 是给本项目自己的表加列，**不能重复执行**；一键脚本会自动判断跳过）：
+按顺序执行，只新建表 / 插数据，不改现有表结构（112、113、115、117 是给本项目自己的表加列，**不能重复执行**；一键脚本会自动判断跳过）：
 
 ```bash
 mysql fusion_aigc < deploy/sql/V1.0.106__ai_copywriting.sql        # AI文案
@@ -44,6 +44,7 @@ mysql fusion_aigc < deploy/sql/V1.0.113__ai_voiceover.sql          # 数字人�
 mysql fusion_aigc < deploy/sql/V1.0.114__shop_profile.sql          # 店铺档案
 mysql fusion_aigc < deploy/sql/V1.0.115__note_shop_profile.sql     # 图文笔记关联店铺档案
 mysql fusion_aigc < deploy/sql/V1.0.116__ai_video_creation.sql     # 探店视频 / 带货短剧
+mysql fusion_aigc < deploy/sql/V1.0.117__ai_video_remake.sql       # 爆款视频复刻
 ```
 
 还需要**手动加两行配置**（脚本不含，怕误改现有环境）：

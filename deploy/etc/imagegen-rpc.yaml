@@ -88,6 +88,15 @@ ShortDrama:             # 带货短剧（87 出剧本 → 88 出片；缺省 mod
   GenTimeoutMinutes: 40
   AssetType: video
   AssetEntryCode: shortDrama
+VideoRemake:             # 爆款视频复刻（70 解析 → 71 复刻）
+  MaxVideoBytes: 52428800   # 50M（设计稿：仅支持 3 分钟、50M 以内的视频）
+  MaxVideoSeconds: 180      # 3 分钟；HEAD 拿不到时长，先卡体积，等 70 返回真实时长再判
+  Formats: [mp4, avi, mkv, mov, flv, wmv]
+  LinkResolver: ""          # 链接解析服务地址；留空 =「链接查视频」暂不开放，只能上传视频
+  ParseTimeoutMinutes: 15
+  GenTimeoutMinutes: 40
+  AssetType: video
+  AssetEntryCode: videoRemake
 VideoLimits:
   MaxUserTextLen: 500
   MaxSellingPointsLen: 500

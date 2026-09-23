@@ -115,8 +115,12 @@ type Result struct {
 	GeneratedImagePath string          `json:"generated_image_path"`
 	ImagePaths         []string        `json:"image_paths"`
 	Script             json.RawMessage `json:"script"`
-	Pool               string          `json:"pool"`
-	Cost               float64         `json:"cost"`
+	// Text / Duration 仅 70 视频解析：剧情文本与原片时长（秒）
+	Text     string  `json:"text"`
+	Duration float64 `json:"duration"`
+
+	Pool string  `json:"pool"`
+	Cost float64 `json:"cost"`
 
 	// 失败时
 	ErrorMsg   string `json:"error_msg"`

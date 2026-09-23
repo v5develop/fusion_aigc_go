@@ -16,6 +16,11 @@ var _ AfvVideoCreationModel = (*customAfvVideoCreationModel)(nil)
 const (
 	KindExploreShop = "exploreShop" // 探店视频（72 → 73/81）
 	KindShortDrama  = "shortDrama"  // 带货短剧（87 → 88/89）
+	KindVideoRemake = "videoRemake" // 爆款视频复刻（70 解析 → 71 复刻）
+
+	// 视频复刻的两种来源
+	SourceUpload = "upload" // 上传本地视频
+	SourceLink   = "link"   // 粘贴热门视频链接
 )
 
 // 状态（两步生成）
@@ -41,6 +46,8 @@ type (
 		ListByStatus(ctx context.Context, status int64, before time.Time, limit int64) ([]*AfvVideoCreation, error)
 		// FinishPlan 构思完成：存剧本，转「待确认」
 		FinishPlan(ctx context.Context, id int64, script, failReason string, status int64) (bool, error)
+		// FinishParse 视频复刻专用：存剧情文本与原片时长，转「待确认」
+		FinishParse(ctx context.Context, id int64, script string, duration int64) (bool, error)
 		// StartGenerate 用户确认剧本后：记下出片任务号，转「生成中」
 		StartGenerate(ctx context.Context, id int64, genTaskID string) (bool, error)
 		// Replan 重新构思：换一个出剧本任务号，清掉旧剧本，转回「构思中」
@@ -127,6 +134,12 @@ func (m *customAfvVideoCreationModel) ListByStatus(ctx context.Context, status i
 func (m *customAfvVideoCreationModel) FinishPlan(ctx context.Context, id int64, script, failReason string, status int64) (bool, error) {
 	q := fmt.Sprintf("UPDATE %s SET `plan_script` = ?, `status` = ?, `fail_reason` = ? WHERE `id` = ? AND `status` = ?", m.table)
 	return affected(m.conn.ExecCtx(ctx, q, nullString(script), status, nullString(failReason), id, VideoPlanning))
+}
+
+func (m *customAfvVideoCreationModel) FinishParse(ctx context.Context, id int64, script string, duration int64) (bool, error) {
+	q := fmt.Sprintf("UPDATE %s SET `plan_script` = ?, `duration` = ?, `status` = ?, `fail_reason` = NULL "+
+		"WHERE `id` = ? AND `status` = ?", m.table)
+	return affected(m.conn.ExecCtx(ctx, q, nullString(script), duration, VideoPlanned, id, VideoPlanning))
 }
 
 func (m *customAfvVideoCreationModel) StartGenerate(ctx context.Context, id int64, genTaskID string) (bool, error) {
