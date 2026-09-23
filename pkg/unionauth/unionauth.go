@@ -1,9 +1,11 @@
-// Package unionauth 用联盟（xxlm）的 token 换取用户信息，用于 App 登录。
+// Package unionauth 用联盟（xxlm）的**临时 token** 换取用户信息，用于 App 登录。
 //
-// 两步（都在 mall_user_svc_api）：
-//  1. GET {base}/api/v1/user/auth/token，带用户的联盟 token（Authorization: Bearer）→ 临时 token
+// 整条链路两步，第一步在前端做：
+//  1. 前端：GET {base}/api/v1/user/auth/token，带用户的联盟 token（Authorization: Bearer）→ 临时 token
 //     临时 token 是 32 位随机串，在对方 Redis 里存 5 分钟，**用一次就删**。
-//  2. GET {base}/api/v1/auth/{临时token}/user → 用户信息（手机号是脱敏的）
+//  2. 我们：GET {base}/api/v1/auth/{临时token}/user → 用户信息（手机号是脱敏的）
+//
+// 也就是说我们只做第二步，拿到的凭证是一次性的，只够登录用一次。
 package unionauth
 
 import (
@@ -59,30 +61,12 @@ type User struct {
 	Roles          []string    `json:"roles"`
 }
 
-// Login 用联盟 token 换用户信息（两步一起做）。
-func (c *Client) Login(ctx context.Context, unionToken string) (*User, error) {
-	temp, err := c.tempToken(ctx, unionToken)
-	if err != nil {
-		return nil, err
-	}
-	return c.userInfo(ctx, temp)
-}
-
-func (c *Client) tempToken(ctx context.Context, unionToken string) (string, error) {
-	var out struct {
-		TempToken string `json:"tempToken"`
-	}
-	err := c.get(ctx, "/api/v1/user/auth/token", unionToken, &out)
-	if err != nil {
-		return "", err
-	}
-	if out.TempToken == "" {
-		return "", fmt.Errorf("unionauth: 没有拿到临时 token")
-	}
-	return out.TempToken, nil
-}
-
-func (c *Client) userInfo(ctx context.Context, tempToken string) (*User, error) {
+// Login 用**临时 token** 换用户信息。
+//
+// 临时 token 由前端自己去联盟换（GET /api/v1/user/auth/token，带联盟 token），
+// 传给我们的就是它。它 5 分钟有效、**用一次就失效**，所以只能用在登录这一下，
+// 不能拿来当每次请求的凭证——登录成功后用我们签发的令牌。
+func (c *Client) Login(ctx context.Context, tempToken string) (*User, error) {
 	var u User
 	// 临时 token 在路径里；用一次即失效
 	if err := c.get(ctx, "/api/v1/auth/"+url.PathEscape(tempToken)+"/user", "", &u); err != nil {

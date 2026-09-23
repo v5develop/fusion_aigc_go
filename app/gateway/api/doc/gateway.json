@@ -372,7 +372,7 @@
     "/api/v1/auth/login": {
       "post": {
         "consumes": [
-          "application/x-www-form-urlencoded"
+          "application/json"
         ],
         "produces": [
           "application/json"
@@ -383,14 +383,28 @@
         "tags": [
           "登录"
         ],
-        "summary": "用联盟 token 换本服务的令牌（可选，联盟不可用时的后路）：没有的用户会自动建档",
+        "summary": "用联盟的临时 token 换本服务的令牌：没有的用户会自动建档",
         "operationId": "authLogin",
         "parameters": [
           {
             "type": "string",
-            "description": "联盟 token：Bearer \u003ctoken\u003e",
+            "description": "也可以放在这里：Bearer \u003c临时token\u003e",
             "name": "Authorization",
             "in": "header"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "temp_token": {
+                  "description": "联盟的临时 token：前端调联盟 GET /api/v1/user/auth/token 拿到；5 分钟内有效、只能用一次",
+                  "type": "string"
+                }
+              }
+            }
           }
         ],
         "responses": {
@@ -408,11 +422,11 @@
                   "type": "object",
                   "properties": {
                     "expires_at": {
-                      "description": "过期时间（unix 毫秒），过期后用联盟 token 再登录一次",
+                      "description": "过期时间（unix 毫秒），过期后重新换一个临时 token 再登录",
                       "type": "integer"
                     },
                     "token": {
-                      "description": "本服务签发的令牌（可选后路；正常直接带联盟 token 即可）",
+                      "description": "之后所有接口带 Authorization: Bearer \u003ctoken\u003e",
                       "type": "string"
                     },
                     "user": {
@@ -6182,13 +6196,13 @@
   },
   "securityDefinitions": {
     "auth": {
-      "description": "Bearer \u003c联盟token\u003e；联调也可改填 X-User-Id 请求头",
+      "description": "Bearer \u003c登录接口返回的 token\u003e；联调也可改填 X-User-Id 请求头",
       "type": "apiKey",
       "name": "Authorization",
       "in": "header"
     }
   },
-  "x-date": "2026-09-23 17:09:13",
+  "x-date": "2026-09-23 17:46:07",
   "x-description": "This is a goctl generated swagger file.",
   "x-github": "https://github.com/zeromicro/go-zero",
   "x-go-zero-doc": "https://go-zero.dev/",

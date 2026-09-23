@@ -23,7 +23,7 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 	server.AddRoutes(
 		[]rest.Route{
 			{
-				// 用联盟 token 换本服务的令牌：没有的用户会自动建档
+				// 用联盟的临时 token 换本服务的令牌：没有的用户会自动建档
 				Method:  http.MethodPost,
 				Path:    "/auth/login",
 				Handler: auth.LoginHandler(serverCtx),

@@ -21,11 +21,8 @@ type Config struct {
 		Mode string `json:",default=dev,options=dev|token"`
 		// Jwt 我们自己签发的令牌
 		Jwt token.Conf
-		// UnionCacheMinutes 联盟 token 认出来的用户缓存多久。
-		// 放长省调用，但用户在联盟登出/被冻结后最多还能用这么久。
-		UnionCacheMinutes int `json:",default=30"`
 	}
-	// Union 联盟（xxlm）用户服务：登录时用它的 token 换用户信息
+	// Union 联盟（xxlm）用户服务：登录时用前端给的临时 token 换用户信息
 	Union           unionauth.Conf
 	CopywritingRpc  zrpc.RpcClientConf
 	DigitalHumanRpc zrpc.RpcClientConf

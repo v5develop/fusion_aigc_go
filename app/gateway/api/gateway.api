@@ -9,7 +9,7 @@ info (
 	produces:                    "application/json"
 	wrapCodeMsg:                 true
 	bizCodeEnumDescription:      "0-成功<br>1000-服务异常，稍后重试<br>1001-参数错误，直接展示 msg<br>1002-未登录<br>1003-不存在或不属于当前用户<br>1005-状态冲突<br>1006-暂未开放 / 形象未生成完成<br>1007-未同意《AIGC功能使用约定》<br>1008-点数不足（计费未接）"
-	securityDefinitionsFromJson: `{"auth":{"type":"apiKey","in":"header","name":"Authorization","description":"Bearer <联盟token>；联调也可改填 X-User-Id 请求头"}}`
+	securityDefinitionsFromJson: `{"auth":{"type":"apiKey","in":"header","name":"Authorization","description":"Bearer <登录接口返回的 token>；联调也可改填 X-User-Id 请求头"}}`
 )
 
 type (
@@ -828,10 +828,11 @@ service gateway-api {
 	delete /video-creations/:id (IdPath) returns (EmptyResp)
 }
 
-// ---------------- 登录（业务接口直接带联盟 token 即可，这里是可选的）----------------
+// ---------------- 登录（前端先向联盟换临时 token，再拿它来换我们的令牌）----------------
 type (
 	LoginReq {
-		Authorization string `header:"Authorization,optional"` // 联盟 token：Bearer <token>
+		TempToken     string `json:"temp_token,optional"` // 联盟的临时 token：前端调联盟 GET /api/v1/user/auth/token 拿到；5 分钟内有效、只能用一次
+		Authorization string `header:"Authorization,optional"` // 也可以放在这里：Bearer <临时token>
 	}
 	LoginUser {
 		Id       int64  `json:"id"` // 本服务的用户 id
@@ -840,8 +841,8 @@ type (
 		Phone    string `json:"phone"` // 脱敏，如 130****7881
 	}
 	LoginResp {
-		Token     string    `json:"token"` // 本服务签发的令牌（可选后路；正常直接带联盟 token 即可）
-		ExpiresAt int64     `json:"expires_at"` // 过期时间（unix 毫秒），过期后用联盟 token 再登录一次
+		Token     string    `json:"token"` // 之后所有接口带 Authorization: Bearer <token>
+		ExpiresAt int64     `json:"expires_at"` // 过期时间（unix 毫秒），过期后重新换一个临时 token 再登录
 		User      LoginUser `json:"user"`
 	}
 )
@@ -852,7 +853,7 @@ type (
 	tags:   "登录"
 )
 service gateway-api {
-	@doc "用联盟 token 换本服务的令牌（可选，联盟不可用时的后路）：没有的用户会自动建档"
+	@doc "用联盟的临时 token 换本服务的令牌：没有的用户会自动建档"
 	@handler login
 	post /auth/login (LoginReq) returns (LoginResp)
 }

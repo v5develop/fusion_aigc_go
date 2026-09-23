@@ -24,7 +24,7 @@ type LoginLogic struct {
 	svcCtx *svc.ServiceContext
 }
 
-// 用联盟 token 换本服务的令牌：没有的用户会自动建档
+// 用联盟的临时 token 换本服务的令牌：没有的用户会自动建档
 func NewLoginLogic(ctx context.Context, svcCtx *svc.ServiceContext) *LoginLogic {
 	return &LoginLogic{
 		Logger: logx.WithContext(ctx),
@@ -33,17 +33,21 @@ func NewLoginLogic(ctx context.Context, svcCtx *svc.ServiceContext) *LoginLogic 
 	}
 }
 
-// 用联盟 token 换本服务的令牌：没有的用户会自动建档
+// 用联盟的临时 token 换本服务的令牌：没有的用户会自动建档
 func (l *LoginLogic) Login(req *types.LoginReq) (resp *types.LoginResp, err error) {
 	if !l.svcCtx.Union.Enabled() {
 		return nil, xerr.New(xerr.NotReady, "登录服务暂未开放")
 	}
-	unionToken := strings.TrimSpace(strings.TrimPrefix(req.Authorization, "Bearer "))
-	if unionToken == "" {
+	// 临时 token 前端自己向联盟换（GET /api/v1/user/auth/token），放 body 或 Authorization 都行
+	tempToken := strings.TrimSpace(req.TempToken)
+	if tempToken == "" {
+		tempToken = strings.TrimSpace(strings.TrimPrefix(req.Authorization, "Bearer "))
+	}
+	if tempToken == "" {
 		return nil, xerr.New(xerr.Unauthorized, "缺少登录凭证")
 	}
-	// 一步：联盟 token → 临时 token → 用户信息（临时 token 用一次就失效）
-	u, err := l.svcCtx.Union.Login(l.ctx, unionToken)
+	// 拿临时 token 去换用户信息（用一次就失效，所以只在这里用）
+	u, err := l.svcCtx.Union.Login(l.ctx, tempToken)
 	if err != nil {
 		if errors.Is(err, unionauth.ErrUnauthorized) {
 			l.Infof("union login rejected: %v", err)

@@ -317,12 +317,13 @@ type ListVoicesReq struct {
 }
 
 type LoginReq struct {
-	Authorization string `header:"Authorization,optional"` // 联盟 token：Bearer <token>
+	TempToken     string `json:"temp_token,optional"`      // 联盟的临时 token：前端调联盟 GET /api/v1/user/auth/token 拿到；5 分钟内有效、只能用一次
+	Authorization string `header:"Authorization,optional"` // 也可以放在这里：Bearer <临时token>
 }
 
 type LoginResp struct {
 	Token     string    `json:"token"`      // 之后所有接口带 Authorization: Bearer <token>
-	ExpiresAt int64     `json:"expires_at"` // 过期时间（unix 毫秒），过期后用联盟 token 再登录一次
+	ExpiresAt int64     `json:"expires_at"` // 过期时间（unix 毫秒），过期后重新换一个临时 token 再登录
 	User      LoginUser `json:"user"`
 }
 
