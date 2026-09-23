@@ -26,11 +26,11 @@ Portrait:
   Count: 4
   Size: "9:16"
   Model: max            # 本版 mini/plus/max 一律用 max
-  TimeoutMinutes: 10
+  TimeoutMinutes: 20    # 4 张图一个任务
 Video:
   AspectRatio: "9:16"   # 设计稿不给选，固定
   Resolution: 720p
-  TimeoutMinutes: 30
+  TimeoutMinutes: 40    # 出视频慢，实测本地 GPU 15 秒视频要 14 分钟
 TTS:
   TimeoutSeconds: 60
 Poll:

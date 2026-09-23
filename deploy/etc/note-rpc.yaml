@@ -31,7 +31,7 @@ Plan:
   TimeoutMinutes: 5
 Generate:
   Model: max            # 本版 mini/plus/max 一律用 max；Size 不填，用执行面默认 3:4
-  TimeoutMinutes: 20
+  TimeoutMinutes: 30    # 一次出多张，比单张长
 Poll:
   IntervalSeconds: 5
 Moderation:
