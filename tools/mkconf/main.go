@@ -47,6 +47,7 @@ func main() {
 	ports := flag.String("ports", "", "端口表，如 copywriting=19201,…,gateway=18888,admin=18889")
 	keepDays := flag.Int("keep-days", 7, "日志保留天数")
 	jwtSecret := flag.String("jwt-secret", "", "App 令牌签名密钥（只写进网关配置）")
+	adminJwtSecret := flag.String("admin-jwt-secret", "", "后台令牌签名密钥（只写进后台配置，与 App 分开）")
 	authMode := flag.String("auth-mode", "", "网关鉴权模式：dev / token")
 	union := flag.String("union", "", "联盟用户服务地址（登录用）")
 	fusionURL := flag.String("fusion-url", "", "现有 Java 服务地址（建档交给它；留空则我们自己写表）")
@@ -81,7 +82,7 @@ func main() {
 		}
 		root := doc.Content[0]
 		e := editor{name: name, ports: portOf, dsn: *dsn, aigc: *aigc, logDir: filepath.Join(*logs, name), keepDays: *keepDays,
-			jwtSecret: *jwtSecret, authMode: *authMode, union: *union,
+			jwtSecret: *jwtSecret, adminJwtSecret: *adminJwtSecret, authMode: *authMode, union: *union,
 			fusionURL: *fusionURL, fusionKey: *fusionKey, fusionSecret: *fusionSecret, fusionKeyVer: *fusionKeyVer}
 		if err := e.apply(root); err != nil {
 			log.Fatalf("%s: %v", file, err)
@@ -114,19 +115,20 @@ func parsePorts(s string) (map[string]int, error) {
 }
 
 type editor struct {
-	jwtSecret    string
-	authMode     string
-	union        string
-	fusionURL    string
-	fusionKey    string
-	fusionSecret string
-	fusionKeyVer string
-	name         string
-	ports        map[string]int
-	dsn          string
-	aigc         string
-	logDir       string
-	keepDays     int
+	jwtSecret      string
+	adminJwtSecret string
+	authMode       string
+	union          string
+	fusionURL      string
+	fusionKey      string
+	fusionSecret   string
+	fusionKeyVer   string
+	name           string
+	ports          map[string]int
+	dsn            string
+	aigc           string
+	logDir         string
+	keepDays       int
 }
 
 func (e editor) apply(root *yaml.Node) error {
@@ -154,8 +156,13 @@ func (e editor) apply(root *yaml.Node) error {
 		if e.authMode != "" {
 			set(a, "Mode", scalar(e.authMode))
 		}
-		if e.jwtSecret != "" && get(a, "Jwt") != nil {
-			set(get(a, "Jwt"), "Secret", scalar(e.jwtSecret))
+		// 后台和 App 各用一份密钥，互相拿不过去
+		secret := e.jwtSecret
+		if e.name == "admin" {
+			secret = e.adminJwtSecret
+		}
+		if secret != "" && get(a, "Jwt") != nil {
+			set(get(a, "Jwt"), "Secret", scalar(secret))
 		}
 	}
 	if u := get(root, "Union"); u != nil && e.union != "" {

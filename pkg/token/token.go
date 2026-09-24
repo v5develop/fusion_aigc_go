@@ -27,11 +27,21 @@ var (
 )
 
 // Claims 令牌里带的信息：本服务的用户 id 与联盟用户 id（排查问题用）。
+//
+// Kind 区分 App 用户和后台管理员。两者的密钥本来就不同，签名过不了；
+// 但万一哪天配成同一个，这个字段能挡住「拿 App 令牌调后台」。
 type Claims struct {
 	UserID      int64  `json:"uid"`
 	UnionUserID string `json:"union,omitempty"`
+	Kind        string `json:"kind,omitempty"` // 空或 app = App 用户；admin = 后台管理员
 	jwt.RegisteredClaims
 }
+
+// KindApp / KindAdmin 令牌用途
+const (
+	KindApp   = "app"
+	KindAdmin = "admin"
+)
 
 func (c Conf) ttl() time.Duration {
 	if c.ExpireHours > 0 {
@@ -40,15 +50,24 @@ func (c Conf) ttl() time.Duration {
 	return 168 * time.Hour
 }
 
-// Sign 签发令牌，返回令牌与过期时间。
+// Sign 签发 App 用户的令牌，返回令牌与过期时间。
 func Sign(c Conf, userID int64, unionUserID string) (string, time.Time, error) {
+	return sign(c, userID, unionUserID, KindApp)
+}
+
+// SignAdmin 签发后台管理员的令牌。
+func SignAdmin(c Conf, adminID int64) (string, time.Time, error) {
+	return sign(c, adminID, "", KindAdmin)
+}
+
+func sign(c Conf, userID int64, unionUserID, kind string) (string, time.Time, error) {
 	if c.Secret == "" {
 		return "", time.Time{}, ErrNoSecret
 	}
 	now := time.Now()
 	exp := now.Add(c.ttl())
 	t := jwt.NewWithClaims(signingMethod, &Claims{
-		UserID: userID, UnionUserID: unionUserID,
+		UserID: userID, UnionUserID: unionUserID, Kind: kind,
 		RegisteredClaims: jwt.RegisteredClaims{
 			IssuedAt:  jwt.NewNumericDate(now),
 			ExpiresAt: jwt.NewNumericDate(exp),
@@ -58,8 +77,13 @@ func Sign(c Conf, userID int64, unionUserID string) (string, time.Time, error) {
 	return s, exp, err
 }
 
-// Parse 校验令牌并取出内容。
-func Parse(c Conf, raw string) (*Claims, error) {
+// Parse 校验 App 用户的令牌并取出内容。
+func Parse(c Conf, raw string) (*Claims, error) { return parse(c, raw, KindApp) }
+
+// ParseAdmin 校验后台管理员的令牌。
+func ParseAdmin(c Conf, raw string) (*Claims, error) { return parse(c, raw, KindAdmin) }
+
+func parse(c Conf, raw string, want string) (*Claims, error) {
 	if c.Secret == "" {
 		return nil, ErrNoSecret
 	}
@@ -76,6 +100,14 @@ func Parse(c Conf, raw string) (*Claims, error) {
 	case err != nil:
 		return nil, ErrInvalid
 	case claims.UserID <= 0:
+		return nil, ErrInvalid
+	}
+	// 老令牌没有 kind，按 App 用户算（后台令牌是新加的，一定带）
+	kind := claims.Kind
+	if kind == "" {
+		kind = KindApp
+	}
+	if kind != want {
 		return nil, ErrInvalid
 	}
 	return &claims, nil

@@ -6,7 +6,12 @@ Timeout: 60000   # 生成试听为同步合成
 Log:
   Encoding: plain
 Auth:
-  Mode: dev
+  Mode: dev             # dev：没带令牌时信任 X-Admin-Id（仅联调）；token：只认登录接口签发的令牌
+  Jwt:
+    Secret: local-dev-admin-secret-change-me   # 本地开发用；部署脚本会按环境生成随机值覆盖
+    ExpireHours: 12     # 后台 12 小时，比 App 短
+# 后台登录要读 afv_admin_user
+DataSource: root:123456@tcp(127.0.0.1:3306)/fusion_aigc?charset=utf8mb4&parseTime=true&loc=Asia%2FShanghai&time_zone=%27%2B08%3A00%27
 CopywritingRpc:
   Etcd: {Hosts: [127.0.0.1:2379], Key: copywriting.rpc}
   NonBlock: true

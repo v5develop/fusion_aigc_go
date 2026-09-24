@@ -57,12 +57,15 @@ deploy/scripts/e2e-digitalhuman.sh  # AI数字人端到端测试（73 项，执�
 deploy/scripts/e2e-note.sh          # AI图文笔记端到端测试（62 项，执行面走 mock；SKIP_MODEL=1 跳过真实模型）
 deploy/scripts/e2e-imagegen.sh      # 海报/长图/动作迁移/数字人口播端到端测试（96 项，执行面走 mock；会临时插入并清理模板素材；SKIP_MODEL=1 跳过 AI帮写）
 deploy/scripts/e2e-video.sh         # 探店视频/带货短剧/爆款视频复刻端到端测试（58 项，两步流程走 mock）
-deploy/scripts/e2e-login.sh         # 登录端到端测试（16 项，联盟走本地 mock-union）
+deploy/scripts/e2e-login.sh         # App 登录端到端测试（30 项，联盟走本地 mock-union）
+deploy/scripts/e2e-login-fusion.sh  # 建档交给现有 Java 服务那条路（9 项，自己起 mock-fusion 和一个临时网关）
+deploy/scripts/e2e-admin-login.sh   # 运营后台登录端到端测试（20 项，临时插账号跑完删，不碰真实账号）
 deploy/scripts/e2e-real.sh          # 真实链路回归：对着已部署环境每个模块真实跑一条（会产生费用，见脚本头部）
 make stop-all
 ```
 
-开发阶段身份走请求头：App 用 `X-User-Id`，后台用 `X-Admin-Id`；接入现有用户 / Admin 体系后替换中间件即可。
+身份：App 用联盟临时 token 换我们的令牌（见 `docs/api-app.md`），后台用现有账号 `afv_admin_user` 登录（见 `docs/api-admin.md`）。
+联调期 `Auth.Mode=dev` 时没带令牌仍认请求头 `X-User-Id` / `X-Admin-Id`，**上线必须改成 `token`**。
 `ai_tts_model_id` 这一行配置 `make db` 不会插，需在各环境手动加（见建表脚本头部注释）。
 
 ## AI数字人

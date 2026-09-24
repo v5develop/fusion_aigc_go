@@ -225,6 +225,6 @@ done
 
 echo
 if (( FAIL == 0 )); then green "== 全部通过：$OK 项，跳过 $SKIP 项"; else red "== 通过 $OK 项，失败 $FAIL 项，跳过 $SKIP 项"; fi
-gray "清理这次的测试数据：DELETE FROM afv_asset WHERE user_id=$USER_ID; 各业务表同理（user_id=$USER_ID）"
+gray "清理这次的测试数据：DELETE FROM afv_asset WHERE user_id=$USER_ID; 各业务表同理（user_id=${USER_ID}）"
 rm -rf "$TMP"
 (( FAIL == 0 ))

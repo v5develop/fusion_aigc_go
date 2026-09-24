@@ -45,6 +45,7 @@ load_env() {
   NOTE_PORT=${NOTE_PORT:-19203}; IMAGEGEN_PORT=${IMAGEGEN_PORT:-19204}; MOCK_PORT=${MOCK_PORT:-15055}
   MOCK_ENABLED=${MOCK_ENABLED:-1}; LOG_KEEP_DAYS=${LOG_KEEP_DAYS:-7}
   UNION_BASE_URL=${UNION_BASE_URL:-}; AUTH_MODE=${AUTH_MODE:-dev}; JWT_SECRET=${JWT_SECRET:-}
+  ADMIN_JWT_SECRET=${ADMIN_JWT_SECRET:-}
   FUSION_BASE_URL=${FUSION_BASE_URL:-}; FUSION_APP_KEY=${FUSION_APP_KEY:-}
   FUSION_APP_SECRET=${FUSION_APP_SECRET:-}; FUSION_KEY_VERSION=${FUSION_KEY_VERSION:-}
   if [[ $MOCK_ENABLED == 1 ]]; then
@@ -99,7 +100,7 @@ migrate() {
       V1.0.115__*) has_column afv_image_text_note shop_profile_id && done_=1 ;;
       V1.0.116__*) has_table afv_video_creation && done_=1 ;;
       V1.0.117__*) has_column afv_video_creation source_video_url && done_=1 ;;
-      *) die "不认识的迁移脚本 $name：请在 install.sh 的 migrate() 里补上它的判断条件" ;;
+      *) die "不认识的迁移脚本 ${name}：请在 install.sh 的 migrate() 里补上它的判断条件" ;;
     esac
     if [[ $done_ == 1 ]]; then
       echo "  - $name 已执行过，跳过"
@@ -124,7 +125,7 @@ check_db_config() {
     id=$(q "SELECT id FROM afv_ai_model WHERE code='qwen-audio-3.1-tts-flash' AND deleted=0 ORDER BY id LIMIT 1" || true)
     if [[ -n $id ]]; then
       q "INSERT INTO afv_system_config (config_key, config_value, remark) VALUES ('ai_tts_model_id', '$id', 'AI数字人配音使用的TTS模型ID')"
-      green "  ✓ 已补配置 ai_tts_model_id=$id（数字人配音模型）"
+      green "  ✓ 已补配置 ai_tts_model_id=${id}（数字人配音模型）"
     else
       yellow "  ! 缺少配音模型配置：数字人配音、音色试听不可用，其余功能正常。补法见部署文档「配音模型」一节"
     fi
@@ -145,23 +146,27 @@ check_ports() {
     fi
     [[ -z $owner ]] && continue
     if [[ $owner == *"${s:0:15}"* ]]; then continue; fi # 进程名最多显示 15 个字符
-    red "  ✗ 端口 $p（$s）已被占用：$owner"
+    red "  ✗ 端口 ${p}（${s}）已被占用：$owner"
     bad=1
   done
   [[ $bad == 0 ]] || die "请在 deploy.env 里换一个没被占用的端口后重试"
   green "  ✓ 端口都可用"
 }
 
-# ensure_jwt_secret 令牌签名密钥：没有就生成一串随机值写回 deploy.env（每个环境一份，升级时沿用）
-ensure_jwt_secret() {
-  [[ -n $JWT_SECRET ]] && return
-  JWT_SECRET=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')
-  if grep -q '^JWT_SECRET=' "$ENV_FILE"; then
-    sed -i.bak "s#^JWT_SECRET=.*#JWT_SECRET=$JWT_SECRET#" "$ENV_FILE" && rm -f "$ENV_FILE.bak"
+# ensure_secret 令牌签名密钥：没有就生成一串随机值写回 deploy.env（每个环境一份，升级时沿用）
+# App 与后台各一份，互相拿不过去。用 eval 取变量是为了兼容 bash 3.2（${!var} 在它上面不稳）。
+ensure_secret() {
+  local var=$1 val
+  eval "val=\${$var:-}"
+  [[ -n $val ]] && return
+  val=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')
+  eval "$var=\$val"
+  if grep -q "^$var=" "$ENV_FILE"; then
+    sed -i.bak "s#^$var=.*#$var=$val#" "$ENV_FILE" && rm -f "$ENV_FILE.bak"
   else
-    printf '\nJWT_SECRET=%s\n' "$JWT_SECRET" >> "$ENV_FILE"
+    printf '\n%s=%s\n' "$var" "$val" >> "$ENV_FILE"
   fi
-  green "  ✓ 已生成令牌签名密钥（写回 $ENV_FILE）"
+  green "  ✓ 已生成 ${var}，写回 ${ENV_FILE}"
 }
 
 # ---------- 服务 ----------
@@ -272,7 +277,7 @@ cmd_install() {
 
   step "2/6 检查数据库"
   find_mysql
-  q "SELECT 1" >/dev/null || die "连不上数据库 $DB_USER@$DB_HOST:$DB_PORT/$DB_NAME，检查 deploy.env 里的 DB_*"
+  q "SELECT 1" >/dev/null || die "连不上数据库 $DB_USER@$DB_HOST:$DB_PORT/${DB_NAME}，检查 deploy.env 里的 DB_*"
   green "  ✓ 已连接 $DB_HOST:$DB_PORT/$DB_NAME"
   check_db_config
 
@@ -280,7 +285,8 @@ cmd_install() {
   migrate
 
   step "4/6 安装程序与配置 → $INSTALL_DIR"
-  ensure_jwt_secret
+  ensure_secret JWT_SECRET
+  ensure_secret ADMIN_JWT_SECRET
   mkdir -p "$INSTALL_DIR"/{bin,etc,logs,run}
   all_stop # 升级：先停旧进程
   cp -f "$PKG"/bin/* "$INSTALL_DIR/bin/"
@@ -291,7 +297,8 @@ cmd_install() {
   local dsn="$DB_USER:$DB_PASS@tcp($DB_HOST:$DB_PORT)/$DB_NAME?charset=utf8mb4&parseTime=true&loc=Asia%2FShanghai&time_zone=%27%2B08%3A00%27"
   "$INSTALL_DIR/bin/mkconf" -src "$PKG/etc-dev" -out "$INSTALL_DIR/etc" -logs "$INSTALL_DIR/logs" \
     -dsn "$dsn" -aigc "$AIGC_ENDPOINT" -keep-days "$LOG_KEEP_DAYS" \
-    -jwt-secret "$JWT_SECRET" -auth-mode "$AUTH_MODE" -union "$UNION_BASE_URL" \
+    -jwt-secret "$JWT_SECRET" -admin-jwt-secret "$ADMIN_JWT_SECRET" \
+    -auth-mode "$AUTH_MODE" -union "$UNION_BASE_URL" \
     -fusion-url "$FUSION_BASE_URL" -fusion-key "$FUSION_APP_KEY" -fusion-secret "$FUSION_APP_SECRET" \
     -fusion-key-version "$FUSION_KEY_VERSION" \
     -ports "copywriting=$COPYWRITING_PORT,digitalhuman=$DIGITALHUMAN_PORT,note=$NOTE_PORT,imagegen=$IMAGEGEN_PORT,gateway=$GATEWAY_PORT,admin=$ADMIN_PORT"
@@ -309,7 +316,7 @@ cmd_install() {
   all_start
   for s in "${SERVICES[@]}"; do
     sleep 0.3
-    svc_active "$s" && green "  ✓ $s（端口 $(port_of "$s")）" || red "  ✗ $s 没起来，看 $INSTALL_DIR/logs/$s.out"
+    svc_active "$s" && green "  ✓ ${s}（端口 $(port_of "$s")）" || red "  ✗ $s 没起来，看 $INSTALL_DIR/logs/$s.out"
   done
 
   step "6/6 自检"
@@ -327,7 +334,7 @@ cmd_install() {
               http://<服务器公网IP>:$ADMIN_PORT/swagger   （运营后台）
   执行面：    $([[ $MOCK_ENABLED == 1 ]] && echo "mock（联调用，成品是示例图/示例视频）" || echo "$AIGC_ENDPOINT")
 
-  外网访问还要放行端口：宝塔「安全」页 + 云服务器安全组，放行 $GATEWAY_PORT、$ADMIN_PORT
+  外网访问还要放行端口：宝塔「安全」页 + 云服务器安全组，放行 ${GATEWAY_PORT}、$ADMIN_PORT
   （或者用宝塔建网站做反向代理，见部署文档）
 
   常用：bash $INSTALL_DIR/install.sh status | restart | logs gateway-api

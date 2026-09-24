@@ -9,7 +9,7 @@ info (
 	produces:                    "application/json"
 	wrapCodeMsg:                 true
 	bizCodeEnumDescription:      "0-成功<br>1000-服务异常，稍后重试<br>1001-参数错误，直接展示 msg<br>1002-未登录<br>1003-不存在或不属于当前用户<br>1005-状态冲突<br>1006-暂未开放 / 形象未生成完成<br>1007-未同意《AIGC功能使用约定》<br>1008-点数不足（计费未接）"
-	securityDefinitionsFromJson: `{"auth":{"type":"apiKey","in":"header","name":"X-Admin-Id","description":"管理员 ID（开发模式；接入后台登录后替换）"}}`
+	securityDefinitionsFromJson: `{"auth":{"type":"apiKey","in":"header","name":"Authorization","description":"Bearer <登录接口返回的 token>；联调也可改填 X-Admin-Id 请求头"}}`
 )
 
 type (
@@ -70,6 +70,51 @@ type (
 		Total int64         `json:"total"`
 	}
 )
+
+// ---------------- 登录（用现有后台账号 afv_admin_user）----------------
+type (
+	AdminLoginReq {
+		Username string `json:"username"`
+		Password string `json:"password"`
+		// ForwardedFor 仅用于记录 last_login_ip，前端不用管（网关/nginx 会带）
+		ForwardedFor string `header:"X-Forwarded-For,optional"`
+	}
+	AdminInfo {
+		Id       int64    `json:"id"`
+		Username string   `json:"username"`
+		RealName string   `json:"real_name"`
+		Roles    []string `json:"roles"` // 角色编码：super_admin / billing_admin / operator
+	}
+	AdminLoginResp {
+		Token     string    `json:"token"` // 之后所有接口带 Authorization: Bearer <token>
+		ExpiresAt int64     `json:"expires_at"` // 过期时间（unix 毫秒）
+		Admin     AdminInfo `json:"admin"`
+	}
+)
+
+@server (
+	prefix: /admin/v1
+	group:  auth
+	tags:   "登录"
+)
+service admin-api {
+	@doc "后台登录：用现有后台账号，连错 5 次锁 15 分钟"
+	@handler login
+	post /auth/login (AdminLoginReq) returns (AdminLoginResp)
+}
+
+@server (
+	prefix:     /admin/v1
+	middleware: AdminAuth
+	group:      auth
+	tags:       "登录"
+	authType:   auth
+)
+service admin-api {
+	@doc "当前登录的管理员"
+	@handler me
+	get /auth/me returns (AdminInfo)
+}
 
 @server (
 	prefix:     /admin/v1

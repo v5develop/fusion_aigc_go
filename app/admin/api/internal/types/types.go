@@ -3,6 +3,25 @@
 
 package types
 
+type AdminInfo struct {
+	Id       int64    `json:"id"`
+	Username string   `json:"username"`
+	RealName string   `json:"real_name"`
+	Roles    []string `json:"roles"` // 角色编码：super_admin / billing_admin / operator
+}
+
+type AdminLoginReq struct {
+	Username     string `json:"username"`
+	Password     string `json:"password"`
+	ForwardedFor string `header:"X-Forwarded-For,optional"`
+}
+
+type AdminLoginResp struct {
+	Token     string    `json:"token"`      // 之后所有接口带 Authorization: Bearer <token>
+	ExpiresAt int64     `json:"expires_at"` // 过期时间（unix 毫秒）
+	Admin     AdminInfo `json:"admin"`
+}
+
 type AdminVideoCreation struct {
 	Id            int64  `json:"id"`
 	UserId        int64  `json:"user_id"`

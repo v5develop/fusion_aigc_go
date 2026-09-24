@@ -6,6 +6,7 @@ package handler
 import (
 	"net/http"
 
+	auth "aigc-life/app/admin/api/internal/handler/auth"
 	copywriting "aigc-life/app/admin/api/internal/handler/copywriting"
 	digitalhuman "aigc-life/app/admin/api/internal/handler/digitalhuman"
 	imagegen "aigc-life/app/admin/api/internal/handler/imagegen"
@@ -16,6 +17,33 @@ import (
 )
 
 func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
+	server.AddRoutes(
+		[]rest.Route{
+			{
+				// 后台登录：用现有后台账号，连错 5 次锁 15 分钟
+				Method:  http.MethodPost,
+				Path:    "/auth/login",
+				Handler: auth.LoginHandler(serverCtx),
+			},
+		},
+		rest.WithPrefix("/admin/v1"),
+	)
+
+	server.AddRoutes(
+		rest.WithMiddlewares(
+			[]rest.Middleware{serverCtx.AdminAuth},
+			[]rest.Route{
+				{
+					// 当前登录的管理员
+					Method:  http.MethodGet,
+					Path:    "/auth/me",
+					Handler: auth.MeHandler(serverCtx),
+				},
+			}...,
+		),
+		rest.WithPrefix("/admin/v1"),
+	)
+
 	server.AddRoutes(
 		rest.WithMiddlewares(
 			[]rest.Middleware{serverCtx.AdminAuth},
