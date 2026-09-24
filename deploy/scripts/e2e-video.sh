@@ -151,7 +151,8 @@ echo "== 爆款视频复刻：表单配置"
 RO=$(api GET '/video-creations/options?kind=videoRemake')
 check "限制：50M / 180 秒" "$(jq -r '[.max_video_bytes,.max_video_seconds]|map(tostring)|join(",")' <<<"$RO")" "52428800,180"
 check "支持 6 种格式" "$(jq -r '.video_formats|join(",")' <<<"$RO")" "mp4,avi,mkv,mov,flv,wmv"
-check "链接解析未接入时不开放" "$(jq -r .link_enabled <<<"$RO")" false
+check "配了解析服务就开放链接入口" "$(jq -r .link_enabled <<<"$RO")" true
+check "剧情分析页能选模型和比例" "$(jq -r '[(.models|length),.default_model,(.sizes|length),(.default_size|length)]|map(tostring)|join(",")' <<<"$RO")" "2,doubao-seedance-2-0-260128,2,0"
 
 echo "== 爆款视频复刻：校验"
 check "没选来源被拒" "$(api_code POST /video-creations '{"kind":"videoRemake"}')" 1001
@@ -160,8 +161,30 @@ B=$(jq -nc --arg v "$M1" '{kind:"videoRemake",source:"upload",video_url:$v}')
 check "非视频格式被拒（png）" "$(api_code POST /video-creations "$B")" 1001
 B='{"kind":"videoRemake","source":"upload","video_url":"https://evil.example.com/a.mp4"}'
 check "外链视频被拒" "$(api_code POST /video-creations "$B")" 1001
-B='{"kind":"videoRemake","source":"link","link":"https://v.douyin.com/xxxx/"}'
-check "链接解析暂未开放" "$(api_code POST /video-creations "$B")" 1006
+B='{"kind":"videoRemake","source":"link","link":""}'
+check "链接为空被拒" "$(api_code POST /video-creations "$B")" 1001
+
+echo "== 链接复刻：解析服务（mock）→ 下载转存 → 70"
+link() { jq -nc --arg l "$1" '{kind:"videoRemake",source:"link",link:$l}'; }
+L1=$(api POST /video-creations "$(link '7.99 复制打开抖音 https://v.douyin.com/abc/ 看看这家店')" "$(uuidgen)")
+LID=$(jq -r .id <<<"$L1")
+check "解析中，来源是链接" "$(jq -r '[.status,.source]|join(",")' <<<"$L1")" "0,link"
+check "标题和封面从解析结果来（前端要的 title/cover_url）" \
+  "$(jq -r '[.title,(.cover_url|length>0)]|map(tostring)|join(",")' <<<"$L1")" "mock 作品标题,true"
+check "原链接存的是归一化后的" "$(jq -r .source_url <<<"$L1")" "https://www.douyin.com/video/7300000000000000000"
+# 直链几小时就过期，所以必须当场下下来转存到我们自己的桶
+check "视频已转存到我们的桶" "$(jq -r '.source_video_url|startswith("http://127.0.0.1:8888/files/aigc-life/video/")' <<<"$L1")" true
+B70=$(task_body "$(sql "SELECT plan_task_id FROM afv_video_creation WHERE id=$LID")")
+check "70 拿到的是转存后的地址，不是会过期的直链" \
+  "$(jq -r --arg u "$(jq -r .source_video_url <<<"$L1")" '.video_url == $u' <<<"$B70")" true
+
+echo "== 链接复刻：各种拒绝"
+check "平台不支持 / 文案里没链接" "$(api_code POST /video-creations "$(link 'notsupport 这段文案里没有链接')")" 1001
+check "图集作品没有视频" "$(api_code POST /video-creations "$(link 'https://xhs.link/nophoto')")" 1001
+check "B站音视频分离（会是哑片）" "$(api_code POST /video-creations "$(link 'https://b23.tv/mux')")" 1001
+check "超过 3 分钟" "$(api_code POST /video-creations "$(link 'https://v.douyin.com/long/')")" 1001
+check "超过 50M（边下边数，下到上限就断）" "$(api_code POST /video-creations "$(link 'https://v.douyin.com/huge/')")" 1001
+check "直链下不动" "$(api_code POST /video-creations "$(link 'https://v.douyin.com/down500/')")" 1000
 
 echo "== 爆款视频复刻：解析（mock 70）→ 复刻（mock 71）"
 V1=$(upload_video v1)
@@ -199,17 +222,17 @@ FID=$(api POST /video-creations "$B" "$(uuidgen)" | jq -r .id)
 F=$(poll "$FID" 1)
 check "构思失败有原因" "$(jq -r '[.status,.fail_reason]|map(tostring)|join(",")' <<<"$F")" "4,构思失败，请重试"
 check "失败后可以重新构思" "$(api POST "/video-creations/$FID/replan" '' | jq -r .status)" 0
-check "全部 5 条" "$(api GET /video-creations | jq .total)" 5
+check "全部 6 条" "$(api GET /video-creations | jq .total)" 6
 check "按 kind 筛：探店 2 条" "$(api GET '/video-creations?kind=exploreShop' | jq .total)" 2
 check "按 kind 筛：短剧 1 条" "$(api GET '/video-creations?kind=shortDrama' | jq .total)" 1
-check "按 kind 筛：视频复刻 2 条" "$(api GET '/video-creations?kind=videoRemake' | jq .total)" 2
+check "按 kind 筛：视频复刻 3 条（上传 2 + 链接 1）" "$(api GET '/video-creations?kind=videoRemake' | jq .total)" 3
 check "别人看不到" "$(curl -sS -H 'X-User-Id: 999999' "$GW/video-creations/$EID" | jq -r .code)" 1003
 api DELETE "/video-creations/$EID" > /dev/null
 check "删除后不可见" "$(api_code GET "/video-creations/$EID")" 1003
 check "删除时素材库同步删除" "$(sql "SELECT count(*) FROM afv_asset WHERE user_id=$USER_ID AND entry_code='exploreShop' AND deleted=0")" 0
 
 echo "== 运营后台"
-check "后台按用户查（已删的不算）" "$(curl -sS -H 'X-Admin-Id: 1' "$ADMIN/video-creations?user_id=$USER_ID" | jq '.data.total')" 4
+check "后台按用户查（已删的不算）" "$(curl -sS -H 'X-Admin-Id: 1' "$ADMIN/video-creations?user_id=$USER_ID" | jq '.data.total')" 5
 check "后台按 kind 查" "$(curl -sS -H 'X-Admin-Id: 1' "$ADMIN/video-creations?user_id=$USER_ID&kind=shortDrama" | jq '.data.total')" 1
 
 if [[ ${SKIP_MODEL:-0} != 1 ]]; then

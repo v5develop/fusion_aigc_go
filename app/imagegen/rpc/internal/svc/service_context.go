@@ -7,6 +7,7 @@ import (
 	"aigc-life/app/imagegen/rpc/internal/config"
 	"aigc-life/pkg/aigc"
 	"aigc-life/pkg/asset"
+	"aigc-life/pkg/linkparse"
 	"aigc-life/pkg/moderation"
 	"aigc-life/pkg/storage"
 
@@ -26,6 +27,7 @@ type ServiceContext struct {
 	Aigc            *aigc.Client
 	Asset           *asset.Writer
 	Storage         storage.Store
+	LinkParse       *linkparse.Client
 	Moderation      moderation.Checker
 }
 
@@ -43,6 +45,7 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		Aigc:            aigc.New(c.Aigc),
 		Asset:           asset.NewWriter(conn),
 		Storage:         storage.New(c.Storage, conn),
+		LinkParse:       linkparse.New(c.VideoRemake.LinkParse),
 		Moderation:      moderation.New(c.Moderation.Mode, shared.BlockWords),
 	}
 }

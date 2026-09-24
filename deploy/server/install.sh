@@ -45,7 +45,7 @@ load_env() {
   NOTE_PORT=${NOTE_PORT:-19203}; IMAGEGEN_PORT=${IMAGEGEN_PORT:-19204}; MOCK_PORT=${MOCK_PORT:-15055}
   MOCK_ENABLED=${MOCK_ENABLED:-1}; LOG_KEEP_DAYS=${LOG_KEEP_DAYS:-7}
   UNION_BASE_URL=${UNION_BASE_URL:-}; AUTH_MODE=${AUTH_MODE:-dev}; JWT_SECRET=${JWT_SECRET:-}
-  ADMIN_JWT_SECRET=${ADMIN_JWT_SECRET:-}
+  ADMIN_JWT_SECRET=${ADMIN_JWT_SECRET:-}; LINK_PARSE_URL=${LINK_PARSE_URL:-}
   FUSION_BASE_URL=${FUSION_BASE_URL:-}; FUSION_APP_KEY=${FUSION_APP_KEY:-}
   FUSION_APP_SECRET=${FUSION_APP_SECRET:-}; FUSION_KEY_VERSION=${FUSION_KEY_VERSION:-}
   if [[ $MOCK_ENABLED == 1 ]]; then
@@ -299,6 +299,7 @@ cmd_install() {
     -dsn "$dsn" -aigc "$AIGC_ENDPOINT" -keep-days "$LOG_KEEP_DAYS" \
     -jwt-secret "$JWT_SECRET" -admin-jwt-secret "$ADMIN_JWT_SECRET" \
     -auth-mode "$AUTH_MODE" -union "$UNION_BASE_URL" \
+    -link-parse "$LINK_PARSE_URL" \
     -fusion-url "$FUSION_BASE_URL" -fusion-key "$FUSION_APP_KEY" -fusion-secret "$FUSION_APP_SECRET" \
     -fusion-key-version "$FUSION_KEY_VERSION" \
     -ports "copywriting=$COPYWRITING_PORT,digitalhuman=$DIGITALHUMAN_PORT,note=$NOTE_PORT,imagegen=$IMAGEGEN_PORT,gateway=$GATEWAY_PORT,admin=$ADMIN_PORT"

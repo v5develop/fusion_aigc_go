@@ -1,6 +1,7 @@
 package logic
 
 import (
+	"aigc-life/pkg/linkparse"
 	"context"
 
 	"aigc-life/app/imagegen/rpc/internal/svc"
@@ -160,7 +161,7 @@ func (l *CreateVideoLogic) CreateVideo(in *pb.CreateVideoReq) (*pb.VideoInfo, er
 
 // createRemake 爆款视频复刻：拿到一个能下载的视频地址，交给执行面 70 解析。
 //
-// 两种来源：上传本地视频（直传后的地址，我们自己的桶）、粘贴分享链接（需链接解析服务，未接入时不开放）。
+// 两种来源：上传本地视频（直传后的地址，我们自己的桶）、粘贴分享链接（走解析服务，没配地址时不开放）。
 // 提交前先探一下体积与格式，超限直接拒，不让用户白等一场解析（时长 HEAD 拿不到，等 70 返回再判）。
 func (l *CreateVideoLogic) createRemake(in *pb.CreateVideoReq) (*pb.VideoInfo, error) {
 	cfg := &l.svcCtx.Config.VideoRemake
@@ -181,19 +182,21 @@ func (l *CreateVideoLogic) createRemake(in *pb.CreateVideoReq) (*pb.VideoInfo, e
 			Source: nullStr(model.SourceUpload), SourceVideoUrl: nullStr(videoURL),
 		}
 	case model.SourceLink:
-		if strings.TrimSpace(in.Link) == "" {
+		link := strings.TrimSpace(in.Link)
+		if link == "" {
 			return nil, xerr.Param("请粘贴视频链接")
 		}
-		// TODO 链接解析：等同事提供接口（抖音/快手/小红书/bilibili 分享链接 → 可下载地址 + 标题 + 封面），
-		// 地址填在配置 VideoRemake.LinkResolver，留空时这个入口不开放。
-		//
-		// 接口给过来之后，这里补三步（产品已确认的做法）：
-		//  1. 调同事的接口解析链接，拿到下载地址、标题、封面；
-		//  2. ProbeVideo 探体积与格式，超 50M 或格式不支持直接拒（不下载）；
-		//  3. 边下边数下载：到 50M 就断连接删文件报错；下完转存到我们的桶（临时目录，1 小时后清理），
-		//     再把地址交给执行面 70。
-		// 落库时 source_url 存用户粘贴的原链接，source_video_url 存转存后的地址，title / cover_url 存解析返回的。
-		return nil, xerr.New(xerr.NotReady, "链接解析暂未开放，请先用「上传视频」")
+		if !l.svcCtx.LinkParse.Enabled() {
+			return nil, xerr.New(xerr.NotReady, "链接解析暂未开放，请先用「上传视频」")
+		}
+		v, err := l.resolveLink(in.UserId, link)
+		if err != nil {
+			return nil, err
+		}
+		row = &model.AfvVideoCreation{
+			Source: nullStr(model.SourceLink), SourceUrl: nullStr(orDefault(v.SourceURL, link)),
+			SourceVideoUrl: nullStr(v.VideoURL), Title: nullStr(v.Title), CoverUrl: nullStr(v.CoverURL),
+		}
 	default:
 		return nil, xerr.Param("请选择分析方式")
 	}
@@ -226,4 +229,95 @@ func (l *CreateVideoLogic) createRemake(in *pb.CreateVideoReq) (*pb.VideoInfo, e
 		return nil, err
 	}
 	return toVideoInfo(cur), nil
+}
+
+// linkVideo 解析并转存后的结果，存的都是我们自己桶里的地址。
+type linkVideo struct {
+	VideoURL  string
+	CoverURL  string
+	Title     string
+	SourceURL string
+}
+
+// resolveLink 分享链接 → 我们桶里的视频地址。
+//
+// 解析服务给的直链**带签名、几小时就过期**，所以必须当场下下来转存，
+// 不能把直链直接丢给执行面——等它排到队可能已经 403 了，用户还要回看原片。
+// 下载是有上限的（和上传同一个 50M），超了立刻断，不让一个几百兆的视频把内存撑爆。
+func (l *CreateVideoLogic) resolveLink(userID int64, link string) (*linkVideo, error) {
+	cfg := &l.svcCtx.Config.VideoRemake
+	lim := videoLimits(cfg)
+
+	v, err := l.svcCtx.LinkParse.Parse(l.ctx, link)
+	switch {
+	case errors.Is(err, linkparse.ErrUnsupported):
+		return nil, xerr.Param("这个链接解析不了，目前支持抖音、快手、小红书、B站的分享链接")
+	case errors.Is(err, linkparse.ErrNoVideo):
+		return nil, xerr.Param("这个作品里没有视频，换一个再试")
+	case err != nil:
+		l.Errorf("parse link %q: %v", link, err)
+		return nil, xerr.New(xerr.ServerError, "链接解析失败，请稍后重试")
+	}
+	// 时长这里能拿到就先判，省得下完 50M 才发现超时长（拿不到的等 70 返回再判）
+	if cfg.MaxVideoSeconds > 0 && int(v.Duration) > cfg.MaxVideoSeconds {
+		return nil, xerr.Param(lim.LimitMsg())
+	}
+
+	data, ct, err := linkparse.Download(l.ctx, http.DefaultClient, v, cfg.MaxVideoBytes)
+	switch {
+	case errors.Is(err, linkparse.ErrTooLarge):
+		return nil, xerr.Param(lim.LimitMsg())
+	case err != nil:
+		l.Errorf("download %s: %v", v.URL, err)
+		return nil, xerr.New(xerr.ServerError, "视频下载失败，请稍后重试")
+	}
+	key := storage.ObjectKey(l.svcCtx.Config.Storage.Prefix, "video", userID, extOf(ct))
+	videoURL, err := l.svcCtx.Storage.Put(l.ctx, key, ct, data)
+	if err != nil {
+		l.Errorf("put video: %v", err)
+		return nil, xerr.New(xerr.ServerError, "视频转存失败，请稍后重试")
+	}
+	return &linkVideo{
+		VideoURL: videoURL, Title: v.Title, SourceURL: v.SourceURL,
+		CoverURL: l.saveCover(userID, v),
+	}, nil
+}
+
+// saveCover 封面也转存一份（也是会过期的直链）。封面没了不影响生成，失败就不要，别挡着用户。
+func (l *CreateVideoLogic) saveCover(userID int64, v *linkparse.Video) string {
+	if v.CoverURL == "" {
+		return ""
+	}
+	cover := &linkparse.Video{URL: v.CoverURL, UserAgent: v.UserAgent}
+	data, _, err := linkparse.Download(l.ctx, http.DefaultClient, cover, maxCoverBytes)
+	if err != nil {
+		l.Infof("下载封面失败，跳过: %v", err)
+		return ""
+	}
+	key := storage.ObjectKey(l.svcCtx.Config.Storage.Prefix, "image", userID, "jpg")
+	url, err := l.svcCtx.Storage.Put(l.ctx, key, "image/jpeg", data)
+	if err != nil {
+		l.Infof("转存封面失败，跳过: %v", err)
+		return ""
+	}
+	return url
+}
+
+// extOf 按 content-type 取扩展名，认不出就当 mp4（四个平台的视频作品都是 mp4）。
+func extOf(contentType string) string {
+	switch contentType {
+	case "video/quicktime":
+		return "mov"
+	case "video/x-msvideo":
+		return "avi"
+	default:
+		return "mp4"
+	}
+}
+
+func orDefault(s, fallback string) string {
+	if strings.TrimSpace(s) == "" {
+		return fallback
+	}
+	return s
 }

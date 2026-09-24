@@ -50,6 +50,7 @@ func main() {
 	adminJwtSecret := flag.String("admin-jwt-secret", "", "后台令牌签名密钥（只写进后台配置，与 App 分开）")
 	authMode := flag.String("auth-mode", "", "网关鉴权模式：dev / token")
 	union := flag.String("union", "", "联盟用户服务地址（登录用）")
+	linkParse := flag.String("link-parse", "", "分享链接解析服务地址（爆款视频复刻的链接入口）")
 	fusionURL := flag.String("fusion-url", "", "现有 Java 服务地址（建档交给它；留空则我们自己写表）")
 	fusionKey := flag.String("fusion-key", "", "Java 服务分配的 appKey")
 	fusionSecret := flag.String("fusion-secret", "", "Java 服务分配的 appSecret")
@@ -83,7 +84,7 @@ func main() {
 		root := doc.Content[0]
 		e := editor{name: name, ports: portOf, dsn: *dsn, aigc: *aigc, logDir: filepath.Join(*logs, name), keepDays: *keepDays,
 			jwtSecret: *jwtSecret, adminJwtSecret: *adminJwtSecret, authMode: *authMode, union: *union,
-			fusionURL: *fusionURL, fusionKey: *fusionKey, fusionSecret: *fusionSecret, fusionKeyVer: *fusionKeyVer}
+			linkParse: *linkParse, fusionURL: *fusionURL, fusionKey: *fusionKey, fusionSecret: *fusionSecret, fusionKeyVer: *fusionKeyVer}
 		if err := e.apply(root); err != nil {
 			log.Fatalf("%s: %v", file, err)
 		}
@@ -119,6 +120,7 @@ type editor struct {
 	adminJwtSecret string
 	authMode       string
 	union          string
+	linkParse      string
 	fusionURL      string
 	fusionKey      string
 	fusionSecret   string
@@ -165,7 +167,9 @@ func (e editor) apply(root *yaml.Node) error {
 			set(get(a, "Jwt"), "Secret", scalar(secret))
 		}
 	}
-	if u := get(root, "Union"); u != nil && e.union != "" {
+	// 下面两个地址：本地模板指向 mock，服务器上**没配就得清空**，
+	// 否则会留着 127.0.0.1 的 mock 地址，表现成「接口在但一直失败」，比直接说「未开放」难查得多。
+	if u := get(root, "Union"); u != nil {
 		set(u, "BaseURL", scalar(e.union))
 	}
 	// 建档交给现有 Java 服务；三样齐了才写，缺一样就走我们自己写表那条路
@@ -180,6 +184,12 @@ func (e editor) apply(root *yaml.Node) error {
 			set(f, "KeyVersion", quoted(e.fusionKeyVer))
 		}
 		set(root, "Fusion", f)
+	}
+	// 爆款视频复刻的链接入口：配了才开放，没配清空（同上）
+	if vr := get(root, "VideoRemake"); vr != nil {
+		if lp := get(vr, "LinkParse"); lp != nil {
+			set(lp, "BaseURL", scalar(e.linkParse))
+		}
 	}
 	if s := get(root, "Storage"); s != nil {
 		set(s, "Mode", scalar("oss")) // 线上必须 oss：执行面要能访问、前端要直传

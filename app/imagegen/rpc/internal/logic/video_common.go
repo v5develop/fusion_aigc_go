@@ -29,6 +29,9 @@ var videoModels = []*pb.Option{
 // 给足余量，只拦明显异常的输入。
 const maxRemakePromptLen = 20000
 
+// maxCoverBytes 封面图的下载上限，封面就是张缩略图，2M 绰绰有余
+const maxCoverBytes = 2 << 20
+
 // videoDurations 视频时长（秒）；videoSizes 视频比例
 var (
 	videoDurations = []int32{15, 30}

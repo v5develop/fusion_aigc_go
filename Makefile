@@ -47,6 +47,7 @@ build:
 	go build -o bin/admin-api        ./app/admin/api
 	go build -o bin/mock-aigc        ./tools/mock-aigc
 	go build -o bin/mock-union       ./tools/mock-union
+	go build -o bin/mock-linkparse   ./tools/mock-linkparse
 
 test:
 	go test ./...
@@ -88,6 +89,7 @@ run-all: build stop-all
 	@mkdir -p logs
 	nohup bin/mock-aigc        -addr :5055                           > logs/mock-aigc.log 2>&1 &
 	nohup bin/mock-union       -addr :5056                           > logs/mock-union.log 2>&1 &
+	nohup bin/mock-linkparse   -addr :5058                           > logs/mock-linkparse.log 2>&1 &
 	nohup bin/copywriting-rpc  -f deploy/etc/copywriting-rpc.yaml  > logs/copywriting-rpc.log 2>&1 &
 	nohup bin/digitalhuman-rpc -f deploy/etc/digitalhuman-rpc.yaml > logs/digitalhuman-rpc.log 2>&1 &
 	nohup bin/note-rpc         -f deploy/etc/note-rpc.yaml         > logs/note-rpc.log 2>&1 &
@@ -96,7 +98,7 @@ run-all: build stop-all
 	nohup bin/admin-api        -f deploy/etc/admin-api.yaml        > logs/admin-api.log 2>&1 &
 	@echo "started, logs in ./logs"
 
-PROCS := bin/(copywriting-rpc|digitalhuman-rpc|note-rpc|imagegen-rpc|gateway-api|admin-api|mock-aigc|mock-union)
+PROCS := bin/(copywriting-rpc|digitalhuman-rpc|note-rpc|imagegen-rpc|gateway-api|admin-api|mock-aigc|mock-union|mock-linkparse)
 
 # 等待优雅退出完成，避免新进程启动时端口仍被占用
 stop-all:
