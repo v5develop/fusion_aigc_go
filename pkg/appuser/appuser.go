@@ -250,6 +250,12 @@ func (m *Model) builtinAppKey(ctx context.Context) string {
 // syncProfile 每次登录把联盟那边的资料同步过来，但**空值不覆盖**：
 // 上游没设头像、昵称是很常见的，无条件写会把库里已有的资料抹成空。
 // 状态只收紧不放开：联盟说禁用就禁用，联盟说正常不动本地（本地可能是运营手工禁的）。
+//
+// **只同步身份资料，资产一律不碰**：点数（afv_points_account / afv_points_batch）和
+// 创作权益（afv_app_user_feature）的真相在我们库里，联盟那边根本不存——它 App 上显示余额
+// 也是回头查我们。发点数只有一条合法路径：对方用签名调 /api/v1/union/point-recharges，
+// 带 rechargeId 幂等键。哪天他们在用户信息里加了 points 之类的字段，这里也**不要**跟着写，
+// 否则等于凭对方一句话发钱。
 func (m *Model) syncProfile(ctx context.Context, id int64, p Profile) error {
 	set := make([]string, 0, 10)
 	args := make([]any, 0, 12)

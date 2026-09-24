@@ -46,6 +46,10 @@ func New(c Conf) *Client {
 func (c *Client) Enabled() bool { return strings.TrimSpace(c.conf.BaseURL) != "" }
 
 // User 联盟返回的用户信息。Phone 是脱敏的（如 130****7881），拿不到真实号码。
+//
+// 对方现在返回的就是这 12 个字段，**没有点数、权益之类的资产字段**。
+// 以后他们加了字段，这里解析时会自动忽略；真要用也只能当展示值，
+// 不能拿它去改点数或权益（见 appuser.syncProfile 的说明）。
 type User struct {
 	UserID         json.Number `json:"userId"` // 联盟用户 ID，很大，用字符串存
 	Phone          string      `json:"phone"`
