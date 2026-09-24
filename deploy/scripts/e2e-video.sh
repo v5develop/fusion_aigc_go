@@ -172,12 +172,18 @@ check "解析中" "$(jq -r '[.status,.source]|join(",")' <<<"$R1")" "0,upload"
 B70=$(task_body "$(sql "SELECT plan_task_id FROM afv_video_creation WHERE id=$RID2")")
 check "70 入参：video_url" "$(jq -c '[.task_type,(.video_url|length>0)]' <<<"$B70")" '[70,true]'
 R1=$(poll "$RID2" 1)
-check "解析完成，拿到剧情与原片时长" "$(jq -r '[.status,(.script|fromjson|startswith("mock 剧情分析")),.duration]|map(tostring)|join(",")' <<<"$R1")" "1,true,15"
-api POST "/video-creations/$RID2/generate" '' > /dev/null
+# 复刻的 script 是可直接展示的文本（不再包一层 JSON 字符串）
+check "解析完成，拿到剧情与原片时长" "$(jq -r '[.status,(.script|startswith("mock 剧情分析")),.duration]|map(tostring)|join(",")' <<<"$R1")" "1,true,15"
+# 剧情分析页可以改提示词、换档位和比例，改过的要真的用上
+B=$(jq -nc '{prompt:"我改过的剧情：三个分镜，突出门店招牌", model:"lite", size:"16:9"}')
+api POST "/video-creations/$RID2/generate" "$B" > /dev/null
 R1=$(poll "$RID2" 3)
 check "复刻完成，有成片" "$(jq -r '[.status,(.video_url|length>0)]|map(tostring)|join(",")' <<<"$R1")" 3,true
 B71=$(task_body "$(sql "SELECT gen_task_id FROM afv_video_creation WHERE id=$RID2")")
-check "71 入参：剧情文本 + 原片时长" "$(jq -c '[.task_type,(.script|length>0),.duration]' <<<"$B71")" '[71,true,15]'
+check "71 入参：用的是改过的剧情、档位与比例" \
+  "$(jq -c '[.task_type,(.script|startswith("我改过的剧情")),.duration,.model,.aspectRatio]' <<<"$B71")" \
+  '[71,true,15,"lite","16:9"]'
+check "改过的内容落了库" "$(api GET "/video-creations/$RID2" | jq -r '[(.script|startswith("我改过的剧情")),.model,.size]|map(tostring)|join(",")')" "true,lite,16:9"
 check "成品进素材库（视频复刻分类）" "$(sql "SELECT CONCAT_WS('|',type,entry_code) FROM afv_asset WHERE user_id=$USER_ID AND entry_code='videoRemake'")" "video|videoRemake"
 
 echo "== 爆款视频复刻：超过 3 分钟的原片"

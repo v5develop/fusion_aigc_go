@@ -50,6 +50,8 @@ type (
 		FinishParse(ctx context.Context, id int64, script string, duration int64) (bool, error)
 		// StartGenerate 用户确认剧本后：记下出片任务号，转「生成中」
 		StartGenerate(ctx context.Context, id int64, genTaskID string) (bool, error)
+		// UpdateRemakeSettings 视频复刻专用：出片前把用户改过的剧情 / 档位 / 比例落库
+		UpdateRemakeSettings(ctx context.Context, id int64, script, model, size string) error
 		// Replan 重新构思：换一个出剧本任务号，清掉旧剧本，转回「构思中」
 		Replan(ctx context.Context, id int64, planTaskID string) (bool, error)
 		// FinishGenerate 出片结束（成功或失败）
@@ -145,6 +147,12 @@ func (m *customAfvVideoCreationModel) FinishParse(ctx context.Context, id int64,
 func (m *customAfvVideoCreationModel) StartGenerate(ctx context.Context, id int64, genTaskID string) (bool, error) {
 	q := fmt.Sprintf("UPDATE %s SET `gen_task_id` = ?, `status` = ?, `fail_reason` = NULL WHERE `id` = ? AND `status` IN (?, ?)", m.table)
 	return affected(m.conn.ExecCtx(ctx, q, nullString(genTaskID), VideoGenerating, id, VideoPlanned, VideoFailed))
+}
+
+func (m *customAfvVideoCreationModel) UpdateRemakeSettings(ctx context.Context, id int64, script, mdl, size string) error {
+	q := fmt.Sprintf("UPDATE %s SET `plan_script` = ?, `model` = ?, `size` = ? WHERE `id` = ? AND `deleted` = 0", m.table)
+	_, err := m.conn.ExecCtx(ctx, q, nullString(script), mdl, size, id)
+	return err
 }
 
 func (m *customAfvVideoCreationModel) Replan(ctx context.Context, id int64, planTaskID string) (bool, error) {

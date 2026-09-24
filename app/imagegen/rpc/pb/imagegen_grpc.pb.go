@@ -66,8 +66,8 @@ type ImageGenClient interface {
 	GetVideo(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*VideoInfo, error)
 	// ReplanVideo 规划剧本页的「重新生成」
 	ReplanVideo(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*VideoInfo, error)
-	// GenerateVideo 确认剧本，出成片（73 / 88）
-	GenerateVideo(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*VideoInfo, error)
+	// GenerateVideo 确认剧本，出成片（73 / 88 / 视频复刻 71）
+	GenerateVideo(ctx context.Context, in *GenerateVideoReq, opts ...grpc.CallOption) (*VideoInfo, error)
 	ListVideos(ctx context.Context, in *VideoListReq, opts ...grpc.CallOption) (*VideoList, error)
 	DeleteVideo(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*Empty, error)
 	// ---- 运营后台 ----
@@ -213,7 +213,7 @@ func (c *imageGenClient) ReplanVideo(ctx context.Context, in *IdUserReq, opts ..
 	return out, nil
 }
 
-func (c *imageGenClient) GenerateVideo(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*VideoInfo, error) {
+func (c *imageGenClient) GenerateVideo(ctx context.Context, in *GenerateVideoReq, opts ...grpc.CallOption) (*VideoInfo, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(VideoInfo)
 	err := c.cc.Invoke(ctx, ImageGen_GenerateVideo_FullMethodName, in, out, cOpts...)
@@ -290,8 +290,8 @@ type ImageGenServer interface {
 	GetVideo(context.Context, *IdUserReq) (*VideoInfo, error)
 	// ReplanVideo 规划剧本页的「重新生成」
 	ReplanVideo(context.Context, *IdUserReq) (*VideoInfo, error)
-	// GenerateVideo 确认剧本，出成片（73 / 88）
-	GenerateVideo(context.Context, *IdUserReq) (*VideoInfo, error)
+	// GenerateVideo 确认剧本，出成片（73 / 88 / 视频复刻 71）
+	GenerateVideo(context.Context, *GenerateVideoReq) (*VideoInfo, error)
 	ListVideos(context.Context, *VideoListReq) (*VideoList, error)
 	DeleteVideo(context.Context, *IdUserReq) (*Empty, error)
 	// ---- 运营后台 ----
@@ -346,7 +346,7 @@ func (UnimplementedImageGenServer) GetVideo(context.Context, *IdUserReq) (*Video
 func (UnimplementedImageGenServer) ReplanVideo(context.Context, *IdUserReq) (*VideoInfo, error) {
 	return nil, status.Error(codes.Unimplemented, "method ReplanVideo not implemented")
 }
-func (UnimplementedImageGenServer) GenerateVideo(context.Context, *IdUserReq) (*VideoInfo, error) {
+func (UnimplementedImageGenServer) GenerateVideo(context.Context, *GenerateVideoReq) (*VideoInfo, error) {
 	return nil, status.Error(codes.Unimplemented, "method GenerateVideo not implemented")
 }
 func (UnimplementedImageGenServer) ListVideos(context.Context, *VideoListReq) (*VideoList, error) {
@@ -617,7 +617,7 @@ func _ImageGen_ReplanVideo_Handler(srv interface{}, ctx context.Context, dec fun
 }
 
 func _ImageGen_GenerateVideo_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(IdUserReq)
+	in := new(GenerateVideoReq)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -629,7 +629,7 @@ func _ImageGen_GenerateVideo_Handler(srv interface{}, ctx context.Context, dec f
 		FullMethod: ImageGen_GenerateVideo_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ImageGenServer).GenerateVideo(ctx, req.(*IdUserReq))
+		return srv.(ImageGenServer).GenerateVideo(ctx, req.(*GenerateVideoReq))
 	}
 	return interceptor(ctx, in, info, handler)
 }

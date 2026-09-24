@@ -32,6 +32,9 @@ func (l *VideoOptionsLogic) VideoOptions(in *pb.KindReq) (*pb.VideoOptionsResp, 
 		return &pb.VideoOptionsResp{
 			MaxVideoBytes: lim.MaxBytes, MaxVideoSeconds: int32(lim.MaxSeconds),
 			VideoFormats: lim.Formats, LinkEnabled: c.LinkResolver != "",
+			// 剧情分析页的「生成设置」：改过的值在 generate 时回传
+			Models: remakeModels, DefaultModel: remakeModels[0].Code,
+			Sizes: videoSizes, // 不选就跟原片，所以没有 default_size
 		}, nil
 	}
 	cfg, err := videoKindConf(l.svcCtx, in.Kind)

@@ -52,6 +52,8 @@ func (l *OptionsLogic) Options(in *pb.KindReq) (*pb.OptionsResp, error) {
 		resp.Sizes = []*pb.Option{{Code: cfg.DefaultSize, Label: cfg.DefaultSize}}
 		return resp, nil
 	}
+	// 海报：档位由后端下发（前端不写死）；长图没有 model 参数，上面已 return
+	resp.Models, resp.DefaultModel = posterModels, cfg.Model
 	resp.Sizes, resp.PosterStyles = posterSizes, posterStyles
 	// 海报类型来自模板筛选维度字典，运营在现有后台维护
 	opts, err := l.svcCtx.Shared.ListFilterOptions(l.ctx, cfg.BizType, posterTypeFilter)

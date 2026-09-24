@@ -75,6 +75,10 @@ func (l *GenerateLogic) Generate(in *pb.GenerateReq) (*pb.CopywritingInfo, error
 	if parts.TargetWords <= 0 {
 		parts.TargetWords = cfg.DefaultWords
 	}
+	// 自定义字数给个范围：太小模型写不出东西，太大会超时且没人看
+	if parts.TargetWords < cfg.MinWords || parts.TargetWords > cfg.MaxWords {
+		return nil, xerr.Newf(xerr.ParamError, "字数请填 %d–%d", cfg.MinWords, cfg.MaxWords)
+	}
 	// 关联的店铺档案拼进提示词（选填；档案不存在或已删就当没选）
 	parts.ShopInfo = shopProfileTextOf(l.ctx, l.svcCtx, in.ShopProfileId, in.UserId)
 

@@ -36,7 +36,8 @@ func NewUploadLogic(ctx context.Context, svcCtx *svc.ServiceContext) *UploadLogi
 // 这个代传接口只在本地开发用（线上前端直传 OSS），所以这里只要够联调即可。
 var (
 	imageExt = map[string]string{"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}
-	videoExt = map[string]string{"video/mp4": "mp4", "video/quicktime": "mov", "video/avi": "avi", "video/x-msvideo": "avi"}
+	videoExt = map[string]string{"video/mp4": "mp4", "video/quicktime": "mov", "video/avi": "avi",
+		"video/x-msvideo": "avi", "video/x-matroska": "mkv", "video/x-flv": "flv", "video/x-ms-wmv": "wmv"}
 )
 
 func (l *UploadLogic) Upload(r *http.Request) (resp *types.UploadResp, err error) {

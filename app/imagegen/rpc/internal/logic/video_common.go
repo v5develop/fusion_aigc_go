@@ -25,6 +25,10 @@ var videoModels = []*pb.Option{
 	{Code: "lite", Label: "XQ Video 1.0 Lite"},
 }
 
+// maxRemakePromptLen 视频复刻里用户可改的剧情文本上限。70 解析出来的本身就很长（几千字），
+// 给足余量，只拦明显异常的输入。
+const maxRemakePromptLen = 20000
+
 // videoDurations 视频时长（秒）；videoSizes 视频比例
 var (
 	videoDurations = []int32{15, 30}
@@ -55,12 +59,28 @@ func toVideoInfo(c *model.AfvVideoCreation) *pb.VideoInfo {
 		Id: c.Id, UserId: c.UserId, Kind: c.Kind, UserText: c.UserText.String,
 		SellingPoints: c.SellingPoints.String, ShopProfileId: c.ShopProfileId.Int64,
 		CharUrl: c.CharUrl.String, Env1Url: c.Env1Url.String, Env2Url: c.Env2Url.String, PropUrl: c.PropUrl.String,
-		Duration: int32(c.Duration), Size: c.Size, Model: c.Model, Script: c.PlanScript.String,
+		Duration: int32(c.Duration), Size: c.Size, Model: c.Model, Script: scriptForAPI(c),
 		VideoUrl: c.VideoUrl.String, Status: int32(c.Status), FailReason: c.FailReason.String,
 		Source: c.Source.String, SourceUrl: c.SourceUrl.String, SourceVideoUrl: c.SourceVideoUrl.String,
 		Title: c.Title.String, CoverUrl: c.CoverUrl.String,
 		CreateTime: c.CreateTime.UnixMilli(),
 	}
+}
+
+// scriptForAPI 对外输出的剧本。
+//
+// 探店 / 短剧是结构化剧本（JSON 对象，含 scenes），原样返回；
+// 视频复刻存的是 70 解析出来的**一段文本**，为了塞进 json 列才包了一层 JSON 字符串——
+// 这里把那层剥掉，前端直接拿到可读文本，不用先 parse 出一个字符串再渲染。
+func scriptForAPI(c *model.AfvVideoCreation) string {
+	if c.Kind != model.KindVideoRemake || !c.PlanScript.Valid {
+		return c.PlanScript.String
+	}
+	var text string
+	if err := json.Unmarshal([]byte(c.PlanScript.String), &text); err != nil {
+		return c.PlanScript.String // 解不出来就原样给，总比空着强
+	}
+	return text
 }
 
 func findOwnedVideo(ctx context.Context, svcCtx *svc.ServiceContext, id, userID int64) (*model.AfvVideoCreation, error) {
@@ -113,14 +133,17 @@ func planTask(c *model.AfvVideoCreation, shopProfile string) aigc.Task {
 	}
 }
 
-// remakeTask 视频复刻第二步：把 70 解析出的剧情文本交给 71。
-// 不传 model，用执行面默认（doubao-seedance-2-0）；不传 aspectRatio，让成片跟原片走。
+// remakeTask 视频复刻第二步：把剧情文本交给 71。
+// model / aspectRatio 是用户在剧情分析页选的，没选就留空用执行面默认（成片跟原片走）。
 func remakeTask(c *model.AfvVideoCreation) (aigc.Task, error) {
 	var text string
 	if err := json.Unmarshal([]byte(c.PlanScript.String), &text); err != nil {
 		return nil, xerr.New(xerr.ServerError, "剧情内容异常，请重新解析")
 	}
-	return aigc.VideoRemake{Script: text, Duration: int(c.Duration)}, nil
+	return aigc.VideoRemake{
+		Script: text, Duration: int(c.Duration),
+		AspectRatio: c.Size, Model: c.Model,
+	}, nil
 }
 
 // genTask 第二步：把剧本原样回传出片（探店 73 / 短剧 88）。

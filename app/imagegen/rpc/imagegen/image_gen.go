@@ -19,6 +19,7 @@ type (
 	CreateReq            = pb.CreateReq
 	CreateVideoReq       = pb.CreateVideoReq
 	Empty                = pb.Empty
+	GenerateVideoReq     = pb.GenerateVideoReq
 	IdUserReq            = pb.IdUserReq
 	ImageInfo            = pb.ImageInfo
 	ImageList            = pb.ImageList
@@ -56,8 +57,8 @@ type (
 		GetVideo(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*VideoInfo, error)
 		// ReplanVideo 规划剧本页的「重新生成」
 		ReplanVideo(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*VideoInfo, error)
-		// GenerateVideo 确认剧本，出成片（73 / 88）
-		GenerateVideo(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*VideoInfo, error)
+		// GenerateVideo 确认剧本，出成片（73 / 88 / 视频复刻 71）
+		GenerateVideo(ctx context.Context, in *GenerateVideoReq, opts ...grpc.CallOption) (*VideoInfo, error)
 		ListVideos(ctx context.Context, in *VideoListReq, opts ...grpc.CallOption) (*VideoList, error)
 		DeleteVideo(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*Empty, error)
 		// ---- 运营后台 ----
@@ -148,8 +149,8 @@ func (m *defaultImageGen) ReplanVideo(ctx context.Context, in *IdUserReq, opts .
 	return client.ReplanVideo(ctx, in, opts...)
 }
 
-// GenerateVideo 确认剧本，出成片（73 / 88）
-func (m *defaultImageGen) GenerateVideo(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*VideoInfo, error) {
+// GenerateVideo 确认剧本，出成片（73 / 88 / 视频复刻 71）
+func (m *defaultImageGen) GenerateVideo(ctx context.Context, in *GenerateVideoReq, opts ...grpc.CallOption) (*VideoInfo, error) {
 	client := pb.NewImageGenClient(m.cli.Conn())
 	return client.GenerateVideo(ctx, in, opts...)
 }

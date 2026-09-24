@@ -29,8 +29,11 @@ func NewGenerateVideoLogic(ctx context.Context, svcCtx *svc.ServiceContext) *Gen
 	}
 }
 
-func (l *GenerateVideoLogic) GenerateVideo(req *types.IdPath) (resp *types.VideoCreation, err error) {
-	out, err := l.svcCtx.ImageGenRpc.GenerateVideo(l.ctx, &imagegen.IdUserReq{Id: req.Id, UserId: ctxdata.UserID(l.ctx)})
+func (l *GenerateVideoLogic) GenerateVideo(req *types.GenerateVideoReq) (resp *types.VideoCreation, err error) {
+	out, err := l.svcCtx.ImageGenRpc.GenerateVideo(l.ctx, &imagegen.GenerateVideoReq{
+		Id: req.Id, UserId: ctxdata.UserID(l.ctx),
+		Prompt: req.Prompt, Model: req.Model, Size: req.Size,
+	})
 	if err != nil {
 		return nil, err
 	}

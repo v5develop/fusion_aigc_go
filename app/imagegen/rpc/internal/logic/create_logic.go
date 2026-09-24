@@ -107,10 +107,19 @@ func (l *CreateLogic) Create(in *pb.CreateReq) (*pb.ImageInfo, error) {
 		return nil, xerr.Newf(xerr.ParamError, "生成数量为 1–%d 张", lim.MaxImages)
 	}
 
+	// 海报可以指定档位（options 下发的 models）；不传用配置里的默认。长图没有 model 参数
+	mdl := cfg.Model
+	if in.Kind == model.KindPoster && in.Model != "" {
+		if !validModel(posterModels, in.Model) {
+			return nil, xerr.Newf(xerr.ParamError, "不支持的模型 %s", in.Model)
+		}
+		mdl = in.Model
+	}
+
 	row := &model.AfvImageCreation{
 		UserId: in.UserId, Kind: in.Kind, Content: content, MaterialUrls: nullStr(jsonList(mats)),
 		TemplateAssetId: nullInt(in.TemplateId), TemplateUrl: nullStr(templateURL),
-		PosterType: nullStr(in.PosterType), PosterStyle: nullStr(in.PosterStyle), Size: size, Model: cfg.Model,
+		PosterType: nullStr(in.PosterType), PosterStyle: nullStr(in.PosterStyle), Size: size, Model: mdl,
 		ImageCount: count, RequestId: nullStr(in.RequestId), Status: model.StatusGenerating,
 	}
 	return l.insertAndSubmit(row, cfg, posterTypeLabel(l.ctx, l.svcCtx, cfg.BizType, in.PosterType))

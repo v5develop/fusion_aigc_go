@@ -2,6 +2,9 @@ package logic
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
+	"strings"
 
 	"aigc-life/app/imagegen/model"
 	"aigc-life/app/imagegen/rpc/internal/svc"
@@ -26,8 +29,8 @@ func NewGenerateVideoLogic(ctx context.Context, svcCtx *svc.ServiceContext) *Gen
 	}
 }
 
-// GenerateVideo 确认剧本，出成片（73 / 88）
-func (l *GenerateVideoLogic) GenerateVideo(in *pb.IdUserReq) (*pb.VideoInfo, error) {
+// GenerateVideo 确认剧本，出成片（73 / 88 / 视频复刻 71）
+func (l *GenerateVideoLogic) GenerateVideo(in *pb.GenerateVideoReq) (*pb.VideoInfo, error) {
 	c, err := findOwnedVideo(l.ctx, l.svcCtx, in.Id, in.UserId)
 	if err != nil {
 		return nil, err
@@ -43,6 +46,10 @@ func (l *GenerateVideoLogic) GenerateVideo(in *pb.IdUserReq) (*pb.VideoInfo, err
 	}
 	var task aigc.Task
 	if c.Kind == model.KindVideoRemake {
+		// 用户可能在剧情分析页改过剧情、换了档位或比例
+		if err := l.applyRemakeOverrides(c, in); err != nil {
+			return nil, err
+		}
 		if task, err = remakeTask(c); err != nil {
 			return nil, err
 		}
@@ -74,4 +81,40 @@ func (l *GenerateVideoLogic) GenerateVideo(in *pb.IdUserReq) (*pb.VideoInfo, err
 		return nil, err
 	}
 	return toVideoInfo(cur), nil
+}
+
+// applyRemakeOverrides 把用户改过的剧情 / 档位 / 比例落库，再按新值出片。
+// 三个都选填：没传就沿用解析结果与默认值。
+func (l *GenerateVideoLogic) applyRemakeOverrides(c *model.AfvVideoCreation, in *pb.GenerateVideoReq) error {
+	prompt, mdl, size := strings.TrimSpace(in.Prompt), strings.TrimSpace(in.Model), strings.TrimSpace(in.Size)
+	if prompt == "" && mdl == "" && size == "" {
+		return nil
+	}
+	if mdl != "" && !validModel(remakeModels, mdl) {
+		return xerr.Newf(xerr.ParamError, "不支持的模型 %s", mdl)
+	}
+	if size != "" && !validModel(videoSizes, size) {
+		return xerr.Newf(xerr.ParamError, "不支持的比例 %s", size)
+	}
+	if prompt != "" {
+		if n := len([]rune(prompt)); n > maxRemakePromptLen {
+			return xerr.Newf(xerr.ParamError, "剧情内容最多 %d 字", maxRemakePromptLen)
+		}
+		b, err := json.Marshal(prompt)
+		if err != nil {
+			return xerr.New(xerr.ServerError, "剧情内容异常")
+		}
+		c.PlanScript = sql.NullString{String: string(b), Valid: true}
+	}
+	if mdl != "" {
+		c.Model = mdl
+	}
+	if size != "" {
+		c.Size = size
+	}
+	if err := l.svcCtx.Video.UpdateRemakeSettings(l.ctx, c.Id, c.PlanScript.String, c.Model, c.Size); err != nil {
+		l.Errorf("update remake settings %d: %v", c.Id, err)
+		return xerr.New(xerr.ServerError, "保存失败，请重试")
+	}
+	return nil
 }

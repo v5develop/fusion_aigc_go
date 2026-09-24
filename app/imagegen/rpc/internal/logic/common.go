@@ -71,6 +71,19 @@ func validModel(models []*pb.Option, code string) bool {
 
 func validActionModel(code string) bool { return validModel(actionModels, code) }
 
+// posterModels 海报出图档位。78 支持 mini / plus / max，本版只开 max（已定规则），
+// 但仍由后端下发，前端不写死——以后放开别的档位改这里即可。长图（76）没有 model 参数，不下发。
+var posterModels = []*pb.Option{
+	{Code: "max", Label: "max"},
+}
+
+// remakeModels 爆款视频复刻的模型选择，值直接作为执行面 71 的 model：
+// 缺省的 doubao-seedance-2-0 走云端，lite 路由到本地 GPU 的 83。与动作迁移保持一致的两档。
+var remakeModels = []*pb.Option{
+	{Code: "doubao-seedance-2-0-260128", Label: "seedance 2.0"},
+	{Code: "lite", Label: "XQ Video 1.0 Lite"},
+}
+
 // posterSizes 海报图片比例（设计稿「生成设置」弹窗）
 var posterSizes = []*pb.Option{
 	{Code: "9:16", Label: "9:16"}, {Code: "16:9", Label: "16:9"},

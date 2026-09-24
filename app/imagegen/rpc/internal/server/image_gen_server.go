@@ -95,8 +95,8 @@ func (s *ImageGenServer) ReplanVideo(ctx context.Context, in *pb.IdUserReq) (*pb
 	return l.ReplanVideo(in)
 }
 
-// GenerateVideo 确认剧本，出成片（73 / 88）
-func (s *ImageGenServer) GenerateVideo(ctx context.Context, in *pb.IdUserReq) (*pb.VideoInfo, error) {
+// GenerateVideo 确认剧本，出成片（73 / 88 / 视频复刻 71）
+func (s *ImageGenServer) GenerateVideo(ctx context.Context, in *pb.GenerateVideoReq) (*pb.VideoInfo, error) {
 	l := logic.NewGenerateVideoLogic(ctx, s.svcCtx)
 	return l.GenerateVideo(in)
 }

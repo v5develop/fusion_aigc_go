@@ -21,7 +21,9 @@ import (
 // uploadExts 允许的文件类型 → 扩展名（对象 key 由后端生成，扩展名与类型一致，成品链接能正常预览/播放）
 var uploadExts = map[string]string{
 	"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif", "image/heic": "heic",
-	"video/mp4": "mp4", "video/quicktime": "mov",
+	// 视频格式与「爆款视频复刻」options 下发的 video_formats 保持一致，否则前端选得到却传不上
+	"video/mp4": "mp4", "video/quicktime": "mov", "video/x-msvideo": "avi",
+	"video/x-matroska": "mkv", "video/x-flv": "flv", "video/x-ms-wmv": "wmv",
 }
 
 type PresignUploadLogic struct {
@@ -43,7 +45,7 @@ func (l *PresignUploadLogic) PresignUpload(req *types.PresignUploadReq) (resp *t
 	ct := strings.ToLower(strings.TrimSpace(req.ContentType))
 	ext, ok := uploadExts[ct]
 	if !ok || !strings.HasPrefix(ct, req.Kind+"/") {
-		return nil, xerr.Newf(xerr.ParamError, "不支持的文件类型 %s（图片 jpeg/png/webp/gif/heic，视频 mp4/mov）", req.ContentType)
+		return nil, xerr.Newf(xerr.ParamError, "不支持的文件类型 %s（图片 jpeg/png/webp/gif/heic，视频 mp4/mov/avi/mkv/flv/wmv）", req.ContentType)
 	}
 	key := storage.ObjectKey(l.svcCtx.Config.Storage.Prefix, req.Kind, ctxdata.UserID(l.ctx), ext)
 	ttl := time.Duration(l.svcCtx.Config.Upload.CredentialTTLMinutes) * time.Minute

@@ -99,6 +99,8 @@ check "有标题" "$([[ -n $(jq -r .title <<<"$C") ]] && echo yes)" yes
 check "字数已统计" "$([[ $(jq -r .word_count <<<"$C") -gt 0 ]] && echo yes)" yes
 check "类型标签" "$(jq -r .content_type_label <<<"$C")" 探店
 check "非法选项被拒" "$(api_code POST /copywriting/generate '{"source":"AI_WRITE","content_type":"nope","topic":"x"}')" 1001
+check "字数太小被拒" "$(api_code POST /copywriting/generate '{"source":"AI_WRITE","content_type":"general","topic":"x","target_words":5}')" 1001
+check "字数太大被拒" "$(api_code POST /copywriting/generate '{"source":"AI_WRITE","content_type":"general","topic":"x","target_words":99999}')" 1001
 check "仿写缺范文被拒" "$(api_code POST /copywriting/generate '{"source":"IMITATE","topic":"x"}')" 1001
 
 echo "== 爆款仿写"

@@ -1567,6 +1567,84 @@ func (x *CreateVideoReq) GetLink() string {
 	return ""
 }
 
+// GenerateVideoReq 出片。视频复刻可以带上用户在剧情分析页改过的提示词、档位与比例；
+// 探店 / 短剧只用 id + user_id（剧本在上一步已经定稿）。
+type GenerateVideoReq struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	UserId        int64                  `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	Prompt        string                 `protobuf:"bytes,3,opt,name=prompt,proto3" json:"prompt,omitempty"` // 视频复刻：改过的剧情文本，空则用解析出来的
+	Model         string                 `protobuf:"bytes,4,opt,name=model,proto3" json:"model,omitempty"`   // 视频复刻：模型，空则用默认
+	Size          string                 `protobuf:"bytes,5,opt,name=size,proto3" json:"size,omitempty"`     // 视频复刻：比例 9:16 / 16:9，空则跟原片
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GenerateVideoReq) Reset() {
+	*x = GenerateVideoReq{}
+	mi := &file_imagegen_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GenerateVideoReq) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GenerateVideoReq) ProtoMessage() {}
+
+func (x *GenerateVideoReq) ProtoReflect() protoreflect.Message {
+	mi := &file_imagegen_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GenerateVideoReq.ProtoReflect.Descriptor instead.
+func (*GenerateVideoReq) Descriptor() ([]byte, []int) {
+	return file_imagegen_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *GenerateVideoReq) GetId() int64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *GenerateVideoReq) GetUserId() int64 {
+	if x != nil {
+		return x.UserId
+	}
+	return 0
+}
+
+func (x *GenerateVideoReq) GetPrompt() string {
+	if x != nil {
+		return x.Prompt
+	}
+	return ""
+}
+
+func (x *GenerateVideoReq) GetModel() string {
+	if x != nil {
+		return x.Model
+	}
+	return ""
+}
+
+func (x *GenerateVideoReq) GetSize() string {
+	if x != nil {
+		return x.Size
+	}
+	return ""
+}
+
 type VideoInfo struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -1599,7 +1677,7 @@ type VideoInfo struct {
 
 func (x *VideoInfo) Reset() {
 	*x = VideoInfo{}
-	mi := &file_imagegen_proto_msgTypes[17]
+	mi := &file_imagegen_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1611,7 +1689,7 @@ func (x *VideoInfo) String() string {
 func (*VideoInfo) ProtoMessage() {}
 
 func (x *VideoInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_imagegen_proto_msgTypes[17]
+	mi := &file_imagegen_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1624,7 +1702,7 @@ func (x *VideoInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VideoInfo.ProtoReflect.Descriptor instead.
 func (*VideoInfo) Descriptor() ([]byte, []int) {
-	return file_imagegen_proto_rawDescGZIP(), []int{17}
+	return file_imagegen_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *VideoInfo) GetId() int64 {
@@ -1801,7 +1879,7 @@ type VideoListReq struct {
 
 func (x *VideoListReq) Reset() {
 	*x = VideoListReq{}
-	mi := &file_imagegen_proto_msgTypes[18]
+	mi := &file_imagegen_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1813,7 +1891,7 @@ func (x *VideoListReq) String() string {
 func (*VideoListReq) ProtoMessage() {}
 
 func (x *VideoListReq) ProtoReflect() protoreflect.Message {
-	mi := &file_imagegen_proto_msgTypes[18]
+	mi := &file_imagegen_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1826,7 +1904,7 @@ func (x *VideoListReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VideoListReq.ProtoReflect.Descriptor instead.
 func (*VideoListReq) Descriptor() ([]byte, []int) {
-	return file_imagegen_proto_rawDescGZIP(), []int{18}
+	return file_imagegen_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *VideoListReq) GetUserId() int64 {
@@ -1874,7 +1952,7 @@ type VideoList struct {
 
 func (x *VideoList) Reset() {
 	*x = VideoList{}
-	mi := &file_imagegen_proto_msgTypes[19]
+	mi := &file_imagegen_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1886,7 +1964,7 @@ func (x *VideoList) String() string {
 func (*VideoList) ProtoMessage() {}
 
 func (x *VideoList) ProtoReflect() protoreflect.Message {
-	mi := &file_imagegen_proto_msgTypes[19]
+	mi := &file_imagegen_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1899,7 +1977,7 @@ func (x *VideoList) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VideoList.ProtoReflect.Descriptor instead.
 func (*VideoList) Descriptor() ([]byte, []int) {
-	return file_imagegen_proto_rawDescGZIP(), []int{19}
+	return file_imagegen_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *VideoList) GetList() []*VideoInfo {
@@ -2076,7 +2154,13 @@ const file_imagegen_proto_rawDesc = "" +
 	"\x05model\x18\x11 \x01(\tR\x05model\x12\x16\n" +
 	"\x06source\x18\x12 \x01(\tR\x06source\x12\x1b\n" +
 	"\tvideo_url\x18\x13 \x01(\tR\bvideoUrl\x12\x12\n" +
-	"\x04link\x18\x14 \x01(\tR\x04link\"\x89\x05\n" +
+	"\x04link\x18\x14 \x01(\tR\x04link\"}\n" +
+	"\x10GenerateVideoReq\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x17\n" +
+	"\auser_id\x18\x02 \x01(\x03R\x06userId\x12\x16\n" +
+	"\x06prompt\x18\x03 \x01(\tR\x06prompt\x12\x14\n" +
+	"\x05model\x18\x04 \x01(\tR\x05model\x12\x12\n" +
+	"\x04size\x18\x05 \x01(\tR\x04size\"\x89\x05\n" +
 	"\tVideoInfo\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x17\n" +
 	"\auser_id\x18\x02 \x01(\x03R\x06userId\x12\x12\n" +
@@ -2113,7 +2197,7 @@ const file_imagegen_proto_rawDesc = "" +
 	"\tpage_size\x18\x05 \x01(\x03R\bpageSize\"J\n" +
 	"\tVideoList\x12'\n" +
 	"\x04list\x18\x01 \x03(\v2\x13.imagegen.VideoInfoR\x04list\x12\x14\n" +
-	"\x05total\x18\x02 \x01(\x03R\x05total2\xa0\b\n" +
+	"\x05total\x18\x02 \x01(\x03R\x05total2\xa7\b\n" +
 	"\bImageGen\x123\n" +
 	"\aOptions\x12\x11.imagegen.KindReq\x1a\x15.imagegen.OptionsResp\x12C\n" +
 	"\rListTemplates\x12\x1a.imagegen.ListTemplatesReq\x1a\x16.imagegen.TemplateList\x122\n" +
@@ -2127,8 +2211,8 @@ const file_imagegen_proto_rawDesc = "" +
 	"\fVideoOptions\x12\x11.imagegen.KindReq\x1a\x1a.imagegen.VideoOptionsResp\x12<\n" +
 	"\vCreateVideo\x12\x18.imagegen.CreateVideoReq\x1a\x13.imagegen.VideoInfo\x124\n" +
 	"\bGetVideo\x12\x13.imagegen.IdUserReq\x1a\x13.imagegen.VideoInfo\x127\n" +
-	"\vReplanVideo\x12\x13.imagegen.IdUserReq\x1a\x13.imagegen.VideoInfo\x129\n" +
-	"\rGenerateVideo\x12\x13.imagegen.IdUserReq\x1a\x13.imagegen.VideoInfo\x129\n" +
+	"\vReplanVideo\x12\x13.imagegen.IdUserReq\x1a\x13.imagegen.VideoInfo\x12@\n" +
+	"\rGenerateVideo\x12\x1a.imagegen.GenerateVideoReq\x1a\x13.imagegen.VideoInfo\x129\n" +
 	"\n" +
 	"ListVideos\x12\x16.imagegen.VideoListReq\x1a\x13.imagegen.VideoList\x123\n" +
 	"\vDeleteVideo\x12\x13.imagegen.IdUserReq\x1a\x0f.imagegen.Empty\x123\n" +
@@ -2147,7 +2231,7 @@ func file_imagegen_proto_rawDescGZIP() []byte {
 	return file_imagegen_proto_rawDescData
 }
 
-var file_imagegen_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
+var file_imagegen_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
 var file_imagegen_proto_goTypes = []any{
 	(*Empty)(nil),                // 0: imagegen.Empty
 	(*IdUserReq)(nil),            // 1: imagegen.IdUserReq
@@ -2166,9 +2250,10 @@ var file_imagegen_proto_goTypes = []any{
 	(*ImageList)(nil),            // 14: imagegen.ImageList
 	(*VideoOptionsResp)(nil),     // 15: imagegen.VideoOptionsResp
 	(*CreateVideoReq)(nil),       // 16: imagegen.CreateVideoReq
-	(*VideoInfo)(nil),            // 17: imagegen.VideoInfo
-	(*VideoListReq)(nil),         // 18: imagegen.VideoListReq
-	(*VideoList)(nil),            // 19: imagegen.VideoList
+	(*GenerateVideoReq)(nil),     // 17: imagegen.GenerateVideoReq
+	(*VideoInfo)(nil),            // 18: imagegen.VideoInfo
+	(*VideoListReq)(nil),         // 19: imagegen.VideoListReq
+	(*VideoList)(nil),            // 20: imagegen.VideoList
 }
 var file_imagegen_proto_depIdxs = []int32{
 	4,  // 0: imagegen.ActionVideoList.presets:type_name -> imagegen.ActionVideo
@@ -2181,7 +2266,7 @@ var file_imagegen_proto_depIdxs = []int32{
 	12, // 7: imagegen.ImageList.list:type_name -> imagegen.ImageInfo
 	3,  // 8: imagegen.VideoOptionsResp.models:type_name -> imagegen.Option
 	3,  // 9: imagegen.VideoOptionsResp.sizes:type_name -> imagegen.Option
-	17, // 10: imagegen.VideoList.list:type_name -> imagegen.VideoInfo
+	18, // 10: imagegen.VideoList.list:type_name -> imagegen.VideoInfo
 	2,  // 11: imagegen.ImageGen.Options:input_type -> imagegen.KindReq
 	8,  // 12: imagegen.ImageGen.ListTemplates:input_type -> imagegen.ListTemplatesReq
 	11, // 13: imagegen.ImageGen.Create:input_type -> imagegen.CreateReq
@@ -2195,11 +2280,11 @@ var file_imagegen_proto_depIdxs = []int32{
 	16, // 21: imagegen.ImageGen.CreateVideo:input_type -> imagegen.CreateVideoReq
 	1,  // 22: imagegen.ImageGen.GetVideo:input_type -> imagegen.IdUserReq
 	1,  // 23: imagegen.ImageGen.ReplanVideo:input_type -> imagegen.IdUserReq
-	1,  // 24: imagegen.ImageGen.GenerateVideo:input_type -> imagegen.IdUserReq
-	18, // 25: imagegen.ImageGen.ListVideos:input_type -> imagegen.VideoListReq
+	17, // 24: imagegen.ImageGen.GenerateVideo:input_type -> imagegen.GenerateVideoReq
+	19, // 25: imagegen.ImageGen.ListVideos:input_type -> imagegen.VideoListReq
 	1,  // 26: imagegen.ImageGen.DeleteVideo:input_type -> imagegen.IdUserReq
 	13, // 27: imagegen.ImageGen.AdminList:input_type -> imagegen.ListReq
-	18, // 28: imagegen.ImageGen.AdminListVideos:input_type -> imagegen.VideoListReq
+	19, // 28: imagegen.ImageGen.AdminListVideos:input_type -> imagegen.VideoListReq
 	7,  // 29: imagegen.ImageGen.Options:output_type -> imagegen.OptionsResp
 	10, // 30: imagegen.ImageGen.ListTemplates:output_type -> imagegen.TemplateList
 	12, // 31: imagegen.ImageGen.Create:output_type -> imagegen.ImageInfo
@@ -2210,14 +2295,14 @@ var file_imagegen_proto_depIdxs = []int32{
 	4,  // 36: imagegen.ImageGen.ImportActionVideo:output_type -> imagegen.ActionVideo
 	0,  // 37: imagegen.ImageGen.DeleteActionVideo:output_type -> imagegen.Empty
 	15, // 38: imagegen.ImageGen.VideoOptions:output_type -> imagegen.VideoOptionsResp
-	17, // 39: imagegen.ImageGen.CreateVideo:output_type -> imagegen.VideoInfo
-	17, // 40: imagegen.ImageGen.GetVideo:output_type -> imagegen.VideoInfo
-	17, // 41: imagegen.ImageGen.ReplanVideo:output_type -> imagegen.VideoInfo
-	17, // 42: imagegen.ImageGen.GenerateVideo:output_type -> imagegen.VideoInfo
-	19, // 43: imagegen.ImageGen.ListVideos:output_type -> imagegen.VideoList
+	18, // 39: imagegen.ImageGen.CreateVideo:output_type -> imagegen.VideoInfo
+	18, // 40: imagegen.ImageGen.GetVideo:output_type -> imagegen.VideoInfo
+	18, // 41: imagegen.ImageGen.ReplanVideo:output_type -> imagegen.VideoInfo
+	18, // 42: imagegen.ImageGen.GenerateVideo:output_type -> imagegen.VideoInfo
+	20, // 43: imagegen.ImageGen.ListVideos:output_type -> imagegen.VideoList
 	0,  // 44: imagegen.ImageGen.DeleteVideo:output_type -> imagegen.Empty
 	14, // 45: imagegen.ImageGen.AdminList:output_type -> imagegen.ImageList
-	19, // 46: imagegen.ImageGen.AdminListVideos:output_type -> imagegen.VideoList
+	20, // 46: imagegen.ImageGen.AdminListVideos:output_type -> imagegen.VideoList
 	29, // [29:47] is the sub-list for method output_type
 	11, // [11:29] is the sub-list for method input_type
 	11, // [11:11] is the sub-list for extension type_name
@@ -2236,7 +2321,7 @@ func file_imagegen_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_imagegen_proto_rawDesc), len(file_imagegen_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   20,
+			NumMessages:   21,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

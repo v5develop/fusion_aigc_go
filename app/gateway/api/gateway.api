@@ -716,6 +716,13 @@ type (
 	VideoOptionsReq {
 		Kind string `form:"kind,options=exploreShop|shortDrama|videoRemake"`
 	}
+	GenerateVideoReq {
+		Id int64 `path:"id"`
+		// 下面三个只对视频复刻（videoRemake）生效，都选填；探店 / 短剧不用传
+		Prompt string `json:"prompt,optional"` // 改过的剧情文本，不传沿用解析结果
+		Model  string `json:"model,optional"` // 模型，取 options 的 models
+		Size   string `json:"size,optional"` // 比例 9:16 / 16:9，不传跟原片
+	}
 	VideoOptionsResp {
 		Models              []ImageGenOption `json:"models"`
 		DefaultModel        string           `json:"default_model"`
@@ -815,9 +822,9 @@ service gateway-api {
 	@handler replanVideo
 	post /video-creations/:id/replan (IdPath) returns (VideoCreation)
 
-	@doc "确认剧本，开始生成视频（探店 73 / 短剧 88）"
+	@doc "确认剧本，开始生成视频（探店 73 / 短剧 88 / 视频复刻 71）"
 	@handler generateVideo
-	post /video-creations/:id/generate (IdPath) returns (VideoCreation)
+	post /video-creations/:id/generate (GenerateVideoReq) returns (VideoCreation)
 
 	@doc "列表"
 	@handler listVideos

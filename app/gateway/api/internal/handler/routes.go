@@ -418,7 +418,7 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 					Handler: videogen.RemoveVideoHandler(serverCtx),
 				},
 				{
-					// 确认剧本，开始生成视频（探店 73 / 短剧 88）
+					// 确认剧本，开始生成视频（探店 73 / 短剧 88 / 视频复刻 71）
 					Method:  http.MethodPost,
 					Path:    "/video-creations/:id/generate",
 					Handler: videogen.GenerateVideoHandler(serverCtx),

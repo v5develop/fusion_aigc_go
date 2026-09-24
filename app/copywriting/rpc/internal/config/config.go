@@ -27,7 +27,10 @@ type GenerateConf struct {
 	MaxTopicLen     int `json:",default=500"`
 	MaxReferenceLen int `json:",default=5000"`
 	DefaultWords    int `json:",default=200"`
-	TimeoutSeconds  int `json:",default=120"`
+	// MinWords / MaxWords 自定义字数的范围：太小模型写不出东西，太大会超时且没人看
+	MinWords       int `json:",default=50"`
+	MaxWords       int `json:",default=2000"`
+	TimeoutSeconds int `json:",default=120"`
 }
 
 // ShopProfileConf 店铺档案的限制。字段上限来自设计稿便签。

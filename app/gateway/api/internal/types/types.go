@@ -198,6 +198,13 @@ type GenerateReq struct {
 	ShopProfileId int64  `json:"shop_profile_id,optional"`
 }
 
+type GenerateVideoReq struct {
+	Id     int64  `path:"id"`
+	Prompt string `json:"prompt,optional"` // 改过的剧情文本，不传沿用解析结果
+	Model  string `json:"model,optional"`  // 模型，取 options 的 models
+	Size   string `json:"size,optional"`   // 比例 9:16 / 16:9，不传跟原片
+}
+
 type IdPath struct {
 	Id int64 `path:"id"`
 }

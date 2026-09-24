@@ -5786,7 +5786,7 @@
           }
         ],
         "consumes": [
-          "application/x-www-form-urlencoded"
+          "application/json"
         ],
         "produces": [
           "application/json"
@@ -5797,7 +5797,7 @@
         "tags": [
           "探店视频 / 带货短剧"
         ],
-        "summary": "确认剧本，开始生成视频（探店 73 / 短剧 88）",
+        "summary": "确认剧本，开始生成视频（探店 73 / 短剧 88 / 视频复刻 71）",
         "operationId": "videogenGenerateVideo",
         "parameters": [
           {
@@ -5805,6 +5805,28 @@
             "name": "id",
             "in": "path",
             "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "model": {
+                  "description": "模型，取 options 的 models",
+                  "type": "string"
+                },
+                "prompt": {
+                  "description": "改过的剧情文本，不传沿用解析结果",
+                  "type": "string"
+                },
+                "size": {
+                  "description": "比例 9:16 / 16:9，不传跟原片",
+                  "type": "string"
+                }
+              }
+            }
           }
         ],
         "responses": {
@@ -6202,7 +6224,7 @@
       "in": "header"
     }
   },
-  "x-date": "2026-09-23 17:46:07",
+  "x-date": "2026-09-24 16:09:29",
   "x-description": "This is a goctl generated swagger file.",
   "x-github": "https://github.com/zeromicro/go-zero",
   "x-go-zero-doc": "https://go-zero.dev/",
