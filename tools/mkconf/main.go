@@ -54,8 +54,10 @@ func main() {
 	unionRedis := flag.String("union-redis", "", "联盟的 Redis 地址：配了就自己验临时 token，不调联盟接口")
 	unionRedisPass := flag.String("union-redis-pass", "", "联盟 Redis 密码")
 	unionPhoneKey := flag.String("union-phone-key", "", "联盟手机号的 AES 密钥；不配则手机号留空")
+	unionRedisDB := flag.Int("union-redis-db", 0, "联盟 Redis 的库号（它用 go-zero 封装，是 0 号库）")
 	sessionRedis := flag.String("session-redis", "", "AIGC(Java) 服务的 Redis：配了就发和它同一套的令牌")
 	sessionRedisPass := flag.String("session-redis-pass", "", "该 Redis 的密码")
+	sessionRedisDB := flag.Int("session-redis-db", 10, "该 Redis 的库号，必须和 AIGC 服务一致（它是 10）")
 	fusionURL := flag.String("fusion-url", "", "现有 Java 服务地址（建档交给它；留空则我们自己写表）")
 	fusionKey := flag.String("fusion-key", "", "Java 服务分配的 appKey")
 	fusionSecret := flag.String("fusion-secret", "", "Java 服务分配的 appSecret")
@@ -89,9 +91,10 @@ func main() {
 		root := doc.Content[0]
 		e := editor{name: name, ports: portOf, dsn: *dsn, aigc: *aigc, logDir: filepath.Join(*logs, name), keepDays: *keepDays,
 			jwtSecret: *jwtSecret, adminJwtSecret: *adminJwtSecret, authMode: *authMode, union: *union,
-			linkParse: *linkParse, unionRedis: *unionRedis, unionRedisPass: *unionRedisPass,
+			linkParse: *linkParse, unionRedis: *unionRedis, unionRedisPass: *unionRedisPass, unionRedisDB: *unionRedisDB,
 			unionPhoneKey: *unionPhoneKey, sessionRedis: *sessionRedis, sessionRedisPass: *sessionRedisPass,
-			fusionURL: *fusionURL, fusionKey: *fusionKey, fusionSecret: *fusionSecret, fusionKeyVer: *fusionKeyVer}
+			sessionRedisDB: *sessionRedisDB,
+			fusionURL:      *fusionURL, fusionKey: *fusionKey, fusionSecret: *fusionSecret, fusionKeyVer: *fusionKeyVer}
 		if err := e.apply(root); err != nil {
 			log.Fatalf("%s: %v", file, err)
 		}
@@ -129,9 +132,11 @@ type editor struct {
 	union            string
 	unionRedis       string
 	unionRedisPass   string
+	unionRedisDB     int
 	unionPhoneKey    string
 	sessionRedis     string
 	sessionRedisPass string
+	sessionRedisDB   int
 	linkParse        string
 	fusionURL        string
 	fusionKey        string
@@ -185,6 +190,7 @@ func (e editor) apply(root *yaml.Node) error {
 				if e.sessionRedisPass != "" {
 					set(sn, "RedisPass", quoted(e.sessionRedisPass))
 				}
+				set(sn, "RedisDB", scalar(strconv.Itoa(e.sessionRedisDB)))
 				set(sn, "AccessHours", scalar("2"))
 				set(sn, "RefreshDays", scalar("7"))
 				set(sn, "MaxSessions", scalar("0"))
@@ -200,7 +206,7 @@ func (e editor) apply(root *yaml.Node) error {
 		set(u, "BaseURL", scalar(e.union))
 		// 配了 Redis 就自己验临时 token（服务器访问不到联盟域名时用），没配则删掉这段走 HTTP
 		if e.unionRedis != "" {
-			d := mapping("RedisAddr", quoted(e.unionRedis))
+			d := mapping("RedisAddr", quoted(e.unionRedis), "RedisDB", scalar(strconv.Itoa(e.unionRedisDB)))
 			if e.unionRedisPass != "" {
 				set(d, "RedisPass", quoted(e.unionRedisPass))
 			}

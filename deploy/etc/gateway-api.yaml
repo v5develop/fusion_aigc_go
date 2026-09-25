@@ -15,6 +15,7 @@ Auth:
   # 配了就发它那套 token，没配回落到上面的 Jwt。本地指向自带的 redis-7 容器。
   Session:
     RedisAddr: "127.0.0.1:6379"
+    RedisDB: 10         # 必须和 AIGC 服务一致（它容器里的 REDIS_DB=10），填错就是「写进去了它读不到」
     AccessHours: 2
     RefreshDays: 7
     MaxSessions: 0      # 0 = 不限，和它的 max-concurrent-sessions 一致

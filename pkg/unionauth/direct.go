@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/zeromicro/go-zero/core/stores/redis"
+	"github.com/redis/go-redis/v9"
 	"github.com/zeromicro/go-zero/core/stores/sqlx"
 )
 
@@ -35,6 +35,9 @@ type DirectConf struct {
 	// RedisAddr 联盟的 Redis，如 192.168.0.52:6379；留空则不启用这条路
 	RedisAddr string `json:",optional"`
 	RedisPass string `json:",optional"`
+	// RedisDB 联盟用户服务用的库号。它用 go-zero 的 redis 封装，不支持选库，所以是 0；
+	// 万一以后换了，改这里就行（会话那套在 10 号库，两者不是一回事）。
+	RedisDB int `json:",default=0"`
 	// UserDSN 联盟的用户库。留空则复用本服务的 DataSource——
 	// 两个库在同一个 MySQL 实例时这样最省事，但**本服务的账号要有该库的读权限**。
 	UserDSN string `json:",optional"`
@@ -48,7 +51,7 @@ type DirectConf struct {
 // direct 自己验临时 token 的实现。
 type direct struct {
 	conf  DirectConf
-	rds   *redis.Redis
+	rds   *redis.Client
 	conn  sqlx.SqlConn
 	table string
 }
@@ -68,11 +71,8 @@ func newDirect(c DirectConf, fallbackDSN string) *direct {
 	if table == "" {
 		table = "unionec_app.uec_app_users"
 	}
-	opts := []redis.Option{}
-	if c.RedisPass != "" {
-		opts = append(opts, redis.WithPass(c.RedisPass))
-	}
-	return &direct{conf: c, rds: redis.New(c.RedisAddr, opts...), conn: sqlx.NewMysql(dsn), table: table}
+	rds := redis.NewClient(&redis.Options{Addr: c.RedisAddr, Password: c.RedisPass, DB: c.RedisDB})
+	return &direct{conf: c, rds: rds, conn: sqlx.NewMysql(dsn), table: table}
 }
 
 // tempTokenKey 和联盟一致：temp:token:<token>
@@ -96,12 +96,12 @@ type userRow struct {
 // login 读 Redis 拿 userId → 查用户表 → 删掉 token（一次性，和联盟行为一致）。
 func (d *direct) login(ctx context.Context, tempToken string) (*User, error) {
 	key := tempTokenKey(tempToken)
-	idStr, err := d.rds.GetCtx(ctx, key)
-	if err != nil {
-		return nil, fmt.Errorf("unionauth: 读临时 token 失败: %w", err)
-	}
-	if idStr == "" { // go-zero 的 Get 对不存在的 key 返回空串而不是错
+	idStr, err := d.rds.Get(ctx, key).Result()
+	switch {
+	case errors.Is(err, redis.Nil), err == nil && idStr == "":
 		return nil, fmt.Errorf("%w（临时 token 不存在或已过期）", ErrUnauthorized)
+	case err != nil:
+		return nil, fmt.Errorf("unionauth: 读临时 token 失败: %w", err)
 	}
 	userID, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil || userID <= 0 {
@@ -118,7 +118,7 @@ func (d *direct) login(ctx context.Context, tempToken string) (*User, error) {
 		return nil, fmt.Errorf("unionauth: 查联盟用户失败: %w", err)
 	}
 	// 用过就删，和联盟一致。删失败不影响这次登录（5 分钟后自己过期）
-	_, _ = d.rds.DelCtx(ctx, key)
+	_ = d.rds.Del(ctx, key).Err()
 
 	u := &User{
 		UserID:         json.Number(strconv.FormatInt(r.Id, 10)),

@@ -29,13 +29,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zeromicro/go-zero/core/stores/redis"
+	"github.com/redis/go-redis/v9"
 )
 
 type Conf struct {
 	// RedisAddr AIGC（Java）服务在用的那台 Redis；留空则不启用，回落到我们自己的 JWT
 	RedisAddr string `json:",optional"`
 	RedisPass string `json:",optional"`
+	// RedisDB 必须和它一致！它跑在 10 号库（容器里的 REDIS_DB=10），
+	// 填错库就是「写进去了但它读不到」——最难查的那种错。
+	RedisDB int `json:",default=10"`
 	// AccessHours / RefreshDays 对齐它的 TOKEN_ACCESS_HOURS / TOKEN_REFRESH_DAYS
 	AccessHours int `json:",default=2"`
 	RefreshDays int `json:",default=7"`
@@ -65,18 +68,18 @@ type Tokens struct {
 
 type Store struct {
 	conf Conf
-	rds  *redis.Redis
+	rds  *redis.Client
 }
 
+// New 用 go-redis 而不是 go-zero 的封装：go-zero 那个不支持选库，
+// 而它的会话在 10 号库，连错库就全对不上。
 func New(c Conf) *Store {
 	if strings.TrimSpace(c.RedisAddr) == "" {
 		return nil
 	}
-	opts := []redis.Option{}
-	if c.RedisPass != "" {
-		opts = append(opts, redis.WithPass(c.RedisPass))
-	}
-	return &Store{conf: c, rds: redis.New(c.RedisAddr, opts...)}
+	return &Store{conf: c, rds: redis.NewClient(&redis.Options{
+		Addr: c.RedisAddr, Password: c.RedisPass, DB: c.RedisDB,
+	})}
 }
 
 func (s *Store) Enabled() bool { return s != nil && s.rds != nil }
@@ -134,7 +137,7 @@ func (s *Store) Issue(ctx context.Context, c Claims) (*Tokens, error) {
 		{refreshToAccess(refresh), access, refreshSec},
 	}
 	for _, w := range writes {
-		if err := s.rds.SetexCtx(ctx, w.key, w.val, w.ttl); err != nil {
+		if err := s.rds.Set(ctx, w.key, w.val, time.Duration(w.ttl)*time.Second).Err(); err != nil {
 			return nil, fmt.Errorf("session: 写 %s 失败: %w", w.key, err)
 		}
 	}
@@ -151,32 +154,32 @@ func (s *Store) Issue(ctx context.Context, c Claims) (*Tokens, error) {
 // 允许多端同时在线——登录不踢掉旧会话，和它一致。
 func (s *Store) registerSession(ctx context.Context, userID int64, access string, now time.Time) error {
 	key := sessionsKey(userID)
-	if _, err := s.rds.ZaddCtx(ctx, key, now.Unix(), access); err != nil {
+	if err := s.rds.ZAdd(ctx, key, redis.Z{Score: float64(now.Unix()), Member: access}).Err(); err != nil {
 		return fmt.Errorf("session: 登记会话失败: %w", err)
 	}
-	if err := s.rds.ExpireCtx(ctx, key, int(s.refreshTTL().Seconds())); err != nil {
+	if err := s.rds.Expire(ctx, key, s.refreshTTL()).Err(); err != nil {
 		return fmt.Errorf("session: 设置会话过期失败: %w", err)
 	}
 	// 剪掉 score 早于「现在减 refresh 周期」的：那些 access 早就过期了，留着只占地方
 	cutoff := now.Add(-s.refreshTTL()).Unix()
-	if _, err := s.rds.ZremrangebyscoreCtx(ctx, key, 0, cutoff); err != nil {
+	if err := s.rds.ZRemRangeByScore(ctx, key, "0", strconv.FormatInt(cutoff, 10)).Err(); err != nil {
 		return fmt.Errorf("session: 清理过期会话失败: %w", err)
 	}
 	if s.conf.MaxSessions <= 0 {
 		return nil // 0 = 不限
 	}
-	n, err := s.rds.ZcardCtx(ctx, key)
+	n, err := s.rds.ZCard(ctx, key).Result()
 	if err != nil {
 		return fmt.Errorf("session: 统计会话失败: %w", err)
 	}
 	// 超出上限，从最久没刷新的开始淘汰（连它的其余 key 一起删）
-	for extra := n - s.conf.MaxSessions; extra > 0; extra-- {
-		oldest, err := s.rds.ZrangeWithScoresCtx(ctx, key, 0, 0)
+	for extra := int(n) - s.conf.MaxSessions; extra > 0; extra-- {
+		oldest, err := s.rds.ZRange(ctx, key, 0, 0).Result()
 		if err != nil || len(oldest) == 0 {
 			return nil
 		}
-		s.revoke(ctx, oldest[0].Key)
-		if _, err := s.rds.ZremCtx(ctx, key, oldest[0].Key); err != nil {
+		s.revoke(ctx, oldest[0])
+		if err := s.rds.ZRem(ctx, key, oldest[0]).Err(); err != nil {
 			return nil
 		}
 	}
@@ -188,12 +191,12 @@ func (s *Store) Parse(ctx context.Context, access string) (*Claims, error) {
 	if access == "" {
 		return nil, ErrInvalid
 	}
-	raw, err := s.rds.GetCtx(ctx, accessKey(access))
-	if err != nil {
-		return nil, fmt.Errorf("session: 读令牌失败: %w", err)
-	}
-	if raw == "" { // go-zero 对不存在的 key 返回空串，不是错
+	raw, err := s.rds.Get(ctx, accessKey(access)).Result()
+	switch {
+	case errors.Is(err, redis.Nil), err == nil && raw == "":
 		return nil, ErrInvalid
+	case err != nil:
+		return nil, fmt.Errorf("session: 读令牌失败: %w", err)
 	}
 	var c Claims
 	if err := json.Unmarshal([]byte(raw), &c); err != nil {
@@ -212,18 +215,18 @@ func (s *Store) Revoke(ctx context.Context, access string) error {
 		return err
 	}
 	s.revoke(ctx, access)
-	_, _ = s.rds.ZremCtx(ctx, sessionsKey(c.UserID), access)
+	_ = s.rds.ZRem(ctx, sessionsKey(c.UserID), access).Err()
 	return nil
 }
 
 // revoke 删一个 access 相关的 key（access 本身、它的 refresh 映射、refresh 本身）。
 func (s *Store) revoke(ctx context.Context, access string) {
-	refresh, _ := s.rds.GetCtx(ctx, accessToRefresh(access))
+	refresh, _ := s.rds.Get(ctx, accessToRefresh(access)).Result()
 	keys := []string{accessKey(access), accessToRefresh(access)}
 	if refresh != "" {
 		keys = append(keys, refreshKey(refresh), refreshToAccess(refresh))
 	}
-	_, _ = s.rds.DelCtx(ctx, keys...)
+	_ = s.rds.Del(ctx, keys...).Err()
 }
 
 // newToken 去掉横线的 UUID：32 位小写 hex，和它一致。

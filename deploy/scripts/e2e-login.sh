@@ -83,7 +83,7 @@ check "临时 token 不能直接调业务接口" "$(curl -sS -H "Authorization: 
 check "放 Authorization 头登录也行" "$(curl -sS -X POST -H "Authorization: Bearer $(temp "u$UNION_ID")" "$GW/auth/login" | jq -r .code)" 0
 
 echo "== 令牌和 AIGC 服务同一套（Redis 会话）"
-RDS=(docker exec -i redis-7 redis-cli)
+RDS=(docker exec -i redis-7 redis-cli -n 10)   # 会话在 10 号库，和 AIGC 服务一致
 check "令牌是 32 位 hex（去掉横线的 UUID），不是 JWT" "$(jq -r '.data.token|test("^[0-9a-f]{32}$")' <<<"$R")" true
 check "还给了 refresh" "$(jq -r '[(.data.refresh_token|test("^[0-9a-f]{32}$")),(.data.refresh_expires_at > .data.expires_at)]|map(tostring)|join(",")' <<<"$R")" true,true
 # 下面这五个 key 的名字和 JSON 结构必须和 Java 一模一样，否则它认不出我们发的令牌

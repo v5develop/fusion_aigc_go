@@ -5,6 +5,7 @@ go 1.26.5
 require (
 	github.com/go-sql-driver/mysql v1.10.0
 	github.com/golang-jwt/jwt/v4 v4.5.2
+	github.com/redis/go-redis/v9 v9.22.0
 	github.com/zeromicro/go-zero v1.10.3
 	golang.org/x/crypto v0.55.0
 	google.golang.org/grpc v1.83.2
@@ -53,7 +54,6 @@ require (
 	github.com/prometheus/client_model v0.6.2 // indirect
 	github.com/prometheus/common v0.66.1 // indirect
 	github.com/prometheus/procfs v0.16.1 // indirect
-	github.com/redis/go-redis/v9 v9.22.0 // indirect
 	github.com/spaolacci/murmur3 v1.1.0 // indirect
 	github.com/titanous/json5 v1.0.0 // indirect
 	github.com/x448/float16 v0.8.4 // indirect

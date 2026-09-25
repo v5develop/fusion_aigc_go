@@ -47,8 +47,10 @@ load_env() {
   UNION_BASE_URL=${UNION_BASE_URL:-}; AUTH_MODE=${AUTH_MODE:-dev}; JWT_SECRET=${JWT_SECRET:-}
   ADMIN_JWT_SECRET=${ADMIN_JWT_SECRET:-}; LINK_PARSE_URL=${LINK_PARSE_URL:-}
   UNION_REDIS_ADDR=${UNION_REDIS_ADDR:-}; UNION_REDIS_PASS=${UNION_REDIS_PASS:-}
+  UNION_REDIS_DB=${UNION_REDIS_DB:-0}
   UNION_PHONE_AES_KEY=${UNION_PHONE_AES_KEY:-}
   SESSION_REDIS_ADDR=${SESSION_REDIS_ADDR:-}; SESSION_REDIS_PASS=${SESSION_REDIS_PASS:-}
+  SESSION_REDIS_DB=${SESSION_REDIS_DB:-10}
   FUSION_BASE_URL=${FUSION_BASE_URL:-}; FUSION_APP_KEY=${FUSION_APP_KEY:-}
   FUSION_APP_SECRET=${FUSION_APP_SECRET:-}; FUSION_KEY_VERSION=${FUSION_KEY_VERSION:-}
   if [[ $MOCK_ENABLED == 1 ]]; then
@@ -305,8 +307,10 @@ cmd_install() {
     -auth-mode "$AUTH_MODE" -union "$UNION_BASE_URL" \
     -link-parse "$LINK_PARSE_URL" \
     -union-redis "$UNION_REDIS_ADDR" -union-redis-pass "$UNION_REDIS_PASS" \
+    -union-redis-db "$UNION_REDIS_DB" \
     -union-phone-key "$UNION_PHONE_AES_KEY" \
     -session-redis "$SESSION_REDIS_ADDR" -session-redis-pass "$SESSION_REDIS_PASS" \
+    -session-redis-db "$SESSION_REDIS_DB" \
     -fusion-url "$FUSION_BASE_URL" -fusion-key "$FUSION_APP_KEY" -fusion-secret "$FUSION_APP_SECRET" \
     -fusion-key-version "$FUSION_KEY_VERSION" \
     -ports "copywriting=$COPYWRITING_PORT,digitalhuman=$DIGITALHUMAN_PORT,note=$NOTE_PORT,imagegen=$IMAGEGEN_PORT,gateway=$GATEWAY_PORT,admin=$ADMIN_PORT"
