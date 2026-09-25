@@ -65,7 +65,8 @@ release:
 # 服务器部署包：dist/aigc-life-<版本>.tar.gz，上传到服务器解压后 bash install.sh（见 deploy/server/README.md）
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 package:
-	@rm -rf dist/aigc-life && mkdir -p dist/aigc-life/bin dist/aigc-life/etc-dev dist/aigc-life/sql dist/aigc-life/scripts dist/aigc-life/docs
+	@rm -rf dist/aigc-life dist/*.tar.gz   # 只留这一次的包，免得部署时拿错版本
+	@mkdir -p dist/aigc-life/bin dist/aigc-life/etc-dev dist/aigc-life/sql dist/aigc-life/scripts dist/aigc-life/docs
 	@for s in copywriting/rpc digitalhuman/rpc note/rpc imagegen/rpc gateway/api admin/api; do \
 		name=$$(echo $$s | sed 's#/rpc#-rpc#; s#/api#-api#'); \
 		echo "build $$name"; \
