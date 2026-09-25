@@ -43,4 +43,6 @@ Upload:
   MaxImageBytes: 10485760   # 仅网关代传（开发用）生效；直传的大小与类型由前端控制
 ImageGenRpc:
   Etcd: {Hosts: [127.0.0.1:2379], Key: imagegen.rpc}
+  # 90 秒：提交链接复刻时要同步等链接解析（对方降级路径最慢 60 秒）
+  Timeout: 90000
   NonBlock: true

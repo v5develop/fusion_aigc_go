@@ -59,6 +59,14 @@ func (p *Poller) pollVideoPlans(ctx context.Context) {
 func (p *Poller) pollVideoParse(ctx context.Context, c *model.AfvVideoCreation) {
 	svcCtx := p.svcCtx
 	cfg := &svcCtx.Config.VideoRemake
+	// 链接来源的任务号是转存完才分配的。为空说明还在下载转存，或者服务在转存中途重启了——
+	// 后者没人会再接手，超时就给个明确的失败，别让用户一直转圈。
+	if !c.PlanTaskId.Valid || c.PlanTaskId.String == "" {
+		if time.Since(c.UpdateTime) > time.Duration(cfg.FetchTimeoutMinutes)*time.Minute {
+			failVideo(ctx, svcCtx, c.Id, model.VideoPlanning, "视频转存中断，请重试")
+		}
+		return
+	}
 	r := p.query(ctx, c.PlanTaskId.String)
 	switch {
 	case r != nil && r.Status == aigc.StatusSuccess:

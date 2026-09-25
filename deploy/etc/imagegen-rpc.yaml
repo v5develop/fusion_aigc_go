@@ -1,7 +1,9 @@
 Name: imagegen.rpc
 ListenOn: 0.0.0.0:9204
 Mode: dev
-Timeout: 30000
+# 90 秒：链接解析最慢会到 60 秒（对方降级路径），30 秒不够。
+# 下载转存不在这条链路里（放后台了），所以不用给到分钟级。
+Timeout: 90000
 Etcd:
   Hosts: [127.0.0.1:2379]
   Key: imagegen.rpc

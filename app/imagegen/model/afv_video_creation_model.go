@@ -52,6 +52,8 @@ type (
 		StartGenerate(ctx context.Context, id int64, genTaskID string) (bool, error)
 		// UpdateRemakeSettings 视频复刻专用：出片前把用户改过的剧情 / 档位 / 比例落库
 		UpdateRemakeSettings(ctx context.Context, id int64, script, model, size string) error
+		// FinishFetch 链接来源：转存完原片后写回地址、封面与解析任务号
+		FinishFetch(ctx context.Context, id int64, videoURL, coverURL, planTaskID string) error
 		// Replan 重新构思：换一个出剧本任务号，清掉旧剧本，转回「构思中」
 		Replan(ctx context.Context, id int64, planTaskID string) (bool, error)
 		// FinishGenerate 出片结束（成功或失败）
@@ -152,6 +154,13 @@ func (m *customAfvVideoCreationModel) StartGenerate(ctx context.Context, id int6
 func (m *customAfvVideoCreationModel) UpdateRemakeSettings(ctx context.Context, id int64, script, mdl, size string) error {
 	q := fmt.Sprintf("UPDATE %s SET `plan_script` = ?, `model` = ?, `size` = ? WHERE `id` = ? AND `deleted` = 0", m.table)
 	_, err := m.conn.ExecCtx(ctx, q, nullString(script), mdl, size, id)
+	return err
+}
+
+func (m *customAfvVideoCreationModel) FinishFetch(ctx context.Context, id int64, videoURL, coverURL, planTaskID string) error {
+	q := fmt.Sprintf("UPDATE %s SET `source_video_url` = ?, `cover_url` = COALESCE(NULLIF(?, ''), `cover_url`), "+
+		"`plan_task_id` = ? WHERE `id` = ? AND `deleted` = 0", m.table)
+	_, err := m.conn.ExecCtx(ctx, q, nullString(videoURL), coverURL, nullString(planTaskID), id)
 	return err
 }
 

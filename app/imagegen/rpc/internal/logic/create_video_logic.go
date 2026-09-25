@@ -1,6 +1,8 @@
 package logic
 
 import (
+	"time"
+
 	"aigc-life/pkg/linkparse"
 	"context"
 
@@ -167,6 +169,7 @@ func (l *CreateVideoLogic) CreateVideo(in *pb.CreateVideoReq) (*pb.VideoInfo, er
 func (l *CreateVideoLogic) createRemake(in *pb.CreateVideoReq) (*pb.VideoInfo, error) {
 	cfg := &l.svcCtx.Config.VideoRemake
 	var row *model.AfvVideoCreation
+	var linked *linkparse.Video // 链接来源：解析结果，下载转存在后台继续
 	switch in.Source {
 	case model.SourceUpload:
 		videoURL := strings.TrimSpace(in.VideoUrl)
@@ -190,20 +193,25 @@ func (l *CreateVideoLogic) createRemake(in *pb.CreateVideoReq) (*pb.VideoInfo, e
 		if !l.svcCtx.LinkParse.Enabled() {
 			return nil, xerr.New(xerr.NotReady, "链接解析暂未开放，请先用「上传视频」")
 		}
-		v, err := l.resolveLink(in.UserId, link)
+		// 只在这里同步做解析（几秒）：能立刻校验链接、拿到标题封面。
+		// 下载 + 转存可能要几十秒（最大 50M），放后台做，不然提交接口会超时。
+		v, err := l.parseLink(link)
 		if err != nil {
 			return nil, err
 		}
+		linked = v
 		row = &model.AfvVideoCreation{
 			Source: nullStr(model.SourceLink), SourceUrl: nullStr(orDefault(v.SourceURL, link)),
-			SourceVideoUrl: nullStr(v.VideoURL), Title: nullStr(v.Title), CoverUrl: nullStr(v.CoverURL),
+			Title: nullStr(v.Title),
 		}
 	default:
 		return nil, xerr.Param("请选择分析方式")
 	}
 
 	row.UserId, row.Kind = in.UserId, in.Kind
-	row.PlanTaskId = nullStr(newTaskID(l.svcCtx))
+	if linked == nil { // 链接来源的任务号等转存完再分配
+		row.PlanTaskId = nullStr(newTaskID(l.svcCtx))
+	}
 	row.RequestId = nullStr(in.RequestId)
 	row.Status = model.VideoPlanning
 	row.Duration = 0 // 原片时长等 70 返回后回填
@@ -221,7 +229,10 @@ func (l *CreateVideoLogic) createRemake(in *pb.CreateVideoReq) (*pb.VideoInfo, e
 	if row.Id, err = res.LastInsertId(); err != nil {
 		return nil, err
 	}
-	if err := submitPlan(l.ctx, l.svcCtx, row, ""); err != nil {
+	if linked != nil {
+		// 后台：下载直链（会过期，所以当场下）→ 转存到我们的桶 → 再交给执行面 70
+		go l.fetchAndSubmit(row.Id, in.UserId, linked)
+	} else if err := submitPlan(l.ctx, l.svcCtx, row, ""); err != nil {
 		failVideo(l.ctx, l.svcCtx, row.Id, model.VideoPlanning, "提交解析失败，请重试")
 		return nil, err
 	}
@@ -232,23 +243,11 @@ func (l *CreateVideoLogic) createRemake(in *pb.CreateVideoReq) (*pb.VideoInfo, e
 	return toVideoInfo(cur), nil
 }
 
-// linkVideo 解析并转存后的结果，存的都是我们自己桶里的地址。
-type linkVideo struct {
-	VideoURL  string
-	CoverURL  string
-	Title     string
-	SourceURL string
-}
-
-// resolveLink 分享链接 → 我们桶里的视频地址。
+// parseLink 解析分享链接。只做解析（抖音 4–8 秒，其余更快），拿到直链、标题、封面。
 //
-// 解析服务给的直链**带签名、几小时就过期**，所以必须当场下下来转存，
-// 不能把直链直接丢给执行面——等它排到队可能已经 403 了，用户还要回看原片。
-// 下载是有上限的（和上传同一个 50M），超了立刻断，不让一个几百兆的视频把内存撑爆。
-func (l *CreateVideoLogic) resolveLink(userID int64, link string) (*linkVideo, error) {
+// 时长这里能拿到就先判，省得白下一场（B站 不返回时长，只能等执行面 70 回报再判）。
+func (l *CreateVideoLogic) parseLink(link string) (*linkparse.Video, error) {
 	cfg := &l.svcCtx.Config.VideoRemake
-	lim := videoLimits(cfg)
-
 	v, err := l.svcCtx.LinkParse.Parse(l.ctx, link)
 	switch {
 	case errors.Is(err, linkparse.ErrUnsupported):
@@ -259,46 +258,77 @@ func (l *CreateVideoLogic) resolveLink(userID int64, link string) (*linkVideo, e
 		l.Errorf("parse link %q: %v", link, err)
 		return nil, xerr.New(xerr.ServerError, "链接解析失败，请稍后重试")
 	}
-	// 时长这里能拿到就先判，省得下完 50M 才发现超时长（拿不到的等 70 返回再判）
 	if cfg.MaxVideoSeconds > 0 && int(v.Duration) > cfg.MaxVideoSeconds {
-		return nil, xerr.Param(lim.LimitMsg())
+		return nil, xerr.Param(videoLimits(cfg).LimitMsg())
 	}
-
-	data, ct, err := linkparse.Download(l.ctx, http.DefaultClient, v, cfg.MaxVideoBytes)
-	switch {
-	case errors.Is(err, linkparse.ErrTooLarge):
-		return nil, xerr.Param(lim.LimitMsg())
-	case err != nil:
-		l.Errorf("download %s: %v", v.URL, err)
-		return nil, xerr.New(xerr.ServerError, "视频下载失败，请稍后重试")
-	}
-	key := storage.ObjectKey(l.svcCtx.Config.Storage.Prefix, "video", userID, extOf(ct))
-	videoURL, err := l.svcCtx.Storage.Put(l.ctx, key, ct, data)
-	if err != nil {
-		l.Errorf("put video: %v", err)
-		return nil, xerr.New(xerr.ServerError, "视频转存失败，请稍后重试")
-	}
-	return &linkVideo{
-		VideoURL: videoURL, Title: v.Title, SourceURL: v.SourceURL,
-		CoverURL: l.saveCover(userID, v),
-	}, nil
+	return v, nil
 }
 
-// saveCover 封面也转存一份（也是会过期的直链）。封面没了不影响生成，失败就不要，别挡着用户。
-func (l *CreateVideoLogic) saveCover(userID int64, v *linkparse.Video) string {
+// fetchAndSubmit 后台：把直链下下来转存，再交给执行面 70。
+//
+// 为什么不在提交接口里做完：一个 50M 的视频下载 + 上传 OSS 可能几十秒，
+// 而 RPC 有超时（imagegen-rpc 的 Timeout），同步做会超时报「服务繁忙」——踩过一次。
+//
+// 直链带签名、几小时就过期，所以必须当场下、转存到我们自己的桶：
+// 直接把直链丢给执行面，等它排到队可能已经 403，用户之后回看原片也没了。
+func (l *CreateVideoLogic) fetchAndSubmit(id, userID int64, v *linkparse.Video) {
+	// 脱离请求的 ctx：接口早就返回了，用它会立刻被取消
+	ctx, cancel := context.WithTimeout(context.Background(),
+		time.Duration(l.svcCtx.Config.VideoRemake.FetchTimeoutMinutes)*time.Minute)
+	defer cancel()
+	log := logx.WithContext(ctx)
+	cfg := &l.svcCtx.Config.VideoRemake
+
+	data, ct, err := linkparse.Download(ctx, http.DefaultClient, v, cfg.MaxVideoBytes)
+	switch {
+	case errors.Is(err, linkparse.ErrTooLarge):
+		failVideo(ctx, l.svcCtx, id, model.VideoPlanning, videoLimits(cfg).LimitMsg())
+		return
+	case err != nil:
+		log.Errorf("download %s: %v", v.URL, err)
+		failVideo(ctx, l.svcCtx, id, model.VideoPlanning, "视频下载失败，请重试")
+		return
+	}
+	key := storage.ObjectKey(l.svcCtx.Config.Storage.Prefix, "video", userID, extOf(ct))
+	videoURL, err := l.svcCtx.Storage.Put(ctx, key, ct, data)
+	if err != nil {
+		log.Errorf("put video: %v", err)
+		failVideo(ctx, l.svcCtx, id, model.VideoPlanning, "视频转存失败，请重试")
+		return
+	}
+	cover := l.saveCover(ctx, userID, v)
+
+	taskID := newTaskID(l.svcCtx)
+	if err := l.svcCtx.Video.FinishFetch(ctx, id, videoURL, cover, taskID); err != nil {
+		log.Errorf("finish fetch %d: %v", id, err)
+		failVideo(ctx, l.svcCtx, id, model.VideoPlanning, "视频转存失败，请重试")
+		return
+	}
+	c, err := l.svcCtx.Video.FindOwned(ctx, id, userID)
+	if err != nil {
+		log.Errorf("find video %d: %v", id, err)
+		return
+	}
+	if err := submitPlan(ctx, l.svcCtx, c, ""); err != nil {
+		failVideo(ctx, l.svcCtx, id, model.VideoPlanning, "提交解析失败，请重试")
+	}
+}
+
+// saveCover 封面也转存一份（也是会过期的直链）。封面没了不影响生成，失败就不要。
+func (l *CreateVideoLogic) saveCover(ctx context.Context, userID int64, v *linkparse.Video) string {
 	if v.CoverURL == "" {
 		return ""
 	}
 	cover := &linkparse.Video{URL: v.CoverURL, UserAgent: v.UserAgent}
-	data, _, err := linkparse.Download(l.ctx, http.DefaultClient, cover, maxCoverBytes)
+	data, _, err := linkparse.Download(ctx, http.DefaultClient, cover, maxCoverBytes)
 	if err != nil {
-		l.Infof("下载封面失败，跳过: %v", err)
+		logx.WithContext(ctx).Infof("下载封面失败，跳过: %v", err)
 		return ""
 	}
 	key := storage.ObjectKey(l.svcCtx.Config.Storage.Prefix, "image", userID, "jpg")
-	url, err := l.svcCtx.Storage.Put(l.ctx, key, "image/jpeg", data)
+	url, err := l.svcCtx.Storage.Put(ctx, key, "image/jpeg", data)
 	if err != nil {
-		l.Infof("转存封面失败，跳过: %v", err)
+		logx.WithContext(ctx).Infof("转存封面失败，跳过: %v", err)
 		return ""
 	}
 	return url

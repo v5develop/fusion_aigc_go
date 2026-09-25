@@ -85,7 +85,9 @@ type VideoRemakeConf struct {
 	// LinkParse 链接解析服务（抖音/快手/小红书/bilibili 分享链接 → 可下载直链 + 标题 + 封面）。
 	// BaseURL 留空表示「链接查视频」暂未开放，App 端只显示「上传视频」。
 	LinkParse           linkparse.Conf
-	ParseTimeoutMinutes int    `json:",default=15"`
+	// FetchTimeoutMinutes 链接来源：下载直链 + 转存到我们的桶的整体超时
+	FetchTimeoutMinutes int `json:",default=10"`
+	ParseTimeoutMinutes int `json:",default=15"`
 	GenTimeoutMinutes   int    `json:",default=40"`
 	AssetType           string `json:",optional"`
 	AssetEntryCode      string `json:",optional"`
