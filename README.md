@@ -59,6 +59,7 @@ deploy/scripts/e2e-imagegen.sh      # 海报/长图/动作迁移/数字人口播
 deploy/scripts/e2e-video.sh         # 探店视频/带货短剧/爆款视频复刻端到端测试（58 项，两步流程走 mock）
 deploy/scripts/e2e-login.sh         # App 登录端到端测试（30 项，联盟走本地 mock-union）
 deploy/scripts/e2e-login-fusion.sh  # 建档交给现有 Java 服务那条路（9 项，自己起 mock-fusion 和一个临时网关）
+deploy/scripts/e2e-login-direct.sh  # 自己验临时 token 那条路（15 项，读本地 Redis + 联盟用户库，真跑）
 deploy/scripts/e2e-admin-login.sh   # 运营后台登录端到端测试（20 项，临时插账号跑完删，不碰真实账号）
 deploy/scripts/e2e-real.sh          # 真实链路回归：对着已部署环境每个模块真实跑一条（会产生费用，见脚本头部）
 make stop-all

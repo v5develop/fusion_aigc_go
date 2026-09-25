@@ -51,6 +51,9 @@ func main() {
 	authMode := flag.String("auth-mode", "", "网关鉴权模式：dev / token")
 	union := flag.String("union", "", "联盟用户服务地址（登录用）")
 	linkParse := flag.String("link-parse", "", "分享链接解析服务地址（爆款视频复刻的链接入口）")
+	unionRedis := flag.String("union-redis", "", "联盟的 Redis 地址：配了就自己验临时 token，不调联盟接口")
+	unionRedisPass := flag.String("union-redis-pass", "", "联盟 Redis 密码")
+	unionPhoneKey := flag.String("union-phone-key", "", "联盟手机号的 AES 密钥；不配则手机号留空")
 	fusionURL := flag.String("fusion-url", "", "现有 Java 服务地址（建档交给它；留空则我们自己写表）")
 	fusionKey := flag.String("fusion-key", "", "Java 服务分配的 appKey")
 	fusionSecret := flag.String("fusion-secret", "", "Java 服务分配的 appSecret")
@@ -84,7 +87,8 @@ func main() {
 		root := doc.Content[0]
 		e := editor{name: name, ports: portOf, dsn: *dsn, aigc: *aigc, logDir: filepath.Join(*logs, name), keepDays: *keepDays,
 			jwtSecret: *jwtSecret, adminJwtSecret: *adminJwtSecret, authMode: *authMode, union: *union,
-			linkParse: *linkParse, fusionURL: *fusionURL, fusionKey: *fusionKey, fusionSecret: *fusionSecret, fusionKeyVer: *fusionKeyVer}
+			linkParse: *linkParse, unionRedis: *unionRedis, unionRedisPass: *unionRedisPass,
+			unionPhoneKey: *unionPhoneKey, fusionURL: *fusionURL, fusionKey: *fusionKey, fusionSecret: *fusionSecret, fusionKeyVer: *fusionKeyVer}
 		if err := e.apply(root); err != nil {
 			log.Fatalf("%s: %v", file, err)
 		}
@@ -120,6 +124,9 @@ type editor struct {
 	adminJwtSecret string
 	authMode       string
 	union          string
+	unionRedis     string
+	unionRedisPass string
+	unionPhoneKey  string
 	linkParse      string
 	fusionURL      string
 	fusionKey      string
@@ -171,6 +178,19 @@ func (e editor) apply(root *yaml.Node) error {
 	// 否则会留着 127.0.0.1 的 mock 地址，表现成「接口在但一直失败」，比直接说「未开放」难查得多。
 	if u := get(root, "Union"); u != nil {
 		set(u, "BaseURL", scalar(e.union))
+		// 配了 Redis 就自己验临时 token（服务器访问不到联盟域名时用），没配则删掉这段走 HTTP
+		if e.unionRedis != "" {
+			d := mapping("RedisAddr", quoted(e.unionRedis))
+			if e.unionRedisPass != "" {
+				set(d, "RedisPass", quoted(e.unionRedisPass))
+			}
+			if e.unionPhoneKey != "" {
+				set(d, "PhoneAesKey", quoted(e.unionPhoneKey))
+			}
+			set(u, "Direct", d)
+		} else {
+			del(u, "Direct")
+		}
 	}
 	// 建档交给现有 Java 服务；三样齐了才写，缺一样就走我们自己写表那条路
 	if get(root, "Union") != nil && e.fusionURL != "" && e.fusionKey != "" && e.fusionSecret != "" {

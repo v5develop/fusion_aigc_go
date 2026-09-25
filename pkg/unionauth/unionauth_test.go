@@ -24,7 +24,7 @@ func TestLogin(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	u, err := New(Conf{BaseURL: srv.URL}).Login(context.Background(), "tmp-123")
+	u, err := New(Conf{BaseURL: srv.URL}, "").Login(context.Background(), "tmp-123")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +45,7 @@ func TestLoginUnauthorized(t *testing.T) {
 	}
 	for name, h := range cases {
 		srv := httptest.NewServer(h)
-		_, err := New(Conf{BaseURL: srv.URL}).Login(context.Background(), "x")
+		_, err := New(Conf{BaseURL: srv.URL}, "").Login(context.Background(), "x")
 		srv.Close()
 		if !errors.Is(err, ErrUnauthorized) {
 			t.Errorf("%s: 应该判为登录失效，实际 %v", name, err)
@@ -54,10 +54,10 @@ func TestLoginUnauthorized(t *testing.T) {
 }
 
 func TestEnabled(t *testing.T) {
-	if New(Conf{}).Enabled() {
+	if New(Conf{}, "").Enabled() {
 		t.Error("没配地址应该是未开放")
 	}
-	if !New(Conf{BaseURL: "http://x"}).Enabled() {
+	if !New(Conf{BaseURL: "http://x"}, "").Enabled() {
 		t.Error("配了地址应该可用")
 	}
 }

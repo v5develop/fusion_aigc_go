@@ -42,7 +42,7 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		NoteRpc:         note.NewNote(zrpc.MustNewClient(c.NoteRpc)),
 		ImageGenRpc:     imagegen.NewImageGen(zrpc.MustNewClient(c.ImageGenRpc)),
 		Storage:         storage.New(c.Storage, conn),
-		Union:           unionauth.New(c.Union),
+		Union:           unionauth.New(c.Union, c.DataSource),
 		AppUser:         appuser.New(conn).WithRegistrar(fusionRegistrar{fusion.New(c.Fusion)}),
 	}
 }
