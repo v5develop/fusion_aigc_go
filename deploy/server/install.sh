@@ -25,11 +25,19 @@ die()    { red "✗ $*"; exit 1; }
 
 # ---------- 配置 ----------
 load_env() {
-  local f=""
+  local f="" installed=${INSTALL_DIR:-/opt/aigc-life}/deploy.env
   if [[ -f $PKG/deploy.env ]]; then
     f=$PKG/deploy.env
-  elif [[ -f ${INSTALL_DIR:-/opt/aigc-life}/deploy.env ]]; then
-    f=${INSTALL_DIR:-/opt/aigc-life}/deploy.env
+    # 两份都存在且内容不一样：十有八九是改错了文件（改了装好的那份，而这里读的是包里这份，
+    # 装完还会把它覆盖掉，改动就"凭空消失"）。踩过一次，所以这里拦一下。
+    if [[ -f $installed ]] && ! cmp -s "$f" "$installed"; then
+      yellow "⚠️  两份 deploy.env 内容不一致，本次用的是：$f"
+      yellow "    另一份（会被覆盖）：$installed"
+      yellow "    要改配置请改 $f；确认无误就回车继续，Ctrl-C 取消。"
+      read -r _ < /dev/tty || true
+    fi
+  elif [[ -f $installed ]]; then
+    f=$installed
   else
     cp "$PKG/deploy.env.example" "$PKG/deploy.env"
     yellow "已生成 $PKG/deploy.env，请先填写（至少填数据库密码 DB_PASS），然后重新执行：bash install.sh"
@@ -278,7 +286,7 @@ cmd_install() {
   command -v curl >/dev/null 2>&1 || die "缺少 curl"
   [[ -x $PKG/bin/gateway-api ]] || die "安装包不完整：没有 $PKG/bin/gateway-api"
   green "  ✓ $(uname -sm)，$([[ $USE_SYSTEMD == 1 ]] && echo 'systemd 管理进程' || echo '无 systemd，用 nohup 管理进程')"
-  echo "  配置文件：$ENV_FILE"
+  echo "  配置文件：$ENV_FILE（以后改配置就改这一份，改完重跑本脚本）"
   check_ports # 先查端口，冲突就什么都不动
 
   step "2/6 检查数据库"
