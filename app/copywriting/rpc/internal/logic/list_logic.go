@@ -30,7 +30,7 @@ func (l *ListLogic) List(in *pb.ListReq) (*pb.CopywritingList, error) {
 	limit, offset := pagex.Offset(in.Page, in.PageSize)
 	list, total, err := l.svcCtx.Copywriting.ListByUser(l.ctx, model.ListFilter{
 		UserID: in.UserId, Keyword: strings.TrimSpace(in.Keyword), ContentType: in.ContentType,
-		Limit: limit, Offset: offset,
+		Status: int64(in.Status), Limit: limit, Offset: offset,
 	})
 	if err != nil {
 		return nil, err

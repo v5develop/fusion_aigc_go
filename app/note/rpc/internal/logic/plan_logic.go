@@ -87,7 +87,8 @@ func (l *PlanLogic) Plan(in *pb.PlanReq) (*pb.NoteInfo, error) {
 	row := &model.AfvImageTextNote{
 		UserId: in.UserId, NoteType: in.NoteType, Topic: topic, MaterialUrls: nullStr(jsonList(materials)),
 		DigitalHumanId: sql.NullInt64{Int64: in.DigitalHumanId, Valid: in.DigitalHumanId > 0}, PersonUrl: nullStr(personURL),
-		ShopProfileId: sql.NullInt64{Int64: in.ShopProfileId, Valid: in.ShopProfileId > 0},
+		ShopProfileId:  sql.NullInt64{Int64: in.ShopProfileId, Valid: in.ShopProfileId > 0},
+		CopywritingId:  sql.NullInt64{Int64: in.CopywritingId, Valid: in.CopywritingId > 0},
 		PlanTaskId:    nullStr(newTaskID(l.svcCtx)), ImageCount: count, RequestId: nullStr(in.RequestId),
 		Status: model.StatusPlanning,
 	}

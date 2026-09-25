@@ -65,6 +65,7 @@ type ListFilter struct {
 	UserID      int64
 	Keyword     string
 	ContentType string
+	Status      int64 // -1 表示不限
 	Limit       int64
 	Offset      int64
 }
@@ -74,6 +75,9 @@ func (m *customAfvCopywritingModel) ListByUser(ctx context.Context, f ListFilter
 	var args []any
 	if f.UserID > 0 {
 		conds, args = append(conds, "`user_id` = ?"), append(args, f.UserID)
+	}
+	if f.Status >= 0 {
+		conds, args = append(conds, "`status` = ?"), append(args, f.Status)
 	}
 	if f.ContentType != "" {
 		conds, args = append(conds, "`content_type` = ?"), append(args, f.ContentType)

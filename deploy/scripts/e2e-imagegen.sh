@@ -91,11 +91,11 @@ echo "== 表单配置"
 PO=$(api GET '/image-creations/options?kind=poster')
 check "海报类型 6 个" "$(jq -r '[.poster_types[].label]|join(",")' <<<"$PO")" 社媒,营销,节日,喜庆,邀请函,招聘
 check "海报风格 15 个，首个为 AI自动匹配" "$(jq -r '[(.poster_styles|length|tostring), .poster_styles[0].label]|join(",")' <<<"$PO")" 15,AI自动匹配
-check "比例 6 个，默认 9:16" "$(jq -r '[(.sizes|length|tostring), .default_size]|join(",")' <<<"$PO")" 6,9:16
+check "比例 6 个，默认 2:3（产品定）" "$(jq -r '[(.sizes|length|tostring), .default_size]|join(",")' <<<"$PO")" 6,2:3
 check "海报模板必选" "$(jq -r .template_required <<<"$PO")" true
 check "素材上限 3、张数上限 4" "$(jq -r '[.max_materials,.max_images]|map(tostring)|join(",")' <<<"$PO")" 3,4
 LO=$(api GET '/image-creations/options?kind=longImage')
-check "长图比例固定 1:4" "$(jq -r '[(.sizes|length|tostring), .default_size]|join(",")' <<<"$LO")" 1,1:4
+check "长图比例固定 1:3（产品定）" "$(jq -r '[(.sizes|length|tostring), .default_size]|join(",")' <<<"$LO")" 1,1:3
 check "长图模板必选（最新对接文档 76 的 template_url 必填）" "$(jq -r .template_required <<<"$LO")" true
 check "长图无海报类型/风格" "$(jq -r '[(.poster_types|length),(.poster_styles|length)]|map(tostring)|join(",")' <<<"$LO")" 0,0
 check "非法 kind" "$(curl -sS -H "X-User-Id: $USER_ID" "$GW/image-creations/options?kind=bad" | jq -r .code)" 1001
@@ -152,10 +152,10 @@ L=$(api POST /image-creations "$BL" "$(uuidgen)")
 LID=$(jq -r .id <<<"$L")
 L=$(poll "$LID")
 check "已完成，默认出 1 张" "$(jq -r '[.status,(.image_urls|length)]|map(tostring)|join(",")' <<<"$L")" 1,1
-check "长图比例固定 1:4" "$(jq -r .size <<<"$L")" 1:4
+check "长图比例固定 1:3（产品定）" "$(jq -r .size <<<"$L")" 1:3
 T2=$(sql "SELECT JSON_UNQUOTE(JSON_EXTRACT(tasks,'\$[0].task_id')) FROM afv_image_creation WHERE id=$LID")
 B76=$(curl -sS "http://127.0.0.1:5055/mock/task/$T2")
-check "76 入参：类型/比例/模板/不传 model" "$(jq -c '[.task_type,.size,.template_url,has("model")]' <<<"$B76")" "[76,\"1:4\",\"https://mock-oss.example.com/tpl/长图模板-$USER_ID.png\",false]"
+check "76 入参：类型/比例/模板/不传 model" "$(jq -c '[.task_type,.size,.template_url,has("model")]' <<<"$B76")" "[76,\"1:3\",\"https://mock-oss.example.com/tpl/长图模板-$USER_ID.png\",false]"
 BL2=$(jq -nc --argjson t "$T_LONG" --arg m "$M1" '{kind:"longImage",content:"带素材的长图",template_id:$t,material_urls:[$m]}')
 L2=$(api POST /image-creations "$BL2" "$(uuidgen)")
 L2=$(poll "$(jq -r .id <<<"$L2")")

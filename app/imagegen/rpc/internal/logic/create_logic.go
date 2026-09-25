@@ -120,6 +120,7 @@ func (l *CreateLogic) Create(in *pb.CreateReq) (*pb.ImageInfo, error) {
 		UserId: in.UserId, Kind: in.Kind, Content: content, MaterialUrls: nullStr(jsonList(mats)),
 		TemplateAssetId: nullInt(in.TemplateId), TemplateUrl: nullStr(templateURL),
 		PosterType: nullStr(in.PosterType), PosterStyle: nullStr(in.PosterStyle), Size: size, Model: mdl,
+		CopywritingId: nullInt(in.CopywritingId),
 		ImageCount: count, RequestId: nullStr(in.RequestId), Status: model.StatusGenerating,
 	}
 	return l.insertAndSubmit(row, cfg, posterTypeLabel(l.ctx, l.svcCtx, cfg.BizType, in.PosterType))

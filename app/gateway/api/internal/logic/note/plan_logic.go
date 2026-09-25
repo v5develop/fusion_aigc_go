@@ -31,7 +31,8 @@ func NewPlanLogic(ctx context.Context, svcCtx *svc.ServiceContext) *PlanLogic {
 
 func (l *PlanLogic) Plan(req *types.PlanNoteReq) (resp *types.Note, err error) {
 	out, err := l.svcCtx.NoteRpc.Plan(l.ctx, &note.PlanReq{
-		UserId: ctxdata.UserID(l.ctx), NoteType: req.NoteType, Topic: req.Topic, MaterialUrls: req.MaterialUrls,
+		CopywritingId: req.CopywritingId,
+		UserId:        ctxdata.UserID(l.ctx), NoteType: req.NoteType, Topic: req.Topic, MaterialUrls: req.MaterialUrls,
 		DigitalHumanId: req.DigitalHumanId, ShopProfileId: req.ShopProfileId, RequestId: req.RequestId, ImageCount: req.ImageCount,
 	})
 	if err != nil {

@@ -27,11 +27,10 @@ func NewDerivativesLogic(ctx context.Context, svcCtx *svc.ServiceContext) *Deriv
 	}
 }
 
-// 生成历史：该文案衍生出的内容
-// 生成历史：该文案衍生出的内容
+// Derivatives 生成历史：这条文案被拿去生成过哪些成品。
 //
-// TODO 本版不交付。依赖两件未定的事：各标签对应哪些 afv_asset.type；
-// 下游模块发任务时是否把 afv_creation_task.external_ref 写成文案 id。
+// 只返回**已完成**的：这个列表是拿来点开看成品的，生成中和失败的给出去没用。
+// 记录靠各业务表上的 copywriting_id 关联（提交时带上），只有从「选择AI文案」进来的才有。
 func (l *DerivativesLogic) Derivatives(in *pb.DerivativesReq) (*pb.DerivativeList, error) {
 	if _, err := l.svcCtx.Copywriting.FindOwned(l.ctx, in.CopywritingId, in.UserId); err != nil {
 		if errors.Is(err, model.ErrNotFound) {
@@ -40,15 +39,15 @@ func (l *DerivativesLogic) Derivatives(in *pb.DerivativesReq) (*pb.DerivativeLis
 		return nil, err
 	}
 	limit, offset := pagex.Offset(in.Page, in.PageSize)
-	list, total, err := l.svcCtx.Shared.ListDerivatives(l.ctx, in.CopywritingId, in.UserId, assetTypesOf(in.Kind), limit, offset)
+	list, total, err := l.svcCtx.Shared.ListDerivatives(l.ctx, in.CopywritingId, in.UserId, derivativeKinds(in.Kind), limit, offset)
 	if err != nil {
 		return nil, err
 	}
 	resp := &pb.DerivativeList{Total: total, List: make([]*pb.Derivative, 0, len(list))}
 	for _, d := range list {
 		resp.List = append(resp.List, &pb.Derivative{
-			Id: d.Id, Kind: kindOfAssetType(d.Type), AssetType: d.Type, CoverUrl: d.CoverUrl,
-			ResultUrl: d.ResultUrl, IsVideo: isVideoType(d.Type), CreateTime: d.CreateTime.UnixMilli(),
+			Id: d.Id, Kind: d.Kind, CoverUrl: d.CoverUrl, ResultUrl: d.ResultUrl,
+			IsVideo: d.IsVideo == 1, Size: d.Size, CreateTime: d.CreateTime.UnixMilli(),
 		})
 	}
 	return resp, nil

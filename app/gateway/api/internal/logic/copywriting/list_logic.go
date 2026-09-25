@@ -32,7 +32,7 @@ func NewListLogic(ctx context.Context, svcCtx *svc.ServiceContext) *ListLogic {
 func (l *ListLogic) List(req *types.ListReq) (resp *types.ListResp, err error) {
 	out, err := l.svcCtx.CopywritingRpc.List(l.ctx, &copywriting.ListReq{
 		UserId: ctxdata.UserID(l.ctx), Keyword: req.Keyword, ContentType: req.ContentType,
-		Page: req.Page, PageSize: req.PageSize,
+		Status: req.Status, Page: req.Page, PageSize: req.PageSize,
 	})
 	if err != nil {
 		return nil, err

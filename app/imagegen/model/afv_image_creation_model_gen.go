@@ -42,6 +42,7 @@ type (
 		UserId          int64          `db:"user_id"`           // 创建用户ID
 		Kind            string         `db:"kind"`              // 类型：poster-海报（执行面78） longImage-长图（执行面76）
 		Content         string         `db:"content"`           // 海报信息 / 长图内容（用户输入）
+		CopywritingId   sql.NullInt64  `db:"copywriting_id"`    // 用的哪条 AI文案，选填
 		MaterialUrls    sql.NullString `db:"material_urls"`     // 上传素材 URL 数组（最多 3 张）
 		TemplateAssetId sql.NullInt64  `db:"template_asset_id"` // 所选模板（afv_public_template_assets.id）；空=AI智能匹配
 		TemplateUrl     sql.NullString `db:"template_url"`      // 模板图地址（下单时快照，模板下架不影响已有记录）
@@ -107,14 +108,14 @@ func (m *defaultAfvImageCreationModel) FindOneByUserIdRequestId(ctx context.Cont
 }
 
 func (m *defaultAfvImageCreationModel) Insert(ctx context.Context, data *AfvImageCreation) (sql.Result, error) {
-	query := fmt.Sprintf("insert into %s (%s) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", m.table, afvImageCreationRowsExpectAutoSet)
-	ret, err := m.conn.ExecCtx(ctx, query, data.UserId, data.Kind, data.Content, data.MaterialUrls, data.TemplateAssetId, data.TemplateUrl, data.InputImageUrl, data.InputVideoUrl, data.InputBgUrl, data.PosterType, data.PosterStyle, data.Size, data.Duration, data.Model, data.ImageCount, data.Tasks, data.ImageUrls, data.RequestId, data.Status, data.FailReason, data.Deleted)
+	query := fmt.Sprintf("insert into %s (%s) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", m.table, afvImageCreationRowsExpectAutoSet)
+	ret, err := m.conn.ExecCtx(ctx, query, data.UserId, data.Kind, data.Content, data.CopywritingId, data.MaterialUrls, data.TemplateAssetId, data.TemplateUrl, data.InputImageUrl, data.InputVideoUrl, data.InputBgUrl, data.PosterType, data.PosterStyle, data.Size, data.Duration, data.Model, data.ImageCount, data.Tasks, data.ImageUrls, data.RequestId, data.Status, data.FailReason, data.Deleted)
 	return ret, err
 }
 
 func (m *defaultAfvImageCreationModel) Update(ctx context.Context, newData *AfvImageCreation) error {
 	query := fmt.Sprintf("update %s set %s where `id` = ?", m.table, afvImageCreationRowsWithPlaceHolder)
-	_, err := m.conn.ExecCtx(ctx, query, newData.UserId, newData.Kind, newData.Content, newData.MaterialUrls, newData.TemplateAssetId, newData.TemplateUrl, newData.InputImageUrl, newData.InputVideoUrl, newData.InputBgUrl, newData.PosterType, newData.PosterStyle, newData.Size, newData.Duration, newData.Model, newData.ImageCount, newData.Tasks, newData.ImageUrls, newData.RequestId, newData.Status, newData.FailReason, newData.Deleted, newData.Id)
+	_, err := m.conn.ExecCtx(ctx, query, newData.UserId, newData.Kind, newData.Content, newData.CopywritingId, newData.MaterialUrls, newData.TemplateAssetId, newData.TemplateUrl, newData.InputImageUrl, newData.InputVideoUrl, newData.InputBgUrl, newData.PosterType, newData.PosterStyle, newData.Size, newData.Duration, newData.Model, newData.ImageCount, newData.Tasks, newData.ImageUrls, newData.RequestId, newData.Status, newData.FailReason, newData.Deleted, newData.Id)
 	return err
 }
 

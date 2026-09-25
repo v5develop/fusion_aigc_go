@@ -29,7 +29,7 @@ type GenerateConf struct {
 	DefaultWords    int `json:",default=200"`
 	// MinWords / MaxWords 自定义字数的范围：太小模型写不出东西，太大会超时且没人看
 	MinWords       int `json:",default=50"`
-	MaxWords       int `json:",default=2000"`
+	MaxWords       int `json:",default=1000"`  // 产品 2026-09-24 定 50–1000
 	TimeoutSeconds int `json:",default=120"`
 }
 

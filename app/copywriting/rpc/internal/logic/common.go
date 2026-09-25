@@ -135,47 +135,10 @@ func endpoint(ctx context.Context, svcCtx *svc.ServiceContext) (modelCall, error
 	}, nil
 }
 
-// assetTypesOf 生成历史标签 → afv_asset.type 取值。
-//
-// TODO 本版不交付，下面的 type 名是按命名习惯猜的，未经确认；
-// 启用前需要拿到各模块真实的 afv_asset.type 取值，并考虑改成字典表配置。
-func assetTypesOf(kind string) []string {
-	switch kind {
-	case "", "all":
-		return nil
-	case "note":
-		return []string{"imageTextNote"}
-	case "digital_human":
-		return []string{"digitalHumanVideo"}
-	case "explore_video":
-		return []string{"exploreVideo"}
-	case "promo_drama":
-		return []string{"promoDrama"}
-	default:
-		return []string{kind}
+// derivativeKinds 生成历史的标签 → 要查哪几种。空 / all 表示全部。
+func derivativeKinds(kind string) []string {
+	if kind == "" || kind == "all" {
+		return nil // nil = 全部，交给 model
 	}
-}
-
-func kindOfAssetType(t string) string {
-	switch t {
-	case "imageTextNote":
-		return "note"
-	case "digitalHumanVideo":
-		return "digital_human"
-	case "exploreVideo":
-		return "explore_video"
-	case "promoDrama":
-		return "promo_drama"
-	default:
-		return t
-	}
-}
-
-func isVideoType(t string) bool {
-	switch t {
-	case "digitalHumanVideo", "exploreVideo", "promoDrama", "video", "hitVideo":
-		return true
-	default:
-		return false
-	}
+	return []string{kind}
 }

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # AI数字人端到端测试（依赖 make run-all 已启动）
 # 执行面（75 出图 / 85 视频）走本地 mock-aigc；配音走真实百炼 TTS（会产生少量调用费用）。
+# AI帮写那段真实调 LLM，SKIP_MODEL=1 可跳过。
 # 用法：deploy/scripts/e2e-digitalhuman.sh
 set -euo pipefail
 
@@ -193,9 +194,13 @@ check "删除后不可见" "$(api_code GET "/digital-humans/$D3ID")" 1003
 check "删除后 3 条" "$(api GET /digital-humans | jq .total)" 3
 check "别人看不到" "$(curl -sS -H 'X-User-Id: 999999' "$GW/digital-humans/$D1ID" | jq -r .code)" 1003
 
-echo "== AI 帮写配音内容（真实调模型）"
-T=$(api POST /copywriting/ai-write '{"scene":"dh_script","context":"西湖边的咖啡店，主打手冲"}')
-check "返回配音文案且不超过 50 字" "$(jq '.text|length > 0 and length <= 50' <<<"$T")" true
+if [[ ${SKIP_MODEL:-0} != 1 ]]; then
+  echo "== AI 帮写配音内容（真实调模型）"
+  T=$(api POST /copywriting/ai-write '{"scene":"dh_script","context":"西湖边的咖啡店，主打手冲"}')
+  check "返回配音文案且不超过 50 字" "$(jq '.text|length > 0 and length <= 50' <<<"$T")" true
+else
+  echo "== AI 帮写配音内容（SKIP_MODEL=1，已跳过）"
+fi
 
 echo "== 运营后台"
 check "后台未登录" "$(curl -sS "$ADMIN/digital-humans/voices" | jq -r .code)" 1002

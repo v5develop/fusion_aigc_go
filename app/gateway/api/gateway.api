@@ -89,8 +89,10 @@ type (
 	ListReq {
 		Keyword     string `form:"keyword,optional"`
 		ContentType string `form:"content_type,optional"`
-		Page        int64  `form:"page,optional,default=1"`
-		PageSize    int64  `form:"page_size,optional,default=20"`
+		// Status 选填：0 生成中 / 1 已完成 / 2 失败；不传或 -1 = 不限（「选择AI文案」弹窗传 1）
+		Status   int32 `form:"status,optional,default=-1"`
+		Page     int64 `form:"page,optional,default=1"`
+		PageSize int64 `form:"page_size,optional,default=20"`
 	}
 	ListResp {
 		List  []Copywriting `json:"list"`
@@ -98,13 +100,14 @@ type (
 	}
 	DerivativesReq {
 		Id       int64  `path:"id"`
-		Kind     string `form:"kind,optional,options=all|note|digital_human|explore_video|promo_drama"`
+		Kind     string `form:"kind,optional,options=all|note|poster|long_image|voiceover|digital_human|explore_video|promo_drama"`
 		Page     int64  `form:"page,optional,default=1"`
 		PageSize int64  `form:"page_size,optional,default=20"`
 	}
 	Derivative {
-		Id         int64  `json:"id"`
+		Id         int64  `json:"id"` // 业务记录 id：笔记 id / 生成记录 id / 视频 id / 数字人 id，用它打开成品页
 		Kind       string `json:"kind"`
+		Size       string `json:"size"` // 成品比例，如 9:16（笔记与数字人没有，为空）；用来区分横版竖版
 		CoverUrl   string `json:"cover_url"`
 		ResultUrl  string `json:"result_url"`
 		IsVideo    bool   `json:"is_video"`
@@ -160,7 +163,7 @@ service gateway-api {
 	@handler remove
 	delete /copywriting/:id (IdPath) returns (EmptyResp)
 
-	@doc "生成历史：该文案衍生出的内容（TODO 本版不交付，前端暂不接）"
+	@doc "生成历史：该文案被拿去生成过哪些成品（只返回已完成的）"
 	@handler derivatives
 	get /copywriting/:id/derivatives (DerivativesReq) returns (DerivativesResp)
 }
@@ -257,6 +260,7 @@ type (
 	}
 	CreateDigitalHumanReq {
 		RequestId      string `header:"X-Request-Id"`
+		CopywritingId  int64  `json:"copywriting_id,optional"` // 选填：配音内容来自哪条 AI文案（用于文案的生成历史）
 		Name           string `json:"name,optional"`
 		PortraitSource string `json:"portrait_source,options=UPLOAD|PUBLIC|AI"`
 		ImageUrl       string `json:"image_url,optional"`
@@ -391,6 +395,7 @@ type (
 	}
 	PlanNoteReq {
 		RequestId      string   `header:"X-Request-Id"`
+		CopywritingId  int64    `json:"copywriting_id,optional"` // 选填：正文来自哪条 AI文案（用于文案的生成历史）
 		NoteType       string   `json:"note_type,options=explore|seeding|emotion|knowledge"`
 		ShopProfileId  int64    `json:"shop_profile_id,optional"` // 选填：关联店铺档案
 		Topic          string   `json:"topic"`
@@ -521,15 +526,16 @@ type (
 		List []ImageGenTemplate `json:"list"`
 	}
 	CreateImageGenReq {
-		RequestId    string   `header:"X-Request-Id"`
-		Kind         string   `json:"kind,options=poster|longImage|actionTransfer|voiceover"`
-		Content      string   `json:"content,optional"` // 海报信息 / 长图内容 / 口播文案
-		MaterialUrls []string `json:"material_urls,optional"`
-		TemplateId   int64    `json:"template_id,optional"`
-		PosterType   string   `json:"poster_type,optional"`
-		PosterStyle  string   `json:"poster_style,optional"`
-		Size         string   `json:"size,optional"`
-		ImageCount   int32    `json:"image_count,optional"`
+		RequestId     string   `header:"X-Request-Id"`
+		CopywritingId int64    `json:"copywriting_id,optional"` // 选填：内容来自哪条 AI文案（用于文案的生成历史）
+		Kind          string   `json:"kind,options=poster|longImage|actionTransfer|voiceover"`
+		Content       string   `json:"content,optional"` // 海报信息 / 长图内容 / 口播文案
+		MaterialUrls  []string `json:"material_urls,optional"`
+		TemplateId    int64    `json:"template_id,optional"`
+		PosterType    string   `json:"poster_type,optional"`
+		PosterStyle   string   `json:"poster_style,optional"`
+		Size          string   `json:"size,optional"`
+		ImageCount    int32    `json:"image_count,optional"`
 		// 动作迁移
 		PortraitSource  string `json:"portrait_source,optional,options=|UPLOAD|PUBLIC|AI"`
 		ImageUrl        string `json:"image_url,optional"`
@@ -740,6 +746,7 @@ type (
 	}
 	CreateVideoReq {
 		RequestId     string `header:"X-Request-Id"`
+		CopywritingId int64  `json:"copywriting_id,optional"` // 选填：文案来自哪条 AI文案（用于文案的生成历史）
 		Kind          string `json:"kind,options=exploreShop|shortDrama|videoRemake"`
 		UserText      string `json:"user_text,optional"` // 探店：视频文案；短剧：短剧主题；视频复刻不用
 		SellingPoints string `json:"selling_points,optional"` // 短剧：商品卖点

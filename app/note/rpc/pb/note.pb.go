@@ -263,6 +263,7 @@ type PlanReq struct {
 	ShopProfileId  int64                  `protobuf:"varint,11,opt,name=shop_profile_id,json=shopProfileId,proto3" json:"shop_profile_id,omitempty"`   // 选填：关联店铺档案，构思时拼进 74 的 shop_profile
 	RequestId      string                 `protobuf:"bytes,6,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`                   // 幂等
 	ImageCount     int32                  `protobuf:"varint,7,opt,name=image_count,json=imageCount,proto3" json:"image_count,omitempty"`               // 套图数量，传给 74；不传用默认值
+	CopywritingId  int64                  `protobuf:"varint,12,opt,name=copywriting_id,json=copywritingId,proto3" json:"copywriting_id,omitempty"`     // 选填：内容来自哪条 AI文案（文案的生成历史用）
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -349,6 +350,13 @@ func (x *PlanReq) GetRequestId() string {
 func (x *PlanReq) GetImageCount() int32 {
 	if x != nil {
 		return x.ImageCount
+	}
+	return 0
+}
+
+func (x *PlanReq) GetCopywritingId() int64 {
+	if x != nil {
+		return x.CopywritingId
 	}
 	return 0
 }
@@ -886,7 +894,7 @@ const file_note_proto_rawDesc = "" +
 	"\rmax_materials\x18\x02 \x01(\x05R\fmaxMaterials\x12%\n" +
 	"\x0edefault_images\x18\x03 \x01(\x05R\rdefaultImages\x12&\n" +
 	"\x0fmax_edit_images\x18\x04 \x01(\x05R\rmaxEditImages\x12\"\n" +
-	"\rmax_topic_len\x18\x05 \x01(\x05R\vmaxTopicLen\"\x8c\x02\n" +
+	"\rmax_topic_len\x18\x05 \x01(\x05R\vmaxTopicLen\"\xb3\x02\n" +
 	"\aPlanReq\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x1b\n" +
 	"\tnote_type\x18\x02 \x01(\tR\bnoteType\x12\x14\n" +
@@ -897,7 +905,8 @@ const file_note_proto_rawDesc = "" +
 	"\n" +
 	"request_id\x18\x06 \x01(\tR\trequestId\x12\x1f\n" +
 	"\vimage_count\x18\a \x01(\x05R\n" +
-	"imageCount\"U\n" +
+	"imageCount\x12%\n" +
+	"\x0ecopywriting_id\x18\f \x01(\x03R\rcopywritingId\"U\n" +
 	"\tReplanReq\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x17\n" +
 	"\auser_id\x18\x02 \x01(\x03R\x06userId\x12\x1f\n" +

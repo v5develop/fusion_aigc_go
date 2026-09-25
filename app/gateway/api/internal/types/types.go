@@ -54,6 +54,7 @@ type Copywriting struct {
 
 type CreateDigitalHumanReq struct {
 	RequestId      string `header:"X-Request-Id"`
+	CopywritingId  int64  `json:"copywriting_id,optional"` // 选填：配音内容来自哪条 AI文案（用于文案的生成历史）
 	Name           string `json:"name,optional"`
 	PortraitSource string `json:"portrait_source,options=UPLOAD|PUBLIC|AI"`
 	ImageUrl       string `json:"image_url,optional"`
@@ -66,6 +67,7 @@ type CreateDigitalHumanReq struct {
 
 type CreateImageGenReq struct {
 	RequestId        string   `header:"X-Request-Id"`
+	CopywritingId    int64    `json:"copywriting_id,optional"` // 选填：内容来自哪条 AI文案（用于文案的生成历史）
 	Kind             string   `json:"kind,options=poster|longImage|actionTransfer|voiceover"`
 	Content          string   `json:"content,optional"` // 海报信息 / 长图内容 / 口播文案
 	MaterialUrls     []string `json:"material_urls,optional"`
@@ -104,6 +106,7 @@ type CreateReq struct {
 
 type CreateVideoReq struct {
 	RequestId      string `header:"X-Request-Id"`
+	CopywritingId  int64  `json:"copywriting_id,optional"` // 选填：文案来自哪条 AI文案（用于文案的生成历史）
 	Kind           string `json:"kind,options=exploreShop|shortDrama|videoRemake"`
 	UserText       string `json:"user_text,optional"`       // 探店：视频文案；短剧：短剧主题；视频复刻不用
 	SellingPoints  string `json:"selling_points,optional"`  // 短剧：商品卖点
@@ -125,8 +128,9 @@ type CreateVideoReq struct {
 }
 
 type Derivative struct {
-	Id         int64  `json:"id"`
+	Id         int64  `json:"id"` // 业务记录 id：笔记 id / 生成记录 id / 视频 id / 数字人 id，用它打开成品页
 	Kind       string `json:"kind"`
+	Size       string `json:"size"` // 成品比例，如 9:16（笔记与数字人没有，为空）；用来区分横版竖版
 	CoverUrl   string `json:"cover_url"`
 	ResultUrl  string `json:"result_url"`
 	IsVideo    bool   `json:"is_video"`
@@ -135,7 +139,7 @@ type Derivative struct {
 
 type DerivativesReq struct {
 	Id       int64  `path:"id"`
-	Kind     string `form:"kind,optional,options=all|note|digital_human|explore_video|promo_drama"`
+	Kind     string `form:"kind,optional,options=all|note|poster|long_image|voiceover|digital_human|explore_video|promo_drama"`
 	Page     int64  `form:"page,optional,default=1"`
 	PageSize int64  `form:"page_size,optional,default=20"`
 }
@@ -303,6 +307,7 @@ type ListNotesReq struct {
 type ListReq struct {
 	Keyword     string `form:"keyword,optional"`
 	ContentType string `form:"content_type,optional"`
+	Status      int32  `form:"status,optional,default=-1"`
 	Page        int64  `form:"page,optional,default=1"`
 	PageSize    int64  `form:"page_size,optional,default=20"`
 }
@@ -402,6 +407,7 @@ type OptionsResp struct {
 
 type PlanNoteReq struct {
 	RequestId      string   `header:"X-Request-Id"`
+	CopywritingId  int64    `json:"copywriting_id,optional"` // 选填：正文来自哪条 AI文案（用于文案的生成历史）
 	NoteType       string   `json:"note_type,options=explore|seeding|emotion|knowledge"`
 	ShopProfileId  int64    `json:"shop_profile_id,optional"` // 选填：关联店铺档案
 	Topic          string   `json:"topic"`

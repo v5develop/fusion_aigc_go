@@ -56,7 +56,7 @@ type (
 		List(ctx context.Context, in *ListReq, opts ...grpc.CallOption) (*CopywritingList, error)
 		Update(ctx context.Context, in *UpdateReq, opts ...grpc.CallOption) (*CopywritingInfo, error)
 		Delete(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*Empty, error)
-		// TODO 本版不交付：生成历史 / 已生成的内容。代码已实现但未启用，
+		// Derivatives 生成历史：这条文案被拿去生成过哪些成品（只返回已完成的）。
 		Derivatives(ctx context.Context, in *DerivativesReq, opts ...grpc.CallOption) (*DerivativeList, error)
 		// ---- 店铺档案（内容生产的数据底座，一个账号可建多条）----
 		CreateShopProfile(ctx context.Context, in *ShopProfileForm, opts ...grpc.CallOption) (*ShopProfile, error)
@@ -137,7 +137,7 @@ func (m *defaultCopywriting) Delete(ctx context.Context, in *IdUserReq, opts ...
 	return client.Delete(ctx, in, opts...)
 }
 
-// TODO 本版不交付：生成历史 / 已生成的内容。代码已实现但未启用，
+// Derivatives 生成历史：这条文案被拿去生成过哪些成品（只返回已完成的）。
 func (m *defaultCopywriting) Derivatives(ctx context.Context, in *DerivativesReq, opts ...grpc.CallOption) (*DerivativeList, error) {
 	client := pb.NewCopywritingClient(m.cli.Conn())
 	return client.Derivatives(ctx, in, opts...)

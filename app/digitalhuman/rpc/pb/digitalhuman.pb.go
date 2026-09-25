@@ -1124,7 +1124,8 @@ type CreateReq struct {
 	ImageIndex     int32                  `protobuf:"varint,7,opt,name=image_index,json=imageIndex,proto3" json:"image_index,omitempty"`            // AI：选中第几张（0 起）
 	VoiceId        int64                  `protobuf:"varint,8,opt,name=voice_id,json=voiceId,proto3" json:"voice_id,omitempty"`
 	Script         string                 `protobuf:"bytes,9,opt,name=script,proto3" json:"script,omitempty"`
-	RequestId      string                 `protobuf:"bytes,10,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"` // 幂等
+	RequestId      string                 `protobuf:"bytes,10,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`              // 幂等
+	CopywritingId  int64                  `protobuf:"varint,11,opt,name=copywriting_id,json=copywritingId,proto3" json:"copywriting_id,omitempty"` // 选填：内容来自哪条 AI文案（文案的生成历史用）
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -1227,6 +1228,13 @@ func (x *CreateReq) GetRequestId() string {
 		return x.RequestId
 	}
 	return ""
+}
+
+func (x *CreateReq) GetCopywritingId() int64 {
+	if x != nil {
+		return x.CopywritingId
+	}
+	return 0
 }
 
 type ResolvePortraitReq struct {
@@ -1878,7 +1886,7 @@ const file_digitalhuman_proto_rawDesc = "" +
 	"\rListVoicesReq\x12\x1a\n" +
 	"\bcategory\x18\x01 \x01(\tR\bcategory\"8\n" +
 	"\tVoiceList\x12+\n" +
-	"\x04list\x18\x01 \x03(\v2\x17.digitalhuman.VoiceInfoR\x04list\"\xaf\x02\n" +
+	"\x04list\x18\x01 \x03(\v2\x17.digitalhuman.VoiceInfoR\x04list\"\xd6\x02\n" +
 	"\tCreateReq\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12'\n" +
@@ -1893,7 +1901,8 @@ const file_digitalhuman_proto_rawDesc = "" +
 	"\x06script\x18\t \x01(\tR\x06script\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\n" +
-	" \x01(\tR\trequestId\"\xd2\x01\n" +
+	" \x01(\tR\trequestId\x12%\n" +
+	"\x0ecopywriting_id\x18\v \x01(\x03R\rcopywritingId\"\xd2\x01\n" +
 	"\x12ResolvePortraitReq\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12'\n" +
 	"\x0fportrait_source\x18\x02 \x01(\tR\x0eportraitSource\x12\x1b\n" +

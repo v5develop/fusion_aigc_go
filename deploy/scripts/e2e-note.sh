@@ -65,7 +65,7 @@ O=$(api GET /notes/options)
 check "笔记类型 4 个" "$(jq -r '[.types[].label]|join(",")' <<<"$O")" 探店,种草,情感,知识
 check "探店上传区文案" "$(jq -r '.types[0].material_label' <<<"$O")" 上传门店素材
 check "素材最多 3 张" "$(jq .max_materials <<<"$O")" 3
-check "套图默认 4、编辑上限 3" "$(jq -r '[.default_images,.max_edit_images]|map(tostring)|join(",")' <<<"$O")" 4,3
+check "套图默认 4、编辑上限 6" "$(jq -r '[.default_images,.max_edit_images]|map(tostring)|join(",")' <<<"$O")" 4,6
 
 echo "== 准备：素材与数字人"
 M1=$(upload m1); M2=$(upload m2); M3=$(upload m3); M4=$(upload m4)
@@ -142,13 +142,20 @@ NEW=$(upload new1)
 U=$(api PUT "/notes/$NID" "{\"title\":\"编辑后的标题\",\"content\":\"编辑后的正文\",\"tags\":[\"#西湖\"],\"image_urls\":[\"$IMG1\",\"$NEW\"]}")
 check "删一张原图、加一张新图" "$(jq -r '.image_urls|join(",")' <<<"$U")" "$IMG1,$NEW"
 check "文字已改" "$(jq -r .title <<<"$U")" 编辑后的标题
+# 产品 2026-09-24 把编辑上限定到 6 张（生成得更多时以生成张数为准）
 B="{\"title\":\"t\",\"content\":\"c\",\"image_urls\":[\"$IMG1\",\"$NEW\",\"$M1\",\"$M2\"]}"
-check "生成 2 张时最多补到 3 张" "$(api_code PUT "/notes/$NID" "$B")" 1001
+check "4 张在 6 张上限内" "$(api_code PUT "/notes/$NID" "$B")" 0
+# 编辑会重写素材库，改回 2 张，别影响后面的素材库断言
+api PUT "/notes/$NID" "{\"title\":\"编辑后的标题\",\"content\":\"编辑后的正文\",\"image_urls\":[\"$IMG1\",\"$NEW\"]}" > /dev/null
+# 注意后端会去重，所以得用 7 个不同的地址
+M5=$(upload m5); M6=$(upload m6); M7=$(upload m7)
+B=$(jq -nc --args '{title:"t",content:"c",image_urls:$ARGS.positional}' "$IMG1" "$NEW" "$M1" "$M2" "$M5" "$M6" "$M7")
+check "超过 6 张被拒" "$(api_code PUT "/notes/$NID" "$B")" 1001
 B="{\"title\":\"t\",\"content\":\"c\",\"image_urls\":[\"https://evil.example.com/x.png\"]}"
 check "外链图片被拒" "$(api_code PUT "/notes/$NID" "$B")" 1001
 check "至少保留一张" "$(api_code PUT "/notes/$NID" '{"title":"t","content":"c","image_urls":[]}')" 1001
 
-echo "== 生成张数多于 3 张时，编辑可保留全部"
+echo "== 生成张数多于上限时，编辑可保留全部"
 B5=$(api POST /notes/plan "{\"note_type\":\"seeding\",\"topic\":\"五张图的种草笔记\",\"image_count\":5}" "$(uuidgen)")
 B5ID=$(jq -r .id <<<"$B5")
 poll "$B5ID" 0 > /dev/null
@@ -156,7 +163,9 @@ api POST "/notes/$B5ID/generate" > /dev/null
 B5=$(poll "$B5ID" 3)
 check "出 5 张" "$(jq '.image_urls|length' <<<"$B5")" 5
 check "5 张全部保留可保存" "$(api PUT "/notes/$B5ID" "$(jq -c '{title, content, image_urls}' <<<"$B5")" | jq '.image_urls|length')" 5
-check "不能再加第 6 张" "$(api_code PUT "/notes/$B5ID" "$(jq -c --arg u "$M1" '{title, content, image_urls: (.image_urls + [$u])}' <<<"$B5")")" 1001
+# 生成 5 张、上限 6 张，所以加到 6 张还行，第 7 张才拒
+check "加到 6 张还行" "$(api_code PUT "/notes/$B5ID" "$(jq -c --arg u "$M1" '{title, content, image_urls: (.image_urls + [$u])}' <<<"$B5")")" 0
+check "不能再加第 7 张" "$(api_code PUT "/notes/$B5ID" "$(jq -c --arg a "$M1" --arg b "$M2" '{title, content, image_urls: (.image_urls + [$a, $b])}' <<<"$B5")")" 1001
 api DELETE "/notes/$B5ID" > /dev/null
 
 echo "== 失败与重试"

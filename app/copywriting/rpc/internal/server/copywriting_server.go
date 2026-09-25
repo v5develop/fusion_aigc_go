@@ -73,7 +73,7 @@ func (s *CopywritingServer) Delete(ctx context.Context, in *pb.IdUserReq) (*pb.E
 	return l.Delete(in)
 }
 
-// TODO 本版不交付：生成历史 / 已生成的内容。代码已实现但未启用，
+// Derivatives 生成历史：这条文案被拿去生成过哪些成品（只返回已完成的）。
 func (s *CopywritingServer) Derivatives(ctx context.Context, in *pb.DerivativesReq) (*pb.DerivativeList, error) {
 	l := logic.NewDerivativesLogic(ctx, s.svcCtx)
 	return l.Derivatives(in)

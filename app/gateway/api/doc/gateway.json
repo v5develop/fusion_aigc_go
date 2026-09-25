@@ -559,6 +559,14 @@
           },
           {
             "type": "integer",
+            "default": -1,
+            "example": -1,
+            "name": "status",
+            "in": "query",
+            "allowEmptyValue": true
+          },
+          {
+            "type": "integer",
             "default": 1,
             "example": 1,
             "name": "page",
@@ -1446,7 +1454,7 @@
         "tags": [
           "AI文案"
         ],
-        "summary": "生成历史：该文案衍生出的内容（TODO 本版不交付，前端暂不接）",
+        "summary": "生成历史：该文案被拿去生成过哪些成品（只返回已完成的）",
         "operationId": "copywritingDerivatives",
         "parameters": [
           {
@@ -1459,6 +1467,9 @@
             "enum": [
               "all",
               "note",
+              "poster",
+              "long_image",
+              "voiceover",
               "digital_human",
               "explore_video",
               "promo_drama"
@@ -1506,6 +1517,7 @@
                         "required": [
                           "id",
                           "kind",
+                          "size",
                           "cover_url",
                           "result_url",
                           "is_video",
@@ -1519,6 +1531,7 @@
                             "type": "integer"
                           },
                           "id": {
+                            "description": "业务记录 id：笔记 id / 生成记录 id / 视频 id / 数字人 id，用它打开成品页",
                             "type": "integer"
                           },
                           "is_video": {
@@ -1528,6 +1541,10 @@
                             "type": "string"
                           },
                           "result_url": {
+                            "type": "string"
+                          },
+                          "size": {
+                            "description": "成品比例，如 9:16（笔记与数字人没有，为空）；用来区分横版竖版",
                             "type": "string"
                           }
                         }
@@ -1825,6 +1842,10 @@
                 "script"
               ],
               "properties": {
+                "copywriting_id": {
+                  "description": "选填：配音内容来自哪条 AI文案（用于文案的生成历史）",
+                  "type": "integer"
+                },
                 "image_index": {
                   "type": "integer"
                 },
@@ -2820,6 +2841,10 @@
                   "description": "海报信息 / 长图内容 / 口播文案",
                   "type": "string"
                 },
+                "copywriting_id": {
+                  "description": "选填：内容来自哪条 AI文案（用于文案的生成历史）",
+                  "type": "integer"
+                },
                 "duration": {
                   "type": "integer"
                 },
@@ -3672,6 +3697,10 @@
                 "topic"
               ],
               "properties": {
+                "copywriting_id": {
+                  "description": "选填：正文来自哪条 AI文案（用于文案的生成历史）",
+                  "type": "integer"
+                },
                 "digital_human_id": {
                   "type": "integer"
                 },
@@ -5284,6 +5313,10 @@
                 "kind"
               ],
               "properties": {
+                "copywriting_id": {
+                  "description": "选填：文案来自哪条 AI文案（用于文案的生成历史）",
+                  "type": "integer"
+                },
                 "duration": {
                   "type": "integer"
                 },
@@ -6224,7 +6257,7 @@
       "in": "header"
     }
   },
-  "x-date": "2026-09-24 17:43:58",
+  "x-date": "2026-09-25 09:27:32",
   "x-description": "This is a goctl generated swagger file.",
   "x-github": "https://github.com/zeromicro/go-zero",
   "x-go-zero-doc": "https://go-zero.dev/",

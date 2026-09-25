@@ -22,7 +22,7 @@ type Config struct {
 	Poster KindConf
 	// ActionTransfer 动作迁移：人物图 + 动作视频 → 视频（执行面 9，seedance 2.0 会路由到 86）
 	ActionTransfer KindConf
-	// LongImage 长图：模板必选（76 的 template_url 必填），比例固定，Model 留空不传（对接文档里 76 没有 model 参数）
+	// LongImage 长图：模板必选（76 的 template_url 必填），比例固定 1:3（产品定），Model 留空不传（76 没有 model 参数）
 	LongImage KindConf
 	// ExploreShop 探店视频：72 出剧本 → 73 出片（缺省 model 走云端 81）
 	ExploreShop VideoKindConf

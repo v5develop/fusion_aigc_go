@@ -46,6 +46,7 @@ type (
 		ImageUrl       string         `db:"image_url"`       // 形象图公网URL
 		VoiceId        int64          `db:"voice_id"`        // 音色（afv_digital_human_voice.id）
 		Script         string         `db:"script"`          // 配音内容
+		CopywritingId  sql.NullInt64  `db:"copywriting_id"`  // 用的哪条 AI文案，选填
 		AudioUrl       sql.NullString `db:"audio_url"`       // TTS 产物（已转存）
 		VideoUrl       sql.NullString `db:"video_url"`       // 口播视频
 		Duration       sql.NullInt64  `db:"duration"`        // 视频秒数
@@ -102,14 +103,14 @@ func (m *defaultAfvDigitalHumanModel) FindOneByUserIdRequestId(ctx context.Conte
 }
 
 func (m *defaultAfvDigitalHumanModel) Insert(ctx context.Context, data *AfvDigitalHuman) (sql.Result, error) {
-	query := fmt.Sprintf("insert into %s (%s) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", m.table, afvDigitalHumanRowsExpectAutoSet)
-	ret, err := m.conn.ExecCtx(ctx, query, data.UserId, data.Name, data.PortraitSource, data.PortraitRefId, data.ImageUrl, data.VoiceId, data.Script, data.AudioUrl, data.VideoUrl, data.Duration, data.TtsTaskId, data.VideoTaskId, data.RequestId, data.Status, data.FailReason, data.Deleted)
+	query := fmt.Sprintf("insert into %s (%s) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", m.table, afvDigitalHumanRowsExpectAutoSet)
+	ret, err := m.conn.ExecCtx(ctx, query, data.UserId, data.Name, data.PortraitSource, data.PortraitRefId, data.ImageUrl, data.VoiceId, data.Script, data.CopywritingId, data.AudioUrl, data.VideoUrl, data.Duration, data.TtsTaskId, data.VideoTaskId, data.RequestId, data.Status, data.FailReason, data.Deleted)
 	return ret, err
 }
 
 func (m *defaultAfvDigitalHumanModel) Update(ctx context.Context, newData *AfvDigitalHuman) error {
 	query := fmt.Sprintf("update %s set %s where `id` = ?", m.table, afvDigitalHumanRowsWithPlaceHolder)
-	_, err := m.conn.ExecCtx(ctx, query, newData.UserId, newData.Name, newData.PortraitSource, newData.PortraitRefId, newData.ImageUrl, newData.VoiceId, newData.Script, newData.AudioUrl, newData.VideoUrl, newData.Duration, newData.TtsTaskId, newData.VideoTaskId, newData.RequestId, newData.Status, newData.FailReason, newData.Deleted, newData.Id)
+	_, err := m.conn.ExecCtx(ctx, query, newData.UserId, newData.Name, newData.PortraitSource, newData.PortraitRefId, newData.ImageUrl, newData.VoiceId, newData.Script, newData.CopywritingId, newData.AudioUrl, newData.VideoUrl, newData.Duration, newData.TtsTaskId, newData.VideoTaskId, newData.RequestId, newData.Status, newData.FailReason, newData.Deleted, newData.Id)
 	return err
 }
 

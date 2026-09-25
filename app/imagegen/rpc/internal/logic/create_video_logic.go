@@ -130,7 +130,8 @@ func (l *CreateVideoLogic) CreateVideo(in *pb.CreateVideoReq) (*pb.VideoInfo, er
 
 	row := &model.AfvVideoCreation{
 		UserId: in.UserId, Kind: in.Kind, UserText: nullStr(userText), SellingPoints: nullStr(sellingPoints),
-		ShopProfileId: nullInt(in.ShopProfileId), CharUrl: nullStr(charURL), Env1Url: nullStr(env1URL),
+		ShopProfileId: nullInt(in.ShopProfileId), CopywritingId: nullInt(in.CopywritingId),
+		CharUrl: nullStr(charURL), Env1Url: nullStr(env1URL),
 		Env2Url: nullStr(env2URL), PropUrl: nullStr(propURL), Duration: int64(duration), Size: size, Model: mdl,
 		PlanTaskId: nullStr(newTaskID(l.svcCtx)), RequestId: nullStr(in.RequestId), Status: model.VideoPlanning,
 	}

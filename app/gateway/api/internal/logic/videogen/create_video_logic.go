@@ -31,7 +31,8 @@ func NewCreateVideoLogic(ctx context.Context, svcCtx *svc.ServiceContext) *Creat
 
 func (l *CreateVideoLogic) CreateVideo(req *types.CreateVideoReq) (resp *types.VideoCreation, err error) {
 	out, err := l.svcCtx.ImageGenRpc.CreateVideo(l.ctx, &imagegen.CreateVideoReq{
-		UserId: ctxdata.UserID(l.ctx), Kind: req.Kind, RequestId: req.RequestId, UserText: req.UserText,
+		CopywritingId: req.CopywritingId,
+		UserId:        ctxdata.UserID(l.ctx), Kind: req.Kind, RequestId: req.RequestId, UserText: req.UserText,
 		SellingPoints: req.SellingPoints, ShopProfileId: req.ShopProfileId,
 		PortraitSource: req.PortraitSource, ImageUrl: req.ImageUrl, PublicId: req.PublicId,
 		PortraitId: req.PortraitId, ImageIndex: req.ImageIndex,

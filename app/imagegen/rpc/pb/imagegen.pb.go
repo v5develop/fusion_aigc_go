@@ -715,6 +715,7 @@ type CreateReq struct {
 	BackgroundId     int64  `protobuf:"varint,20,opt,name=background_id,json=backgroundId,proto3" json:"background_id,omitempty"`            // PRESET：预设背景（模板素材 id）
 	BackgroundUrl    string `protobuf:"bytes,21,opt,name=background_url,json=backgroundUrl,proto3" json:"background_url,omitempty"`          // UPLOAD：直传后的背景图地址
 	Duration         int32  `protobuf:"varint,22,opt,name=duration,proto3" json:"duration,omitempty"`                                        // 15 / 30
+	CopywritingId    int64  `protobuf:"varint,23,opt,name=copywriting_id,json=copywritingId,proto3" json:"copywriting_id,omitempty"`         // 选填：内容来自哪条 AI文案（文案的生成历史用）
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -899,6 +900,13 @@ func (x *CreateReq) GetBackgroundUrl() string {
 func (x *CreateReq) GetDuration() int32 {
 	if x != nil {
 		return x.Duration
+	}
+	return 0
+}
+
+func (x *CreateReq) GetCopywritingId() int64 {
+	if x != nil {
+		return x.CopywritingId
 	}
 	return 0
 }
@@ -1390,9 +1398,10 @@ type CreateVideoReq struct {
 	Size     string `protobuf:"bytes,16,opt,name=size,proto3" json:"size,omitempty"`          // 9:16 / 16:9
 	Model    string `protobuf:"bytes,17,opt,name=model,proto3" json:"model,omitempty"`        // seedance2.5(默认) / lite
 	// ---- 爆款视频复刻（videoRemake）----
-	Source        string `protobuf:"bytes,18,opt,name=source,proto3" json:"source,omitempty"`                     // upload-上传本地视频 / link-粘贴链接
-	VideoUrl      string `protobuf:"bytes,19,opt,name=video_url,json=videoUrl,proto3" json:"video_url,omitempty"` // upload：直传后的视频地址
-	Link          string `protobuf:"bytes,20,opt,name=link,proto3" json:"link,omitempty"`                         // link：用户粘贴的分享链接
+	Source        string `protobuf:"bytes,18,opt,name=source,proto3" json:"source,omitempty"`                                     // upload-上传本地视频 / link-粘贴链接
+	VideoUrl      string `protobuf:"bytes,19,opt,name=video_url,json=videoUrl,proto3" json:"video_url,omitempty"`                 // upload：直传后的视频地址
+	Link          string `protobuf:"bytes,20,opt,name=link,proto3" json:"link,omitempty"`                                         // link：用户粘贴的分享链接
+	CopywritingId int64  `protobuf:"varint,21,opt,name=copywriting_id,json=copywritingId,proto3" json:"copywriting_id,omitempty"` // 选填：内容来自哪条 AI文案（文案的生成历史用）
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1565,6 +1574,13 @@ func (x *CreateVideoReq) GetLink() string {
 		return x.Link
 	}
 	return ""
+}
+
+func (x *CreateVideoReq) GetCopywritingId() int64 {
+	if x != nil {
+		return x.CopywritingId
+	}
+	return 0
 }
 
 // GenerateVideoReq 出片。视频复刻可以带上用户在剧情分析页改过的提示词、档位与比例；
@@ -2046,7 +2062,7 @@ const file_imagegen_proto_rawDesc = "" +
 	"\x05title\x18\x02 \x01(\tR\x05title\x12\x10\n" +
 	"\x03url\x18\x03 \x01(\tR\x03url\"6\n" +
 	"\fTemplateList\x12&\n" +
-	"\x04list\x18\x01 \x03(\v2\x12.imagegen.TemplateR\x04list\"\xd5\x05\n" +
+	"\x04list\x18\x01 \x03(\v2\x12.imagegen.TemplateR\x04list\"\xfc\x05\n" +
 	"\tCreateReq\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x18\n" +
@@ -2076,7 +2092,8 @@ const file_imagegen_proto_rawDesc = "" +
 	"\x11background_source\x18\x13 \x01(\tR\x10backgroundSource\x12#\n" +
 	"\rbackground_id\x18\x14 \x01(\x03R\fbackgroundId\x12%\n" +
 	"\x0ebackground_url\x18\x15 \x01(\tR\rbackgroundUrl\x12\x1a\n" +
-	"\bduration\x18\x16 \x01(\x05R\bduration\"\xe1\x04\n" +
+	"\bduration\x18\x16 \x01(\x05R\bduration\x12%\n" +
+	"\x0ecopywriting_id\x18\x17 \x01(\x03R\rcopywritingId\"\xe1\x04\n" +
 	"\tImageInfo\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x17\n" +
 	"\auser_id\x18\x02 \x01(\x03R\x06userId\x12\x12\n" +
@@ -2129,7 +2146,7 @@ const file_imagegen_proto_rawDesc = "" +
 	" \x01(\x03R\rmaxVideoBytes\x12*\n" +
 	"\x11max_video_seconds\x18\v \x01(\x05R\x0fmaxVideoSeconds\x12#\n" +
 	"\rvideo_formats\x18\f \x03(\tR\fvideoFormats\x12!\n" +
-	"\flink_enabled\x18\r \x01(\bR\vlinkEnabled\"\xcd\x04\n" +
+	"\flink_enabled\x18\r \x01(\bR\vlinkEnabled\"\xf4\x04\n" +
 	"\x0eCreateVideoReq\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x1d\n" +
@@ -2154,7 +2171,8 @@ const file_imagegen_proto_rawDesc = "" +
 	"\x05model\x18\x11 \x01(\tR\x05model\x12\x16\n" +
 	"\x06source\x18\x12 \x01(\tR\x06source\x12\x1b\n" +
 	"\tvideo_url\x18\x13 \x01(\tR\bvideoUrl\x12\x12\n" +
-	"\x04link\x18\x14 \x01(\tR\x04link\"}\n" +
+	"\x04link\x18\x14 \x01(\tR\x04link\x12%\n" +
+	"\x0ecopywriting_id\x18\x15 \x01(\x03R\rcopywritingId\"}\n" +
 	"\x10GenerateVideoReq\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x17\n" +
 	"\auser_id\x18\x02 \x01(\x03R\x06userId\x12\x16\n" +

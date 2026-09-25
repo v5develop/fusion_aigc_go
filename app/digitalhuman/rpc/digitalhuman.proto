@@ -162,6 +162,7 @@ message CreateReq {
   int64 voice_id = 8;
   string script = 9;
   string request_id = 10;       // 幂等
+  int64 copywriting_id = 11;  // 选填：内容来自哪条 AI文案（文案的生成历史用）
 }
 
 message ResolvePortraitReq {

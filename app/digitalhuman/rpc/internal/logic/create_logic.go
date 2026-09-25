@@ -79,6 +79,7 @@ func (l *CreateLogic) Create(in *pb.CreateReq) (*pb.DigitalHumanInfo, error) {
 	}
 
 	row := &model.AfvDigitalHuman{
+		CopywritingId: nullInt(in.CopywritingId),
 		UserId: in.UserId, Name: name, PortraitSource: in.PortraitSource, PortraitRefId: nullInt(src.RefID),
 		ImageUrl: src.ImageURL, VoiceId: v.Id, Script: script, TtsTaskId: nullStr(newTaskID(l.svcCtx)),
 		RequestId: nullStr(in.RequestId), Status: model.DhStatusDubbing,

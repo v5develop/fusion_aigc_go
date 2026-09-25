@@ -1465,6 +1465,7 @@ type ListReq struct {
 	ContentType   string                 `protobuf:"bytes,3,opt,name=content_type,json=contentType,proto3" json:"content_type,omitempty"`
 	Page          int64                  `protobuf:"varint,4,opt,name=page,proto3" json:"page,omitempty"`
 	PageSize      int64                  `protobuf:"varint,5,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	Status        int32                  `protobuf:"varint,6,opt,name=status,proto3" json:"status,omitempty"` // 0 生成中 / 1 已完成 / 2 失败；-1 不限
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1530,6 +1531,13 @@ func (x *ListReq) GetPage() int64 {
 func (x *ListReq) GetPageSize() int64 {
 	if x != nil {
 		return x.PageSize
+	}
+	return 0
+}
+
+func (x *ListReq) GetStatus() int32 {
+	if x != nil {
+		return x.Status
 	}
 	return 0
 }
@@ -1776,9 +1784,9 @@ func (x *DerivativesReq) GetPageSize() int64 {
 
 type Derivative struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	Id            int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"` // 业务记录 id（笔记 id / 生成记录 id / …），用来打开成品页
 	Kind          string                 `protobuf:"bytes,2,opt,name=kind,proto3" json:"kind,omitempty"`
-	AssetType     string                 `protobuf:"bytes,3,opt,name=asset_type,json=assetType,proto3" json:"asset_type,omitempty"` // afv_asset.type 原值
+	Size          string                 `protobuf:"bytes,3,opt,name=size,proto3" json:"size,omitempty"` // 成品比例，如 9:16；笔记与数字人没有，为空
 	CoverUrl      string                 `protobuf:"bytes,4,opt,name=cover_url,json=coverUrl,proto3" json:"cover_url,omitempty"`
 	ResultUrl     string                 `protobuf:"bytes,5,opt,name=result_url,json=resultUrl,proto3" json:"result_url,omitempty"`
 	IsVideo       bool                   `protobuf:"varint,6,opt,name=is_video,json=isVideo,proto3" json:"is_video,omitempty"`
@@ -1831,9 +1839,9 @@ func (x *Derivative) GetKind() string {
 	return ""
 }
 
-func (x *Derivative) GetAssetType() string {
+func (x *Derivative) GetSize() string {
 	if x != nil {
-		return x.AssetType
+		return x.Size
 	}
 	return ""
 }
@@ -2057,13 +2065,14 @@ const file_copywriting_proto_rawDesc = "" +
 	"\vfail_reason\x18\x0e \x01(\tR\n" +
 	"failReason\x12\x1f\n" +
 	"\vcreate_time\x18\x0f \x01(\x03R\n" +
-	"createTime\"\x90\x01\n" +
+	"createTime\"\xa8\x01\n" +
 	"\aListReq\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x18\n" +
 	"\akeyword\x18\x02 \x01(\tR\akeyword\x12!\n" +
 	"\fcontent_type\x18\x03 \x01(\tR\vcontentType\x12\x12\n" +
 	"\x04page\x18\x04 \x01(\x03R\x04page\x12\x1b\n" +
-	"\tpage_size\x18\x05 \x01(\x03R\bpageSize\"Y\n" +
+	"\tpage_size\x18\x05 \x01(\x03R\bpageSize\x12\x16\n" +
+	"\x06status\x18\x06 \x01(\x05R\x06status\"Y\n" +
 	"\x0fCopywritingList\x120\n" +
 	"\x04list\x18\x01 \x03(\v2\x1c.copywriting.CopywritingInfoR\x04list\x12\x14\n" +
 	"\x05total\x18\x02 \x01(\x03R\x05total\"r\n" +
@@ -2080,13 +2089,12 @@ const file_copywriting_proto_rawDesc = "" +
 	"\x0ecopywriting_id\x18\x02 \x01(\x03R\rcopywritingId\x12\x12\n" +
 	"\x04kind\x18\x03 \x01(\tR\x04kind\x12\x12\n" +
 	"\x04page\x18\x04 \x01(\x03R\x04page\x12\x1b\n" +
-	"\tpage_size\x18\x05 \x01(\x03R\bpageSize\"\xc7\x01\n" +
+	"\tpage_size\x18\x05 \x01(\x03R\bpageSize\"\xbc\x01\n" +
 	"\n" +
 	"Derivative\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x12\n" +
-	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x1d\n" +
-	"\n" +
-	"asset_type\x18\x03 \x01(\tR\tassetType\x12\x1b\n" +
+	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x12\n" +
+	"\x04size\x18\x03 \x01(\tR\x04size\x12\x1b\n" +
 	"\tcover_url\x18\x04 \x01(\tR\bcoverUrl\x12\x1d\n" +
 	"\n" +
 	"result_url\x18\x05 \x01(\tR\tresultUrl\x12\x19\n" +

@@ -29,7 +29,6 @@ func NewDerivativesLogic(ctx context.Context, svcCtx *svc.ServiceContext) *Deriv
 	}
 }
 
-// TODO 本版不交付：生成历史 / 已生成的内容，前端暂不接这个接口。
 func (l *DerivativesLogic) Derivatives(req *types.DerivativesReq) (resp *types.DerivativesResp, err error) {
 	out, err := l.svcCtx.CopywritingRpc.Derivatives(l.ctx, &copywriting.DerivativesReq{
 		UserId: ctxdata.UserID(l.ctx), CopywritingId: req.Id, Kind: req.Kind,
@@ -41,7 +40,7 @@ func (l *DerivativesLogic) Derivatives(req *types.DerivativesReq) (resp *types.D
 	resp = &types.DerivativesResp{Total: out.Total, List: make([]types.Derivative, 0, len(out.List))}
 	for _, d := range out.List {
 		resp.List = append(resp.List, types.Derivative{
-			Id: d.Id, Kind: d.Kind, CoverUrl: d.CoverUrl, ResultUrl: d.ResultUrl,
+			Id: d.Id, Kind: d.Kind, Size: d.Size, CoverUrl: d.CoverUrl, ResultUrl: d.ResultUrl,
 			IsVideo: d.IsVideo, CreateTime: d.CreateTime,
 		})
 	}

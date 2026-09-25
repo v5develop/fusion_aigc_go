@@ -136,10 +136,17 @@ OSS 已允许跨域 PUT。文件大小与类型由前端控制；后端只校验
 | `POST /copywriting/generate` | 提交生成（`source`：`AI_WRITE` 帮写 / `IMITATE` 仿写），轮询详情 |
 | `POST /copywriting/:id/regenerate` | 重新生成，产生新记录 |
 | `POST /copywriting` | 自主撰写，直接保存 |
-| `GET /copywriting?keyword=&content_type=&page=&page_size=` | 列表（也是各模块「选择AI文案」弹窗的数据源） |
+| `GET /copywriting?keyword=&content_type=&status=&page=&page_size=` | 列表（也是各模块「选择AI文案」弹窗的数据源）。`status`：`0` 生成中 / `1` 已完成 / `2` 失败，**不传 = 全部**；弹窗传 `status=1` 只取成功的 |
 | `GET /copywriting/:id` | 详情（生成中轮询这个） |
 | `PUT /copywriting/:id` | 编辑标题正文 |
 | `DELETE /copywriting/:id` | 删除 |
+
+**生成历史**（`GET /copywriting/:id/derivatives?kind=all`）：这条文案被拿去生成过哪些成品，**只返回已完成的**。
+
+- 列表项：`id`（**业务记录 id**，直接打开对应详情接口）、`kind`、`size`（比例，如 `2:3`；笔记与数字人为空）、`cover_url`、`result_url`、`is_video`、`create_time`。
+- `kind` 七种：`note` 笔记 / `poster` 海报 / `long_image` 长图 / `voiceover` 口播 / `digital_human` 数字人视频 / `explore_video` 探店 / `promo_drama` 短剧。
+- ⚠️ **要有数据，提交时必须带 `copywriting_id`**：`POST /notes/plan`、`POST /image-creations`、`POST /video-creations`、`POST /digital-humans` 都加了这个**选填**字段，从「选择AI文案」进来的就带上那条文案的 id。不带不报错，只是不会出现在生成历史里。
+
 
 文案状态：`0` 生成中、`1` 已完成、`2` 失败。
 

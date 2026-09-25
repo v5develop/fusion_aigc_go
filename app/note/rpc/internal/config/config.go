@@ -28,7 +28,7 @@ type Config struct {
 		MaxTopicLen   int `json:",default=500"`
 		MaxMaterials  int `json:",default=3"` // 上传素材上限
 		DefaultImages int `json:",default=4"` // 套图数量默认值（设计稿为 4）；套图数量不设上限，以前端传入为准
-		MaxEditImages int `json:",default=3"` // 编辑时图片上限；生成张数更多时以生成张数为准
+		MaxEditImages int `json:",default=6"` // 编辑时图片上限；生成张数更多时以生成张数为准
 		MaxTitleLen   int `json:",default=100"`
 		MaxContentLen int `json:",default=3000"`
 		MaxTags       int `json:",default=10"`

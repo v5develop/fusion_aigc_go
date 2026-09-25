@@ -61,7 +61,7 @@ func (l *UpdateLogic) Update(in *pb.UpdateReq) (*pb.NoteInfo, error) {
 		seen[u] = true
 		images = append(images, u)
 	}
-	// 上限 3 张；生成的张数更多时，可以保留全部生成图，但不能再往上加
+	// 上限取配置（产品定 6 张）；生成的张数更多时，可以保留全部生成图，但不能再往上加
 	max := max(l.svcCtx.Config.Limits.MaxEditImages, int(n.ImageCount))
 	switch {
 	case len(images) == 0:

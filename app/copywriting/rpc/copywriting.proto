@@ -19,8 +19,8 @@ service Copywriting {
   rpc List(ListReq) returns (CopywritingList);
   rpc Update(UpdateReq) returns (CopywritingInfo);
   rpc Delete(IdUserReq) returns (Empty);
-  // TODO 本版不交付：生成历史 / 已生成的内容。代码已实现但未启用，
-  // 待「各标签对应 afv_asset.type」和「下游模块写 external_ref」确认后再开放。
+  // Derivatives 生成历史：这条文案被拿去生成过哪些成品（只返回已完成的）。
+  // 靠各业务表上的 copywriting_id 关联，提交时带上才有。
   rpc Derivatives(DerivativesReq) returns (DerivativeList);
 
   // ---- 店铺档案（内容生产的数据底座，一个账号可建多条）----
@@ -199,6 +199,7 @@ message ListReq {
   string content_type = 3;
   int64 page = 4;
   int64 page_size = 5;
+  int32 status = 6;  // 0 生成中 / 1 已完成 / 2 失败；-1 不限
 }
 
 message CopywritingList {
@@ -226,9 +227,9 @@ message DerivativesReq {
 }
 
 message Derivative {
-  int64 id = 1;
+  int64 id = 1;                 // 业务记录 id（笔记 id / 生成记录 id / …），用来打开成品页
   string kind = 2;
-  string asset_type = 3;        // afv_asset.type 原值
+  string size = 3;              // 成品比例，如 9:16；笔记与数字人没有，为空
   string cover_url = 4;
   string result_url = 5;
   bool is_video = 6;

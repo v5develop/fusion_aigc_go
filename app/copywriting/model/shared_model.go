@@ -55,41 +55,112 @@ func (m *SharedModel) ResolveWritingModel(ctx context.Context) (*WritingModel, e
 	}
 }
 
-// Derivative 文案衍生出的内容（来自 afv_asset）。
+// Derivative 文案衍生出的内容：这条文案被拿去生成过什么。
+//
+// Id 是**业务记录 id**（笔记 id / 生成记录 id / 视频 id / 数字人 id），前端拿它直接打开成品页。
+// Size 是成品比例（如 9:16），用来判断横版竖版——各表都没存像素宽高，比例够用且更准。
 type Derivative struct {
 	Id         int64     `db:"id"`
-	Type       string    `db:"type"`
+	Kind       string    `db:"kind"`
 	CoverUrl   string    `db:"cover_url"`
 	ResultUrl  string    `db:"result_url"`
+	IsVideo    int64     `db:"is_video"`
+	Size       string    `db:"size"`
 	CreateTime time.Time `db:"create_time"`
 }
 
-// ListDerivatives 生成历史：下游模块发任务时把 afv_creation_task.external_ref 写成文案 id，
-// 这里用 afv_asset.source_task_id 关联回来取封面。assetTypes 为空表示全部。
+// 生成历史里的 kind 取值。和各模块的 kind 不完全一样：
+// 图片类里「海报 / 长图」分开给，口播单列（产品要求算进生成历史）。
+const (
+	DerivativeNote         = "note"          // 图文笔记
+	DerivativePoster       = "poster"        // AI海报
+	DerivativeLongImage    = "long_image"    // AI长图
+	DerivativeVoiceover    = "voiceover"     // 数字人口播
+	DerivativeDigitalHuman = "digital_human" // AI数字人视频
+	DerivativeExploreVideo = "explore_video" // 探店视频
+	DerivativePromoDrama   = "promo_drama"   // 带货短剧
+)
+
+// derivativeSources 每种 kind 从哪张表捞、怎么取封面和成品。
 //
-// TODO 本版不交付。external_ref 的这种用法还需数据库负责人确认；
-// 若不采用，改为新建文案→衍生内容的关系表。
-func (m *SharedModel) ListDerivatives(ctx context.Context, copywritingID, userID int64, assetTypes []string, limit, offset int64) ([]*Derivative, int64, error) {
-	conds := []string{"t.external_ref = ?", "t.deleted = 0", "a.deleted = 0"}
-	args := []any{fmt.Sprint(copywritingID)}
-	if userID > 0 {
-		conds, args = append(conds, "t.user_id = ?"), append(args, userID)
+// 四张业务表形状不同，所以各写一段 SELECT 再 UNION ALL —— 让数据库统一排序分页，
+// 免得在内存里合并四个结果集还要自己分页。
+//
+// 只收**已完成**的记录：生成历史是拿来点开看成品的，生成中和失败的给出去没意义
+// （各表的状态码还不一样，混在一起更容易出错）。
+var derivativeSources = map[string]string{
+	DerivativeNote: "SELECT `id`, '" + DerivativeNote + "' AS `kind`, " + firstImage + " AS `cover_url`, " +
+		firstImage + " AS `result_url`, 0 AS `is_video`, '' AS `size`, `create_time`, `copywriting_id`, `user_id` " +
+		"FROM `afv_image_text_note` WHERE `status` = 4 AND `deleted` = 0",
+
+	DerivativePoster: imageCreationSource(DerivativePoster, "poster", 0),
+	DerivativeLongImage: imageCreationSource(DerivativeLongImage, "longImage", 0),
+	DerivativeVoiceover: imageCreationSource(DerivativeVoiceover, "voiceover", 1),
+
+	DerivativeDigitalHuman: "SELECT `id`, '" + DerivativeDigitalHuman + "' AS `kind`, COALESCE(`image_url`, '') AS `cover_url`, " +
+		"COALESCE(`video_url`, '') AS `result_url`, 1 AS `is_video`, '' AS `size`, `create_time`, `copywriting_id`, `user_id` " +
+		"FROM `afv_digital_human` WHERE `status` = 2 AND `deleted` = 0",
+
+	DerivativeExploreVideo: videoCreationSource(DerivativeExploreVideo, "exploreShop"),
+	DerivativePromoDrama:   videoCreationSource(DerivativePromoDrama, "shortDrama"),
+}
+
+// firstImage 取 image_urls（JSON 数组）里的第一张。套图就用第一张当封面。
+const firstImage = "COALESCE(JSON_UNQUOTE(JSON_EXTRACT(`image_urls`, '$[0]')), '')"
+
+func imageCreationSource(kind, tableKind string, isVideo int) string {
+	return fmt.Sprintf("SELECT `id`, '%s' AS `kind`, %s AS `cover_url`, %s AS `result_url`, %d AS `is_video`, "+
+		"COALESCE(`size`, '') AS `size`, `create_time`, `copywriting_id`, `user_id` "+
+		"FROM `afv_image_creation` WHERE `kind` = '%s' AND `status` = 1 AND `deleted` = 0",
+		kind, firstImage, firstImage, isVideo, tableKind)
+}
+
+func videoCreationSource(kind, tableKind string) string {
+	return fmt.Sprintf("SELECT `id`, '%s' AS `kind`, COALESCE(NULLIF(`cover_url`, ''), `char_url`, '') AS `cover_url`, "+
+		"COALESCE(`video_url`, '') AS `result_url`, 1 AS `is_video`, COALESCE(`size`, '') AS `size`, "+
+		"`create_time`, `copywriting_id`, `user_id` "+
+		"FROM `afv_video_creation` WHERE `kind` = '%s' AND `status` = 3 AND `deleted` = 0", kind, tableKind)
+}
+
+// DerivativeKinds 全部 kind，按展示顺序。
+func DerivativeKinds() []string {
+	return []string{DerivativeNote, DerivativePoster, DerivativeLongImage, DerivativeVoiceover,
+		DerivativeDigitalHuman, DerivativeExploreVideo, DerivativePromoDrama}
+}
+
+// ListDerivatives 生成历史：这条文案被拿去生成过哪些成品。kinds 为空表示全部。
+func (m *SharedModel) ListDerivatives(ctx context.Context, copywritingID, userID int64, kinds []string, limit, offset int64) ([]*Derivative, int64, error) {
+	if len(kinds) == 0 {
+		kinds = DerivativeKinds()
 	}
-	if len(assetTypes) > 0 {
-		conds = append(conds, "a.type IN ("+placeholders(len(assetTypes))+")")
-		for _, t := range assetTypes {
-			args = append(args, t)
+	parts := make([]string, 0, len(kinds))
+	for _, k := range kinds {
+		if q, ok := derivativeSources[k]; ok {
+			parts = append(parts, q)
 		}
 	}
-	where := " FROM afv_creation_task t JOIN afv_asset a ON a.source_task_id = t.task_id WHERE " + strings.Join(conds, " AND ")
+	if len(parts) == 0 {
+		return nil, 0, nil
+	}
+	union := "(" + strings.Join(parts, ") UNION ALL (") + ")"
+	where := "SELECT * FROM (" + union + ") d WHERE d.`copywriting_id` = ?"
+	args := []any{copywritingID}
+	if userID > 0 {
+		where += " AND d.`user_id` = ?"
+		args = append(args, userID)
+	}
 
 	var total int64
-	if err := m.conn.QueryRowCtx(ctx, &total, "SELECT COUNT(*)"+where, args...); err != nil {
+	if err := m.conn.QueryRowCtx(ctx, &total, "SELECT COUNT(*) FROM ("+where+") t", args...); err != nil {
 		return nil, 0, err
 	}
 	var list []*Derivative
-	q := "SELECT a.id, a.type, COALESCE(a.cover_url, '') AS cover_url, COALESCE(a.result_url, '') AS result_url, a.create_time" +
-		where + " ORDER BY a.id DESC LIMIT ? OFFSET ?"
+	q := "SELECT d.`id`, d.`kind`, d.`cover_url`, d.`result_url`, d.`is_video`, d.`size`, d.`create_time` FROM (" +
+		union + ") d WHERE d.`copywriting_id` = ?"
+	if userID > 0 {
+		q += " AND d.`user_id` = ?"
+	}
+	q += " ORDER BY d.`create_time` DESC, d.`id` DESC LIMIT ? OFFSET ?"
 	err := m.conn.QueryRowsCtx(ctx, &list, q, append(args, limit, offset)...)
 	return list, total, err
 }

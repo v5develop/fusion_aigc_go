@@ -121,7 +121,7 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 					Handler: copywriting.RemoveHandler(serverCtx),
 				},
 				{
-					// 生成历史：该文案衍生出的内容（TODO 本版不交付，前端暂不接）
+					// 生成历史：该文案被拿去生成过哪些成品（只返回已完成的）
 					Method:  http.MethodGet,
 					Path:    "/copywriting/:id/derivatives",
 					Handler: copywriting.DerivativesHandler(serverCtx),

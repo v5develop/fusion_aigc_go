@@ -130,6 +130,7 @@ message CreateReq {
   int64 background_id = 20;           // PRESET：预设背景（模板素材 id）
   string background_url = 21;         // UPLOAD：直传后的背景图地址
   int32 duration = 22;                // 15 / 30
+  int64 copywriting_id = 23;  // 选填：内容来自哪条 AI文案（文案的生成历史用）
 }
 
 message ImageInfo {
@@ -215,6 +216,7 @@ message CreateVideoReq {
   string source = 18;              // upload-上传本地视频 / link-粘贴链接
   string video_url = 19;           // upload：直传后的视频地址
   string link = 20;                // link：用户粘贴的分享链接
+  int64 copywriting_id = 21;  // 选填：内容来自哪条 AI文案（文案的生成历史用）
 }
 
 // GenerateVideoReq 出片。视频复刻可以带上用户在剧情分析页改过的提示词、档位与比例；

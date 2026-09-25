@@ -23,7 +23,7 @@ Poster:
   Module: poster
   Slot: template
   Model: max            # 本版只用 max
-  DefaultSize: "9:16"
+  DefaultSize: "2:3"      # 产品 2026-09-24 定：海报可选比例，默认 2:3
   TemplateRequired: true
   AssetType: poster
   AssetEntryCode: poster
@@ -32,7 +32,7 @@ LongImage:
   Module: longImage
   Slot: template
   Model: ""             # 对接文档里 76 没有 model 参数，留空不传；AIGC 确认支持后再填
-  DefaultSize: "1:4"
+  DefaultSize: "1:3"      # 产品 2026-09-24 定：长图固定 1:3（执行面 76 的 size 选填，默认 1:4）
   TemplateRequired: true  # 最新对接文档：76 的 template_url 必填
   AssetType: longImage
   AssetEntryCode: longImage

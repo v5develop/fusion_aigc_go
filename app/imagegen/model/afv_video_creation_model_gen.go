@@ -49,6 +49,7 @@ type (
 		UserText       sql.NullString `db:"user_text"`        // 探店：视频文案；短剧：短剧主题
 		SellingPoints  sql.NullString `db:"selling_points"`   // 商品卖点（短剧，≤500 字）
 		ShopProfileId  sql.NullInt64  `db:"shop_profile_id"`  // 关联店铺档案ID（afv_shop_profile.id），选填
+		CopywritingId  sql.NullInt64  `db:"copywriting_id"`   // 用的哪条 AI文案，选填
 		CharUrl        sql.NullString `db:"char_url"`         // 出镜人物图：探店达人 / 短剧角色（进件 id CHAR_01）
 		Env1Url        sql.NullString `db:"env1_url"`         // 探店：门店图；短剧：环境图（ENV_01）
 		Env2Url        sql.NullString `db:"env2_url"`         // 探店：店内图（ENV_02）；短剧不用
@@ -111,14 +112,14 @@ func (m *defaultAfvVideoCreationModel) FindOneByUserIdRequestId(ctx context.Cont
 }
 
 func (m *defaultAfvVideoCreationModel) Insert(ctx context.Context, data *AfvVideoCreation) (sql.Result, error) {
-	query := fmt.Sprintf("insert into %s (%s) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", m.table, afvVideoCreationRowsExpectAutoSet)
-	ret, err := m.conn.ExecCtx(ctx, query, data.UserId, data.Kind, data.Source, data.SourceUrl, data.SourceVideoUrl, data.Title, data.CoverUrl, data.UserText, data.SellingPoints, data.ShopProfileId, data.CharUrl, data.Env1Url, data.Env2Url, data.PropUrl, data.Duration, data.Size, data.Model, data.PlanTaskId, data.PlanScript, data.GenTaskId, data.VideoUrl, data.RequestId, data.Status, data.FailReason, data.Deleted)
+	query := fmt.Sprintf("insert into %s (%s) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", m.table, afvVideoCreationRowsExpectAutoSet)
+	ret, err := m.conn.ExecCtx(ctx, query, data.UserId, data.Kind, data.Source, data.SourceUrl, data.SourceVideoUrl, data.Title, data.CoverUrl, data.UserText, data.SellingPoints, data.ShopProfileId, data.CopywritingId, data.CharUrl, data.Env1Url, data.Env2Url, data.PropUrl, data.Duration, data.Size, data.Model, data.PlanTaskId, data.PlanScript, data.GenTaskId, data.VideoUrl, data.RequestId, data.Status, data.FailReason, data.Deleted)
 	return ret, err
 }
 
 func (m *defaultAfvVideoCreationModel) Update(ctx context.Context, newData *AfvVideoCreation) error {
 	query := fmt.Sprintf("update %s set %s where `id` = ?", m.table, afvVideoCreationRowsWithPlaceHolder)
-	_, err := m.conn.ExecCtx(ctx, query, newData.UserId, newData.Kind, newData.Source, newData.SourceUrl, newData.SourceVideoUrl, newData.Title, newData.CoverUrl, newData.UserText, newData.SellingPoints, newData.ShopProfileId, newData.CharUrl, newData.Env1Url, newData.Env2Url, newData.PropUrl, newData.Duration, newData.Size, newData.Model, newData.PlanTaskId, newData.PlanScript, newData.GenTaskId, newData.VideoUrl, newData.RequestId, newData.Status, newData.FailReason, newData.Deleted, newData.Id)
+	_, err := m.conn.ExecCtx(ctx, query, newData.UserId, newData.Kind, newData.Source, newData.SourceUrl, newData.SourceVideoUrl, newData.Title, newData.CoverUrl, newData.UserText, newData.SellingPoints, newData.ShopProfileId, newData.CopywritingId, newData.CharUrl, newData.Env1Url, newData.Env2Url, newData.PropUrl, newData.Duration, newData.Size, newData.Model, newData.PlanTaskId, newData.PlanScript, newData.GenTaskId, newData.VideoUrl, newData.RequestId, newData.Status, newData.FailReason, newData.Deleted, newData.Id)
 	return err
 }
 
