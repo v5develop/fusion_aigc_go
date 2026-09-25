@@ -2,6 +2,7 @@ package config
 
 import (
 	"aigc-life/pkg/fusion"
+	"aigc-life/pkg/session"
 	"aigc-life/pkg/storage"
 	"aigc-life/pkg/token"
 	"aigc-life/pkg/unionauth"
@@ -20,8 +21,11 @@ type Config struct {
 		// Mode token：只认我们签发的令牌（线上用）；
 		// dev：没带令牌时退回信任请求头 X-User-Id，**仅联调环境**
 		Mode string `json:",default=dev,options=dev|token"`
-		// Jwt 我们自己签发的令牌
+		// Jwt 我们自己签发的令牌（Session 没配时用它）
 		Jwt token.Conf
+		// Session 和 AIGC（Java）服务同一套的登录会话（Redis）。配了就发它那套 token，
+		// 一个 token 两边都认；没配则回落到上面的 Jwt。
+		Session session.Conf
 	}
 	// Union 联盟（xxlm）用户服务：登录时用前端给的临时 token 换用户信息
 	Union unionauth.Conf

@@ -82,6 +82,22 @@ check "用过就失效（不能当长期凭证）" "$(curl -sS -X POST -H 'Conte
 check "临时 token 不能直接调业务接口" "$(curl -sS -H "Authorization: Bearer $(temp "u$UNION_ID")" "$GW/copywriting/options" | jq -r .code)" 1002
 check "放 Authorization 头登录也行" "$(curl -sS -X POST -H "Authorization: Bearer $(temp "u$UNION_ID")" "$GW/auth/login" | jq -r .code)" 0
 
+echo "== 令牌和 AIGC 服务同一套（Redis 会话）"
+RDS=(docker exec -i redis-7 redis-cli)
+check "令牌是 32 位 hex（去掉横线的 UUID），不是 JWT" "$(jq -r '.data.token|test("^[0-9a-f]{32}$")' <<<"$R")" true
+check "还给了 refresh" "$(jq -r '[(.data.refresh_token|test("^[0-9a-f]{32}$")),(.data.refresh_expires_at > .data.expires_at)]|map(tostring)|join(",")' <<<"$R")" true,true
+# 下面这五个 key 的名字和 JSON 结构必须和 Java 一模一样，否则它认不出我们发的令牌
+AT=$(jq -r .data.token <<<"$R"); RT=$(jq -r .data.refresh_token <<<"$R")
+check "fusion:token:{access} 的 JSON 字段对得上" \
+  "$("${RDS[@]}" get "fusion:token:$AT" | jq -r '[has("userId"),has("username"),has("currentTeamId"),has("issuedAt")]|map(tostring)|join(",")')" \
+  "true,true,true,true"
+check "userId / username 正确" "$("${RDS[@]}" get "fusion:token:$AT" | jq -r '[.userId,.username]|map(tostring)|join("|")')" "$UID1|union_$UNION_ID"
+check "currentTeamId 取的是本人团队" "$("${RDS[@]}" get "fusion:token:$AT" | jq -r .currentTeamId)" "$(sql "SELECT team_id FROM afv_team_member WHERE user_id=$UID1 ORDER BY team_id, id LIMIT 1")"
+check "refresh 与 access 双向映射都在" \
+  "$("${RDS[@]}" get "fusion:token:$AT:refresh" | tr -d '\r')|$("${RDS[@]}" get "fusion:refresh_access:$RT" | tr -d '\r')" "$RT|$AT"
+check "会话登记进 ZSET" "$("${RDS[@]}" zscore "fusion:user_sessions:$UID1" "$AT" | tr -d '\r' | grep -c .)" 1
+check "access 的 TTL 是 2 小时量级" "$([[ $("${RDS[@]}" ttl "fusion:token:$AT" | tr -d '\r') -gt 7000 ]] && echo yes)" yes
+
 echo "== 用我们的令牌访问接口"
 check "当前用户" "$(curl -sS -H "Authorization: Bearer $TOKEN" "$GW/auth/me" | jq -r .data.id)" "$UID1"
 check "业务接口放行" "$(curl -sS -H "Authorization: Bearer $TOKEN" "$GW/copywriting/options" | jq -r .code)" 0

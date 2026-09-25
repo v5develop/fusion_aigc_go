@@ -65,7 +65,9 @@ deploy/scripts/e2e-real.sh          # 真实链路回归：对着已部署环境
 make stop-all
 ```
 
-身份：App 用联盟临时 token 换我们的令牌（见 `docs/api-app.md`），后台用现有账号 `afv_admin_user` 登录（见 `docs/api-admin.md`）。
+身份：App 用联盟临时 token 换令牌（见 `docs/api-app.md`）。令牌默认发**和 AIGC（Java）服务同一套**的会话
+（32 位 hex + 共用 Redis 的 `fusion:token:*`），一个 token 两边都认；没配那台 Redis 时回落到我们自己签的 JWT。
+后台用现有账号 `afv_admin_user` 登录（见 `docs/api-admin.md`）。
 联调期 `Auth.Mode=dev` 时没带令牌仍认请求头 `X-User-Id` / `X-Admin-Id`，**上线必须改成 `token`**。
 `ai_tts_model_id` 这一行配置 `make db` 不会插，需在各环境手动加（见建表脚本头部注释）。
 

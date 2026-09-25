@@ -27,15 +27,30 @@
 ```json
 // POST /auth/login 返回
 {"code":0,"msg":"ok","data":{
-  "token":"eyJhbGciOi…",            // 之后所有接口带 Authorization: Bearer <token>
-  "expires_at":1790755825451,        // 过期时间（unix 毫秒）
+  "token":"9f3c1e7a4b8d42f0a1c6e5b7d9084321",   // 之后所有接口带 Authorization: Bearer <token>
+  "expires_at":1790755825451,                    // 过期时间（unix 毫秒）
+  "refresh_token":"5b2d7f1c8e3a49d6b0f4c2a1e7d93856",
+  "refresh_expires_at":1791360625451,
   "user":{"id":2,"nickname":"小林","avatar":"https://…","phone":"130****7881"}
 }}
 ```
 
+**这个 token 和 AIGC 服务是同一套** —— 我们和它共用用户表与登录会话，所以拿它可以**直接调 AIGC 那边的接口**，不用再登录一次：
+
+| 能直接调的 | 用途 |
+|---|---|
+| `GET /api/v1/points/balance`、`/points/logs` | 点数余额、流水 |
+| `GET /api/v1/features/biz-points` | 各业务的点数价目 |
+| `GET /api/v1/asset/all`、`/asset/categories` | 素材库（按任务成组、分类 tab、比例筛选） |
+| `GET /api/v1/auth/user-info` | 当前用户（含可用点数与创作能力） |
+| `POST /api/v1/auth/refresh` | **刷新令牌**（用 `refresh_token`，我们这边不用再实现） |
+
+> `refresh_token` / `refresh_expires_at` 只在共用会话时返回。如果服务端没配（回落到我们自己的 JWT），这两个字段为空，`token` 是 JWT 形状，也不能拿去调 AIGC 的接口。看 `token` 是不是 32 位 hex 就能区分。
+
 - 我们拿这个临时 token 去联盟换用户信息（`GET {联盟}/api/v1/auth/{tempToken}/user`），**库里没有的用户会自动建档**（同时建个人团队，口径和现有 Java 服务一致），有的就直接登录并同步资料（联盟返回空的字段不会覆盖已有资料）。
 - `user.id` 是本服务的用户 id，业务数据都按它隔离。手机号是**脱敏**的，联盟那边就不给真实号码。
-- 令牌有效期 **7 天**。过期后接口返回 `1002`「登录已过期，请重新登录」，端上**重新走上面两步**即可（没有 refresh token）。
+- 令牌有效期：共用会话时 **access 2 小时 / refresh 7 天**（过期先用 `refresh_token` 调 AIGC 的 `/auth/refresh`，刷不动了再重走上面两步）；回落 JWT 时是 **7 天、没有 refresh**。
+  两种情况下过期都返回 `1002`「登录已过期，请重新登录」。
 
 | 登录失败 | 返回 |
 |---|---|

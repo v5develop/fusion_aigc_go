@@ -9,6 +9,7 @@ import (
 	"aigc-life/app/note/rpc/note"
 	"aigc-life/pkg/appuser"
 	"aigc-life/pkg/fusion"
+	"aigc-life/pkg/session"
 	"aigc-life/pkg/storage"
 	"aigc-life/pkg/unionauth"
 
@@ -27,6 +28,7 @@ type ServiceContext struct {
 	Storage         storage.Store
 	Union           *unionauth.Client
 	AppUser         *appuser.Model
+	Session         *session.Store
 }
 
 func NewServiceContext(c config.Config) *ServiceContext {
@@ -34,9 +36,10 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	if c.DataSource != "" {
 		conn = sqlx.NewMysql(c.DataSource)
 	}
+	sess := session.New(c.Auth.Session)
 	return &ServiceContext{
 		Config:          c,
-		Auth:            middleware.NewAuthMiddleware(c.Auth.Mode, c.Auth.Jwt).Handle,
+		Auth:            middleware.NewAuthMiddleware(c.Auth.Mode, c.Auth.Jwt, sess).Handle,
 		CopywritingRpc:  copywriting.NewCopywriting(zrpc.MustNewClient(c.CopywritingRpc)),
 		DigitalHumanRpc: digitalhuman.NewDigitalHuman(zrpc.MustNewClient(c.DigitalHumanRpc)),
 		NoteRpc:         note.NewNote(zrpc.MustNewClient(c.NoteRpc)),
@@ -44,5 +47,6 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		Storage:         storage.New(c.Storage, conn),
 		Union:           unionauth.New(c.Union, c.DataSource),
 		AppUser:         appuser.New(conn).WithRegistrar(fusionRegistrar{fusion.New(c.Fusion)}),
+		Session:         sess,
 	}
 }

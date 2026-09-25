@@ -48,6 +48,7 @@ load_env() {
   ADMIN_JWT_SECRET=${ADMIN_JWT_SECRET:-}; LINK_PARSE_URL=${LINK_PARSE_URL:-}
   UNION_REDIS_ADDR=${UNION_REDIS_ADDR:-}; UNION_REDIS_PASS=${UNION_REDIS_PASS:-}
   UNION_PHONE_AES_KEY=${UNION_PHONE_AES_KEY:-}
+  SESSION_REDIS_ADDR=${SESSION_REDIS_ADDR:-}; SESSION_REDIS_PASS=${SESSION_REDIS_PASS:-}
   FUSION_BASE_URL=${FUSION_BASE_URL:-}; FUSION_APP_KEY=${FUSION_APP_KEY:-}
   FUSION_APP_SECRET=${FUSION_APP_SECRET:-}; FUSION_KEY_VERSION=${FUSION_KEY_VERSION:-}
   if [[ $MOCK_ENABLED == 1 ]]; then
@@ -305,6 +306,7 @@ cmd_install() {
     -link-parse "$LINK_PARSE_URL" \
     -union-redis "$UNION_REDIS_ADDR" -union-redis-pass "$UNION_REDIS_PASS" \
     -union-phone-key "$UNION_PHONE_AES_KEY" \
+    -session-redis "$SESSION_REDIS_ADDR" -session-redis-pass "$SESSION_REDIS_PASS" \
     -fusion-url "$FUSION_BASE_URL" -fusion-key "$FUSION_APP_KEY" -fusion-secret "$FUSION_APP_SECRET" \
     -fusion-key-version "$FUSION_KEY_VERSION" \
     -ports "copywriting=$COPYWRITING_PORT,digitalhuman=$DIGITALHUMAN_PORT,note=$NOTE_PORT,imagegen=$IMAGEGEN_PORT,gateway=$GATEWAY_PORT,admin=$ADMIN_PORT"

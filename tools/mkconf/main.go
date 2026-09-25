@@ -54,6 +54,8 @@ func main() {
 	unionRedis := flag.String("union-redis", "", "联盟的 Redis 地址：配了就自己验临时 token，不调联盟接口")
 	unionRedisPass := flag.String("union-redis-pass", "", "联盟 Redis 密码")
 	unionPhoneKey := flag.String("union-phone-key", "", "联盟手机号的 AES 密钥；不配则手机号留空")
+	sessionRedis := flag.String("session-redis", "", "AIGC(Java) 服务的 Redis：配了就发和它同一套的令牌")
+	sessionRedisPass := flag.String("session-redis-pass", "", "该 Redis 的密码")
 	fusionURL := flag.String("fusion-url", "", "现有 Java 服务地址（建档交给它；留空则我们自己写表）")
 	fusionKey := flag.String("fusion-key", "", "Java 服务分配的 appKey")
 	fusionSecret := flag.String("fusion-secret", "", "Java 服务分配的 appSecret")
@@ -88,7 +90,8 @@ func main() {
 		e := editor{name: name, ports: portOf, dsn: *dsn, aigc: *aigc, logDir: filepath.Join(*logs, name), keepDays: *keepDays,
 			jwtSecret: *jwtSecret, adminJwtSecret: *adminJwtSecret, authMode: *authMode, union: *union,
 			linkParse: *linkParse, unionRedis: *unionRedis, unionRedisPass: *unionRedisPass,
-			unionPhoneKey: *unionPhoneKey, fusionURL: *fusionURL, fusionKey: *fusionKey, fusionSecret: *fusionSecret, fusionKeyVer: *fusionKeyVer}
+			unionPhoneKey: *unionPhoneKey, sessionRedis: *sessionRedis, sessionRedisPass: *sessionRedisPass,
+			fusionURL: *fusionURL, fusionKey: *fusionKey, fusionSecret: *fusionSecret, fusionKeyVer: *fusionKeyVer}
 		if err := e.apply(root); err != nil {
 			log.Fatalf("%s: %v", file, err)
 		}
@@ -120,24 +123,26 @@ func parsePorts(s string) (map[string]int, error) {
 }
 
 type editor struct {
-	jwtSecret      string
-	adminJwtSecret string
-	authMode       string
-	union          string
-	unionRedis     string
-	unionRedisPass string
-	unionPhoneKey  string
-	linkParse      string
-	fusionURL      string
-	fusionKey      string
-	fusionSecret   string
-	fusionKeyVer   string
-	name           string
-	ports          map[string]int
-	dsn            string
-	aigc           string
-	logDir         string
-	keepDays       int
+	jwtSecret        string
+	adminJwtSecret   string
+	authMode         string
+	union            string
+	unionRedis       string
+	unionRedisPass   string
+	unionPhoneKey    string
+	sessionRedis     string
+	sessionRedisPass string
+	linkParse        string
+	fusionURL        string
+	fusionKey        string
+	fusionSecret     string
+	fusionKeyVer     string
+	name             string
+	ports            map[string]int
+	dsn              string
+	aigc             string
+	logDir           string
+	keepDays         int
 }
 
 func (e editor) apply(root *yaml.Node) error {
@@ -172,6 +177,21 @@ func (e editor) apply(root *yaml.Node) error {
 		}
 		if secret != "" && get(a, "Jwt") != nil {
 			set(get(a, "Jwt"), "Secret", scalar(secret))
+		}
+		// 和 AIGC 服务共用的会话：只对网关有意义（后台用自己的 JWT）
+		if e.name == "gateway" {
+			if e.sessionRedis != "" {
+				sn := mapping("RedisAddr", quoted(e.sessionRedis))
+				if e.sessionRedisPass != "" {
+					set(sn, "RedisPass", quoted(e.sessionRedisPass))
+				}
+				set(sn, "AccessHours", scalar("2"))
+				set(sn, "RefreshDays", scalar("7"))
+				set(sn, "MaxSessions", scalar("0"))
+				set(a, "Session", sn)
+			} else {
+				del(a, "Session")
+			}
 		}
 	}
 	// 下面两个地址：本地模板指向 mock，服务器上**没配就得清空**，

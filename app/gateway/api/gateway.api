@@ -855,9 +855,13 @@ type (
 		Phone    string `json:"phone"` // 脱敏，如 130****7881
 	}
 	LoginResp {
-		Token     string    `json:"token"` // 之后所有接口带 Authorization: Bearer <token>
-		ExpiresAt int64     `json:"expires_at"` // 过期时间（unix 毫秒），过期后重新换一个临时 token 再登录
-		User      LoginUser `json:"user"`
+		Token     string `json:"token"` // 之后所有接口带 Authorization: Bearer <token>
+		ExpiresAt int64  `json:"expires_at"` // 过期时间（unix 毫秒）
+		// RefreshToken / RefreshExpiresAt 仅在与 AIGC 服务共用会话时返回（否则为空 / 0）。
+		// 刷新走 AIGC 那边的 POST /api/v1/auth/refresh，我们这边不用再实现。
+		RefreshToken     string    `json:"refresh_token,optional"`
+		RefreshExpiresAt int64     `json:"refresh_expires_at,optional"`
+		User             LoginUser `json:"user"`
 	}
 )
 

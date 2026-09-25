@@ -334,9 +334,11 @@ type LoginReq struct {
 }
 
 type LoginResp struct {
-	Token     string    `json:"token"`      // 之后所有接口带 Authorization: Bearer <token>
-	ExpiresAt int64     `json:"expires_at"` // 过期时间（unix 毫秒），过期后重新换一个临时 token 再登录
-	User      LoginUser `json:"user"`
+	Token            string    `json:"token"`      // 之后所有接口带 Authorization: Bearer <token>
+	ExpiresAt        int64     `json:"expires_at"` // 过期时间（unix 毫秒）
+	RefreshToken     string    `json:"refresh_token,optional"`
+	RefreshExpiresAt int64     `json:"refresh_expires_at,optional"`
+	User             LoginUser `json:"user"`
 }
 
 type LoginUser struct {

@@ -422,8 +422,14 @@
                   "type": "object",
                   "properties": {
                     "expires_at": {
-                      "description": "过期时间（unix 毫秒），过期后重新换一个临时 token 再登录",
+                      "description": "过期时间（unix 毫秒）",
                       "type": "integer"
+                    },
+                    "refresh_expires_at": {
+                      "type": "integer"
+                    },
+                    "refresh_token": {
+                      "type": "string"
                     },
                     "token": {
                       "description": "之后所有接口带 Authorization: Bearer \u003ctoken\u003e",
@@ -6257,7 +6263,7 @@
       "in": "header"
     }
   },
-  "x-date": "2026-09-25 09:27:32",
+  "x-date": "2026-09-25 15:04:39",
   "x-description": "This is a goctl generated swagger file.",
   "x-github": "https://github.com/zeromicro/go-zero",
   "x-go-zero-doc": "https://go-zero.dev/",

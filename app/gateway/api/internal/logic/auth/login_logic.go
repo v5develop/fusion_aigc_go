@@ -7,10 +7,12 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"aigc-life/app/gateway/api/internal/svc"
 	"aigc-life/app/gateway/api/internal/types"
 	"aigc-life/pkg/appuser"
+	"aigc-life/pkg/session"
 	"aigc-life/pkg/token"
 	"aigc-life/pkg/unionauth"
 	"aigc-life/pkg/xerr"
@@ -69,13 +71,45 @@ func (l *LoginLogic) Login(req *types.LoginReq) (resp *types.LoginResp, err erro
 	if user.Status != appuser.StatusEnabled {
 		return nil, xerr.New(xerr.Forbidden, "账号已被禁用")
 	}
-	t, exp, err := token.Sign(l.svcCtx.Config.Auth.Jwt, user.Id, u.UserID.String())
-	if err != nil {
-		l.Errorf("sign token: %v", err)
-		return nil, xerr.New(xerr.ServerError, "登录失败，请稍后重试")
-	}
-	return &types.LoginResp{
-		Token: t, ExpiresAt: exp.UnixMilli(),
+	resp = &types.LoginResp{
 		User: types.LoginUser{Id: user.Id, Nickname: user.Nickname.String, Avatar: user.Avatar.String, Phone: user.Phone.String},
-	}, nil
+	}
+	if err := l.issue(resp, user); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+// issue 发令牌。配了 Session（和 AIGC 服务共用的 Redis 会话）就发它那套——
+// 一个 token 两边都认，App 可以直接调 AIGC 那边现成的接口（点数、素材库、刷新令牌…）。
+// 没配则回落到我们自己签的 JWT。
+func (l *LoginLogic) issue(resp *types.LoginResp, user *appuser.User) error {
+	if !l.svcCtx.Session.Enabled() {
+		t, exp, err := token.Sign(l.svcCtx.Config.Auth.Jwt, user.Id, user.UnionUserId.String)
+		if err != nil {
+			l.Errorf("sign token: %v", err)
+			return xerr.New(xerr.ServerError, "登录失败，请稍后重试")
+		}
+		resp.Token, resp.ExpiresAt = t, exp.UnixMilli()
+		return nil
+	}
+	// 会话里要带 currentTeamId，取法和 Java 一致（建档时已经建好团队）
+	teamID, err := l.svcCtx.AppUser.CurrentTeamID(l.ctx, user.Id)
+	if err != nil {
+		l.Errorf("current team of %d: %v", user.Id, err)
+		return xerr.New(xerr.ServerError, "登录失败，请稍后重试")
+	}
+	t, err := l.svcCtx.Session.Issue(l.ctx, session.Claims{
+		UserID: user.Id, Username: user.Username, CurrentTeamID: teamID,
+	})
+	if err != nil {
+		l.Errorf("issue session for %d: %v", user.Id, err)
+		return xerr.New(xerr.ServerError, "登录失败，请稍后重试")
+	}
+	now := time.Now()
+	resp.Token = t.AccessToken
+	resp.ExpiresAt = now.Add(time.Duration(t.ExpiresIn) * time.Second).UnixMilli()
+	resp.RefreshToken = t.RefreshToken
+	resp.RefreshExpiresAt = now.Add(time.Duration(t.RefreshExpiresIn) * time.Second).UnixMilli()
+	return nil
 }

@@ -313,6 +313,24 @@ func randomPassword() (string, error) {
 
 func nullStr(s string) sql.NullString { return sql.NullString{String: s, Valid: s != ""} }
 
+// CurrentTeamID 当前团队：该用户 afv_team_member 里 status=1 的记录，
+// 按 team_id 升序、再按 id 升序取第一条——和 Java 的取法一致（会话里要带这个）。
+// 没有团队时返回 0。
+func (m *Model) CurrentTeamID(ctx context.Context, userID int64) (int64, error) {
+	if err := m.ready(); err != nil {
+		return 0, err
+	}
+	var id int64
+	q := "SELECT `team_id` FROM `afv_team_member` WHERE `user_id` = ? AND `status` = 1 AND `deleted` = 0" +
+		" ORDER BY `team_id`, `id` LIMIT 1"
+	switch err := m.conn.QueryRowCtx(ctx, &id, q, userID); err {
+	case nil, sqlx.ErrNotFound:
+		return id, nil
+	default:
+		return 0, err
+	}
+}
+
 // FindByID 按本服务的用户 id 查；查不到返回 nil。
 func (m *Model) FindByID(ctx context.Context, id int64) (*User, error) {
 	if err := m.ready(); err != nil {
