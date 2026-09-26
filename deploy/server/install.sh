@@ -7,6 +7,7 @@
 #   bash install.sh stop       停止全部
 #   bash install.sh logs <服务> 看日志，如 logs gateway-api
 #   bash install.sh voices     生成系统音色试听（首次部署后执行一次）
+#   bash install.sh seed-templates  造联调用的公共素材（公共数字人 / 模板 / 口播背景 / 动作视频）
 #   bash install.sh uninstall  停止并注销服务（不删数据库、不删安装目录）
 #
 # 不影响服务器上已有的项目：只新建 aigc-life-* 服务，端口不与已占用的冲突（冲突会停下来提示），
@@ -358,7 +359,8 @@ cmd_install() {
   （或者用宝塔建网站做反向代理，见部署文档）
 
   常用：bash $INSTALL_DIR/install.sh status | restart | logs gateway-api
-  首次部署：bash $INSTALL_DIR/install.sh voices   生成系统音色试听
+  首次部署：bash $INSTALL_DIR/install.sh voices          生成系统音色试听
+            bash $INSTALL_DIR/install.sh seed-templates  造公共数字人 / 模板 / 口播背景 / 动作视频（联调用）
 EOF
 }
 
@@ -377,6 +379,13 @@ cmd_logs() {
   local short=${s%-rpc}; short=${short%-api}
   echo "== $INSTALL_DIR/logs/$s.out（启动输出）与 $INSTALL_DIR/logs/$short/（业务日志）"
   tail -n 50 -F "$INSTALL_DIR/logs/$s.out" "$INSTALL_DIR/logs/$short"/*.log 2>/dev/null
+}
+
+# cmd_seed_templates 造联调用的公共素材（公共数字人、各种模板、口播背景、动作视频）。
+# 这些在现有系统的「模板素材」表里，平时由运营在现有后台维护；这里只是给联调造点占位数据。
+cmd_seed_templates() {
+  DB_HOST=$DB_HOST DB_PORT=$DB_PORT DB_NAME=$DB_NAME DB_USER=$DB_USER DB_PASS=$DB_PASS \
+    MYSQL_BIN=${MYSQL_BIN:-} bash "$INSTALL_DIR/scripts/seed-templates.sh"
 }
 
 cmd_voices() {
@@ -405,6 +414,7 @@ case ${1:-install} in
   stop)      all_stop; cmd_status ;;
   logs)      cmd_logs "${2:-}" ;;
   voices)    cmd_voices ;;
+  seed-templates) cmd_seed_templates ;;
   uninstall) cmd_uninstall ;;
   *) sed -n '2,11p' "$0"; exit 1 ;;
 esac
