@@ -473,9 +473,9 @@ func TestRealEntitlementGate(t *testing.T) {
 	c := Charge{UserID: testUser, RequestID: "req-feat-1", EntryCode: testEntryAll,
 		Tier: TierCloud, Kind: KindVideo, Seconds: 15}
 
-	// 默认不开：没有权益也能冻结
+	// 关掉时：没有权益也能冻结
 	if _, err := New(Conf{Mode: ModeOn}, conn).Freeze(ctx, c); err != nil {
-		t.Fatalf("默认不查权益: %v", err)
+		t.Fatalf("关掉时不查权益: %v", err)
 	}
 
 	// 打开后：没有权益要被拒
@@ -496,6 +496,39 @@ func TestRealEntitlementGate(t *testing.T) {
 	}()
 	if _, err := strict.Freeze(ctx, c); err != nil {
 		t.Fatalf("有权益后应该能冻结: %v", err)
+	}
+}
+
+// 权益是准入闸，不是钱：Mode=off（不扣点）时也要照样拦。
+func TestRealAccessGateIndependentOfBilling(t *testing.T) {
+	conn := openDB(t)
+	defer setup(t, conn, 1000)()
+	ctx := context.Background()
+	// 不扣点，但开权益
+	s := New(Conf{Mode: ModeOff, CheckEntitlement: true}, conn)
+
+	if err := s.CheckAccess(ctx, testUser, testEntryAll); !errors.Is(err, ErrNoFeature) {
+		t.Fatalf("没有权益应该被拦，实际 %v", err)
+	}
+	if _, err := conn.ExecCtx(ctx,
+		"INSERT INTO afv_app_user_feature (user_id, feature_code, status, source, deleted)"+
+			" VALUES (?,?,'ACTIVE','UNION',0)", testUser, "ecom_video_gen"); err != nil {
+		t.Fatalf("发权益: %v", err)
+	}
+	defer func() {
+		_, _ = conn.ExecCtx(ctx, "DELETE FROM afv_app_user_feature WHERE user_id = ?", testUser)
+	}()
+	if err := s.CheckAccess(ctx, testUser, testEntryAll); err != nil {
+		t.Fatalf("有权益后应该放行: %v", err)
+	}
+
+	// 没配计费方案的入口码：放行，不能因为计费没配好就把功能拦死
+	if err := s.CheckAccess(ctx, testUser, "__nonexistent_entry"); err != nil {
+		t.Fatalf("没配方案的入口码应该放行: %v", err)
+	}
+	// 关掉开关就一律放行
+	if err := New(Conf{Mode: ModeOff}, conn).CheckAccess(ctx, testUser, testEntryPart); err != nil {
+		t.Fatalf("关掉开关应该放行: %v", err)
 	}
 }
 

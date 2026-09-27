@@ -2,6 +2,7 @@ package billing
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -58,13 +59,28 @@ func checkNoPricingRules(ctx context.Context, conn sqlx.SqlConn, offerCode, vari
 		ErrPricingRule, offerCode, strings.Join(names, "、"))
 }
 
+// featureCodeOf 入口码挂的是哪个创作能力。只读一行，给准入校验用。
+func featureCodeOf(ctx context.Context, conn sqlx.SqlConn, entryCode string) (string, error) {
+	var code string
+	const q = "SELECT `feature_code` FROM `afv_billing_offer` " +
+		"WHERE `entry_code` = ? AND `status` = 'ENABLED' AND `deleted` = 0 LIMIT 1"
+	switch err := conn.QueryRowCtx(ctx, &code, q, entryCode); {
+	case errors.Is(err, sqlx.ErrNotFound):
+		return "", fmt.Errorf("%w: %s", ErrNoOffer, entryCode)
+	case err != nil:
+		return "", err
+	}
+	return code, nil
+}
+
 // hasEntitlement 查用户有没有这个创作能力（afv_app_user_feature）。
 //
 // ⚠️ Java 的权益闸门在**报价**那一步（BillingPricingServiceImpl.validateFeatureAvailable），
 // 不在 reserve 里。我们直接写表、不走它的报价接口，等于绕过了这道闸。
 //
-// 要不要开这道闸是业务决定，不是技术决定，所以默认**不开**（Conf.CheckEntitlement）：
-// 库里 `locallife_image_gen` 一个联盟发放都没有，贸然打开会把所有付费用户挡在门外。
+// 开关是 Conf.CheckEntitlement，产品 2026-09-27 定了开。
+// 前提是入口码挂的能力码真有人被发放过，别挂 locallife_image_gen（只有 2 个手工发放）
+// 也别新建能力码——新码零发放，开了就是把那个功能对所有人关掉。
 func hasEntitlement(ctx context.Context, conn sqlx.SqlConn, userID int64, featureCode string) (bool, error) {
 	if strings.TrimSpace(featureCode) == "" {
 		return true, nil

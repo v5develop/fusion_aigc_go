@@ -46,12 +46,16 @@ type Conf struct {
 		DefaultMinutes int `json:",default=15"` // 图片、文案这类快的
 		VideoMinutes   int `json:",default=90"` // 视频：要大于我们自己的任务超时
 	}
-	// CheckEntitlement 冻结前查不查创作权益（afv_app_user_feature）。
+	// CheckEntitlement 用不用创作权益做准入（afv_app_user_feature）。
 	//
-	// Java 的这道闸在**报价**那步，我们直接写表就绕过了。要不要补上是业务决定：
-	// 库里 locallife_image_gen 一个联盟发放都没有，贸然打开会把所有付费用户挡在门外。
-	// 所以默认不开，等产品定了再翻。
-	CheckEntitlement bool `json:",default=false"`
+	// 产品 2026-09-27 定了开。前提是入口码挂的能力码要真有人被发放过——
+	// 图片视频都共享电商的码（ecom_image_gen / ecom_video_gen / video_to_video，各 18 人），
+	// AI文案复用 ai_chat（16 人）。**千万别挂 locallife_image_gen**（只有 2 人，还是手工发的），
+	// 也别新建能力码——新码零发放，开了就是把那个功能对所有人关掉。
+	// 上线前用 deploy/sql/check-billing-entitlement.sql 核一遍。
+	//
+	// ⚠️ 这是**准入闸，不是钱**，所以 Mode=off 也生效（见 CheckAccess）。
+	CheckEntitlement bool `json:",default=true"`
 }
 
 // 档次。视频模块都是这两档，档位表里对应 <offer_code>_cloud / <offer_code>_lite。
@@ -159,6 +163,38 @@ func (s *Service) Quote(ctx context.Context, c Charge) (*Quote, error) {
 // 新用户开箱就是没账户的（24 个人里有 1 个没有），这不是异常。
 func (s *Service) Balance(ctx context.Context, userID int64) (*Account, error) {
 	return loadAccount(ctx, s.conn, userID)
+}
+
+// CheckAccess 准入校验：这个用户有没有这个功能的创作权益。
+//
+// **和计费开关无关**——Mode=off（不扣点）时它照样生效。权益是"能不能用"，
+// 计费是"用了扣多少"，两件事，不该捆在一起：不扣点的阶段也不该让没买的人白用。
+//
+// Java 把这道闸放在报价里（BillingPricingServiceImpl.validateFeatureAvailable），
+// 我们直接写计费表、不走它的报价接口，所以得自己来。
+//
+// 没开校验、或这个入口码还没配计费方案时一律放行——
+// 权益校验不该因为计费没配好就把功能拦死。
+func (s *Service) CheckAccess(ctx context.Context, userID int64, entryCode string) error {
+	if !s.conf.CheckEntitlement {
+		return nil
+	}
+	code, err := featureCodeOf(ctx, s.conn, entryCode)
+	if err != nil {
+		if errors.Is(err, ErrNoOffer) {
+			logx.WithContext(ctx).Errorf("billing: 入口码 %s 没配计费方案，权益校验跳过", entryCode)
+			return nil
+		}
+		return err
+	}
+	ok, err := hasEntitlement(ctx, s.conn, userID, code)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("%w: %s", ErrNoFeature, code)
+	}
+	return nil
 }
 
 // Freeze 提交生成时冻结点数。
