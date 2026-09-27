@@ -1,0 +1,216 @@
+// Package billing 点数计费：冻结 → 确认 / 退回。
+//
+// 写的是现有 Java 服务那批表（afv_points_account / _batch / _log / _log_line、
+// afv_billing_reservation / _line），**语义、编号、幂等键格式全部照它的来**——
+// 两边同时在跑，格式一分叉就对不上账。哪些是照抄的、哪些是我们改进的，
+// 每处都在注释里写了出处。
+//
+// 口径出处：库里 1219 条预留单、2555 条流水（2026-09-27 核）。
+//
+//	FREEZE   余额 → 冻结     balance -= P, frozen += P, amount = -P
+//	CONSUME  钱真正离开       frozen -= P，**balance 不动**，amount = -实际
+//	REFUND   原路退回         frozen -= P, balance += P, amount = +P
+//
+// 全库配平：FREEZE 8988 = CONSUME 7894 + REFUND 1094。
+package billing
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/zeromicro/go-zero/core/logx"
+	"github.com/zeromicro/go-zero/core/stores/sqlx"
+)
+
+// Mode 上线档位。计费动的是钱，不敢一步到位，所以留三档。
+const (
+	ModeOff    = "off"    // 完全不计费（默认）：Freeze 直接返回 nil，调用方照常往下走
+	ModeShadow = "shadow" // 影子：照常算价、打日志，但**不动账**。用来和 Java 的报价对数
+	ModeOn     = "on"     // 真扣
+)
+
+// Conf 计费配置。
+type Conf struct {
+	// Mode off / shadow / on，默认 off
+	Mode string `json:",default=off,options=off|shadow|on"`
+	// Hold 预留（冻结）多久没确认就可以回收。
+	//
+	// ⚠️ 这是这套东西最容易出事的地方：Java 那边现有的单子是 30 分钟
+	// （实测 create_time 14:24:25 → expire_time 14:54:25），而我们的视频任务
+	// 超时是 40 分钟（口播实测本地 GPU 出 15 秒视频要 14 分钟）。
+	// 照 30 分钟写，任务还在跑钱就被回收了，等成功去确认单子已经不是 HELD。
+	// 所以按任务类型分开配，视频给足。
+	Hold struct {
+		DefaultMinutes int `json:",default=15"` // 图片、文案这类快的
+		VideoMinutes   int `json:",default=90"` // 视频：要大于我们自己的任务超时
+	}
+}
+
+// Kind 计费对象的大类，只用来决定预留多久。
+type Kind int
+
+const (
+	KindQuick Kind = iota // 图片 / 文案
+	KindVideo             // 视频
+)
+
+var (
+	// ErrNotEnough 余额不够。调用方应转成 1008 并带上还差多少。
+	ErrNotEnough = errors.New("billing: 点数余额不足")
+	// ErrNoOffer 这个入口码还没在 afv_billing_offer 里配。
+	ErrNoOffer = errors.New("billing: 入口码没有配置计费方案")
+	// ErrGone 预留单不在了（被回收或已结算），确认时遇到要当异常报警。
+	ErrGone = errors.New("billing: 预留单已不是 HELD")
+)
+
+// Charge 一次计费请求。
+type Charge struct {
+	UserID int64
+	// RequestID 客户端幂等键（X-Request-Id）。和 UserID 一起构成 biz_id。
+	RequestID string
+	// EntryCode 入口码，对应 afv_billing_offer.entry_code（驼峰，如 digitalHuman）
+	EntryCode string
+	// ModelCode 模型档，对应 afv_ai_model.code。空则用 variant 的默认模型。
+	ModelCode string
+	Kind      Kind
+	// Count 产出数量（按张计的用），默认 1
+	Count int
+	// Seconds 时长（按秒计的用）
+	Seconds int
+	// Resolution 分辨率，影响单价（afv_model_pricing.resolution）。空则用 variant 默认。
+	Resolution string
+}
+
+// bizID 和 Java 一致：{userId}_{requestId}。
+// afv_billing_reservation 上有 UNIQUE uk_biz(biz_type, biz_id)，重复提交靠它挡。
+func (c Charge) bizID() string { return fmt.Sprintf("%d_%s", c.UserID, c.RequestID) }
+
+// Reservation 冻结成功后的预留单。Mode=off 时 Freeze 返回 nil，后续 Confirm/Refund 收到 nil 直接跳过。
+type Reservation struct {
+	No          string // BR + 32 hex
+	PricePoints int64
+	Quote       *Quote
+	shadow      bool // shadow 模式产生的，没真写库
+}
+
+// Service 计费服务。
+type Service struct {
+	conf Conf
+	conn sqlx.SqlConn
+}
+
+func New(c Conf, conn sqlx.SqlConn) *Service {
+	if c.Mode == "" {
+		c.Mode = ModeOff
+	}
+	if c.Hold.DefaultMinutes <= 0 {
+		c.Hold.DefaultMinutes = 15
+	}
+	if c.Hold.VideoMinutes <= 0 {
+		c.Hold.VideoMinutes = 90
+	}
+	return &Service{conf: c, conn: conn}
+}
+
+func (s *Service) Mode() string { return s.conf.Mode }
+func (s *Service) On() bool     { return s.conf.Mode == ModeOn }
+
+// holdFor 这类任务的预留时长。
+func (s *Service) holdFor(k Kind) time.Duration {
+	if k == KindVideo {
+		return time.Duration(s.conf.Hold.VideoMinutes) * time.Minute
+	}
+	return time.Duration(s.conf.Hold.DefaultMinutes) * time.Minute
+}
+
+// Quote 一次报价。Price 只读配置表，不动账，可以单独拿来给前端显示。
+func (s *Service) Quote(ctx context.Context, c Charge) (*Quote, error) {
+	return price(ctx, s.conn, c)
+}
+
+// Balance 余额。用户没有账户时返回零值而不是报错——
+// 新用户开箱就是没账户的（24 个人里有 1 个没有），这不是异常。
+func (s *Service) Balance(ctx context.Context, userID int64) (*Account, error) {
+	return loadAccount(ctx, s.conn, userID)
+}
+
+// Freeze 提交生成时冻结点数。
+//
+// 返回 nil 表示这次不计费（Mode=off），调用方不用判空之外的事，
+// 后面把它原样交给 Confirm / Refund 即可。
+//
+// 余额不足返回 ErrNotEnough，错误里带了还差多少（见 NotEnough）。
+func (s *Service) Freeze(ctx context.Context, c Charge) (*Reservation, error) {
+	if s.conf.Mode == ModeOff {
+		return nil, nil
+	}
+	if c.RequestID == "" {
+		return nil, errors.New("billing: 缺少 RequestID，无法保证幂等")
+	}
+	q, err := price(ctx, s.conn, c)
+	if err != nil {
+		return nil, err
+	}
+	if s.conf.Mode == ModeShadow {
+		// 影子模式：只记一笔，不动账。用来和 Java 的 /billing/quote/preview 对数。
+		logx.WithContext(ctx).Infow("billing shadow freeze",
+			logx.Field("user_id", c.UserID), logx.Field("entry_code", c.EntryCode),
+			logx.Field("model", c.ModelCode), logx.Field("points", q.PricePoints),
+			logx.Field("biz_id", c.bizID()))
+		return &Reservation{PricePoints: q.PricePoints, Quote: q, shadow: true}, nil
+	}
+	return freeze(ctx, s.conn, c, q, s.holdFor(c.Kind))
+}
+
+// Confirm 生成成功后确认扣除。
+//
+// actual 是**实际产出量**（张数或秒数）：多图部分成功时传成功的张数，
+// 差额会在同一个事务里退回，不留尾巴。传 0 表示按原量全额确认。
+func (s *Service) Confirm(ctx context.Context, r *Reservation, actual int) error {
+	if r == nil || r.shadow {
+		return nil
+	}
+	return settle(ctx, s.conn, r, actual)
+}
+
+// Refund 生成失败 / 超时，把冻结的原路退回。
+func (s *Service) Refund(ctx context.Context, r *Reservation, reason string) error {
+	if r == nil || r.shadow {
+		return nil
+	}
+	return refund(ctx, s.conn, r.No, reason)
+}
+
+// Load 按 biz_id 找回预留单。
+//
+// 为什么需要它：冻结发生在提交接口里，确认/退回发生在轮询器里（另一个进程、
+// 甚至重启之后），内存里的 *Reservation 传不过去。所以状态只认库——
+// 轮询器拿 userID + requestID 把单子捞回来再结算。
+func (s *Service) Load(ctx context.Context, userID int64, requestID string) (*Reservation, error) {
+	if s.conf.Mode != ModeOn || requestID == "" {
+		return nil, nil
+	}
+	return loadHeld(ctx, s.conn, Charge{UserID: userID, RequestID: requestID}.bizID())
+}
+
+// NotEnough 余额不足的细节，给接口层拼提示用。
+type NotEnough struct {
+	Need      int64 // 本次需要
+	Available int64 // 当前可用
+}
+
+func (e *NotEnough) Error() string {
+	return fmt.Sprintf("billing: 点数余额不足，需要 %d，可用 %d", e.Need, e.Available)
+}
+
+func (e *NotEnough) Is(target error) bool { return target == ErrNotEnough }
+
+// Missing 还差多少。
+func (e *NotEnough) Missing() int64 {
+	if e.Need > e.Available {
+		return e.Need - e.Available
+	}
+	return 0
+}
