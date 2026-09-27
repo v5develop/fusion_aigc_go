@@ -26,10 +26,16 @@ import (
 // 单条步骤的价钱：
 //
 //	unit = base_points > 0 ? base_points : model_pricing.price_points
-//	qty  = OUTPUT → 张数；DURATION → 秒数；BASE → 1
+//	qty  = 看 price_unit：PER_SECOND → 秒数；PER_IMAGE → 张数
 //	小计 = ceil(unit * qty * price_multiplier)
 //
 // 只算 cost_type='BILLED' 的；COST_ONLY 是只记成本不收用户钱的步骤（如复刻的视频解析）。
+//
+// ⚠️ **计量看 `price_unit`，不看 `component_type`**。
+// 现有配置里两者会打架：action_transfer 的步骤是 `OUTPUT`（按产出数量），
+// 单价却是 `PER_SECOND`（按秒）。按 component_type 算会把 15 秒的视频算成 1 次，
+// 15 倍的差价。单价单位才是权威的——"8 积分/秒"这句话里的"秒"就在 price_unit 上。
+// component_type 只在没有单价行（用 base_points 固定点数）时才拿来判断。
 
 // Quote 一次报价的结果。
 type Quote struct {
@@ -55,6 +61,7 @@ type QuoteLine struct {
 	ModelID       int64
 	PricingID     int64
 	UnitPoints    int64
+	Unit          string // PER_SECOND / PER_IMAGE / PER_CALL
 	Quantity      int
 	Multiplier    float64
 	Points        int64
@@ -138,8 +145,7 @@ func price(ctx context.Context, conn sqlx.SqlConn, c Charge) (*Quote, error) {
 		return nil, err
 	}
 	if len(comps) == 0 {
-		// actionTransfer 就是这样：offer 有、variant 和 component 全空。
-		// 与其算出 0 点让用户白嫖，不如明确报错，逼配置补上。
+		// 档位建了但没配计费步骤。与其算出 0 点让用户白嫖，不如明确报错，逼配置补上。
 		return nil, fmt.Errorf("%w: %s 的档位 %s 没有计费步骤", ErrNoOffer, c.EntryCode, v.VariantCode)
 	}
 
@@ -164,7 +170,7 @@ func price(ctx context.Context, conn sqlx.SqlConn, c Charge) (*Quote, error) {
 		q.PricePoints += line.Points
 		// 主步骤（第一条计费的）决定对外的计量单位与单价行
 		if q.PricingID == 0 {
-			q.PricingID, q.PriceUnit, q.Quantity = line.PricingID, unitOf(cp.ComponentType.String), line.Quantity
+			q.PricingID, q.PriceUnit, q.Quantity = line.PricingID, line.Unit, line.Quantity
 			if line.ModelID != 0 {
 				q.ModelID = line.ModelID
 			}
@@ -212,22 +218,25 @@ func priceLine(ctx context.Context, conn sqlx.SqlConn, cp componentRow, c Charge
 		ComponentCode: cp.ComponentCode, StepCode: cp.StepCode.String, Mode: cp.Mode,
 		ModelID:    pick(cp.ModelID.Int64, v.DefaultModelID.Int64),
 		Multiplier: or1(cp.Multiplier.Float64),
-		Quantity:   quantityOf(cp.ComponentType.String, c, v),
 		CostOnly:   cp.CostType.String == "COST_ONLY",
 	}
 	if line.CostOnly {
+		// 只记成本不收钱，算不算量都无所谓
+		line.Quantity = quantityOf(unitOf(cp.ComponentType.String), c, v)
 		return line, nil
 	}
 	if cp.BasePoints.Int64 > 0 {
-		// 固定点数的步骤，不查单价表
+		// 固定点数的步骤没有单价行，只能退回去看 component_type
 		line.UnitPoints = cp.BasePoints.Int64
+		line.Unit = unitOf(cp.ComponentType.String)
 	} else {
 		p, err := findPricing(ctx, conn, line.ModelID, cp.ActionType.String, res)
 		if err != nil {
 			return nil, err
 		}
-		line.UnitPoints, line.PricingID = p.PricePoints, p.Id
+		line.UnitPoints, line.PricingID, line.Unit = p.PricePoints, p.Id, p.PriceUnit
 	}
+	line.Quantity = quantityOf(line.Unit, c, v)
 	line.Points = int64(math.Ceil(float64(line.UnitPoints) * float64(line.Quantity) * line.Multiplier))
 	return line, nil
 }
@@ -256,10 +265,10 @@ func findPricing(ctx context.Context, conn sqlx.SqlConn, modelID int64, action, 
 	return &p, nil
 }
 
-// quantityOf 这个步骤按什么计量。
-func quantityOf(componentType string, c Charge, v *variantRow) int {
-	switch componentType {
-	case "DURATION":
+// quantityOf 按计价单位取计量。
+func quantityOf(priceUnit string, c Charge, v *variantRow) int {
+	switch priceUnit {
+	case "PER_SECOND":
 		if c.Seconds > 0 {
 			return c.Seconds
 		}
@@ -267,21 +276,26 @@ func quantityOf(componentType string, c Charge, v *variantRow) int {
 			return int(v.DefaultSeconds.Int64)
 		}
 		return 1
-	case "OUTPUT":
+	case "PER_IMAGE":
 		if c.Count > 0 {
 			return c.Count
 		}
 		return 1
-	default: // BASE：固定一次
+	default: // 认不出的单位当一次性
 		return 1
 	}
 }
 
+// unitOf 没有单价行时的兜底：拿 component_type 猜计量单位。
 func unitOf(componentType string) string {
-	if componentType == "DURATION" {
+	switch componentType {
+	case "DURATION":
 		return "PER_SECOND"
+	case "OUTPUT":
+		return "PER_IMAGE"
+	default: // BASE：固定一次
+		return "PER_CALL"
 	}
-	return "PER_IMAGE"
 }
 
 func or(s, def string) string {

@@ -321,6 +321,33 @@ func TestRealAllOrNothingIgnoresPartial(t *testing.T) {
 	want(t, "ALL_OR_NOTHING 全额扣", b, 900)
 }
 
+// 计量要看 price_unit，不看 component_type。
+//
+// 现有配置里真的有打架的：action_transfer 的步骤写的是 OUTPUT（按产出数量），
+// 单价却是 PER_SECOND（按秒）。按 component_type 算会把 15 秒算成 1 次，差 15 倍。
+func TestRealUnitBeatsComponentType(t *testing.T) {
+	conn := openDB(t)
+	defer setup(t, conn, 1000)()
+	ctx := context.Background()
+	s := New(Conf{Mode: ModeOn}, conn)
+
+	// 把按秒那档的步骤类型改成 OUTPUT，制造和 action_transfer 一样的矛盾配置
+	if _, err := conn.ExecCtx(ctx,
+		"UPDATE afv_billing_charge_component SET component_type = 'OUTPUT' WHERE component_code = ?",
+		testOfferAll+"_c"); err != nil {
+		t.Fatalf("改步骤类型: %v", err)
+	}
+	q, err := s.Quote(ctx, Charge{UserID: testUser, RequestID: "req-unit-1",
+		EntryCode: testEntryAll, Kind: KindVideo, Seconds: 15})
+	if err != nil {
+		t.Fatalf("算价: %v", err)
+	}
+	want(t, "仍按秒算 15×10", q.PricePoints, 150)
+	if q.PriceUnit != "PER_SECOND" {
+		t.Fatalf("计价单位应取单价表的，实际 %s", q.PriceUnit)
+	}
+}
+
 func TestRealNotEnough(t *testing.T) {
 	conn := openDB(t)
 	defer setup(t, conn, 50)()
