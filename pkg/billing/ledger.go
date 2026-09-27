@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/go-sql-driver/mysql"
@@ -29,16 +30,29 @@ import (
 //	CONSUME  confirm:{reservationNo}    ← 和 Java 一致
 //	REFUND   refunded:{reservationNo}   ← 和 Java 一致
 const (
-	bizTypeCreation = "CREATION"
-	freezePrefix    = "golife:"
+	// bizTypeLocalLife 我们的业务类型。**这个值必须是 Java 不认识的**。
+	//
+	// 它的回收器（BillingHeldReservationRecoveryServiceImpl，每 60 秒一轮）
+	// 扫全库所有过期 HELD 单，**不按幂等键或来源过滤**，扫出来后按 biz_type 分派：
+	// IMAGE_GEN / VIDEO_GEN / CREATION 会去查它自己的任务表、自动确认或退款；
+	// 认不出来的只打一条 WARN 就跳过。
+	//
+	// 所以用 CREATION 会被它接管——而我们的 biz_id 在它的任务表里根本不存在。
+	// 用自己的值，它就不会碰。代价是它每轮会为我们的在途单打一条 WARN，
+	// 并占掉它 LIMIT 100 的名额，所以还是要请他们像 EXTERNAL_EXECUTION 那样
+	// 加一个显式跳过分支。
+	bizTypeLocalLife = "LOCALLIFE"
+	freezePrefix     = "golife:"
 
-	statusHeld      = "HELD"
-	statusConfirmed = "CONFIRMED"
-	statusRefunded  = "REFUNDED"
+	statusHeld              = "HELD"
+	statusConfirmed         = "CONFIRMED"
+	statusRefunded          = "REFUNDED"
+	statusPartiallyRefunded = "PARTIALLY_REFUNDED" // 部分结算的终态，照 Java
 
-	changeFreeze  = "FREEZE"
-	changeConsume = "CONSUME"
-	changeRefund  = "REFUND"
+	changeFreeze   = "FREEZE"
+	changeConsume  = "CONSUME"
+	changeRefund   = "REFUND"
+	changeUnfreeze = "UNFREEZE" // 预留过期/取消走这个，不是 REFUND
 )
 
 func newNo(prefix string) string {
@@ -106,7 +120,7 @@ func freeze(ctx context.Context, conn sqlx.SqlConn, c Charge, q *Quote, hold tim
 			"`biz_type`,`biz_id`,`status`,`idempotency_key`,`expire_time`) " +
 			"VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
 		_, err := s.ExecCtx(ctx, insRes, no, c.UserID, q.FeatureCode, nullInt(q.ModelID), nullInt(q.PricingID),
-			p, q.Snapshot(), bizTypeCreation, bizID, statusHeld, idem, time.Now().Add(hold))
+			p, q.Snapshot(), bizTypeLocalLife, bizID, statusHeld, idem, time.Now().Add(hold))
 		if err != nil {
 			return err
 		}
@@ -144,7 +158,8 @@ func freeze(ctx context.Context, conn sqlx.SqlConn, c Charge, q *Quote, hold tim
 		ledgerID, err := writeLog(ctx, s, logEntry{
 			UserID: c.UserID, ChangeType: changeFreeze, Amount: -p,
 			BalanceAfter: a.Balance - p, FrozenAfter: a.FrozenBalance + p,
-			BizType: bizTypeCreation, BizID: bizID, IdempotencyKey: idem,
+			BizType: bizTypeLocalLife, BizID: bizID, IdempotencyKey: idem,
+			OperatorType: "USER", OperatorID: sql.NullString{String: strconv.FormatInt(c.UserID, 10), Valid: true},
 			Description: fmt.Sprintf("%s 生成冻结", q.EntryCode),
 		})
 		if err != nil {
@@ -175,10 +190,15 @@ func freeze(ctx context.Context, conn sqlx.SqlConn, c Charge, q *Quote, hold tim
 // 固定顺序同时也避免了和它并发时的死锁。
 func takeFromBatches(ctx context.Context, s sqlx.Session, userID, total int64) ([]lineDelta, error) {
 	var rows []batchRow
+	// 排序和可消费条件都照 Java（PointsBatchMapper.selectConsumableBatchesForUpdate）：
+	//   ORDER BY expire_time IS NULL, expire_time ASC, create_time ASC, id ASC
+	// ⚠️ **不能加 expire_time > NOW()**。它的判据只有 status='ACTIVE'，
+	// 批次过期靠另一个 5 分钟一轮的定时任务去清。在"已过期但还没被扫走"的窗口里，
+	// 那些点数仍然算在 account.balance 里、也仍然会被消费。我们要是把它们排除掉，
+	// 就会出现"账户余额够、批次凑不齐"而整笔失败。
 	const q = "SELECT `id`,`remaining`,`frozen` FROM `afv_points_batch` " +
 		"WHERE `user_id` = ? AND `status` = 'ACTIVE' AND `deleted` = 0 AND `remaining` > 0 " +
-		"AND (`expire_time` IS NULL OR `expire_time` > NOW()) " +
-		"ORDER BY (`expire_time` IS NULL), `expire_time`, `id` FOR UPDATE"
+		"ORDER BY (`expire_time` IS NULL), `expire_time`, `create_time`, `id` FOR UPDATE"
 	if err := s.QueryRowsCtx(ctx, &rows, q, userID); err != nil {
 		return nil, err
 	}
@@ -209,6 +229,14 @@ func takeFromBatches(ctx context.Context, s sqlx.Session, userID, total int64) (
 }
 
 // settle 确认：钱真正离开。actual 是实际产出量，差额同一事务退回。
+//
+// 账务细节全部对齐 Java 的 doPartialConfirm（BillingReservationServiceImpl:190-246）：
+//   - 终态是 PARTIALLY_REFUNDED，不是 CONFIRMED
+//   - 两把幂等键是 partial-consume:{no} / partial-refund:{no}
+//   - **两条流水各记自己那一步之后的账面**：CONSUME 写 balanceBefore（余额那时还没变）
+//     和 frozenBefore-charged；REFUND 才写最终值。
+//     它代码里的注释说明了原因：按流水顺序重放对账时，balance_after 与 amount 累加要对得上。
+//   - charged 全额或 0 时退化成整单确认 / 整单退，不写 PARTIALLY_REFUNDED
 func settle(ctx context.Context, conn sqlx.SqlConn, r *Reservation, actual int) error {
 	return conn.TransactCtx(ctx, func(ctx context.Context, s sqlx.Session) error {
 		res, err := lockReservation(ctx, s, r.No)
@@ -216,14 +244,15 @@ func settle(ctx context.Context, conn sqlx.SqlConn, r *Reservation, actual int) 
 			return err
 		}
 		if res.Status != statusHeld {
-			// 已经结算过就当成功（幂等）；被回收了要报警。
-			if res.Status == statusConfirmed {
+			// 已经结算过就当成功（幂等）；被别人回收了要报警。
+			if res.Status == statusConfirmed || res.Status == statusPartiallyRefunded {
 				return nil
 			}
 			return fmt.Errorf("%w: %s 当前是 %s", ErrGone, r.No, res.Status)
 		}
 
-		consume, back := splitActual(r, res.PricePoints, actual)
+		total := res.PricePoints
+		consume, back := splitActual(r, total, actual)
 
 		var a Account
 		const lockAcc = "SELECT " + accountCols + " FROM `afv_points_account` WHERE `user_id` = ? AND `deleted` = 0 LIMIT 1 FOR UPDATE"
@@ -241,16 +270,21 @@ func settle(ctx context.Context, conn sqlx.SqlConn, r *Reservation, actual int) 
 		const updAcc = "UPDATE `afv_points_account` SET `frozen_balance` = `frozen_balance` - ?, " +
 			"`balance` = `balance` + ?, `total_consumed` = `total_consumed` + ?, " +
 			"`total_refunded` = `total_refunded` + ?, `version` = `version` + 1 WHERE `id` = ?"
-		if _, err := s.ExecCtx(ctx, updAcc, consume+back, back, consume, back, a.Id); err != nil {
+		if _, err := s.ExecCtx(ctx, updAcc, total, back, consume, back, a.Id); err != nil {
 			return err
 		}
 
-		// CONSUME：balance 不动（钱在冻结那步就出余额了），只清 frozen
+		status, consumeKey, refundKey := statusConfirmed, "confirm:"+r.No, "refunded:"+r.No
+		if back > 0 {
+			status, consumeKey, refundKey = statusPartiallyRefunded, "partial-consume:"+r.No, "partial-refund:"+r.No
+		}
+
+		// CONSUME：balance 不动（钱在冻结那步就出余额了），frozen 只减掉确认的部分
 		ledgerID, err := writeLog(ctx, s, logEntry{
 			UserID: res.UserId, ChangeType: changeConsume, Amount: -consume,
-			BalanceAfter: a.Balance, FrozenAfter: a.FrozenBalance - consume - back,
-			BizType: bizTypeCreation, BizID: res.BizId, IdempotencyKey: "confirm:" + r.No,
-			Description: "生成完成扣除",
+			BalanceAfter: a.Balance, FrozenAfter: a.FrozenBalance - consume,
+			BizType: bizTypeLocalLife, BizID: res.BizId, IdempotencyKey: consumeKey,
+			Description: "按实际交付量确认消费",
 		})
 		if err != nil {
 			return err
@@ -259,12 +293,12 @@ func settle(ctx context.Context, conn sqlx.SqlConn, r *Reservation, actual int) 
 			return err
 		}
 		if back > 0 {
-			// 部分成功的差额，单独记一条 REFUND，和 Java 的退款键一致
+			// 差额退回，记最终账面
 			id, err := writeLog(ctx, s, logEntry{
 				UserID: res.UserId, ChangeType: changeRefund, Amount: back,
-				BalanceAfter: a.Balance + back, FrozenAfter: a.FrozenBalance - consume - back,
-				BizType: bizTypeCreation, BizID: res.BizId, IdempotencyKey: "refunded:" + r.No,
-				Description: "部分成功，差额退回",
+				BalanceAfter: a.Balance + back, FrozenAfter: a.FrozenBalance - total,
+				BizType: bizTypeLocalLife, BizID: res.BizId, IdempotencyKey: refundKey,
+				Description: "未交付部分退回",
 			})
 			if err != nil {
 				return err
@@ -276,15 +310,21 @@ func settle(ctx context.Context, conn sqlx.SqlConn, r *Reservation, actual int) 
 
 		const updRes = "UPDATE `afv_billing_reservation` SET `status` = ?, `confirmed_time` = NOW()" +
 			", `refunded_time` = IF(? > 0, NOW(), `refunded_time`) WHERE `id` = ? AND `status` = ?"
-		ret, err := s.ExecCtx(ctx, updRes, statusConfirmed, back, res.Id, statusHeld)
+		ret, err := s.ExecCtx(ctx, updRes, status, back, res.Id, statusHeld)
 		if err != nil {
 			return err
 		}
 		if n, _ := ret.RowsAffected(); n == 0 {
 			return fmt.Errorf("%w: %s 并发下已被改状态", ErrGone, r.No)
 		}
-		const updLine = "UPDATE `afv_billing_reservation_line` SET `status` = ?, " +
-			"`confirmed_points` = `reserved_points`, `refunded_points` = 0 WHERE `reservation_no` = ?"
+		// 明细行只改状态：Java 的 confirmed_points / refunded_points 插入后从没被更新过
+		// （工作区版本如此；origin/test 才引入按行结算），我们跟着它，不自作主张回填。
+		//
+		// ⚠️ 行状态一律写 CONFIRMED，**不写 PARTIALLY_REFUNDED**——
+		// afv_billing_reservation_line.status 是 varchar(16)，那个值 19 个字符塞不进去。
+		// Java 的 updateReservationLinesStatus 往这里写 PARTIALLY_REFUNDED，
+		// 严格模式下会报 1406、非严格模式下会被悄悄截断。这条已经记进文档，要提醒他们。
+		const updLine = "UPDATE `afv_billing_reservation_line` SET `status` = ? WHERE `reservation_no` = ?"
 		_, err = s.ExecCtx(ctx, updLine, statusConfirmed, r.No)
 		return err
 	})
@@ -306,14 +346,29 @@ func splitActual(r *Reservation, reserved int64, actual int) (consume, back int6
 }
 
 // refund 退回：冻结原路回到余额。
+//
+// change 与幂等键照 Java 分两种：
+//   - 业务失败 → REFUND / refunded:{no} → 状态 REFUNDED
+//   - 预留过期或取消 → UNFREEZE / expired:{no}（或 cancelled:）→ 状态 EXPIRED
+//
+// 之前我把过期也写成 REFUND 了，对不上它的账目分类。
 func refund(ctx context.Context, conn sqlx.SqlConn, no, reason string) error {
+	return unfreeze(ctx, conn, no, changeRefund, "refunded:"+no, statusRefunded, or(reason, "生成失败退回"))
+}
+
+// release 预留过期回收。
+func release(ctx context.Context, conn sqlx.SqlConn, no string) error {
+	return unfreeze(ctx, conn, no, changeUnfreeze, "expired:"+no, "EXPIRED", "预留超时自动释放")
+}
+
+func unfreeze(ctx context.Context, conn sqlx.SqlConn, no, change, idem, target, reason string) error {
 	return conn.TransactCtx(ctx, func(ctx context.Context, s sqlx.Session) error {
 		res, err := lockReservation(ctx, s, no)
 		if err != nil {
 			return err
 		}
 		if res.Status != statusHeld {
-			if res.Status == statusRefunded {
+			if res.Status == target {
 				return nil // 幂等
 			}
 			return fmt.Errorf("%w: %s 当前是 %s", ErrGone, no, res.Status)
@@ -335,10 +390,10 @@ func refund(ctx context.Context, conn sqlx.SqlConn, no, reason string) error {
 			return err
 		}
 		ledgerID, err := writeLog(ctx, s, logEntry{
-			UserID: res.UserId, ChangeType: changeRefund, Amount: p,
+			UserID: res.UserId, ChangeType: change, Amount: p,
 			BalanceAfter: a.Balance + p, FrozenAfter: a.FrozenBalance - p,
-			BizType: bizTypeCreation, BizID: res.BizId, IdempotencyKey: "refunded:" + no,
-			Description: trim(or(reason, "生成失败退回"), 512),
+			BizType: bizTypeLocalLife, BizID: res.BizId, IdempotencyKey: idem,
+			Description: trim(reason, 512),
 		})
 		if err != nil {
 			return err
@@ -348,16 +403,15 @@ func refund(ctx context.Context, conn sqlx.SqlConn, no, reason string) error {
 		}
 		const updRes = "UPDATE `afv_billing_reservation` SET `status` = ?, `refunded_time` = NOW() " +
 			"WHERE `id` = ? AND `status` = ?"
-		ret, err := s.ExecCtx(ctx, updRes, statusRefunded, res.Id, statusHeld)
+		ret, err := s.ExecCtx(ctx, updRes, target, res.Id, statusHeld)
 		if err != nil {
 			return err
 		}
 		if n, _ := ret.RowsAffected(); n == 0 {
 			return fmt.Errorf("%w: %s 并发下已被改状态", ErrGone, no)
 		}
-		const updLine = "UPDATE `afv_billing_reservation_line` SET `status` = ?, " +
-			"`refunded_points` = `reserved_points` WHERE `reservation_no` = ?"
-		_, err = s.ExecCtx(ctx, updLine, statusRefunded, no)
+		const updLine = "UPDATE `afv_billing_reservation_line` SET `status` = ? WHERE `reservation_no` = ?"
+		_, err = s.ExecCtx(ctx, updLine, target, no)
 		return err
 	})
 }
@@ -371,7 +425,7 @@ func releaseFrozen(ctx context.Context, s sqlx.Session, userID, consume, back in
 	var rows []batchRow
 	const q = "SELECT `id`,`remaining`,`frozen` FROM `afv_points_batch` " +
 		"WHERE `user_id` = ? AND `deleted` = 0 AND `frozen` > 0 " +
-		"ORDER BY (`expire_time` IS NULL), `expire_time`, `id` FOR UPDATE"
+		"ORDER BY (`expire_time` IS NULL), `expire_time`, `create_time`, `id` FOR UPDATE"
 	if err := s.QueryRowsCtx(ctx, &rows, q, userID); err != nil {
 		return nil, err
 	}
@@ -448,7 +502,7 @@ func loadHeld(ctx context.Context, conn sqlx.SqlConn, bizID string) (*Reservatio
 	var r reservationRow
 	const q = "SELECT " + resCols + " FROM `afv_billing_reservation` " +
 		"WHERE `biz_type` = ? AND `biz_id` = ? AND `status` = ? AND `deleted` = 0 LIMIT 1"
-	switch err := conn.QueryRowCtx(ctx, &r, q, bizTypeCreation, bizID, statusHeld); {
+	switch err := conn.QueryRowCtx(ctx, &r, q, bizTypeLocalLife, bizID, statusHeld); {
 	case errors.Is(err, sqlx.ErrNotFound):
 		return nil, nil // 没有在途的单，调用方跳过结算
 	case err != nil:
@@ -461,7 +515,7 @@ func loadHeldOrAny(ctx context.Context, conn sqlx.SqlConn, bizID string) (*Reser
 	var r reservationRow
 	const q = "SELECT " + resCols + " FROM `afv_billing_reservation` " +
 		"WHERE `biz_type` = ? AND `biz_id` = ? AND `deleted` = 0 ORDER BY `id` LIMIT 1"
-	if err := conn.QueryRowCtx(ctx, &r, q, bizTypeCreation, bizID); err != nil {
+	if err := conn.QueryRowCtx(ctx, &r, q, bizTypeLocalLife, bizID); err != nil {
 		return nil, err
 	}
 	return toReservation(&r), nil
@@ -494,15 +548,22 @@ type logEntry struct {
 	BizType, BizID            string
 	IdempotencyKey            string
 	Description               string
+	// Operator 操作人。照 Java：冻结记 USER/{userId}，确认与退回记 SYSTEM/null。
+	OperatorType string
+	OperatorID   sql.NullString
 }
 
 func writeLog(ctx context.Context, s sqlx.Session, e logEntry) (int64, error) {
+	op := e.OperatorType
+	if op == "" {
+		op = "SYSTEM"
+	}
 	const q = "INSERT INTO `afv_points_log` " +
 		"(`ledger_no`,`user_id`,`change_type`,`amount`,`balance_after`,`frozen_after`," +
 		"`biz_type`,`biz_id`,`idempotency_key`,`operator_type`,`operator_id`,`description`) " +
-		"VALUES (?,?,?,?,?,?,?,?,?,'SYSTEM','aigc-life',?)"
+		"VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
 	r, err := s.ExecCtx(ctx, q, newNo("PL"), e.UserID, e.ChangeType, e.Amount,
-		e.BalanceAfter, e.FrozenAfter, e.BizType, e.BizID, e.IdempotencyKey, e.Description)
+		e.BalanceAfter, e.FrozenAfter, e.BizType, e.BizID, e.IdempotencyKey, op, e.OperatorID, e.Description)
 	if err != nil {
 		return 0, err
 	}

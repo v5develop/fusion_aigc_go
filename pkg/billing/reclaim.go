@@ -13,17 +13,19 @@ import (
 //
 // ⚠️ **只收我们自己写的**（idempotency_key 以 golife: 开头）。
 //
-// Java 那边也有一个回收器在扫同一张表——证据是 afv_billing_reservation 上有
-// idx_status_expire(status, expire_time, id)，admin 侧还有「只读查询过期占用扣费单」
-// 和「手动触发过期占用扣费单恢复」两个接口。两边都去收同一批单子会互相抢：
-// 它先把我们还在跑的任务的钱解冻了，等任务成功我们去确认，单子已经不是 HELD。
+// Java 那边也有一个回收器在扫同一张表：BillingHeldReservationRecoveryServiceImpl，
+// @Scheduled(fixedDelay=60000) 每 60 秒一轮，Redis 锁互斥，每批 100 条，
+// 条件是 status='HELD' AND expire_time <= now()-30min。
 //
-// 我们这边做了两件事挡它：
-//  1. 我们写的单 expire_time 按任务类型给足（视频 90 分钟 > 任务超时 40 分钟）；
-//  2. 这个回收器只认 golife: 前缀，不碰它的单。
+// **它不按幂等键或来源过滤**，扫出来之后按 biz_type 分派：IMAGE_GEN / VIDEO_GEN /
+// CREATION 会去查它自己的任务表并自动确认或退款，认不出来的只打一条 WARN 就跳过。
+// 所以我们靠 biz_type=LOCALLIFE 避开它（见 ledger.go 的说明），不是靠前缀。
 //
-// 还剩一件**必须他们配合**的：让他们的回收器也按前缀跳过我们的单。
-// 没谈妥之前，视频类不要开 Mode=on。
+// 我们自己这边仍然按前缀只收自己的，避免反过来动它的单。
+// 过期走 UNFREEZE + expired:{no}，和它的 release(EXPIRED) 一致。
+//
+// 还剩一件**建议他们配合**的：像 EXTERNAL_EXECUTION 那样加一个显式跳过分支，
+// 否则我们每有一张在途单，它每分钟就打一条 WARN，还占掉它 LIMIT 100 的名额。
 type Reclaimer struct {
 	conn   sqlx.SqlConn
 	every  time.Duration
@@ -78,7 +80,7 @@ func (r *Reclaimer) Tick(ctx context.Context) int {
 	}
 	n := 0
 	for _, row := range rows {
-		if err := refund(ctx, r.conn, row.No, "预留超时自动退回"); err != nil {
+		if err := release(ctx, r.conn, row.No); err != nil {
 			logx.WithContext(ctx).Errorf("billing reclaim %s: %v", row.No, err)
 			continue
 		}

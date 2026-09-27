@@ -78,8 +78,9 @@ func setup(t *testing.T, conn sqlx.SqlConn, balance int64) func() {
 	exec("INSERT INTO afv_billing_charge_component (component_code, variant_code, step_code, component_type, mode, cost_type, action_type, model_id, base_points, price_multiplier, sort, deleted) VALUES (?,?,?,?,85,?,?,?,0,1.0,0,0)",
 		testOfferPart+"_c", testOfferPart+"_v", "image_gen", "OUTPUT", "BILLED", "IMAGE_GEN", modelID)
 	// lite 档的步骤：固定 4 点/秒，和云端的 10 点/秒区分开
-	exec("INSERT INTO afv_billing_charge_component (component_code, variant_code, step_code, component_type, mode, cost_type, action_type, model_id, base_points, price_multiplier, sort, deleted) VALUES (?,?,?,?,45,?,?,NULL,4,1.0,0,0)",
-		testOfferAll+"_lite_c", testOfferAll+"_lite", "video_gen", "DURATION", "BILLED", "VIDEO_GEN")
+	// 这个步骤故意不给 action_type：照 Java 的语义，查不到单价行才退回 base_points
+	exec("INSERT INTO afv_billing_charge_component (component_code, variant_code, step_code, component_type, mode, cost_type, action_type, model_id, base_points, price_multiplier, sort, deleted) VALUES (?,?,?,?,45,?,NULL,NULL,4,1.0,0,0)",
+		testOfferAll+"_lite_c", testOfferAll+"_lite", "video_gen", "DURATION", "BILLED")
 
 	// 账户 + 两个批次（一个先过期，验证 FIFO 顺序）
 	exec("INSERT INTO afv_points_account (user_id, balance, frozen_balance, total_received, version, deleted) VALUES (?,?,0,?,0,0)",
@@ -306,6 +307,27 @@ func TestRealPartialConfirm(t *testing.T) {
 	want(t, "配平 FREEZE = CONSUME + REFUND", sum.Freeze, sum.Consume+sum.Refund)
 	want(t, "实际消耗", sum.Consume, 9)
 	want(t, "退回", sum.Refund, 3)
+
+	// 终态与幂等键都要和 Java 一致
+	var st string
+	if err := conn.QueryRowCtx(ctx, &st,
+		"SELECT status FROM afv_billing_reservation WHERE reservation_no = ?", r.No); err != nil {
+		t.Fatalf("查状态: %v", err)
+	}
+	if st != statusPartiallyRefunded {
+		t.Fatalf("部分结算终态应为 PARTIALLY_REFUNDED，实际 %s", st)
+	}
+	var keys []string
+	if err := conn.QueryRowsCtx(ctx, &keys,
+		"SELECT idempotency_key FROM afv_points_log WHERE user_id = ? AND change_type IN (?,?) ORDER BY id",
+		testUser, changeConsume, changeRefund); err != nil {
+		t.Fatalf("查幂等键: %v", err)
+	}
+	for i, wantKey := range []string{"partial-consume:" + r.No, "partial-refund:" + r.No} {
+		if i >= len(keys) || keys[i] != wantKey {
+			t.Fatalf("幂等键第 %d 个应为 %s，实际 %v", i+1, wantKey, keys)
+		}
+	}
 }
 
 // ALL_OR_NOTHING 的档位即使只成功一部分也全额扣——这是 Java 的配置语义，不能自己放宽。
@@ -374,7 +396,7 @@ func TestRealPickByTier(t *testing.T) {
 	if err != nil {
 		t.Fatalf("lite 档算价: %v", err)
 	}
-	want(t, "lite 15×4", lite.PricePoints, 60)
+	want(t, "lite 走 base_points 15×4", lite.PricePoints, 60)
 	if lite.VariantCode == cloud.VariantCode {
 		t.Fatalf("两档选到了同一个档位: %s", lite.VariantCode)
 	}
@@ -458,8 +480,14 @@ func TestRealReclaimOnlyOurs(t *testing.T) {
 		"SELECT status FROM afv_billing_reservation WHERE reservation_no = ?", r.No); err != nil {
 		t.Fatalf("查状态: %v", err)
 	}
-	if st != statusRefunded {
-		t.Fatalf("我们的单应该被退回，实际 %s", st)
+	if st != "EXPIRED" {
+		t.Fatalf("我们的单过期应该置 EXPIRED（照 Java 的 release），实际 %s", st)
+	}
+	var ct string
+	if err := conn.QueryRowCtx(ctx, &ct,
+		"SELECT change_type FROM afv_points_log WHERE biz_id = ? AND change_type = ?",
+		fmt.Sprintf("%d_%s", testUser, "req-expire-1"), changeUnfreeze); err != nil {
+		t.Fatalf("过期应记 UNFREEZE 流水: %v", err)
 	}
 	if err := conn.QueryRowCtx(ctx, &st,
 		"SELECT status FROM afv_billing_reservation WHERE reservation_no = ?", other.No); err != nil {

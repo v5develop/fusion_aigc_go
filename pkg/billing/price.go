@@ -9,6 +9,8 @@ import (
 	"math"
 	"strings"
 
+	"github.com/zeromicro/go-zero/core/logx"
+
 	"github.com/zeromicro/go-zero/core/stores/sqlx"
 )
 
@@ -25,9 +27,15 @@ import (
 //
 // 单条步骤的价钱：
 //
-//	unit = base_points > 0 ? base_points : model_pricing.price_points
-//	qty  = 看 price_unit：PER_SECOND → 秒数；PER_IMAGE → 张数
-//	小计 = ceil(unit * qty * price_multiplier)
+//	unit  = model_pricing.price_points；查不到（或步骤没有 action_type）才退回 base_points
+//	units = 张数/份数（Java 的 quantity / billedUnits），默认 1
+//	小计  = round(unit * units * (PER_SECOND ? 秒数 : 1) * price_multiplier)
+//
+// ⚠️ 三处细节照 Java 抄的（BillingPricingServiceImpl）：
+//   - **按秒也要乘份数**：它是 `单价 × quantity`，再 `× 秒数`，不是只乘秒数；
+//   - 倍率用**四舍五入**（applyMultiplier → round(HALF_UP)），不是向上取整；
+//   - base_points 是**兜底**不是优先：只有 action_type 为空、
+//     或按 (model_id, action_type) 查不到单价行时才用它，两者都没有就直接报错。
 //
 // 只算 cost_type='BILLED' 的；COST_ONLY 是只记成本不收用户钱的步骤（如复刻的视频解析）。
 //
@@ -244,23 +252,40 @@ func priceLine(ctx context.Context, conn sqlx.SqlConn, cp componentRow, c Charge
 		CostOnly:   cp.CostType.String == "COST_ONLY",
 	}
 	if line.CostOnly {
-		// 只记成本不收钱，算不算量都无所谓
-		line.Quantity = quantityOf(unitOf(cp.ComponentType.String), c, v)
+		// 只记成本不收用户钱（比如复刻里的视频解析），不用算量
+		line.Unit = unitOf(cp.ComponentType.String)
 		return line, nil
 	}
-	if cp.BasePoints.Int64 > 0 {
-		// 固定点数的步骤没有单价行，只能退回去看 component_type
-		line.UnitPoints = cp.BasePoints.Int64
-		line.Unit = unitOf(cp.ComponentType.String)
-	} else {
-		p, err := findPricing(ctx, conn, line.ModelID, cp.ActionType.String, res)
-		if err != nil {
+	// 先查单价；查不到或步骤没有 action_type，才退回 base_points
+	var p *pricingRow
+	if strings.TrimSpace(cp.ActionType.String) != "" && line.ModelID != 0 {
+		var err error
+		if p, err = findPricing(ctx, conn, line.ModelID, cp.ActionType.String, res); err != nil && !errors.Is(err, ErrNoOffer) {
 			return nil, err
 		}
-		line.UnitPoints, line.PricingID, line.Unit = p.PricePoints, p.Id, p.PriceUnit
 	}
-	line.Quantity = quantityOf(line.Unit, c, v)
-	line.Points = int64(math.Ceil(float64(line.UnitPoints) * float64(line.Quantity) * line.Multiplier))
+	switch {
+	case p != nil:
+		line.UnitPoints, line.PricingID, line.Unit = p.PricePoints, p.Id, p.PriceUnit
+	case cp.BasePoints.Int64 > 0:
+		// 固定点数的步骤没有单价行，计量单位只能退回去看 component_type
+		line.UnitPoints, line.Unit = cp.BasePoints.Int64, unitOf(cp.ComponentType.String)
+	default:
+		return nil, fmt.Errorf("%w: 步骤 %s 既没有单价行也没有 base_points", ErrNoOffer, cp.ComponentCode)
+	}
+
+	units := c.Count // Java 的 quantity / billedUnits
+	if units <= 0 {
+		units = 1
+	}
+	raw := float64(line.UnitPoints) * float64(units)
+	line.Quantity = units
+	if line.Unit == unitPerSecond {
+		secs := billableSeconds(c, v)
+		raw *= float64(secs)
+		line.Quantity = secs
+	}
+	line.Points = int64(math.Round(raw * line.Multiplier)) // 照 Java：四舍五入，不是向上取整
 	return line, nil
 }
 
@@ -288,34 +313,32 @@ func findPricing(ctx context.Context, conn sqlx.SqlConn, modelID int64, action, 
 	return &p, nil
 }
 
-// quantityOf 按计价单位取计量。
-func quantityOf(priceUnit string, c Charge, v *variantRow) int {
-	switch priceUnit {
-	case "PER_SECOND":
-		if c.Seconds > 0 {
-			return c.Seconds
-		}
-		if v.DefaultSeconds.Valid && v.DefaultSeconds.Int64 > 0 {
-			return int(v.DefaultSeconds.Int64)
-		}
-		return 1
-	case "PER_IMAGE":
-		if c.Count > 0 {
-			return c.Count
-		}
-		return 1
-	default: // 认不出的单位当一次性
-		return 1
+// billableSeconds 按秒计费时用几秒：请求里的 → 档位默认 → 兜底 15。
+// 兜底值照 Java 的 DEFAULT_VIDEO_DURATION_SECONDS（它这时也会打 WARN）。
+func billableSeconds(c Charge, v *variantRow) int {
+	if c.Seconds > 0 {
+		return c.Seconds
 	}
+	if v.DefaultSeconds.Valid && v.DefaultSeconds.Int64 > 0 {
+		return int(v.DefaultSeconds.Int64)
+	}
+	logx.Errorf("billing: %s 既没传时长、档位也没有默认时长，按 %d 秒算", v.VariantCode, defaultVideoSeconds)
+	return defaultVideoSeconds
 }
+
+const (
+	unitPerSecond       = "PER_SECOND"
+	unitPerImage        = "PER_IMAGE"
+	defaultVideoSeconds = 15
+)
 
 // unitOf 没有单价行时的兜底：拿 component_type 猜计量单位。
 func unitOf(componentType string) string {
 	switch componentType {
 	case "DURATION":
-		return "PER_SECOND"
+		return unitPerSecond
 	case "OUTPUT":
-		return "PER_IMAGE"
+		return unitPerImage
 	default: // BASE：固定一次
 		return "PER_CALL"
 	}
