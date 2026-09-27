@@ -46,6 +46,12 @@ type Conf struct {
 		DefaultMinutes int `json:",default=15"` // 图片、文案这类快的
 		VideoMinutes   int `json:",default=90"` // 视频：要大于我们自己的任务超时
 	}
+	// CheckEntitlement 冻结前查不查创作权益（afv_app_user_feature）。
+	//
+	// Java 的这道闸在**报价**那步，我们直接写表就绕过了。要不要补上是业务决定：
+	// 库里 locallife_image_gen 一个联盟发放都没有，贸然打开会把所有付费用户挡在门外。
+	// 所以默认不开，等产品定了再翻。
+	CheckEntitlement bool `json:",default=false"`
 }
 
 // 档次。视频模块都是这两档，档位表里对应 <offer_code>_cloud / <offer_code>_lite。
@@ -69,6 +75,10 @@ var (
 	ErrNoOffer = errors.New("billing: 入口码没有配置计费方案")
 	// ErrGone 预留单不在了（被回收或已结算），确认时遇到要当异常报警。
 	ErrGone = errors.New("billing: 预留单已不是 HELD")
+	// ErrPricingRule 有已发布的计价规则会作用到我们身上，而我们没实现规则引擎。见 rules.go。
+	ErrPricingRule = errors.New("billing: 命中未实现的计价规则")
+	// ErrNoFeature 用户没有这个创作能力（仅在 CheckEntitlement 打开时出现）。
+	ErrNoFeature = errors.New("billing: 用户未开通该创作能力")
 )
 
 // Charge 一次计费请求。
@@ -167,6 +177,15 @@ func (s *Service) Freeze(ctx context.Context, c Charge) (*Reservation, error) {
 	q, err := price(ctx, s.conn, c)
 	if err != nil {
 		return nil, err
+	}
+	if s.conf.CheckEntitlement {
+		ok, err := hasEntitlement(ctx, s.conn, c.UserID, q.FeatureCode)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			return nil, fmt.Errorf("%w: %s", ErrNoFeature, q.FeatureCode)
+		}
 	}
 	if s.conf.Mode == ModeShadow {
 		// 影子模式：只记一笔，不动账。用来和 Java 的 /billing/quote/preview 对数。

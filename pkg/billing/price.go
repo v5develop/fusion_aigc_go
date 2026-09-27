@@ -157,6 +157,11 @@ func price(ctx context.Context, conn sqlx.SqlConn, c Charge) (*Quote, error) {
 		return nil, fmt.Errorf("%w: %s 的档位 %s 没有计费步骤", ErrNoOffer, c.EntryCode, v.VariantCode)
 	}
 
+	// Java 算完基础价还会过一层规则引擎，我们没实现——有规则命中就拒绝算，别算出个不一样的价
+	if err := checkNoPricingRules(ctx, conn, o.OfferCode, v.VariantCode); err != nil {
+		return nil, err
+	}
+
 	res := c.Resolution
 	if res == "" {
 		res = v.DefaultRes.String

@@ -26,6 +26,7 @@ const (
 	testOfferAll  = "__billing_test_all"
 	testOfferPart = "__billing_test_part"
 	testModelCode = "__billing_test_model"
+	testRuleCode  = "__billing_test_rule"
 )
 
 func openDB(t *testing.T) sqlx.SqlConn {
@@ -112,6 +113,8 @@ func cleanup(conn sqlx.SqlConn) {
 		"DELETE FROM afv_billing_offer WHERE offer_code LIKE '__billing_test%'",
 		"DELETE p FROM afv_model_pricing p JOIN afv_ai_model m ON m.id = p.model_id WHERE m.code = '" + testModelCode + "'",
 		"DELETE FROM afv_ai_model WHERE code = '" + testModelCode + "'",
+		"DELETE FROM afv_billing_charge_rule WHERE rule_code = '" + testRuleCode + "'",
+		"DELETE FROM afv_app_user_feature WHERE user_id = " + fmt.Sprint(testUser),
 	} {
 		_, _ = conn.ExecCtx(ctx, q)
 	}
@@ -405,6 +408,81 @@ func TestRealPickByTier(t *testing.T) {
 	if _, err := s.Quote(ctx, Charge{UserID: testUser, EntryCode: testEntryAll,
 		Tier: "ultra", Kind: KindVideo, Seconds: 15}); !errors.Is(err, ErrNoOffer) {
 		t.Fatalf("不存在的档次应该报 ErrNoOffer，实际 %v", err)
+	}
+}
+
+// 有已发布的计价规则命中我们时必须拒绝算价，不能算出一个和 Java 不一样的价。
+// Java 的规则引擎有 6 个因子（含要读充值记录打分的 userLevel），我们没复刻。
+func TestRealRefusesWhenPricingRuleExists(t *testing.T) {
+	conn := openDB(t)
+	defer setup(t, conn, 1000)()
+	ctx := context.Background()
+	s := New(Conf{Mode: ModeOn}, conn)
+
+	// 先确认没有规则时算得出来
+	if _, err := s.Quote(ctx, Charge{UserID: testUser, EntryCode: testEntryAll,
+		Tier: TierCloud, Kind: KindVideo, Seconds: 15}); err != nil {
+		t.Fatalf("没有规则时应该算得出来: %v", err)
+	}
+
+	// 发布一条通配规则（库里那两条现成的就是 scope_code='*'，只是停在 DRAFT）
+	if _, err := conn.ExecCtx(ctx,
+		"INSERT INTO afv_billing_charge_rule (rule_code, scope_type, scope_code, factor_key, operator,"+
+			" match_value, effect_type, effect_value, priority, status, version, deleted)"+
+			" VALUES (?,'OFFER','*','userLevel','EQ','\"LV3\"','DISCOUNT',90.0,10,'PUBLISHED',1,0)",
+		testRuleCode); err != nil {
+		t.Fatalf("造规则: %v", err)
+	}
+	defer func() {
+		_, _ = conn.ExecCtx(ctx, "DELETE FROM afv_billing_charge_rule WHERE rule_code = ?", testRuleCode)
+	}()
+
+	_, err := s.Quote(ctx, Charge{UserID: testUser, EntryCode: testEntryAll,
+		Tier: TierCloud, Kind: KindVideo, Seconds: 15})
+	if !errors.Is(err, ErrPricingRule) {
+		t.Fatalf("有已发布规则时应该拒绝算价，实际 %v", err)
+	}
+	// 冻结也要一起挡住，不能只拦报价
+	if _, err := s.Freeze(ctx, Charge{UserID: testUser, RequestID: "req-rule-1",
+		EntryCode: testEntryAll, Tier: TierCloud, Kind: KindVideo, Seconds: 15}); !errors.Is(err, ErrPricingRule) {
+		t.Fatalf("冻结也应该被挡住，实际 %v", err)
+	}
+	b, f := acct(t, conn)
+	want(t, "被挡住后余额不变", b, 1000)
+	want(t, "被挡住后无冻结", f, 0)
+}
+
+// 权益闸门：Java 的这道闸在报价那步，我们直接写表绕过了，所以做成可开关的。
+func TestRealEntitlementGate(t *testing.T) {
+	conn := openDB(t)
+	defer setup(t, conn, 1000)()
+	ctx := context.Background()
+	c := Charge{UserID: testUser, RequestID: "req-feat-1", EntryCode: testEntryAll,
+		Tier: TierCloud, Kind: KindVideo, Seconds: 15}
+
+	// 默认不开：没有权益也能冻结
+	if _, err := New(Conf{Mode: ModeOn}, conn).Freeze(ctx, c); err != nil {
+		t.Fatalf("默认不查权益: %v", err)
+	}
+
+	// 打开后：没有权益要被拒
+	c.RequestID = "req-feat-2"
+	strict := New(Conf{Mode: ModeOn, CheckEntitlement: true}, conn)
+	if _, err := strict.Freeze(ctx, c); !errors.Is(err, ErrNoFeature) {
+		t.Fatalf("打开后没有权益应该被拒，实际 %v", err)
+	}
+
+	// 发一个权益（测试 offer 的 feature_code 是 ecom_video_gen），再试
+	if _, err := conn.ExecCtx(ctx,
+		"INSERT INTO afv_app_user_feature (user_id, feature_code, status, source, deleted)"+
+			" VALUES (?,?,'ACTIVE','MANUAL',0)", testUser, "ecom_video_gen"); err != nil {
+		t.Fatalf("发权益: %v", err)
+	}
+	defer func() {
+		_, _ = conn.ExecCtx(ctx, "DELETE FROM afv_app_user_feature WHERE user_id = ?", testUser)
+	}()
+	if _, err := strict.Freeze(ctx, c); err != nil {
+		t.Fatalf("有权益后应该能冻结: %v", err)
 	}
 }
 
