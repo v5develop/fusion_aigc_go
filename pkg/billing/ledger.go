@@ -103,6 +103,23 @@ func isDup(err error) bool {
 }
 
 // freeze 冻结：余额 → 冻结。
+//
+// **加锁顺序必须和 Java 的 doReserve 一字不差**：幂等键行 → 账户 → 批次。
+// 两个服务对同一批行以不同顺序加锁就会死锁，这不是概率问题，是迟早的事。
+// 所以这里宁可写得啰嗦一点（先锁再查再锁，最后才插预留单），也要跟它对齐：
+//
+//  1. SELECT ... FOR UPDATE by idempotency_key —— 命中即返回原单（幂等）
+//  2. SELECT ... FOR UPDATE 账户
+//  3. 再查一次幂等键（锁账户期间可能有人插了）
+//  4. 余额校验
+//  5. 改账户：balance -= P, frozen += P
+//  6. 写 FREEZE 流水
+//  7. 扣批次（FOR UPDATE）
+//  8. **最后**插预留单
+//  9. 插明细行
+//
+// 和 Java 唯一的差别：它第 8 步撞唯一键时手写一条 UNFREEZE 补偿，
+// 我们整个事务回滚，更简单也更不容易漏。
 func freeze(ctx context.Context, conn sqlx.SqlConn, c Charge, q *Quote, hold time.Duration) (*Reservation, error) {
 	bizID := c.bizID()
 	idem := freezePrefix + bizID
@@ -113,48 +130,44 @@ func freeze(ctx context.Context, conn sqlx.SqlConn, c Charge, q *Quote, hold tim
 		return nil, nil
 	}
 
+	var out *Reservation
 	err := conn.TransactCtx(ctx, func(ctx context.Context, s sqlx.Session) error {
-		// 1) 先插预留单。撞唯一键 = 这次是重试，走幂等分支。
-		const insRes = "INSERT INTO `afv_billing_reservation` " +
-			"(`reservation_no`,`user_id`,`feature_code`,`model_id`,`pricing_id`,`price_points`,`price_snapshot`," +
-			"`biz_type`,`biz_id`,`status`,`idempotency_key`,`expire_time`) " +
-			"VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
-		_, err := s.ExecCtx(ctx, insRes, no, c.UserID, q.FeatureCode, nullInt(q.ModelID), nullInt(q.PricingID),
-			p, q.Snapshot(), bizTypeLocalLife, bizID, statusHeld, idem, time.Now().Add(hold))
+		// 1) 先锁幂等键行。已经有了说明是重试，原样返回。
+		if old, err := lockByIdem(ctx, s, idem); err != nil {
+			return err
+		} else if old != nil {
+			out = toReservation(old)
+			return nil
+		}
+
+		// 2) 锁账户
+		a, err := lockAccount(ctx, s, c.UserID)
 		if err != nil {
 			return err
 		}
 
-		// 2) 锁账户。SELECT ... FOR UPDATE 而不是乐观锁重试：
-		//    这里本来就在事务里、后面还要改批次，拿行锁比读-改-重试简单且不会活锁。
-		//    （Java 用的是 version 乐观锁，我们把 version 照常 +1，保证它那边的并发检查照常生效。）
-		var a Account
-		const lockAcc = "SELECT " + accountCols + " FROM `afv_points_account` " +
-			"WHERE `user_id` = ? AND `deleted` = 0 LIMIT 1 FOR UPDATE"
-		switch err := s.QueryRowCtx(ctx, &a, lockAcc, c.UserID); {
-		case errors.Is(err, sqlx.ErrNotFound):
-			return &NotEnough{Need: p, Available: 0}
-		case err != nil:
+		// 3) 锁账户这段时间里别人可能插进来了，再查一次
+		if old, err := lockByIdem(ctx, s, idem); err != nil {
 			return err
+		} else if old != nil {
+			out = toReservation(old)
+			return nil
 		}
+
+		// 4) 余额
 		if a.Balance < p {
 			return &NotEnough{Need: p, Available: a.Balance}
 		}
 
-		// 3) 批次 FIFO：先过期的先用。没有过期时间的排最后。
-		lines, err := takeFromBatches(ctx, s, c.UserID, p)
-		if err != nil {
-			return err
-		}
-
-		// 4) 账户：余额 → 冻结
+		// 5) 账户：余额 → 冻结
 		const updAcc = "UPDATE `afv_points_account` SET `balance` = `balance` - ?, " +
 			"`frozen_balance` = `frozen_balance` + ?, `version` = `version` + 1 WHERE `id` = ?"
 		if _, err := s.ExecCtx(ctx, updAcc, p, p, a.Id); err != nil {
 			return err
 		}
 
-		// 5) 账本：FREEZE 记 -P，balance_after 是扣后的，frozen_after 是加后的
+		// 6) 账本：FREEZE 记 -P，balance_after 是扣后的，frozen_after 是加后的。
+		//    operator 照 Java 记 USER/{userId}（确认和退回才是 SYSTEM）。
 		ledgerID, err := writeLog(ctx, s, logEntry{
 			UserID: c.UserID, ChangeType: changeFreeze, Amount: -p,
 			BalanceAfter: a.Balance - p, FrozenAfter: a.FrozenBalance + p,
@@ -165,23 +178,83 @@ func freeze(ctx context.Context, conn sqlx.SqlConn, c Charge, q *Quote, hold tim
 		if err != nil {
 			return err
 		}
+
+		// 7) 批次 FIFO
+		lines, err := takeFromBatches(ctx, s, c.UserID, p)
+		if err != nil {
+			return err
+		}
 		if err := writeLogLines(ctx, s, ledgerID, c.UserID, lines); err != nil {
 			return err
 		}
-		// 6) 预留单明细：一个计费步骤一行
-		return writeResLines(ctx, s, no, q)
+
+		// 8) 最后插预留单。撞唯一键 = 并发下别人先插了，整笔回滚重来。
+		const insRes = "INSERT INTO `afv_billing_reservation` " +
+			"(`reservation_no`,`user_id`,`feature_code`,`model_id`,`pricing_id`,`price_points`,`price_snapshot`," +
+			"`biz_type`,`biz_id`,`status`,`idempotency_key`,`expire_time`) " +
+			"VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
+		if _, err := s.ExecCtx(ctx, insRes, no, c.UserID, q.FeatureCode, nullInt(q.ModelID), nullInt(q.PricingID),
+			p, q.Snapshot(), bizTypeLocalLife, bizID, statusHeld, idem, time.Now().Add(hold)); err != nil {
+			return err
+		}
+
+		// 9) 明细行：一个计费步骤一行
+		if err := writeResLines(ctx, s, no, q); err != nil {
+			return err
+		}
+		out = &Reservation{No: no, PricePoints: p, Quote: q}
+		return nil
 	})
 
 	switch {
 	case err == nil:
-		return &Reservation{No: no, PricePoints: p, Quote: q}, nil
+		return out, nil
 	case isDup(err):
-		// 重试进来的：把原单读回来原样返回，不重复扣
-		logx.WithContext(ctx).Infof("billing: %s 已冻结过，返回原单", bizID)
+		// 并发下同一个 bizId 有人先写成功了，读回来原样返回，不重复扣
+		logx.WithContext(ctx).Infof("billing: %s 并发冻结，返回已有的单", bizID)
 		return loadHeldOrAny(ctx, conn, bizID)
 	default:
 		return nil, err
 	}
+}
+
+// lockByIdem 按幂等键锁住预留单。没有就返回 nil——
+// 对不存在的行 FOR UPDATE 会在唯一索引上留间隙锁，这正是并发下互斥的关键，
+// 也是必须和 Java 用同一个顺序加锁的原因。
+func lockByIdem(ctx context.Context, s sqlx.Session, idem string) (*reservationRow, error) {
+	var r reservationRow
+	const q = "SELECT " + resCols + " FROM `afv_billing_reservation` " +
+		"WHERE `idempotency_key` = ? AND `deleted` = 0 LIMIT 1 FOR UPDATE"
+	switch err := s.QueryRowCtx(ctx, &r, q, idem); {
+	case errors.Is(err, sqlx.ErrNotFound):
+		return nil, nil
+	case err != nil:
+		return nil, err
+	}
+	return &r, nil
+}
+
+// lockAccount 锁账户。没有账户就先建再锁——
+// 新用户开箱是没有账户的，这不是异常。并发建账靠 uk_user_id 挡。
+func lockAccount(ctx context.Context, s sqlx.Session, userID int64) (*Account, error) {
+	const q = "SELECT " + accountCols + " FROM `afv_points_account` " +
+		"WHERE `user_id` = ? AND `deleted` = 0 LIMIT 1 FOR UPDATE"
+	var a Account
+	err := s.QueryRowCtx(ctx, &a, q, userID)
+	if err == nil {
+		return &a, nil
+	}
+	if !errors.Is(err, sqlx.ErrNotFound) {
+		return nil, err
+	}
+	const ins = "INSERT INTO `afv_points_account` (`user_id`) VALUES (?)"
+	if _, err := s.ExecCtx(ctx, ins, userID); err != nil && !isDup(err) {
+		return nil, err
+	}
+	if err := s.QueryRowCtx(ctx, &a, q, userID); err != nil {
+		return nil, err
+	}
+	return &a, nil
 }
 
 // takeFromBatches 从批次里冻结 total 点，返回每个批次动了多少。
