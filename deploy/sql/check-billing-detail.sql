@@ -20,6 +20,6 @@ LEFT JOIN afv_billing_charge_component c
   ON c.variant_code = v.variant_code AND c.deleted = 0 AND c.cost_type = 'BILLED'
 WHERE o.deleted = 0 AND o.entry_code IN
   ('imageTextNote','poster','longImage','exploreShop','shortDrama',
-   'voiceover','digitalHuman','videoRemake','actionTransfer')
+   'voiceover','digitalHuman','videoRemake','actionTransfer','aiCopywriting')
 GROUP BY o.entry_code, v.variant_code
 ORDER BY o.entry_code, v.variant_code;

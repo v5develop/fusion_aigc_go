@@ -331,9 +331,15 @@ func billableSeconds(c Charge, v *variantRow) int {
 	return defaultVideoSeconds
 }
 
+// 计价单位，取值和 Java 的 BillingPricingServiceImpl 一致。
+// PER_IMAGE / PER_REQUEST / PER_VIDEO 都是「单价 × 份数」，只有 PER_SECOND 额外乘时长。
 const (
-	unitPerSecond       = "PER_SECOND"
-	unitPerImage        = "PER_IMAGE"
+	unitPerSecond  = "PER_SECOND"
+	unitPerImage   = "PER_IMAGE"
+	unitPerRequest = "PER_REQUEST" // 按次：AI文案用这个
+	unitPerVideo   = "PER_VIDEO"
+	unitPerCall    = "PER_CALL" // 只在没有单价行、拿 component_type 猜的时候用
+
 	defaultVideoSeconds = 15
 )
 
@@ -345,7 +351,7 @@ func unitOf(componentType string) string {
 	case "OUTPUT":
 		return unitPerImage
 	default: // BASE：固定一次
-		return "PER_CALL"
+		return unitPerCall
 	}
 }
 

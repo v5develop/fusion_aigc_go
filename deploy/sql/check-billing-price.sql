@@ -34,6 +34,7 @@ JOIN (
   SELECT 'video_remake_cloud',           180,      2160          UNION ALL
   SELECT 'video_remake_lite',            180,      1080          UNION ALL
   SELECT 'action_transfer_cloud',        15,       120           UNION ALL
-  SELECT 'action_transfer_standard',     15,       90
+  SELECT 'action_transfer_standard',     15,       90            UNION ALL
+  SELECT 'action_transfer_lite',          15,       90
 ) t ON t.vc = v.variant_code
 ORDER BY o.entry_code, v.variant_code;

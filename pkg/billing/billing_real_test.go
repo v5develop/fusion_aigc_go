@@ -27,6 +27,8 @@ const (
 	testOfferPart = "__billing_test_part"
 	testModelCode = "__billing_test_model"
 	testRuleCode  = "__billing_test_rule"
+	testEntryText = "__billingTestText" // 按次
+	testOfferText = "__billing_test_text"
 )
 
 func openDB(t *testing.T) sqlx.SqlConn {
@@ -61,6 +63,9 @@ func setup(t *testing.T, conn sqlx.SqlConn, balance int64) func() {
 		modelID, "VIDEO_GEN", 10, "PER_SECOND")
 	exec("INSERT INTO afv_model_pricing (model_id, action_type, price_points, price_unit, status, deleted) VALUES (?,?,?,?,1,0)",
 		modelID, "IMAGE_GEN", 3, "PER_IMAGE")
+	// 按次（AI文案的口径）：1 积分/次
+	exec("INSERT INTO afv_model_pricing (model_id, action_type, price_points, price_unit, status, deleted) VALUES (?,?,?,?,1,0)",
+		modelID, "TEXT_GEN", 1, "PER_REQUEST")
 
 	// 两个 offer：一个 ALL_OR_NOTHING 按秒，一个 PARTIAL 按张
 	exec("INSERT INTO afv_billing_offer (offer_code, name, entry_code, feature_code, status, deleted) VALUES (?,?,?,?,'ENABLED',0)",
@@ -71,6 +76,14 @@ func setup(t *testing.T, conn sqlx.SqlConn, balance int64) func() {
 		testOfferAll+"_cloud", testOfferAll, "云端档", modelID, "ALL_OR_NOTHING")
 	exec("INSERT INTO afv_billing_offer_variant (variant_code, offer_code, name, default_model_id, settlement_type, status, deleted) VALUES (?,?,?,?,?,'ENABLED',0)",
 		testOfferPart+"_v", testOfferPart, "部分档", modelID, "PARTIAL")
+	// 按次的 offer：AI文案就是这个形状
+	exec("INSERT INTO afv_billing_offer (offer_code, name, entry_code, feature_code, status, deleted) VALUES (?,?,?,?,'ENABLED',0)",
+		testOfferText, "计费测试-按次", testEntryText, "ai_chat")
+	exec("INSERT INTO afv_billing_offer_variant (variant_code, offer_code, name, default_model_id, settlement_type, status, deleted) VALUES (?,?,?,?,?,'ENABLED',0)",
+		testOfferText+"_v", testOfferText, "按次档", modelID, "ALL_OR_NOTHING")
+	exec("INSERT INTO afv_billing_charge_component (component_code, variant_code, step_code, component_type, mode, cost_type, action_type, model_id, base_points, price_multiplier, sort, deleted) VALUES (?,?,?,?,77,?,?,?,0,1.0,0,0)",
+		testOfferText+"_c", testOfferText+"_v", "text_gen", "BASE", "BILLED", "TEXT_GEN", modelID)
+
 	// 再给"整单"那个 offer 建一个 lite 档：档位码是 <offer_code>_lite，验证按档次选
 	exec("INSERT INTO afv_billing_offer_variant (variant_code, offer_code, name, default_model_id, quality_tier, settlement_type, status, deleted) VALUES (?,?,?,?,?,?,'ENABLED',0)",
 		testOfferAll+"_lite", testOfferAll, "lite档", modelID, "lite", "ALL_OR_NOTHING")
@@ -484,6 +497,40 @@ func TestRealEntitlementGate(t *testing.T) {
 	if _, err := strict.Freeze(ctx, c); err != nil {
 		t.Fatalf("有权益后应该能冻结: %v", err)
 	}
+}
+
+// 按次计费（AI文案）：单位是 PER_REQUEST，一次就是 1 份，不看时长。
+func TestRealPerRequest(t *testing.T) {
+	conn := openDB(t)
+	defer setup(t, conn, 1000)()
+	ctx := context.Background()
+	s := New(Conf{Mode: ModeOn}, conn)
+
+	q, err := s.Quote(ctx, Charge{UserID: testUser, EntryCode: testEntryText})
+	if err != nil {
+		t.Fatalf("按次算价: %v", err)
+	}
+	want(t, "一次 1 积分", q.PricePoints, 1)
+	if q.PriceUnit != "PER_REQUEST" {
+		t.Fatalf("计价单位应为 PER_REQUEST，实际 %s", q.PriceUnit)
+	}
+	// 传了秒数也不该影响按次的价
+	q2, err := s.Quote(ctx, Charge{UserID: testUser, EntryCode: testEntryText, Seconds: 30})
+	if err != nil {
+		t.Fatalf("按次算价（带秒数）: %v", err)
+	}
+	want(t, "按次不看时长", q2.PricePoints, 1)
+
+	r, err := s.Freeze(ctx, Charge{UserID: testUser, RequestID: "req-text-1", EntryCode: testEntryText})
+	if err != nil {
+		t.Fatalf("冻结: %v", err)
+	}
+	if err := s.Confirm(ctx, r, 0); err != nil {
+		t.Fatalf("确认: %v", err)
+	}
+	b, _ := acct(t, conn)
+	want(t, "扣 1 积分", b, 999)
+	checkConsistent(t, conn)
 }
 
 func TestRealNotEnough(t *testing.T) {
