@@ -18,11 +18,22 @@ import (
 	"github.com/zeromicro/go-zero/core/threading"
 )
 
-// 执行面 85 支持的时长范围（秒）
+// 执行面支持的时长范围（秒）。
+// 85（云端 Seedance 2.5）支持 4–30；lite 被路由到 45（本地 LTX），只到 25 秒，
+// 超了执行面会自己截断——与其交出一段被砍掉半句话的视频，不如提交前就拦住。
 const (
-	minVideoSeconds = 4
-	maxVideoSeconds = 30
+	minVideoSeconds     = 4
+	maxVideoSeconds     = 30
+	maxVideoSecondsLite = 25
 )
+
+// maxSecondsOf 该模型能出多长。
+func maxSecondsOf(mdl string) int {
+	if mdl == modelLite {
+		return maxVideoSecondsLite
+	}
+	return maxVideoSeconds
+}
 
 func storageKey(svcCtx *svc.ServiceContext, kind string, userID int64, ext string) string {
 	return storage.ObjectKey(svcCtx.Config.Storage.Prefix, kind, userID, ext)
@@ -134,12 +145,28 @@ func startDigitalHuman(svcCtx *svc.ServiceContext, h *model.AfvDigitalHuman, voi
 			failHuman(ctx, svcCtx, h.Id, model.DhStatusDubbing, "配音生成失败，请重试")
 			return
 		}
+		limit := maxSecondsOf(h.Model)
 		secs := int(math.Ceil(d.Duration.Seconds()))
-		if secs > maxVideoSeconds {
-			failHuman(ctx, svcCtx, h.Id, model.DhStatusDubbing, fmt.Sprintf("配音时长超过 %d 秒，请精简配音内容", maxVideoSeconds))
+		if secs > limit {
+			failHuman(ctx, svcCtx, h.Id, model.DhStatusDubbing, fmt.Sprintf("配音时长超过 %d 秒，请精简配音内容", limit))
 			return
 		}
 		secs = max(secs, minVideoSeconds)
+
+		// lite 走本地 LTX：执行面自己从 OSS 下载，给的必须是 key，不是公网 URL。
+		imagePath, audioPath := h.ImageUrl, d.URL
+		if h.Model == modelLite {
+			if imagePath, err = svcCtx.Storage.ObjectKey(ctx, h.ImageUrl); err != nil {
+				log.Errorf("lite 取形象图 key: %v", err)
+				failHuman(ctx, svcCtx, h.Id, model.DhStatusDubbing, "形象图不在可用的存储里，请重新上传或改用云端模型")
+				return
+			}
+			if audioPath, err = svcCtx.Storage.ObjectKey(ctx, d.URL); err != nil {
+				log.Errorf("lite 取配音 key: %v", err)
+				failHuman(ctx, svcCtx, h.Id, model.DhStatusDubbing, "配音存储异常，请重试")
+				return
+			}
+		}
 
 		taskID := newTaskID(svcCtx)
 		ok, err := svcCtx.Human.StartRendering(ctx, h.Id, d.URL, int64(secs), taskID)
@@ -149,7 +176,8 @@ func startDigitalHuman(svcCtx *svc.ServiceContext, h *model.AfvDigitalHuman, voi
 		}
 		cfg := svcCtx.Config.Video
 		_, err = svcCtx.Aigc.Submit(ctx, taskID, aigc.DigitalHuman{
-			ImagePath: h.ImageUrl, AudioPath: d.URL, AspectRatio: cfg.AspectRatio, Resolution: cfg.Resolution, Duration: secs,
+			ImagePath: imagePath, AudioPath: audioPath, AspectRatio: cfg.AspectRatio, Resolution: cfg.Resolution,
+			Duration: secs, Model: wireModel(h.Model),
 		})
 		if err != nil {
 			log.Errorf("submit video: %v", err)

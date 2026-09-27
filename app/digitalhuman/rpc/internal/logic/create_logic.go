@@ -60,6 +60,11 @@ func (l *CreateLogic) Create(in *pb.CreateReq) (*pb.DigitalHumanInfo, error) {
 		return nil, err
 	}
 
+	mdl, err := normalizeModel(in.Model)
+	if err != nil {
+		return nil, err
+	}
+
 	v, err := l.svcCtx.Voice.FindAlive(l.ctx, in.VoiceId)
 	if errors.Is(err, model.ErrNotFound) || (err == nil && v.Status != 1) {
 		return nil, xerr.Param("音色不可用，请重新选择")
@@ -81,7 +86,7 @@ func (l *CreateLogic) Create(in *pb.CreateReq) (*pb.DigitalHumanInfo, error) {
 	row := &model.AfvDigitalHuman{
 		CopywritingId: nullInt(in.CopywritingId),
 		UserId: in.UserId, Name: name, PortraitSource: in.PortraitSource, PortraitRefId: nullInt(src.RefID),
-		ImageUrl: src.ImageURL, VoiceId: v.Id, Script: script, TtsTaskId: nullStr(newTaskID(l.svcCtx)),
+		ImageUrl: src.ImageURL, VoiceId: v.Id, Script: script, Model: mdl, TtsTaskId: nullStr(newTaskID(l.svcCtx)),
 		RequestId: nullStr(in.RequestId), Status: model.DhStatusDubbing,
 	}
 	// TODO 计费：等计费方案确认后，在这里预扣 100 点，失败时退回（同 AI文案）

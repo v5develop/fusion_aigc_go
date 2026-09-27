@@ -20,6 +20,9 @@ CREATE TABLE IF NOT EXISTS `afv_digital_human` (
   `audio_url`       varchar(1024) DEFAULT NULL COMMENT 'TTS 产物（已转存）',
   `video_url`       varchar(1024) DEFAULT NULL COMMENT '口播视频',
   `duration`        int           DEFAULT NULL COMMENT '视频秒数',
+  -- 后加的列，同时写在 V1.0.119（老库走那条 ALTER）。这里也留一份：新装的库要建对，
+  -- 而且 make model 是拿这个文件生成 app/digitalhuman/model 的，漏了会被覆盖掉。
+  `model`           varchar(64)   NOT NULL DEFAULT 'seedance2.5' COMMENT '出片模型：seedance2.5(云端 85) / lite(本地 45)',
   `tts_task_id`     varchar(64)   DEFAULT NULL COMMENT 'TTS 任务ID（百炼直连，自生成）',
   `video_task_id`   varchar(64)   DEFAULT NULL COMMENT '数字人视频任务ID（AIGC 执行面 task_type=85）',
   `request_id`      varchar(64)   DEFAULT NULL COMMENT '客户端幂等键（X-Request-Id）',

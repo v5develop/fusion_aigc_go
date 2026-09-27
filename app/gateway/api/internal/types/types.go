@@ -63,6 +63,7 @@ type CreateDigitalHumanReq struct {
 	ImageIndex     int32  `json:"image_index,optional"`
 	VoiceId        int64  `json:"voice_id"`
 	Script         string `json:"script"`
+	Model          string `json:"model,optional"` // 出片模型，不传用 options 里的第一项（seedance2.5）
 }
 
 type CreateImageGenReq struct {
@@ -154,6 +155,7 @@ type DhOptionsResp struct {
 	Ages              []Option `json:"ages"`
 	SkinTones         []Option `json:"skin_tones"`
 	Roles             []Option `json:"roles"`
+	Models            []Option `json:"models"` // 出片模型：seedance2.5 / lite，第一项为默认
 	MaxDescriptionLen int32    `json:"max_description_len"`
 	MaxScriptLen      int32    `json:"max_script_len"`
 }
@@ -169,6 +171,7 @@ type DigitalHuman struct {
 	VideoUrl       string `json:"video_url"`
 	CoverUrl       string `json:"cover_url"`
 	Duration       int32  `json:"duration"`
+	Model          string `json:"model"`
 	Status         int32  `json:"status"`
 	FailReason     string `json:"fail_reason"`
 	CreateTime     int64  `json:"create_time"`

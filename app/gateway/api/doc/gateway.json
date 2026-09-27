@@ -1748,6 +1748,7 @@
                           "video_url",
                           "cover_url",
                           "duration",
+                          "model",
                           "status",
                           "fail_reason",
                           "create_time"
@@ -1769,6 +1770,9 @@
                             "type": "integer"
                           },
                           "image_url": {
+                            "type": "string"
+                          },
+                          "model": {
                             "type": "string"
                           },
                           "name": {
@@ -1858,6 +1862,10 @@
                 "image_url": {
                   "type": "string"
                 },
+                "model": {
+                  "description": "出片模型，不传用 options 里的第一项（seedance2.5）",
+                  "type": "string"
+                },
                 "name": {
                   "type": "string"
                 },
@@ -1915,6 +1923,9 @@
                       "type": "integer"
                     },
                     "image_url": {
+                      "type": "string"
+                    },
+                    "model": {
                       "type": "string"
                     },
                     "name": {
@@ -2032,6 +2043,29 @@
                     },
                     "max_script_len": {
                       "type": "integer"
+                    },
+                    "models": {
+                      "description": "出片模型：seedance2.5 / lite，第一项为默认",
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "code",
+                          "label",
+                          "value"
+                        ],
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "value": {
+                            "type": "string"
+                          }
+                        }
+                      }
                     },
                     "roles": {
                       "type": "array",
@@ -2523,6 +2557,9 @@
                       "type": "integer"
                     },
                     "image_url": {
+                      "type": "string"
+                    },
+                    "model": {
                       "type": "string"
                     },
                     "name": {
@@ -6263,7 +6300,7 @@
       "in": "header"
     }
   },
-  "x-date": "2026-09-25 15:04:39",
+  "x-date": "2026-09-27 09:20:26",
   "x-description": "This is a goctl generated swagger file.",
   "x-github": "https://github.com/zeromicro/go-zero",
   "x-go-zero-doc": "https://go-zero.dev/",

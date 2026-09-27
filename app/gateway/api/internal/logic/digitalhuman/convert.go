@@ -28,6 +28,6 @@ func toDigitalHuman(h *digitalhuman.DigitalHumanInfo) *types.DigitalHuman {
 	return &types.DigitalHuman{
 		Id: h.Id, Name: h.Name, PortraitSource: h.PortraitSource, ImageUrl: h.ImageUrl, VoiceId: h.VoiceId,
 		VoiceName: h.VoiceName, Script: h.Script, VideoUrl: h.VideoUrl, CoverUrl: h.CoverUrl, Duration: h.Duration,
-		Status: h.Status, FailReason: h.FailReason, CreateTime: h.CreateTime,
+		Model: h.Model, Status: h.Status, FailReason: h.FailReason, CreateTime: h.CreateTime,
 	}
 }

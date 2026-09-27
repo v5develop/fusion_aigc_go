@@ -35,6 +35,7 @@ func (l *OptionsLogic) Options() (resp *types.DhOptionsResp, err error) {
 	}
 	return &types.DhOptionsResp{
 		Genders: toOptions(out.Genders), Ages: toOptions(out.Ages), SkinTones: toOptions(out.SkinTones), Roles: toOptions(out.Roles),
+		Models:            toOptions(out.Models),
 		MaxDescriptionLen: out.MaxDescriptionLen, MaxScriptLen: out.MaxScriptLen,
 	}, nil
 }

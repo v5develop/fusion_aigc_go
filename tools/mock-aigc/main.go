@@ -71,6 +71,23 @@ func generate(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+		// 真实行为：model=lite 路由到 45（本地 LTX），此时两个路径必须是 OSS key 而不是 URL，
+		// 时长上限 25 秒。照着卡这几条，本地就能测出传错的情况。
+		if m, _ := body["model"].(string); m == "lite" {
+			t.Type = 45
+			for _, k := range []string{"image_path", "audio_path"} {
+				if v, _ := body[k].(string); strings.HasPrefix(v, "http://") || strings.HasPrefix(v, "https://") {
+					writeJSON(w, 400, map[string]any{"code": 400,
+						"message": "task_type=45 的 " + k + " 要 OSS key，不能是 URL", "success": false})
+					return
+				}
+			}
+			if d, _ := body["duration"].(float64); d > 25 {
+				writeJSON(w, 400, map[string]any{"code": 400,
+					"message": "task_type=45 时长上限 25 秒", "success": false})
+				return
+			}
+		}
 	case 74:
 		if s, _ := body["user_text"].(string); s == "" {
 			writeJSON(w, 400, map[string]any{"code": 400, "message": "task_type=74 缺少 user_text", "success": false})

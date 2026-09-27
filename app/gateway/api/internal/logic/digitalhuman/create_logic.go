@@ -34,7 +34,7 @@ func (l *CreateLogic) Create(req *types.CreateDigitalHumanReq) (resp *types.Digi
 		CopywritingId: req.CopywritingId,
 		UserId:        ctxdata.UserID(l.ctx), Name: req.Name, PortraitSource: req.PortraitSource, ImageUrl: req.ImageUrl,
 		PublicId: req.PublicId, PortraitId: req.PortraitId, ImageIndex: req.ImageIndex, VoiceId: req.VoiceId,
-		Script: req.Script, RequestId: req.RequestId,
+		Script: req.Script, Model: req.Model, RequestId: req.RequestId,
 	})
 	if err != nil {
 		return nil, err

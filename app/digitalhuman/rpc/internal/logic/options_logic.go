@@ -37,6 +37,7 @@ func (l *OptionsLogic) Options(in *pb.Empty) (*pb.OptionsResp, error) {
 			{OptionType: "GENDER", Code: genderFemale, Label: "女", Status: 1},
 			{OptionType: "GENDER", Code: genderMale, Label: "男", Status: 1},
 		},
+		Models:            videoModels,
 		MaxDescriptionLen: int32(lim.MaxDescriptionLen),
 		MaxScriptLen:      int32(lim.MaxScriptLen),
 	}

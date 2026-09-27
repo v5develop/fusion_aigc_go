@@ -34,6 +34,10 @@ type Store interface {
 	Owns(url string) bool
 	// Transfer 把执行面产物（私有桶、会过期）转存到公有桶，返回新地址。local 模式原样返回。
 	Transfer(ctx context.Context, srcURL, kind string, userID int64) (string, error)
+	// ObjectKey 从公网地址反解出桶内的对象 key。
+	// 执行面跑本地模型（lite）时不下载 URL，要求直接给 OSS key，所以要这一步。
+	// 地址不在本服务用的桶里时返回错误——那种情况得先 Transfer 过来。
+	ObjectKey(ctx context.Context, rawURL string) (string, error)
 	// Uploader 客户端直传：签发临时凭证、校验传上来的对象。
 	Uploader
 }

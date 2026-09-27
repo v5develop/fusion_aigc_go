@@ -70,6 +70,7 @@ check "年龄 3 个" "$(jq '.ages|length' <<<"$O")" 3
 check "肤色 4 个带色值" "$(jq '[.skin_tones[]|select(.value|startswith("#"))]|length' <<<"$O")" 4
 check "职业 10 个" "$(jq '.roles|length' <<<"$O")" 10
 check "配音上限 50 字" "$(jq '.max_script_len' <<<"$O")" 50
+check "出片模型 2 档，默认云端" "$(jq -r '"\(.models|length)/\(.models[0].code)"' <<<"$O")" 2/seedance2.5
 C=$(api GET /voices/categories)
 check "音色分类 7 个（方言/外语停用）" "$(jq '.list|length' <<<"$C")" 7
 check "启用音色 22 个（6 个账号不可用的已停用）" "$(api GET /voices | jq '.list|length')" 22
@@ -150,6 +151,8 @@ B="{\"portrait_source\":\"PUBLIC\",\"public_id\":$P1ID,\"voice_id\":99999999,\"s
 check "无效音色被拒" "$(api_code POST /digital-humans "$B")" 1001
 B="{\"portrait_source\":\"AI\",\"portrait_id\":$PTID,\"image_index\":4,\"voice_id\":$VOICE_ID,\"script\":\"你好\"}"
 check "AI 形象下标越界被拒" "$(api_code POST /digital-humans "$B")" 1001
+B="{\"portrait_source\":\"PUBLIC\",\"public_id\":$P1ID,\"voice_id\":$VOICE_ID,\"script\":\"你好\",\"model\":\"sd3\"}"
+check "不认识的模型被拒（不默默按云端扣钱）" "$(api_code POST /digital-humans "$B")" 1001
 
 RID=$(uuidgen)
 D1=$(api POST /digital-humans "{\"portrait_source\":\"PUBLIC\",\"public_id\":$P1ID,\"voice_id\":$VOICE_ID,\"script\":\"欢迎来到西湖边的临湖咖啡，今天的手冲和甜品都很推荐。\"}" "$RID")
@@ -162,6 +165,9 @@ D2ID=$(jq -r .id <<<"$D2")
 D3=$(api POST /digital-humans "{\"portrait_source\":\"UPLOAD\",\"image_url\":\"$IMG\",\"voice_id\":$VOICE_ID,\"script\":\"上传照片生成的数字人。\"}" "$(uuidgen)")
 D3ID=$(jq -r .id <<<"$D3")
 D4ID=$(api POST /digital-humans "{\"portrait_source\":\"PUBLIC\",\"public_id\":$P2ID,\"voice_id\":$VOICE_ID,\"script\":\"这条视频会失败。\"}" "$(uuidgen)" | jq -r .id)
+# lite 路由到 45：mock 执行面会卡「两个路径必须是 OSS key、不能是 URL」，所以这条同时验了
+# 我们有没有把公网地址换成 key——换错了这里会失败，而不是等到服务器上才发现。
+D5ID=$(api POST /digital-humans "{\"portrait_source\":\"UPLOAD\",\"image_url\":\"$IMG\",\"voice_id\":$VOICE_ID,\"script\":\"这条走本地模型。\",\"model\":\"lite\"}" "$(uuidgen)" | jq -r .id)
 
 D1=$(poll "/digital-humans/$D1ID" "0 1")
 check "公共数字人 → 生成完成" "$(jq -r .status <<<"$D1")" 2
@@ -172,6 +178,10 @@ D2=$(poll "/digital-humans/$D2ID" "0 1")
 check "AI 形象 → 生成完成" "$(jq -r .status <<<"$D2")" 2
 check "用了选中的第 3 张" "$(jq -r .image_url <<<"$D2")" "$(jq -r '.image_urls[2]' <<<"$PT")"
 check "自定义名称" "$(jq -r .name <<<"$D2")" 店长小慧
+D5=$(poll "/digital-humans/$D5ID" "0 1")
+check "lite → 生成完成" "$(jq -r .status <<<"$D5")" 2
+check "lite 记在库里" "$(jq -r .model <<<"$D5")" lite
+check "云端那条仍是默认档" "$(jq -r .model <<<"$D1")" seedance2.5
 D3=$(poll "/digital-humans/$D3ID" "0 1")
 check "上传照片 → 生成完成" "$(jq -r .status <<<"$D3")" 2
 D4=$(poll "/digital-humans/$D4ID" "0 1")
@@ -185,13 +195,13 @@ V_TASK=$(sql "SELECT video_task_id FROM afv_digital_human WHERE id=$D1ID")
 check "口播视频：一行资产，封面是形象图" "$(sql "SELECT CONCAT_WS('|', type, entry_code, name, cover_url) FROM afv_asset WHERE source_task_id='$V_TASK' AND deleted=0")" "video|digitalHuman|文慧|https://mock-oss.example.com/public/wenhui-$RUN.png"
 
 echo "== 我的数字人"
-check "列表 4 条" "$(api GET /digital-humans | jq .total)" 4
-check "按状态筛选：完成 3 条" "$(api GET '/digital-humans?status=2' | jq .total)" 3
+check "列表 5 条" "$(api GET /digital-humans | jq .total)" 5
+check "按状态筛选：完成 4 条" "$(api GET '/digital-humans?status=2' | jq .total)" 4
 D3_TASK=$(sql "SELECT video_task_id FROM afv_digital_human WHERE id=$D3ID")
 api DELETE "/digital-humans/$D3ID" > /dev/null
 check "删除数字人时素材库同步删除" "$(sql "SELECT count(*) FROM afv_asset WHERE source_task_id='$D3_TASK' AND deleted=0")" 0
 check "删除后不可见" "$(api_code GET "/digital-humans/$D3ID")" 1003
-check "删除后 3 条" "$(api GET /digital-humans | jq .total)" 3
+check "删除后 4 条" "$(api GET /digital-humans | jq .total)" 4
 check "别人看不到" "$(curl -sS -H 'X-User-Id: 999999' "$GW/digital-humans/$D1ID" | jq -r .code)" 1003
 
 if [[ ${SKIP_MODEL:-0} != 1 ]]; then
@@ -215,7 +225,7 @@ PV=$(admin POST "/digital-humans/voices/$VOICE_ID/preview")
 check "生成试听（真实合成）" "$([[ $(jq -r .preview_url <<<"$PV") == *.wav ]] && echo yes)" yes
 check "试听文件可访问" "$(curl -s -o /dev/null -w '%{http_code}' "$(jq -r .preview_url <<<"$PV")")" 200
 check "App 能看到试听地址" "$(api GET /voices | jq -r ".list[]|select(.id==$VOICE_ID)|.preview_url")" "$(jq -r .preview_url <<<"$PV")"
-check "后台按用户查数字人" "$(admin GET "/digital-humans?user_id=$USER_ID" | jq .total)" 3
+check "后台按用户查数字人" "$(admin GET "/digital-humans?user_id=$USER_ID" | jq .total)" 4
 sql "UPDATE afv_public_template_asset_placement SET status=0 WHERE asset_id=$P1ID"
 check "现有后台下架后 App 不可见" "$(api GET /digital-humans/public | jq "[.list[]|select(.id==$P1ID)]|length")" 0
 

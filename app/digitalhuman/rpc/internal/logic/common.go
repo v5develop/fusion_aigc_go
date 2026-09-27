@@ -21,6 +21,43 @@ import (
 
 const agreementAigc = "aigc"
 
+// 出片模型（执行面 85 的 model 参数）。缺省留在云端 85；lite 被路由到本地 GPU 的 45。
+// 第一项是默认值——前端不写死，从 options 接口取。
+const (
+	modelCloud = "seedance2.5"
+	modelLite  = "lite"
+)
+
+var videoModels = []*pb.OptionInfo{
+	{OptionType: "MODEL", Code: modelCloud, Label: "seedance 2.5", Status: 1},
+	{OptionType: "MODEL", Code: modelLite, Label: "XQ Video 1.0 Lite", Status: 1},
+}
+
+// wireModel 发给执行面的 model 值。
+// 云端这档**发空**：85 的默认就是 doubao-seedance-2-5-260628，文档没说认不认 "seedance2.5"
+// 这种简写，不如不发，让它用自己的默认。lite 是文档明写的路由值，照发。
+func wireModel(code string) string {
+	if code == modelLite {
+		return modelLite
+	}
+	return ""
+}
+
+// normalizeModel 空值按默认档；不认识的值直接报错，不要默默改成云端——
+// 那样用户以为选了便宜的 lite，结果按云端扣钱。
+func normalizeModel(code string) (string, error) {
+	code = strings.TrimSpace(code)
+	if code == "" {
+		return videoModels[0].Code, nil
+	}
+	for _, m := range videoModels {
+		if m.Code == code {
+			return code, nil
+		}
+	}
+	return "", xerr.Param("出片模型不可用，请重新选择")
+}
+
 func nullStr(s string) sql.NullString {
 	return sql.NullString{String: s, Valid: s != ""}
 }
@@ -88,7 +125,7 @@ func toInfo(h *model.AfvDigitalHuman, voiceNames map[int64]string) *pb.DigitalHu
 	return &pb.DigitalHumanInfo{
 		Id: h.Id, UserId: h.UserId, Name: h.Name, PortraitSource: h.PortraitSource, ImageUrl: h.ImageUrl,
 		VoiceId: h.VoiceId, VoiceName: voiceNames[h.VoiceId], Script: h.Script, VideoUrl: h.VideoUrl.String,
-		CoverUrl: h.ImageUrl, Duration: int32(h.Duration.Int64), Status: int32(h.Status),
+		CoverUrl: h.ImageUrl, Duration: int32(h.Duration.Int64), Model: h.Model, Status: int32(h.Status),
 		FailReason: h.FailReason.String, CreateTime: h.CreateTime.UnixMilli(),
 	}
 }

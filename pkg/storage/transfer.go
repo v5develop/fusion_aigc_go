@@ -153,6 +153,38 @@ func (s *ossStore) privateConfig(ctx context.Context) (*ossConfig, error) {
 	return c, nil
 }
 
+// ObjectKey 反解对象 key。自定义域名和 <bucket>.<endpoint> 两种写法都认。
+func (s *ossStore) ObjectKey(ctx context.Context, rawURL string) (string, error) {
+	c, err := s.config(ctx)
+	if err != nil {
+		return "", err
+	}
+	u, err := url.Parse(stripQuery(rawURL))
+	if err != nil || u.Host == "" {
+		return "", fmt.Errorf("storage: 地址不合法: %q", rawURL)
+	}
+	base, err := url.Parse(c.publicBase())
+	if err != nil {
+		return "", err
+	}
+	if u.Host != c.host() && u.Host != base.Host {
+		return "", fmt.Errorf("storage: %q 不在本服务的桶里", u.Host)
+	}
+	key := objectKeyOf(u.String())
+	if key == "" {
+		return "", fmt.Errorf("storage: 地址里没有对象路径: %q", rawURL)
+	}
+	return key, nil
+}
+
+// ObjectKey local 模式没有桶，按 baseURL 截出相对路径，够 mock 用。
+func (s *localStore) ObjectKey(_ context.Context, rawURL string) (string, error) {
+	if !s.Owns(rawURL) {
+		return "", fmt.Errorf("storage: %q 不是本地存储签发的", rawURL)
+	}
+	return strings.TrimPrefix(stripQuery(rawURL), s.baseURL+"/"), nil
+}
+
 // matches 判断地址是否属于这个桶。
 func (c *ossConfig) matches(rawURL string) bool {
 	u, err := url.Parse(rawURL)

@@ -100,6 +100,7 @@ message OptionsResp {
   repeated OptionInfo roles = 4;
   int32 max_description_len = 5;
   int32 max_script_len = 6;
+  repeated OptionInfo models = 7;   // 出片模型：seedance2.5 / lite，第一项为默认
 }
 
 message CreatePortraitReq {
@@ -163,6 +164,7 @@ message CreateReq {
   string script = 9;
   string request_id = 10;       // 幂等
   int64 copywriting_id = 11;  // 选填：内容来自哪条 AI文案（文案的生成历史用）
+  string model = 12;          // 选填：seedance2.5(默认，云端 85) / lite(本地 45)
 }
 
 message ResolvePortraitReq {
@@ -195,6 +197,7 @@ message DigitalHumanInfo {
   int32 status = 12;            // 0-配音中 1-视频生成中 2-已完成 3-失败
   string fail_reason = 13;
   int64 create_time = 14;
+  string model = 15;            // 出片模型：seedance2.5 / lite
 }
 
 message ListReq {

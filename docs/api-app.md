@@ -171,12 +171,12 @@ OSS 已允许跨域 PUT。文件大小与类型由前端控制；后端只校验
 |---|---|
 | `GET /agreements/aigc` · `POST /agreements/aigc/accept` | 使用约定：是否已同意当前版本 / 同意 |
 | `GET /digital-humans/public` | 公共数字人（名字、职业标签、形象图、头像） |
-| `GET /digital-humans/options` | AI定制表单：性别、年龄、肤色（带色值）、职业角色、字数上限 |
+| `GET /digital-humans/options` | AI定制表单：性别、年龄、肤色（带色值）、职业角色、字数上限、**出片模型 `models`** |
 | `POST /digital-humans/portraits` | AI定制形象，出 4 张 9:16 图，轮询下面这个 |
 | `GET /digital-humans/portraits/:id` | 形象生成状态与结果图 |
 | `POST /digital-humans/portraits/:id/regenerate` | 重新生成（新记录） |
 | `GET /voices/categories` · `GET /voices?category=` | 系统音色分类与列表（名称、风格、试听地址） |
-| `POST /digital-humans` | 开始生成：形象 + 音色 + 配音内容（≤50 字） |
+| `POST /digital-humans` | 开始生成：形象 + 音色 + 配音内容（≤50 字）+ 选填 `model` |
 | `GET /digital-humans?status=&page=` · `GET /digital-humans/:id` | 我的数字人列表 / 详情 |
 | `DELETE /digital-humans/:id` | 删除 |
 
@@ -184,6 +184,20 @@ OSS 已允许跨域 PUT。文件大小与类型由前端控制；后端只校验
 - 上传照片：`portrait_source=UPLOAD` + `image_url`（直传后的地址）
 - 公共数字人：`portrait_source=PUBLIC` + `public_id`
 - AI定制：`portrait_source=AI` + `portrait_id` + `image_index`（选中第几张，0 起）
+
+**出片模型**（2026-09-27 新增）：`options` 的 `models` 下发两档，**第一项是默认，前端不要写死**。
+
+| `code` | 名称 | 走哪 | 说明 |
+|---|---|---|---|
+| `seedance2.5` | seedance 2.5 | 云端 85 | 默认档，配音最长 30 秒 |
+| `lite` | XQ Video 1.0 Lite | 本地 45 | 便宜一档，**配音最长 25 秒** |
+
+提交时 `model` 选填，不传按默认档。传了不认识的值直接报 1001 —— 不会默默降级成云端，
+免得用户以为选了便宜的却按贵的扣。列表和详情都回 `model`，历史记录能看出当时用的哪档。
+
+⚠️ **lite 的 25 秒是硬限制**：45 超过会自己把音频截断，出来的视频半句话没了。
+所以我们在配音合成完就量时长，超了直接失败并提示精简，不提交。
+50 字的配音一般 15 秒上下，正常写不会碰到。
 
 数字人状态：`0` 配音中、`1` 视频生成中、`2` 已完成、`3` 失败。生成前必须已同意使用约定，否则返回 1007。
 **本版没有「我的音色」**（录音复刻），只有系统音色。

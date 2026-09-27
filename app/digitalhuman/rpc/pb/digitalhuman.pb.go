@@ -573,6 +573,7 @@ type OptionsResp struct {
 	Roles             []*OptionInfo          `protobuf:"bytes,4,rep,name=roles,proto3" json:"roles,omitempty"`
 	MaxDescriptionLen int32                  `protobuf:"varint,5,opt,name=max_description_len,json=maxDescriptionLen,proto3" json:"max_description_len,omitempty"`
 	MaxScriptLen      int32                  `protobuf:"varint,6,opt,name=max_script_len,json=maxScriptLen,proto3" json:"max_script_len,omitempty"`
+	Models            []*OptionInfo          `protobuf:"bytes,7,rep,name=models,proto3" json:"models,omitempty"` // 出片模型：seedance2.5 / lite，第一项为默认
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
@@ -647,6 +648,13 @@ func (x *OptionsResp) GetMaxScriptLen() int32 {
 		return x.MaxScriptLen
 	}
 	return 0
+}
+
+func (x *OptionsResp) GetModels() []*OptionInfo {
+	if x != nil {
+		return x.Models
+	}
+	return nil
 }
 
 type CreatePortraitReq struct {
@@ -1126,6 +1134,7 @@ type CreateReq struct {
 	Script         string                 `protobuf:"bytes,9,opt,name=script,proto3" json:"script,omitempty"`
 	RequestId      string                 `protobuf:"bytes,10,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`              // 幂等
 	CopywritingId  int64                  `protobuf:"varint,11,opt,name=copywriting_id,json=copywritingId,proto3" json:"copywriting_id,omitempty"` // 选填：内容来自哪条 AI文案（文案的生成历史用）
+	Model          string                 `protobuf:"bytes,12,opt,name=model,proto3" json:"model,omitempty"`                                       // 选填：seedance2.5(默认，云端 85) / lite(本地 45)
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -1235,6 +1244,13 @@ func (x *CreateReq) GetCopywritingId() int64 {
 		return x.CopywritingId
 	}
 	return 0
+}
+
+func (x *CreateReq) GetModel() string {
+	if x != nil {
+		return x.Model
+	}
+	return ""
 }
 
 type ResolvePortraitReq struct {
@@ -1397,6 +1413,7 @@ type DigitalHumanInfo struct {
 	Status         int32                  `protobuf:"varint,12,opt,name=status,proto3" json:"status,omitempty"` // 0-配音中 1-视频生成中 2-已完成 3-失败
 	FailReason     string                 `protobuf:"bytes,13,opt,name=fail_reason,json=failReason,proto3" json:"fail_reason,omitempty"`
 	CreateTime     int64                  `protobuf:"varint,14,opt,name=create_time,json=createTime,proto3" json:"create_time,omitempty"`
+	Model          string                 `protobuf:"bytes,15,opt,name=model,proto3" json:"model,omitempty"` // 出片模型：seedance2.5 / lite
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -1527,6 +1544,13 @@ func (x *DigitalHumanInfo) GetCreateTime() int64 {
 		return x.CreateTime
 	}
 	return 0
+}
+
+func (x *DigitalHumanInfo) GetModel() string {
+	if x != nil {
+		return x.Model
+	}
+	return ""
 }
 
 type ListReq struct {
@@ -1831,7 +1855,7 @@ const file_digitalhuman_proto_rawDesc = "" +
 	"\x04list\x18\x01 \x03(\v2\x18.digitalhuman.OptionInfoR\x04list\"6\n" +
 	"\x13AdminListOptionsReq\x12\x1f\n" +
 	"\voption_type\x18\x01 \x01(\tR\n" +
-	"optionType\"\xae\x02\n" +
+	"optionType\"\xe0\x02\n" +
 	"\vOptionsResp\x122\n" +
 	"\agenders\x18\x01 \x03(\v2\x18.digitalhuman.OptionInfoR\agenders\x12,\n" +
 	"\x04ages\x18\x02 \x03(\v2\x18.digitalhuman.OptionInfoR\x04ages\x127\n" +
@@ -1839,7 +1863,8 @@ const file_digitalhuman_proto_rawDesc = "" +
 	"skin_tones\x18\x03 \x03(\v2\x18.digitalhuman.OptionInfoR\tskinTones\x12.\n" +
 	"\x05roles\x18\x04 \x03(\v2\x18.digitalhuman.OptionInfoR\x05roles\x12.\n" +
 	"\x13max_description_len\x18\x05 \x01(\x05R\x11maxDescriptionLen\x12$\n" +
-	"\x0emax_script_len\x18\x06 \x01(\x05R\fmaxScriptLen\"\xc8\x01\n" +
+	"\x0emax_script_len\x18\x06 \x01(\x05R\fmaxScriptLen\x120\n" +
+	"\x06models\x18\a \x03(\v2\x18.digitalhuman.OptionInfoR\x06models\"\xc8\x01\n" +
 	"\x11CreatePortraitReq\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x16\n" +
 	"\x06gender\x18\x02 \x01(\tR\x06gender\x12\x10\n" +
@@ -1886,7 +1911,7 @@ const file_digitalhuman_proto_rawDesc = "" +
 	"\rListVoicesReq\x12\x1a\n" +
 	"\bcategory\x18\x01 \x01(\tR\bcategory\"8\n" +
 	"\tVoiceList\x12+\n" +
-	"\x04list\x18\x01 \x03(\v2\x17.digitalhuman.VoiceInfoR\x04list\"\xd6\x02\n" +
+	"\x04list\x18\x01 \x03(\v2\x17.digitalhuman.VoiceInfoR\x04list\"\xec\x02\n" +
 	"\tCreateReq\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12'\n" +
@@ -1902,7 +1927,8 @@ const file_digitalhuman_proto_rawDesc = "" +
 	"\n" +
 	"request_id\x18\n" +
 	" \x01(\tR\trequestId\x12%\n" +
-	"\x0ecopywriting_id\x18\v \x01(\x03R\rcopywritingId\"\xd2\x01\n" +
+	"\x0ecopywriting_id\x18\v \x01(\x03R\rcopywritingId\x12\x14\n" +
+	"\x05model\x18\f \x01(\tR\x05model\"\xd2\x01\n" +
 	"\x12ResolvePortraitReq\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12'\n" +
 	"\x0fportrait_source\x18\x02 \x01(\tR\x0eportraitSource\x12\x1b\n" +
@@ -1915,7 +1941,7 @@ const file_digitalhuman_proto_rawDesc = "" +
 	"\rPortraitImage\x12\x1b\n" +
 	"\timage_url\x18\x01 \x01(\tR\bimageUrl\x12\x15\n" +
 	"\x06ref_id\x18\x02 \x01(\x03R\x05refId\x12!\n" +
-	"\fdefault_name\x18\x03 \x01(\tR\vdefaultName\"\x97\x03\n" +
+	"\fdefault_name\x18\x03 \x01(\tR\vdefaultName\"\xad\x03\n" +
 	"\x10DigitalHumanInfo\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x17\n" +
 	"\auser_id\x18\x02 \x01(\x03R\x06userId\x12\x12\n" +
@@ -1934,7 +1960,8 @@ const file_digitalhuman_proto_rawDesc = "" +
 	"\vfail_reason\x18\r \x01(\tR\n" +
 	"failReason\x12\x1f\n" +
 	"\vcreate_time\x18\x0e \x01(\x03R\n" +
-	"createTime\"k\n" +
+	"createTime\x12\x14\n" +
+	"\x05model\x18\x0f \x01(\tR\x05model\"k\n" +
 	"\aListReq\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x16\n" +
 	"\x06status\x18\x02 \x01(\x05R\x06status\x12\x12\n" +
@@ -2027,59 +2054,60 @@ var file_digitalhuman_proto_depIdxs = []int32{
 	7,  // 3: digitalhuman.OptionsResp.ages:type_name -> digitalhuman.OptionInfo
 	7,  // 4: digitalhuman.OptionsResp.skin_tones:type_name -> digitalhuman.OptionInfo
 	7,  // 5: digitalhuman.OptionsResp.roles:type_name -> digitalhuman.OptionInfo
-	14, // 6: digitalhuman.VoiceList.list:type_name -> digitalhuman.VoiceInfo
-	20, // 7: digitalhuman.DigitalHumanList.list:type_name -> digitalhuman.DigitalHumanInfo
-	3,  // 8: digitalhuman.DigitalHuman.GetAgreement:input_type -> digitalhuman.AgreementReq
-	3,  // 9: digitalhuman.DigitalHuman.AcceptAgreement:input_type -> digitalhuman.AgreementReq
-	0,  // 10: digitalhuman.DigitalHuman.ListPublic:input_type -> digitalhuman.Empty
-	0,  // 11: digitalhuman.DigitalHuman.Options:input_type -> digitalhuman.Empty
-	11, // 12: digitalhuman.DigitalHuman.CreatePortrait:input_type -> digitalhuman.CreatePortraitReq
-	2,  // 13: digitalhuman.DigitalHuman.GetPortrait:input_type -> digitalhuman.IdUserReq
-	12, // 14: digitalhuman.DigitalHuman.RegeneratePortrait:input_type -> digitalhuman.RegenerateReq
-	0,  // 15: digitalhuman.DigitalHuman.VoiceCategories:input_type -> digitalhuman.Empty
-	15, // 16: digitalhuman.DigitalHuman.ListVoices:input_type -> digitalhuman.ListVoicesReq
-	17, // 17: digitalhuman.DigitalHuman.Create:input_type -> digitalhuman.CreateReq
-	2,  // 18: digitalhuman.DigitalHuman.Get:input_type -> digitalhuman.IdUserReq
-	21, // 19: digitalhuman.DigitalHuman.List:input_type -> digitalhuman.ListReq
-	2,  // 20: digitalhuman.DigitalHuman.Delete:input_type -> digitalhuman.IdUserReq
-	18, // 21: digitalhuman.DigitalHuman.ResolvePortrait:input_type -> digitalhuman.ResolvePortraitReq
-	9,  // 22: digitalhuman.DigitalHuman.AdminListOptions:input_type -> digitalhuman.AdminListOptionsReq
-	7,  // 23: digitalhuman.DigitalHuman.AdminSaveOption:input_type -> digitalhuman.OptionInfo
-	1,  // 24: digitalhuman.DigitalHuman.AdminDeleteOption:input_type -> digitalhuman.IdReq
-	15, // 25: digitalhuman.DigitalHuman.AdminListVoices:input_type -> digitalhuman.ListVoicesReq
-	14, // 26: digitalhuman.DigitalHuman.AdminSaveVoice:input_type -> digitalhuman.VoiceInfo
-	1,  // 27: digitalhuman.DigitalHuman.AdminDeleteVoice:input_type -> digitalhuman.IdReq
-	1,  // 28: digitalhuman.DigitalHuman.AdminGenerateVoicePreview:input_type -> digitalhuman.IdReq
-	22, // 29: digitalhuman.DigitalHuman.AdminList:input_type -> digitalhuman.AdminListReq
-	0,  // 30: digitalhuman.DigitalHuman.AdminGetTTSModel:input_type -> digitalhuman.Empty
-	4,  // 31: digitalhuman.DigitalHuman.GetAgreement:output_type -> digitalhuman.AgreementInfo
-	4,  // 32: digitalhuman.DigitalHuman.AcceptAgreement:output_type -> digitalhuman.AgreementInfo
-	6,  // 33: digitalhuman.DigitalHuman.ListPublic:output_type -> digitalhuman.PublicList
-	10, // 34: digitalhuman.DigitalHuman.Options:output_type -> digitalhuman.OptionsResp
-	13, // 35: digitalhuman.DigitalHuman.CreatePortrait:output_type -> digitalhuman.PortraitInfo
-	13, // 36: digitalhuman.DigitalHuman.GetPortrait:output_type -> digitalhuman.PortraitInfo
-	13, // 37: digitalhuman.DigitalHuman.RegeneratePortrait:output_type -> digitalhuman.PortraitInfo
-	8,  // 38: digitalhuman.DigitalHuman.VoiceCategories:output_type -> digitalhuman.OptionList
-	16, // 39: digitalhuman.DigitalHuman.ListVoices:output_type -> digitalhuman.VoiceList
-	20, // 40: digitalhuman.DigitalHuman.Create:output_type -> digitalhuman.DigitalHumanInfo
-	20, // 41: digitalhuman.DigitalHuman.Get:output_type -> digitalhuman.DigitalHumanInfo
-	23, // 42: digitalhuman.DigitalHuman.List:output_type -> digitalhuman.DigitalHumanList
-	0,  // 43: digitalhuman.DigitalHuman.Delete:output_type -> digitalhuman.Empty
-	19, // 44: digitalhuman.DigitalHuman.ResolvePortrait:output_type -> digitalhuman.PortraitImage
-	8,  // 45: digitalhuman.DigitalHuman.AdminListOptions:output_type -> digitalhuman.OptionList
-	7,  // 46: digitalhuman.DigitalHuman.AdminSaveOption:output_type -> digitalhuman.OptionInfo
-	0,  // 47: digitalhuman.DigitalHuman.AdminDeleteOption:output_type -> digitalhuman.Empty
-	16, // 48: digitalhuman.DigitalHuman.AdminListVoices:output_type -> digitalhuman.VoiceList
-	14, // 49: digitalhuman.DigitalHuman.AdminSaveVoice:output_type -> digitalhuman.VoiceInfo
-	0,  // 50: digitalhuman.DigitalHuman.AdminDeleteVoice:output_type -> digitalhuman.Empty
-	14, // 51: digitalhuman.DigitalHuman.AdminGenerateVoicePreview:output_type -> digitalhuman.VoiceInfo
-	23, // 52: digitalhuman.DigitalHuman.AdminList:output_type -> digitalhuman.DigitalHumanList
-	24, // 53: digitalhuman.DigitalHuman.AdminGetTTSModel:output_type -> digitalhuman.ModelInfo
-	31, // [31:54] is the sub-list for method output_type
-	8,  // [8:31] is the sub-list for method input_type
-	8,  // [8:8] is the sub-list for extension type_name
-	8,  // [8:8] is the sub-list for extension extendee
-	0,  // [0:8] is the sub-list for field type_name
+	7,  // 6: digitalhuman.OptionsResp.models:type_name -> digitalhuman.OptionInfo
+	14, // 7: digitalhuman.VoiceList.list:type_name -> digitalhuman.VoiceInfo
+	20, // 8: digitalhuman.DigitalHumanList.list:type_name -> digitalhuman.DigitalHumanInfo
+	3,  // 9: digitalhuman.DigitalHuman.GetAgreement:input_type -> digitalhuman.AgreementReq
+	3,  // 10: digitalhuman.DigitalHuman.AcceptAgreement:input_type -> digitalhuman.AgreementReq
+	0,  // 11: digitalhuman.DigitalHuman.ListPublic:input_type -> digitalhuman.Empty
+	0,  // 12: digitalhuman.DigitalHuman.Options:input_type -> digitalhuman.Empty
+	11, // 13: digitalhuman.DigitalHuman.CreatePortrait:input_type -> digitalhuman.CreatePortraitReq
+	2,  // 14: digitalhuman.DigitalHuman.GetPortrait:input_type -> digitalhuman.IdUserReq
+	12, // 15: digitalhuman.DigitalHuman.RegeneratePortrait:input_type -> digitalhuman.RegenerateReq
+	0,  // 16: digitalhuman.DigitalHuman.VoiceCategories:input_type -> digitalhuman.Empty
+	15, // 17: digitalhuman.DigitalHuman.ListVoices:input_type -> digitalhuman.ListVoicesReq
+	17, // 18: digitalhuman.DigitalHuman.Create:input_type -> digitalhuman.CreateReq
+	2,  // 19: digitalhuman.DigitalHuman.Get:input_type -> digitalhuman.IdUserReq
+	21, // 20: digitalhuman.DigitalHuman.List:input_type -> digitalhuman.ListReq
+	2,  // 21: digitalhuman.DigitalHuman.Delete:input_type -> digitalhuman.IdUserReq
+	18, // 22: digitalhuman.DigitalHuman.ResolvePortrait:input_type -> digitalhuman.ResolvePortraitReq
+	9,  // 23: digitalhuman.DigitalHuman.AdminListOptions:input_type -> digitalhuman.AdminListOptionsReq
+	7,  // 24: digitalhuman.DigitalHuman.AdminSaveOption:input_type -> digitalhuman.OptionInfo
+	1,  // 25: digitalhuman.DigitalHuman.AdminDeleteOption:input_type -> digitalhuman.IdReq
+	15, // 26: digitalhuman.DigitalHuman.AdminListVoices:input_type -> digitalhuman.ListVoicesReq
+	14, // 27: digitalhuman.DigitalHuman.AdminSaveVoice:input_type -> digitalhuman.VoiceInfo
+	1,  // 28: digitalhuman.DigitalHuman.AdminDeleteVoice:input_type -> digitalhuman.IdReq
+	1,  // 29: digitalhuman.DigitalHuman.AdminGenerateVoicePreview:input_type -> digitalhuman.IdReq
+	22, // 30: digitalhuman.DigitalHuman.AdminList:input_type -> digitalhuman.AdminListReq
+	0,  // 31: digitalhuman.DigitalHuman.AdminGetTTSModel:input_type -> digitalhuman.Empty
+	4,  // 32: digitalhuman.DigitalHuman.GetAgreement:output_type -> digitalhuman.AgreementInfo
+	4,  // 33: digitalhuman.DigitalHuman.AcceptAgreement:output_type -> digitalhuman.AgreementInfo
+	6,  // 34: digitalhuman.DigitalHuman.ListPublic:output_type -> digitalhuman.PublicList
+	10, // 35: digitalhuman.DigitalHuman.Options:output_type -> digitalhuman.OptionsResp
+	13, // 36: digitalhuman.DigitalHuman.CreatePortrait:output_type -> digitalhuman.PortraitInfo
+	13, // 37: digitalhuman.DigitalHuman.GetPortrait:output_type -> digitalhuman.PortraitInfo
+	13, // 38: digitalhuman.DigitalHuman.RegeneratePortrait:output_type -> digitalhuman.PortraitInfo
+	8,  // 39: digitalhuman.DigitalHuman.VoiceCategories:output_type -> digitalhuman.OptionList
+	16, // 40: digitalhuman.DigitalHuman.ListVoices:output_type -> digitalhuman.VoiceList
+	20, // 41: digitalhuman.DigitalHuman.Create:output_type -> digitalhuman.DigitalHumanInfo
+	20, // 42: digitalhuman.DigitalHuman.Get:output_type -> digitalhuman.DigitalHumanInfo
+	23, // 43: digitalhuman.DigitalHuman.List:output_type -> digitalhuman.DigitalHumanList
+	0,  // 44: digitalhuman.DigitalHuman.Delete:output_type -> digitalhuman.Empty
+	19, // 45: digitalhuman.DigitalHuman.ResolvePortrait:output_type -> digitalhuman.PortraitImage
+	8,  // 46: digitalhuman.DigitalHuman.AdminListOptions:output_type -> digitalhuman.OptionList
+	7,  // 47: digitalhuman.DigitalHuman.AdminSaveOption:output_type -> digitalhuman.OptionInfo
+	0,  // 48: digitalhuman.DigitalHuman.AdminDeleteOption:output_type -> digitalhuman.Empty
+	16, // 49: digitalhuman.DigitalHuman.AdminListVoices:output_type -> digitalhuman.VoiceList
+	14, // 50: digitalhuman.DigitalHuman.AdminSaveVoice:output_type -> digitalhuman.VoiceInfo
+	0,  // 51: digitalhuman.DigitalHuman.AdminDeleteVoice:output_type -> digitalhuman.Empty
+	14, // 52: digitalhuman.DigitalHuman.AdminGenerateVoicePreview:output_type -> digitalhuman.VoiceInfo
+	23, // 53: digitalhuman.DigitalHuman.AdminList:output_type -> digitalhuman.DigitalHumanList
+	24, // 54: digitalhuman.DigitalHuman.AdminGetTTSModel:output_type -> digitalhuman.ModelInfo
+	32, // [32:55] is the sub-list for method output_type
+	9,  // [9:32] is the sub-list for method input_type
+	9,  // [9:9] is the sub-list for extension type_name
+	9,  // [9:9] is the sub-list for extension extendee
+	0,  // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_digitalhuman_proto_init() }
