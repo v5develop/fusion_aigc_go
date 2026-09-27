@@ -67,13 +67,19 @@ func setup(t *testing.T, conn sqlx.SqlConn, balance int64) func() {
 	exec("INSERT INTO afv_billing_offer (offer_code, name, entry_code, feature_code, status, deleted) VALUES (?,?,?,?,'ENABLED',0)",
 		testOfferPart, "计费测试-部分", testEntryPart, "ecom_image_gen")
 	exec("INSERT INTO afv_billing_offer_variant (variant_code, offer_code, name, default_model_id, settlement_type, status, deleted) VALUES (?,?,?,?,?,'ENABLED',0)",
-		testOfferAll+"_v", testOfferAll, "整单档", modelID, "ALL_OR_NOTHING")
+		testOfferAll+"_cloud", testOfferAll, "云端档", modelID, "ALL_OR_NOTHING")
 	exec("INSERT INTO afv_billing_offer_variant (variant_code, offer_code, name, default_model_id, settlement_type, status, deleted) VALUES (?,?,?,?,?,'ENABLED',0)",
 		testOfferPart+"_v", testOfferPart, "部分档", modelID, "PARTIAL")
+	// 再给"整单"那个 offer 建一个 lite 档：档位码是 <offer_code>_lite，验证按档次选
+	exec("INSERT INTO afv_billing_offer_variant (variant_code, offer_code, name, default_model_id, quality_tier, settlement_type, status, deleted) VALUES (?,?,?,?,?,?,'ENABLED',0)",
+		testOfferAll+"_lite", testOfferAll, "lite档", modelID, "lite", "ALL_OR_NOTHING")
 	exec("INSERT INTO afv_billing_charge_component (component_code, variant_code, step_code, component_type, mode, cost_type, action_type, model_id, base_points, price_multiplier, sort, deleted) VALUES (?,?,?,?,85,?,?,?,0,1.0,0,0)",
-		testOfferAll+"_c", testOfferAll+"_v", "video_gen", "DURATION", "BILLED", "VIDEO_GEN", modelID)
+		testOfferAll+"_c", testOfferAll+"_cloud", "video_gen", "DURATION", "BILLED", "VIDEO_GEN", modelID)
 	exec("INSERT INTO afv_billing_charge_component (component_code, variant_code, step_code, component_type, mode, cost_type, action_type, model_id, base_points, price_multiplier, sort, deleted) VALUES (?,?,?,?,85,?,?,?,0,1.0,0,0)",
 		testOfferPart+"_c", testOfferPart+"_v", "image_gen", "OUTPUT", "BILLED", "IMAGE_GEN", modelID)
+	// lite 档的步骤：固定 4 点/秒，和云端的 10 点/秒区分开
+	exec("INSERT INTO afv_billing_charge_component (component_code, variant_code, step_code, component_type, mode, cost_type, action_type, model_id, base_points, price_multiplier, sort, deleted) VALUES (?,?,?,?,45,?,?,NULL,4,1.0,0,0)",
+		testOfferAll+"_lite_c", testOfferAll+"_lite", "video_gen", "DURATION", "BILLED", "VIDEO_GEN")
 
 	// 账户 + 两个批次（一个先过期，验证 FIFO 顺序）
 	exec("INSERT INTO afv_points_account (user_id, balance, frozen_balance, total_received, version, deleted) VALUES (?,?,0,?,0,0)",
@@ -345,6 +351,38 @@ func TestRealUnitBeatsComponentType(t *testing.T) {
 	want(t, "仍按秒算 15×10", q.PricePoints, 150)
 	if q.PriceUnit != "PER_SECOND" {
 		t.Fatalf("计价单位应取单价表的，实际 %s", q.PriceUnit)
+	}
+}
+
+// 按档次选档位。模型码两边对不上（我们是 seedance2.5/lite，计费配置里是
+// doubao-seedance-2-5/xiaoqi-video-1.0-lite-b6），所以对接键用 Tier。
+func TestRealPickByTier(t *testing.T) {
+	conn := openDB(t)
+	defer setup(t, conn, 1000)()
+	ctx := context.Background()
+	s := New(Conf{Mode: ModeOn}, conn)
+
+	cloud, err := s.Quote(ctx, Charge{UserID: testUser, EntryCode: testEntryAll,
+		Tier: TierCloud, Kind: KindVideo, Seconds: 15})
+	if err != nil {
+		t.Fatalf("云端档算价: %v", err)
+	}
+	want(t, "云端 15×10", cloud.PricePoints, 150)
+
+	lite, err := s.Quote(ctx, Charge{UserID: testUser, EntryCode: testEntryAll,
+		Tier: TierLite, Kind: KindVideo, Seconds: 15})
+	if err != nil {
+		t.Fatalf("lite 档算价: %v", err)
+	}
+	want(t, "lite 15×4", lite.PricePoints, 60)
+	if lite.VariantCode == cloud.VariantCode {
+		t.Fatalf("两档选到了同一个档位: %s", lite.VariantCode)
+	}
+
+	// 没有的档次要明确报错，不能退回第一个档位按云端价扣
+	if _, err := s.Quote(ctx, Charge{UserID: testUser, EntryCode: testEntryAll,
+		Tier: "ultra", Kind: KindVideo, Seconds: 15}); !errors.Is(err, ErrNoOffer) {
+		t.Fatalf("不存在的档次应该报 ErrNoOffer，实际 %v", err)
 	}
 }
 

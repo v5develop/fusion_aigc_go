@@ -132,7 +132,7 @@ func price(ctx context.Context, conn sqlx.SqlConn, c Charge) (*Quote, error) {
 		return nil, err
 	}
 
-	v, err := pickVariant(ctx, conn, o.OfferCode, c.ModelCode)
+	v, err := pickVariant(ctx, conn, o.OfferCode, c.ModelCode, c.Tier)
 	if err != nil {
 		return nil, err
 	}
@@ -179,11 +179,17 @@ func price(ctx context.Context, conn sqlx.SqlConn, c Charge) (*Quote, error) {
 	return q, nil
 }
 
-// pickVariant 选档位。modelCode 指定了就按模型选，否则取第一个启用的。
+// pickVariant 选档位，按这个顺序：
 //
-// 为什么按模型选：一个 offer 下的多个 variant 差别就是模型
-// （hit_video 有 standard / seedance_2.0 / seedance_2.0_fast 三档）。
-func pickVariant(ctx context.Context, conn sqlx.SqlConn, offerCode, modelCode string) (*variantRow, error) {
+//  1. 给了 modelCode → 按档位的默认模型匹配
+//  2. 给了 tier      → 先找 <offer_code>_<tier> 这个档位码，再找 quality_tier
+//  3. 都没给         → 第一个启用的
+//
+// 常用的是 2：一个 offer 下的多档差别就是模型，而两边的模型码对不上
+// （见 Charge.Tier 的注释），按档次选才稳。
+//
+// 选不到就报错，**不退回"第一个档位"**——那会把用户选的 lite 按云端价扣。
+func pickVariant(ctx context.Context, conn sqlx.SqlConn, offerCode, modelCode, tier string) (*variantRow, error) {
 	const cols = "`variant_code`,`quality_tier`,`default_model_id`,`default_resolution`," +
 		"`default_duration_seconds`,`settlement_type`"
 	if strings.TrimSpace(modelCode) != "" {
@@ -199,6 +205,23 @@ func pickVariant(ctx context.Context, conn sqlx.SqlConn, offerCode, modelCode st
 			return nil, err
 		}
 		return nil, fmt.Errorf("%w: %s 下没有模型 %s 的档位", ErrNoOffer, offerCode, modelCode)
+	}
+	if tier = strings.TrimSpace(tier); tier != "" {
+		var v variantRow
+		// 档位码优先（digital_human_cloud / digital_human_lite），退回 quality_tier
+		const q = "SELECT " + cols + " FROM `afv_billing_offer_variant` " +
+			"WHERE `offer_code` = ? AND `status` = 'ENABLED' AND `deleted` = 0 " +
+			"AND (`variant_code` = ? OR `quality_tier` = ?) " +
+			"ORDER BY (`variant_code` = ?) DESC, `id` LIMIT 1"
+		full := offerCode + "_" + tier
+		switch err := conn.QueryRowCtx(ctx, &v, q, offerCode, full, tier, full); {
+		case err == nil:
+			return &v, nil
+		case !errors.Is(err, sqlx.ErrNotFound):
+			return nil, err
+		}
+		return nil, fmt.Errorf("%w: %s 下没有 %s 档（找过档位码 %s 和 quality_tier）",
+			ErrNoOffer, offerCode, tier, full)
 	}
 	var v variantRow
 	const q = "SELECT " + cols + " FROM `afv_billing_offer_variant` " +

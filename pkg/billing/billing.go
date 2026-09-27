@@ -48,6 +48,12 @@ type Conf struct {
 	}
 }
 
+// 档次。视频模块都是这两档，档位表里对应 <offer_code>_cloud / <offer_code>_lite。
+const (
+	TierCloud = "cloud"
+	TierLite  = "lite"
+)
+
 // Kind 计费对象的大类，只用来决定预留多久。
 type Kind int
 
@@ -72,7 +78,16 @@ type Charge struct {
 	RequestID string
 	// EntryCode 入口码，对应 afv_billing_offer.entry_code（驼峰，如 digitalHuman）
 	EntryCode string
-	// ModelCode 模型档，对应 afv_ai_model.code。空则用 variant 的默认模型。
+	// Tier 档次：`cloud` / `lite`。**优先用这个选档位**。
+	//
+	// 为什么不用模型码：两边的码对不上。我们下发给前端和执行面的是
+	// `seedance2.5` / `lite` / `doubao-seedance-2-0-260128`，而计费配置里是
+	// `doubao-seedance-2-5` / `xiaoqi-video-1.0-lite-b6` / `doubao-seedance-2-0-b8`。
+	// 计费那边还把单价编进了模型码（-b6/-b8/-b12），调价就会换码——拿它当对接键，
+	// 对方一调价我们就挂。档次是稳定的。
+	Tier string
+	// ModelCode 模型码，对应 afv_billing_offer_variant 默认模型的 afv_ai_model.code。
+	// 一般不用填，填了优先于 Tier。
 	ModelCode string
 	Kind      Kind
 	// Count 产出数量（按张计的用），默认 1
