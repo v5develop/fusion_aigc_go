@@ -251,7 +251,7 @@ func (l *CreateVideoLogic) parseLink(link string) (*linkparse.Video, error) {
 	v, err := l.svcCtx.LinkParse.Parse(l.ctx, link)
 	switch {
 	case errors.Is(err, linkparse.ErrUnsupported):
-		return nil, xerr.Param("这个链接解析不了，目前支持抖音、快手、小红书、B站的分享链接")
+		return nil, xerr.Param("这个链接解析不了，换一条分享链接或直接上传视频（支持抖音、快手、小红书、B站）")
 	case errors.Is(err, linkparse.ErrNoVideo):
 		return nil, xerr.Param("这个作品里没有视频，换一个再试")
 	case err != nil:

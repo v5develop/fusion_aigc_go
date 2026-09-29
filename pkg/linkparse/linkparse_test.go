@@ -144,3 +144,41 @@ func TestDownloadDefaultsContentType(t *testing.T) {
 		t.Fatalf("ct = %q, err = %v", ct, err)
 	}
 }
+
+// 解析服务「这条链接解析不出来」和「服务挂了」返回的都是 502，
+// 只能靠响应体里有没有 attempts 区分。分错了的后果是用户看到"请稍后重试"，
+// 然后一直重试——而重试永远不会成功。
+func TestParseFailureIsNotUpstreamOutage(t *testing.T) {
+	// 实测响应体（探测一条假抖音链接得到的）
+	const body = `{"detail":{"error":"全部引擎失败，最后原因: ValueError: Failed to parse video ID from PC share URL",` +
+		`"detail":null,"platform":"douyin","attempts":["f2@original","f2@original#2","TikTokDownloader@original",` +
+		`"parse-video-py@original","parse-video-py@original#2","parse-video-py@canonical","parse-video-py@canonical#2"]}}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte(body))
+	}))
+	defer srv.Close()
+
+	_, err := New(Conf{BaseURL: srv.URL}).Parse(context.Background(), "https://v.douyin.com/x/")
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("跑过引擎的 502 应判为链接不支持（重试没用），实际 %v", err)
+	}
+	if errors.Is(err, ErrUpstream) {
+		t.Fatalf("不该判成服务不可用：%v", err)
+	}
+}
+
+// 真的挂了（502 但不是它的业务响应）还是要判成可重试。
+func TestRealOutageStaysUpstream(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte("<html><head><title>502 Bad Gateway</title></head></html>"))
+	}))
+	defer srv.Close()
+
+	_, err := New(Conf{BaseURL: srv.URL}).Parse(context.Background(), "https://v.douyin.com/x/")
+	if !errors.Is(err, ErrUpstream) {
+		t.Fatalf("nginx 的 502 应判为服务暂时不可用，实际 %v", err)
+	}
+}

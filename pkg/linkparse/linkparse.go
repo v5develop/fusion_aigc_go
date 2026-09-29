@@ -113,6 +113,12 @@ func (c *Client) Parse(ctx context.Context, shared string) (*Video, error) {
 	case resp.StatusCode == http.StatusUnprocessableEntity:
 		return nil, ErrUnsupported
 	case resp.StatusCode != http.StatusOK:
+		// ⚠️ 它「这条链接解析不出来」返回的也是 502，和「服务挂了」同一个码。
+		// 靠响应体区分：跑过引擎（attempts 非空）说明服务是活的、是这条链接不行，
+		// 这种重试没用，要让用户换链接而不是提示"请稍后重试"。
+		if triedEngines(raw) {
+			return nil, fmt.Errorf("%w（上游试了 %d 个引擎都没解析出来）", ErrUnsupported, len(enginesOf(raw)))
+		}
 		return nil, fmt.Errorf("%w: HTTP %d %s", ErrUpstream, resp.StatusCode, truncate(string(raw), 200))
 	}
 	var r parseResult
@@ -136,6 +142,29 @@ func (c *Client) Parse(ctx context.Context, shared string) (*Video, error) {
 	}
 	return v, nil
 }
+
+// upstreamErr 解析服务失败时的响应体：
+//
+//	{"detail":{"error":"全部引擎失败，最后原因: ...","platform":"douyin","attempts":["f2@original",...]}}
+type upstreamErr struct {
+	Detail struct {
+		Error    string   `json:"error"`
+		Platform string   `json:"platform"`
+		Attempts []string `json:"attempts"`
+	} `json:"detail"`
+}
+
+func enginesOf(raw []byte) []string {
+	var e upstreamErr
+	if json.Unmarshal(raw, &e) != nil {
+		return nil
+	}
+	return e.Detail.Attempts
+}
+
+// triedEngines 上游是不是真的拿这条链接跑过解析。
+// 跑过就说明服务活着，失败是链接的问题，重试没有意义。
+func triedEngines(raw []byte) bool { return len(enginesOf(raw)) > 0 }
 
 func firstVideo(list []mediaItem) *mediaItem {
 	for i := range list {
