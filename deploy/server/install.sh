@@ -164,6 +164,24 @@ check_db_config() {
   if (( ${#missing[@]} )); then
     die "afv_system_config 缺少：${missing[*]}（这些是现有系统的配置，本项目复用；请确认连的是正确的库）"
   fi
+
+  # 私有桶：只有接真实执行面时才用得上。
+  # 执行面的产物落在现有系统的私有桶里，必须转存到公有桶前端才看得到。
+  # 缺了这几项，下载产物时不会签名，私有桶直接回 403——
+  # 表现是"生成成功了但最后一步失败"，而且用 mock 联调时永远碰不到（mock 返回的是公有桶地址）。
+  if [[ $MOCK_ENABLED != 1 ]]; then
+    local priv=() k2
+    for k2 in storage_private_bucket storage_private_endpoint storage_private_access_key storage_private_secret_key; do
+      [[ $(q "SELECT COUNT(*) FROM afv_system_config WHERE config_key='$k2' AND deleted=0 AND COALESCE(config_value,'')<>''") != 0 ]] || priv+=("$k2")
+    done
+    if (( ${#priv[@]} )); then
+      red "✗ afv_system_config 缺少私有桶配置：${priv[*]}"
+      red "  接真实执行面时，产物在它的私有桶里，必须转存才能给前端看。"
+      red "  缺了会表现成「任务跑完了但结果保存失败」。"
+      die "要么把这几项配上，要么先用 MOCK_ENABLED=1 联调"
+    fi
+    green "  ✓ 私有桶配置齐全（产物转存用）"
+  fi
   if [[ $(q "SELECT COUNT(*) FROM afv_system_config WHERE config_key='ai_tts_model_id' AND deleted=0 AND COALESCE(config_value,'')<>''") == 0 ]]; then
     local id
     id=$(q "SELECT id FROM afv_ai_model WHERE code='qwen-audio-3.1-tts-flash' AND deleted=0 ORDER BY id LIMIT 1" || true)
