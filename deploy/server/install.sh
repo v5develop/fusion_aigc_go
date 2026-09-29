@@ -127,6 +127,34 @@ migrate() {
   done
 }
 
+# 现有系统的表，我们只读写、不创建。测试/预发的库经常比线上落后，
+# 缺表的话装完是能起来的，等前端联调点到那个功能才蹦出 500——很难查。
+# 所以装之前先点一遍名，缺什么当场说清楚。
+check_external_tables() {
+  local missing=() t
+  for t in afv_system_config afv_ai_model afv_ai_provider \
+           afv_app_user afv_team afv_team_member \
+           afv_admin_user afv_admin_role afv_admin_user_role \
+           afv_asset afv_asset_item afv_moderation_log afv_creation_task afv_open_app \
+           afv_public_template_assets afv_public_template_asset_placement \
+           afv_public_template_asset_filter afv_public_template_filter afv_public_template_filter_option; do
+    has_table "$t" || missing+=("$t")
+  done
+  if (( ${#missing[@]} )); then
+    red "✗ 现有系统缺这些表（本项目只读写、不创建它们）："
+    for t in "${missing[@]}"; do red "    - $t"; done
+    die "这个库的版本比本项目要求的旧。要么换一个库，要么让现有系统先把迁移跑上来"
+  fi
+  green "  ✓ 现有系统的 19 张依赖表齐全"
+
+  # 缺了不影响启动、只是对应功能用不了的，提醒一声就行。
+  # 注意这里一律用 if，不要写 `[[ 条件 ]] && 动作`——set -e 下条件不成立会直接退出脚本。
+  if [[ $(q "SELECT COUNT(*) FROM afv_public_template_asset_placement WHERE biz_type='localLife' AND status=1 AND deleted=0") == 0 ]]; then
+    yellow "  ! 模板素材里没有 localLife 的上架数据：公共数字人 / 海报模板 / 长图模板 /"
+    yellow "    口播背景 / 预置动作视频都会返回空列表。跑 'bash install.sh seed-templates' 造联调数据"
+  fi
+}
+
 check_db_config() {
   local missing=() k
   for k in storage_public_bucket storage_public_endpoint storage_public_access_key storage_public_secret_key \
@@ -295,6 +323,7 @@ cmd_install() {
   find_mysql
   q "SELECT 1" >/dev/null || die "连不上数据库 $DB_USER@$DB_HOST:$DB_PORT/${DB_NAME}，检查 deploy.env 里的 DB_*"
   green "  ✓ 已连接 $DB_HOST:$DB_PORT/$DB_NAME"
+  check_external_tables
   check_db_config
 
   step "3/6 建表（只新建本项目的表，已存在的自动跳过）"
