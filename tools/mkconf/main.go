@@ -53,6 +53,8 @@ func main() {
 	linkParse := flag.String("link-parse", "", "分享链接解析服务地址（爆款视频复刻的链接入口）")
 	unionRedis := flag.String("union-redis", "", "联盟的 Redis 地址：配了就自己验临时 token，不调联盟接口")
 	unionRedisPass := flag.String("union-redis-pass", "", "联盟 Redis 密码")
+	unionDSN := flag.String("union-db-dsn", "", "联盟用户库的连接串；留空则复用本服务的数据库账号")
+	unionTable := flag.String("union-user-table", "", "联盟用户表（带库名），留空用默认值")
 	unionPhoneKey := flag.String("union-phone-key", "", "联盟手机号的 AES 密钥；不配则手机号留空")
 	unionRedisDB := flag.Int("union-redis-db", 0, "联盟 Redis 的库号（它用 go-zero 封装，是 0 号库）")
 	sessionRedis := flag.String("session-redis", "", "AIGC(Java) 服务的 Redis：配了就发和它同一套的令牌")
@@ -92,7 +94,7 @@ func main() {
 		e := editor{name: name, ports: portOf, dsn: *dsn, aigc: *aigc, logDir: filepath.Join(*logs, name), keepDays: *keepDays,
 			jwtSecret: *jwtSecret, adminJwtSecret: *adminJwtSecret, authMode: *authMode, union: *union,
 			linkParse: *linkParse, unionRedis: *unionRedis, unionRedisPass: *unionRedisPass, unionRedisDB: *unionRedisDB,
-			unionPhoneKey: *unionPhoneKey, sessionRedis: *sessionRedis, sessionRedisPass: *sessionRedisPass,
+			unionDSN: *unionDSN, unionTable: *unionTable, unionPhoneKey: *unionPhoneKey, sessionRedis: *sessionRedis, sessionRedisPass: *sessionRedisPass,
 			sessionRedisDB: *sessionRedisDB,
 			fusionURL:      *fusionURL, fusionKey: *fusionKey, fusionSecret: *fusionSecret, fusionKeyVer: *fusionKeyVer}
 		if err := e.apply(root); err != nil {
@@ -132,6 +134,8 @@ type editor struct {
 	union            string
 	unionRedis       string
 	unionRedisPass   string
+	unionDSN         string
+	unionTable       string
 	unionRedisDB     int
 	unionPhoneKey    string
 	sessionRedis     string
@@ -209,6 +213,15 @@ func (e editor) apply(root *yaml.Node) error {
 			d := mapping("RedisAddr", quoted(e.unionRedis), "RedisDB", scalar(strconv.Itoa(e.unionRedisDB)))
 			if e.unionRedisPass != "" {
 				set(d, "RedisPass", quoted(e.unionRedisPass))
+			}
+			// 联盟用户库：留空则复用本服务的数据库账号（要求它对联盟库有读权限）。
+			// 各环境的库名不一定一样（测试环境是 unionec，不是默认的 unionec_app），
+			// 所以表名也放出来配。
+			if e.unionDSN != "" {
+				set(d, "UserDSN", quoted(e.unionDSN))
+			}
+			if e.unionTable != "" {
+				set(d, "UserTable", quoted(e.unionTable))
 			}
 			if e.unionPhoneKey != "" {
 				set(d, "PhoneAesKey", quoted(e.unionPhoneKey))

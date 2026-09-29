@@ -58,6 +58,7 @@ load_env() {
   UNION_REDIS_ADDR=${UNION_REDIS_ADDR:-}; UNION_REDIS_PASS=${UNION_REDIS_PASS:-}
   UNION_REDIS_DB=${UNION_REDIS_DB:-0}
   UNION_PHONE_AES_KEY=${UNION_PHONE_AES_KEY:-}
+  UNION_DB_DSN=${UNION_DB_DSN:-}; UNION_USER_TABLE=${UNION_USER_TABLE:-}
   SESSION_REDIS_ADDR=${SESSION_REDIS_ADDR:-}; SESSION_REDIS_PASS=${SESSION_REDIS_PASS:-}
   SESSION_REDIS_DB=${SESSION_REDIS_DB:-10}
   FUSION_BASE_URL=${FUSION_BASE_URL:-}; FUSION_APP_KEY=${FUSION_APP_KEY:-}
@@ -365,6 +366,7 @@ cmd_install() {
     -link-parse "$LINK_PARSE_URL" \
     -union-redis "$UNION_REDIS_ADDR" -union-redis-pass "$UNION_REDIS_PASS" \
     -union-redis-db "$UNION_REDIS_DB" \
+    -union-db-dsn "$UNION_DB_DSN" -union-user-table "$UNION_USER_TABLE" \
     -union-phone-key "$UNION_PHONE_AES_KEY" \
     -session-redis "$SESSION_REDIS_ADDR" -session-redis-pass "$SESSION_REDIS_PASS" \
     -session-redis-db "$SESSION_REDIS_DB" \
