@@ -1,6 +1,10 @@
 package svc
 
 import (
+	"time"
+
+	"aigc-life/pkg/taskcenter"
+
 	"aigc-life/app/copywriting/rpc/copywriting"
 	"aigc-life/app/digitalhuman/rpc/digitalhuman"
 	"aigc-life/app/note/model"
@@ -24,12 +28,24 @@ type ServiceContext struct {
 	Moderation      moderation.Checker
 	DigitalHumanRpc digitalhuman.DigitalHuman
 	CopywritingRpc  copywriting.Copywriting
+	TaskCenter      *taskcenter.Syncer
 }
 
 func NewServiceContext(c config.Config) *ServiceContext {
 	conn := sqlx.NewMysql(c.DataSource)
 	shared := model.NewSharedModel(conn)
+	entry := c.Asset.EntryCode
+	if entry == "" {
+		entry = "imageTextNote"
+	}
 	return &ServiceContext{
+		TaskCenter: taskcenter.New(conn, 10*time.Minute, taskcenter.Source{
+			Table: "afv_image_text_note", Prefix: "note", EntryCode: entry, Type: "image",
+			// 构思阶段不算任务，开始出图才进任务中心
+			Include: "status IN (3,4,5)",
+			Status:  "CASE status WHEN 3 THEN 1 WHEN 4 THEN 2 ELSE 3 END",
+			Result:  "JSON_UNQUOTE(JSON_EXTRACT(image_urls, '$[0]'))", Results: "image_urls", Fail: "fail_reason", Prompt: "title",
+		}),
 		Config:          c,
 		Note:            model.NewAfvImageTextNoteModel(conn),
 		Shared:          shared,

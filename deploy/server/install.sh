@@ -154,7 +154,8 @@ check_external_tables() {
   # 装机检查全绿）。所以关键列也点一遍名：写法是 表:列，缺一个就停。
   local col
   for col in afv_asset:workspace_id afv_asset:entry_code afv_asset:aspect_ratio \
-             afv_app_user:union_user_id afv_billing_reservation_line:status; do
+             afv_app_user:union_user_id afv_billing_reservation_line:status \
+             afv_creation_task:entry_code afv_creation_task:result_urls afv_creation_task:error_msg; do
     has_column "${col%%:*}" "${col##*:}" || missing+=("$col")
   done
   if has_column afv_asset owner_type; then missing+=("afv_asset 还有旧列 owner_type（要求 Java 迁移 ≥ V1.0.181）"); fi

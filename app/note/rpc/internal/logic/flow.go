@@ -78,6 +78,7 @@ func (p *Poller) Start() {
 	for {
 		p.pollPlans(ctx)
 		p.pollGenerates(ctx)
+		p.svcCtx.TaskCenter.Sync(ctx) // 本轮的状态变化同步进任务中心
 		select {
 		case <-ctx.Done():
 			return

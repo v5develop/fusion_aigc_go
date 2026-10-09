@@ -131,6 +131,7 @@ const pollBatch = 100
 func (p *Poller) tick(ctx context.Context) {
 	svcCtx := p.svcCtx
 	p.pollVideos(ctx) // 探店视频 / 带货短剧（两步）
+	defer svcCtx.TaskCenter.Sync(ctx) // 本轮的状态变化同步进任务中心
 	rows, err := svcCtx.Creation.ListGenerating(ctx, time.Now(), pollBatch)
 	if err != nil {
 		logx.WithContext(ctx).Errorf("list generating: %v", err)

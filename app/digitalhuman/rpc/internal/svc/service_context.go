@@ -1,6 +1,10 @@
 package svc
 
 import (
+	"time"
+
+	"aigc-life/pkg/taskcenter"
+
 	"aigc-life/app/digitalhuman/model"
 	"aigc-life/app/digitalhuman/rpc/internal/config"
 	"aigc-life/pkg/aigc"
@@ -28,13 +32,23 @@ type ServiceContext struct {
 	Storage    storage.Store
 	Moderation moderation.Checker
 	// Sem 按模型限制并发（afv_ai_model.max_concurrency）
-	Sem *semaphore.Group
+	Sem        *semaphore.Group
+	TaskCenter *taskcenter.Syncer
 }
 
 func NewServiceContext(c config.Config) *ServiceContext {
 	conn := sqlx.NewMysql(c.DataSource)
 	shared := model.NewSharedModel(conn)
+	entry := c.Asset.Video.EntryCode
+	if entry == "" {
+		entry = "digitalHuman"
+	}
 	return &ServiceContext{
+		TaskCenter: taskcenter.New(conn, 10*time.Minute, taskcenter.Source{
+			Table: "afv_digital_human", Prefix: "dh", EntryCode: entry, Type: "video",
+			Status: "CASE status WHEN 2 THEN 2 WHEN 3 THEN 3 ELSE 1 END",
+			Result: "video_url", Cover: "image_url", Fail: "fail_reason", Prompt: "script",
+		}),
 		Config:     c,
 		Human:      model.NewAfvDigitalHumanModel(conn),
 		Portrait:   model.NewAfvDigitalHumanPortraitModel(conn),

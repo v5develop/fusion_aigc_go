@@ -250,6 +250,7 @@ func (p *Poller) tick(ctx context.Context) {
 	p.pollPortraits(ctx)
 	p.pollVideos(ctx)
 	p.recoverDubbing(ctx)
+	p.svcCtx.TaskCenter.Sync(ctx) // 本轮的状态变化同步进任务中心
 }
 
 func (p *Poller) pollPortraits(ctx context.Context) {
