@@ -110,6 +110,7 @@ if ("LOCALLIFE".equals(bizType)) {
 建议把该列加宽到 `varchar(32)`。我们这边暂时往明细行写 `CONFIRMED` 绕开了。
 
 **优先级：高**（这是你们自己的功能坏了，和我们无关）。
+> 2026-10-09 补记：你们的 V1.0.166 已把该列加宽到 varchar(32)，测试库已确认。我们明细行仍写 `CONFIRMED`，两种宽度都安全。
 
 ### 3. 计价规则的作用域要能排除本地生活
 
@@ -159,7 +160,15 @@ if ("LOCALLIFE".equals(bizType)) {
   所以**用量报表里我们的消耗会并进"电商"**。要拆开只能按 `biz_type='LOCALLIFE'` 过滤——
   如果你们的报表要单列本地生活，这是唯一的切口。
 
-## 八、附：我们用到的配置
+## 八、另一条要约定的：动我们依赖的表要提前说
+
+2026-10-09 出过一次事：你们的 V1.0.181 把 `afv_asset` 的 `owner_type`/`owner_id` 删了、加了必填的 `workspace_id`，
+我们的素材库写入从 9/29 起全部失败，前端反馈才发现。我们已经跟上（写个人空间 id、建档时建个人空间），
+装机脚本也加了列级检查。**以后动这些表请提前说一声**：
+`afv_asset` / `afv_asset_item` / `afv_app_user` / `afv_team` / `afv_team_member` / `afv_workspace*` /
+`afv_points_*` / `afv_billing_reservation*` / `afv_billing_offer*` / `afv_app_user_feature` / `afv_public_template_*`。
+
+## 九、附：我们用到的配置
 
 | 入口码 `entry_code` | 能力码 `feature_code` | 计量 |
 |---|---|---|

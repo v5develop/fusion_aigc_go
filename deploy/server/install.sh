@@ -137,6 +137,7 @@ check_external_tables() {
            afv_app_user afv_team afv_team_member \
            afv_admin_user afv_admin_role afv_admin_user_role \
            afv_asset afv_asset_item afv_moderation_log afv_creation_task afv_open_app \
+           afv_workspace afv_workspace_member afv_workspace_tag \
            afv_public_template_assets afv_public_template_asset_placement \
            afv_public_template_asset_filter afv_public_template_filter afv_public_template_filter_option; do
     has_table "$t" || missing+=("$t")
@@ -146,7 +147,23 @@ check_external_tables() {
     for t in "${missing[@]}"; do red "    - $t"; done
     die "这个库的版本比本项目要求的旧。要么换一个库，要么让现有系统先把迁移跑上来"
   fi
-  green "  ✓ 现有系统的 19 张依赖表齐全"
+  green "  ✓ 现有系统的 22 张依赖表齐全"
+
+  # 表在、列不对也会在跑到那一步时才炸（2026-10-09 就是这么出的事：Java 的 V1.0.181
+  # 把 afv_asset 的 owner_type/owner_id 删了、加了必填的 workspace_id，素材库从此一条写不进去，
+  # 装机检查全绿）。所以关键列也点一遍名：写法是 表:列，缺一个就停。
+  local col
+  for col in afv_asset:workspace_id afv_asset:entry_code afv_asset:aspect_ratio \
+             afv_app_user:union_user_id afv_billing_reservation_line:status; do
+    has_column "${col%%:*}" "${col##*:}" || missing+=("$col")
+  done
+  if has_column afv_asset owner_type; then missing+=("afv_asset 还有旧列 owner_type（要求 Java 迁移 ≥ V1.0.181）"); fi
+  if (( ${#missing[@]} )); then
+    red "✗ 现有系统的表结构和本项目要求的对不上："
+    for col in "${missing[@]}"; do red "    - $col"; done
+    die "现有系统（Java）的库至少要到 V1.0.181。让他们先把迁移跑上来"
+  fi
+  green "  ✓ 关键列齐全（afv_asset.workspace_id 等）"
 
   # 缺了不影响启动、只是对应功能用不了的，提醒一声就行。
   # 注意这里一律用 if，不要写 `[[ 条件 ]] && 动作`——set -e 下条件不成立会直接退出脚本。

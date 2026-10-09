@@ -96,7 +96,10 @@ cleanup_public() {
   sql "DELETE FROM afv_public_template_asset_placement WHERE asset_id IN ($P1ID,$P2ID,$P3ID,$P4ID);
        DELETE FROM afv_public_template_assets WHERE id IN ($P1ID,$P2ID,$P3ID,$P4ID);
        DELETE FROM afv_asset_item WHERE asset_id IN (SELECT id FROM (SELECT id FROM afv_asset WHERE user_id=$USER_ID) x);
-       DELETE FROM afv_asset WHERE user_id=$USER_ID;"
+       DELETE FROM afv_asset WHERE user_id=$USER_ID;
+       DELETE FROM afv_workspace_tag WHERE workspace_id IN (SELECT id FROM (SELECT id FROM afv_workspace WHERE owner_user_id=$USER_ID) x);
+       DELETE FROM afv_workspace_member WHERE user_id=$USER_ID;
+       DELETE FROM afv_workspace WHERE owner_user_id=$USER_ID;"
 }
 trap 'cleanup_public; rm -rf "$TMP"' EXIT
 L=$(api GET /digital-humans/public)

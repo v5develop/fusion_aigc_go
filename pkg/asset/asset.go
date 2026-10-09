@@ -4,6 +4,10 @@
 //   - 套图（多张图属于同一次生成）：每张图一行，用 source_task_id 串起来（同 productSetImages）
 //   - 定制形象：一行主资产 + 多条 afv_asset_item（afv_asset_item 注释写明只给 customizedModel 等用）
 //   - source_type=2 表示 AI 生成；entry_code 与素材库聚合分类（afv_asset_category_entry）对应
+//   - workspace_id 填用户的个人空间（Java V1.0.181 起素材按工作空间划归属，owner_type/owner_id 已删）；
+//     没有个人空间就顺手建一个，口径同 Java 的 ensurePersonal
+//   - type：图片类一律写 image、视频类写 video（画廊的「图片 / 视频」tab 按这个字面量筛），
+//     细分靠 entry_code；只有定制形象用 customizedModel（Java 靠它决定带不带子资产）
 //
 // 各服务的 Conf.Enabled 默认关闭，等数据库负责人确认 type / entry_code 取值后开启。
 package asset
@@ -11,6 +15,8 @@ package asset
 import (
 	"context"
 	"strings"
+
+	"aigc-life/pkg/workspace"
 
 	"github.com/zeromicro/go-zero/core/stores/sqlx"
 )
@@ -56,41 +62,50 @@ func NewWriter(conn sqlx.SqlConn) *Writer {
 }
 
 const insertAsset = "INSERT INTO afv_asset " +
-	"(user_id, source_task_id, type, entry_code, name, cover_url, result_url, aspect_ratio, properties, ai_prompt, " +
-	"source_type, owner_type, owner_id, status) " +
-	"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 2, 1, ?, 1)"
+	"(user_id, workspace_id, source_task_id, type, entry_code, name, cover_url, result_url, aspect_ratio, properties, ai_prompt, " +
+	"source_type, status) " +
+	"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 2, 1)"
 
-func (w *Writer) insert(ctx context.Context, a Asset) (int64, error) {
-	r, err := w.conn.ExecCtx(ctx, insertAsset, a.UserID, nullStr(a.SourceTaskID), a.Type, a.EntryCode, trim(a.Name, 128),
-		nullStr(a.CoverURL), nullStr(a.ResultURL), a.AspectRatio, nullStr(a.Properties), nullStr(a.AIPrompt), a.UserID)
+func insert(ctx context.Context, s sqlx.Session, wsID int64, a Asset) (int64, error) {
+	r, err := s.ExecCtx(ctx, insertAsset, a.UserID, wsID, nullStr(a.SourceTaskID), a.Type, a.EntryCode, trim(a.Name, 128),
+		nullStr(a.CoverURL), nullStr(a.ResultURL), a.AspectRatio, nullStr(a.Properties), nullStr(a.AIPrompt))
 	if err != nil {
 		return 0, err
 	}
 	return r.LastInsertId()
 }
 
-// InsertSet 写一组资产（套图：每张一行，共用 source_task_id）。
+// InsertSet 写一组资产（套图：每张一行，共用 source_task_id）。一组里的 user_id 相同。
 func (w *Writer) InsertSet(ctx context.Context, list []Asset) error {
-	for _, a := range list {
-		if _, err := w.insert(ctx, a); err != nil {
+	if len(list) == 0 {
+		return nil
+	}
+	return w.conn.TransactCtx(ctx, func(ctx context.Context, s sqlx.Session) error {
+		wsID, err := workspace.EnsurePersonal(ctx, s, list[0].UserID, "")
+		if err != nil {
 			return err
 		}
-	}
-	return nil
+		for _, a := range list {
+			if _, err := insert(ctx, s, wsID, a); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 // InsertWithItems 写一行主资产 + 若干子资产。
 func (w *Writer) InsertWithItems(ctx context.Context, a Asset, items []Item) error {
 	return w.conn.TransactCtx(ctx, func(ctx context.Context, s sqlx.Session) error {
-		r, err := s.ExecCtx(ctx, insertAsset, a.UserID, nullStr(a.SourceTaskID), a.Type, a.EntryCode, trim(a.Name, 128),
-			nullStr(a.CoverURL), nullStr(a.ResultURL), a.AspectRatio, nullStr(a.Properties), nullStr(a.AIPrompt), a.UserID)
+		wsID, err := workspace.EnsurePersonal(ctx, s, a.UserID, "")
 		if err != nil {
 			return err
 		}
-		id, err := r.LastInsertId()
+		r, err := insert(ctx, s, wsID, a)
 		if err != nil {
 			return err
 		}
+		id := r
 		const q = "INSERT INTO afv_asset_item (asset_id, item_type, name, media_url, media_type, sort_order, ai_prompt, source_type) " +
 			"VALUES (?, ?, ?, ?, ?, ?, ?, 2)"
 		for _, it := range items {

@@ -61,6 +61,9 @@ task_body() { curl -sS "$MOCK/mock/task/$1"; }
 
 cleanup() {
   sql "DELETE FROM afv_asset WHERE user_id=$USER_ID;
+       DELETE FROM afv_workspace_tag WHERE workspace_id IN (SELECT id FROM (SELECT id FROM afv_workspace WHERE owner_user_id=$USER_ID) x);
+       DELETE FROM afv_workspace_member WHERE user_id=$USER_ID;
+       DELETE FROM afv_workspace WHERE owner_user_id=$USER_ID;
        DELETE FROM afv_video_creation WHERE user_id=$USER_ID;
        DELETE FROM afv_shop_profile WHERE user_id=$USER_ID;"
   rm -rf "$TMP"

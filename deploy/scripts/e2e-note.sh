@@ -11,7 +11,7 @@ PASS=0
 TMP=$(mktemp -d)
 MYSQL=(docker exec -i mysql-8.0.36 mysql --default-character-set=utf8mb4 -uroot -p123456 fusion_aigc -N)
 sql() { "${MYSQL[@]}" -e "$1" 2>/dev/null; }
-trap 'sql "DELETE FROM afv_digital_human WHERE user_id IN ($USER_ID, $((USER_ID+1)))"; sql "DELETE FROM afv_asset_item WHERE asset_id IN (SELECT id FROM (SELECT id FROM afv_asset WHERE user_id=$USER_ID) x); DELETE FROM afv_asset WHERE user_id=$USER_ID"; rm -rf "$TMP"' EXIT
+trap 'sql "DELETE FROM afv_digital_human WHERE user_id IN ($USER_ID, $((USER_ID+1)))"; sql "DELETE FROM afv_asset_item WHERE asset_id IN (SELECT id FROM (SELECT id FROM afv_asset WHERE user_id=$USER_ID) x); DELETE FROM afv_asset WHERE user_id=$USER_ID; DELETE FROM afv_workspace_tag WHERE workspace_id IN (SELECT id FROM (SELECT id FROM afv_workspace WHERE owner_user_id=$USER_ID) x); DELETE FROM afv_workspace_member WHERE user_id=$USER_ID; DELETE FROM afv_workspace WHERE owner_user_id=$USER_ID"; rm -rf "$TMP"' EXIT
 
 red()   { printf '\033[31m%s\033[0m\n' "$*"; }
 green() { printf '\033[32m%s\033[0m\n' "$*"; }
@@ -185,9 +185,9 @@ poll "$G2ID" 3 > /dev/null
 
 echo "== 素材库（afv_asset）"
 check "笔记成品每张图一行" "$(sql "SELECT count(*) FROM afv_asset WHERE source_task_id='$GEN_TASK' AND deleted=0")" 2
-A=$(sql "SELECT CONCAT_WS('|', type, entry_code, name, source_type, owner_type, JSON_UNQUOTE(JSON_EXTRACT(properties,'$.noteId'))) FROM afv_asset WHERE source_task_id='$GEN_TASK' AND deleted=0 LIMIT 1")
+A=$(sql "SELECT CONCAT_WS('|', type, entry_code, name, source_type, (SELECT kind FROM afv_workspace w WHERE w.id=workspace_id AND w.owner_user_id=$USER_ID), JSON_UNQUOTE(JSON_EXTRACT(properties,'$.noteId'))) FROM afv_asset WHERE source_task_id='$GEN_TASK' AND deleted=0 LIMIT 1")
 check "编辑后素材库图片同步" "$(sql "SELECT GROUP_CONCAT(result_url ORDER BY id) FROM afv_asset WHERE source_task_id='$GEN_TASK' AND deleted=0")" "$IMG1,$NEW"
-check "type/entry_code/名称/来源/拥有者/笔记ID（编辑后已同步）" "$A" "imageTextNote|imageTextNote|编辑后的标题|2|1|$NID"
+check "type/entry_code/名称/来源/个人空间/笔记ID（编辑后已同步）" "$A" "image|imageTextNote|编辑后的标题|2|PERSONAL|$NID"
 check "素材库分类已挂上入口" "$(sql "SELECT c.category_name FROM afv_asset_category_entry e JOIN afv_asset_category c ON c.id=e.category_id WHERE e.entry_code='imageTextNote'")" 图文笔记
 
 echo "== 列表与删除"

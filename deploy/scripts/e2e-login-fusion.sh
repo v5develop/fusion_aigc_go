@@ -38,6 +38,9 @@ cleanup() {
   rm -f "$CONF"
   sql "DELETE tm FROM afv_team_member tm JOIN afv_app_user u ON u.id = tm.user_id WHERE u.union_user_id LIKE '999%'"
   sql "DELETE t FROM afv_team t JOIN afv_app_user u ON u.id = t.owner_user_id WHERE u.union_user_id LIKE '999%'"
+  sql "DELETE wt FROM afv_workspace_tag wt JOIN afv_workspace w ON w.id=wt.workspace_id JOIN afv_app_user u ON u.id=w.owner_user_id WHERE u.union_user_id LIKE '999%'"
+  sql "DELETE wm FROM afv_workspace_member wm JOIN afv_app_user u ON u.id=wm.user_id WHERE u.union_user_id LIKE '999%'"
+  sql "DELETE w FROM afv_workspace w JOIN afv_app_user u ON u.id=w.owner_user_id WHERE u.union_user_id LIKE '999%'"
   sql "DELETE FROM afv_app_user WHERE union_user_id LIKE '999%'"
 }
 trap cleanup EXIT

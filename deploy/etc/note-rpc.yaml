@@ -43,5 +43,5 @@ Moderation:
 # 素材库：成品写进 afv_asset（分类见 V1.0.110 迁移），每张图一行，用 source_task_id 串起来
 Asset:
   Enabled: true
-  Type: imageTextNote
+  Type: image               # 画廊「图片」tab 按 type=image 筛，细分靠 entry_code
   EntryCode: imageTextNote

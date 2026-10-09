@@ -67,6 +67,9 @@ check "App 令牌被后台拒绝" "$(curl -sS -H "Authorization: Bearer $APP_TOK
 check "后台令牌也调不了 App 接口" "$(curl -sS -H "Authorization: Bearer $TOKEN" "$GW/auth/me" | jq -r .code)" 1002
 sql "DELETE tm FROM afv_team_member tm JOIN afv_app_user u ON u.id=tm.user_id WHERE u.union_user_id='999000000000000081'"
 sql "DELETE t FROM afv_team t JOIN afv_app_user u ON u.id=t.owner_user_id WHERE u.union_user_id='999000000000000081'"
+sql "DELETE wt FROM afv_workspace_tag wt JOIN afv_workspace w ON w.id=wt.workspace_id JOIN afv_app_user u ON u.id=w.owner_user_id WHERE u.union_user_id='999000000000000081'"
+sql "DELETE wm FROM afv_workspace_member wm JOIN afv_app_user u ON u.id=wm.user_id WHERE u.union_user_id='999000000000000081'"
+sql "DELETE w FROM afv_workspace w JOIN afv_app_user u ON u.id=w.owner_user_id WHERE u.union_user_id='999000000000000081'"
 sql "DELETE FROM afv_app_user WHERE union_user_id='999000000000000081'"
 
 echo "== 连错 5 次锁 15 分钟"

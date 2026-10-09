@@ -21,6 +21,8 @@ import (
 	"sync"
 	"time"
 
+	"aigc-life/pkg/workspace"
+
 	"github.com/zeromicro/go-zero/core/logx"
 	"github.com/zeromicro/go-zero/core/stores/sqlx"
 	"golang.org/x/crypto/bcrypt"
@@ -161,7 +163,8 @@ func (m *Model) register(ctx context.Context, p Profile) error {
 	return m.create(ctx, p)
 }
 
-// create 建号 + 建团队，一个事务：Java 那边所有用户都有团队，少建会让 currentTeamId 取空。
+// create 建号 + 建团队 + 建个人空间，一个事务：Java 那边所有用户都有团队和个人空间，
+// 少建会让 currentTeamId 取空、素材库写不进去（它报「当前用户没有个人工作空间」）。
 func (m *Model) create(ctx context.Context, p Profile) error {
 	if err := m.ready(); err != nil {
 		return err
@@ -200,7 +203,11 @@ func (m *Model) create(ctx context.Context, p Profile) error {
 				return err
 			}
 		}
-		return createTeam(ctx, s, id, nickname)
+		if err := createTeam(ctx, s, id, nickname); err != nil {
+			return err
+		}
+		_, err = workspace.EnsurePersonal(ctx, s, id, nickname)
+		return err
 	})
 }
 

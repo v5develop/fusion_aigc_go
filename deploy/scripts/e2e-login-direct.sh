@@ -39,6 +39,9 @@ cleanup() {
   sql "DELETE FROM unionec_app.uec_app_users WHERE id = $UNION_UID"
   sql "DELETE tm FROM fusion_aigc.afv_team_member tm JOIN fusion_aigc.afv_app_user u ON u.id = tm.user_id WHERE u.union_user_id LIKE '999%';
        DELETE t FROM fusion_aigc.afv_team t JOIN fusion_aigc.afv_app_user u ON u.id = t.owner_user_id WHERE u.union_user_id LIKE '999%';
+       DELETE wt FROM fusion_aigc.afv_workspace_tag wt JOIN fusion_aigc.afv_workspace w ON w.id=wt.workspace_id JOIN fusion_aigc.afv_app_user u ON u.id=w.owner_user_id WHERE u.union_user_id LIKE '999%';
+       DELETE wm FROM fusion_aigc.afv_workspace_member wm JOIN fusion_aigc.afv_app_user u ON u.id=wm.user_id WHERE u.union_user_id LIKE '999%';
+       DELETE w FROM fusion_aigc.afv_workspace w JOIN fusion_aigc.afv_app_user u ON u.id=w.owner_user_id WHERE u.union_user_id LIKE '999%';
        DELETE FROM fusion_aigc.afv_app_user WHERE union_user_id LIKE '999%'"
 }
 trap cleanup EXIT

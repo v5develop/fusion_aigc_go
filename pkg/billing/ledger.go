@@ -393,10 +393,10 @@ func settle(ctx context.Context, conn sqlx.SqlConn, r *Reservation, actual int) 
 		// 明细行只改状态：Java 的 confirmed_points / refunded_points 插入后从没被更新过
 		// （工作区版本如此；origin/test 才引入按行结算），我们跟着它，不自作主张回填。
 		//
-		// ⚠️ 行状态一律写 CONFIRMED，**不写 PARTIALLY_REFUNDED**——
-		// afv_billing_reservation_line.status 是 varchar(16)，那个值 19 个字符塞不进去。
-		// Java 的 updateReservationLinesStatus 往这里写 PARTIALLY_REFUNDED，
-		// 严格模式下会报 1406、非严格模式下会被悄悄截断。这条已经记进文档，要提醒他们。
+		// 行状态一律写 CONFIRMED，不写 PARTIALLY_REFUNDED。
+		// 原因是 afv_billing_reservation_line.status 曾是 varchar(16)，那个值 19 个字符塞不进去（1406）。
+		// Java 的 V1.0.166 已把它加宽到 32（2026-10-09 在测试库确认），但线上库到没到不一定，
+		// 写 CONFIRMED 两种宽度都安全；它的回收器和对账都按主单状态走，不看行状态。
 		const updLine = "UPDATE `afv_billing_reservation_line` SET `status` = ? WHERE `reservation_no` = ?"
 		_, err = s.ExecCtx(ctx, updLine, statusConfirmed, r.No)
 		return err

@@ -79,6 +79,9 @@ cleanup() {
        DELETE FROM afv_public_template_assets WHERE url LIKE '%-$USER_ID.png';
        DELETE FROM afv_asset_item WHERE asset_id IN (SELECT id FROM (SELECT id FROM afv_asset WHERE user_id=$USER_ID) x);
        DELETE FROM afv_asset WHERE user_id=$USER_ID;
+       DELETE FROM afv_workspace_tag WHERE workspace_id IN (SELECT id FROM (SELECT id FROM afv_workspace WHERE owner_user_id=$USER_ID) x);
+       DELETE FROM afv_workspace_member WHERE user_id=$USER_ID;
+       DELETE FROM afv_workspace WHERE owner_user_id=$USER_ID;
        DELETE FROM afv_image_creation WHERE user_id=$USER_ID;
        DELETE FROM afv_action_video WHERE user_id=$USER_ID;"
   rm -rf "$TMP"
@@ -172,7 +175,8 @@ check "部分成功：算完成，只返回成功的那张" "$(jq -r '[.status,(
 echo "== 素材库"
 GROUP=$(sql "SELECT JSON_UNQUOTE(JSON_EXTRACT(tasks,'\$[0].task_id')) FROM afv_image_creation WHERE id=$PID")
 check "海报成品每张图一行" "$(sql "SELECT count(*) FROM afv_asset WHERE source_task_id='$GROUP' AND deleted=0")" 2
-check "type/entry_code/比例" "$(sql "SELECT CONCAT_WS('|',type,entry_code,aspect_ratio) FROM afv_asset WHERE source_task_id='$GROUP' AND deleted=0 LIMIT 1")" "poster|poster|3:4"
+check "type/entry_code/比例" "$(sql "SELECT CONCAT_WS('|',type,entry_code,aspect_ratio) FROM afv_asset WHERE source_task_id='$GROUP' AND deleted=0 LIMIT 1")" "image|poster|3:4"
+check "海报资产挂在本人的个人空间" "$(sql "SELECT COUNT(DISTINCT a.workspace_id) FROM afv_asset a JOIN afv_workspace w ON w.id=a.workspace_id AND w.owner_user_id=$USER_ID AND w.kind='PERSONAL' WHERE a.user_id=$USER_ID AND a.deleted=0")" 1
 check "长图成品也进素材库" "$(sql "SELECT count(*) FROM afv_asset WHERE user_id=$USER_ID AND entry_code='longImage' AND deleted=0")" 2
 check "素材库分类已挂上入口" "$(sql "SELECT GROUP_CONCAT(c.category_name ORDER BY c.category_code) FROM afv_asset_category_entry e JOIN afv_asset_category c ON c.id=e.category_id WHERE e.entry_code IN ('poster','longImage')")" 长图,海报
 

@@ -30,6 +30,9 @@ check() {
 cleanup() {
   sql "DELETE tm FROM afv_team_member tm JOIN afv_app_user u ON u.id = tm.user_id WHERE u.union_user_id LIKE '999%'"
   sql "DELETE t FROM afv_team t JOIN afv_app_user u ON u.id = t.owner_user_id WHERE u.union_user_id LIKE '999%'"
+  sql "DELETE wt FROM afv_workspace_tag wt JOIN afv_workspace w ON w.id=wt.workspace_id JOIN afv_app_user u ON u.id=w.owner_user_id WHERE u.union_user_id LIKE '999%'"
+  sql "DELETE wm FROM afv_workspace_member wm JOIN afv_app_user u ON u.id=wm.user_id WHERE u.union_user_id LIKE '999%'"
+  sql "DELETE w FROM afv_workspace w JOIN afv_app_user u ON u.id=w.owner_user_id WHERE u.union_user_id LIKE '999%'"
   sql "DELETE FROM afv_app_user WHERE union_user_id LIKE '999%'"
 }
 trap cleanup EXIT
@@ -52,11 +55,16 @@ echo "== 建号同时建团队（Java 那边所有用户都有团队）"
 check "有个人团队且本人是拥有者" "$(sql "SELECT CONCAT_WS('|',t.name,t.owner_user_id,t.status,tm.role,tm.status) FROM afv_team_member tm JOIN afv_team t ON t.id=tm.team_id WHERE tm.user_id=$UID1")" \
   "$(sql "SELECT nickname FROM afv_app_user WHERE id=$UID1")|$UID1|1|1|1"
 
+echo "== 建号同时建个人空间（Java V1.0.181 起素材归空间，没有空间素材库写不进）"
+check "有个人空间、本人是创建者、预置 4 个标签" "$(sql "SELECT CONCAT_WS('|',w.name,w.kind,w.status,wm.role,wm.status,(SELECT COUNT(*) FROM afv_workspace_tag t WHERE t.workspace_id=w.id)) FROM afv_workspace w JOIN afv_workspace_member wm ON wm.workspace_id=w.id AND wm.user_id=$UID1 WHERE w.owner_user_id=$UID1")" \
+  "$(sql "SELECT nickname FROM afv_app_user WHERE id=$UID1")的个人空间|PERSONAL|1|1|1|4"
+
 echo "== 登录：老用户不重复建档"
 R2=$(login "u$UNION_ID")
 check "还是同一个用户" "$(jq -r .data.user.id <<<"$R2")" "$UID1"
 check "库里只有一条" "$(sql "SELECT COUNT(*) FROM afv_app_user WHERE union_user_id='$UNION_ID'")" 1
 check "团队没重复建" "$(sql "SELECT COUNT(*) FROM afv_team_member WHERE user_id=$UID1")" 1
+check "个人空间没重复建" "$(sql "SELECT COUNT(*) FROM afv_workspace WHERE owner_user_id=$UID1")" 1
 
 echo "== 联盟没给昵称头像（很常见）"
 NO_PROFILE=999000000000000043
