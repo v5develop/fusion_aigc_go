@@ -16,6 +16,7 @@ package billing
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"time"
@@ -113,7 +114,16 @@ type Charge struct {
 
 // bizID 和 Java 一致：{userId}_{requestId}。
 // afv_billing_reservation 上有 UNIQUE uk_biz(biz_type, biz_id)，重复提交靠它挡。
-func (c Charge) bizID() string { return fmt.Sprintf("%d_%s", c.UserID, c.RequestID) }
+// bizID afv_billing_reservation.biz_id 是 varchar(64)（Java 回复 2.5），请求号超长就折叠成哈希，
+// 不然插入时 1406。折叠要稳定（同一个请求号永远同一个值），幂等才成立。
+func (c Charge) bizID() string {
+	id := fmt.Sprintf("%d_%s", c.UserID, c.RequestID)
+	if len(id) <= 64 {
+		return id
+	}
+	sum := sha256.Sum256([]byte(id))
+	return fmt.Sprintf("%d_%x", c.UserID, sum[:])[:64]
+}
 
 // Reservation 冻结成功后的预留单。Mode=off 时 Freeze 返回 nil，后续 Confirm/Refund 收到 nil 直接跳过。
 type Reservation struct {
