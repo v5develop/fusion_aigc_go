@@ -36,14 +36,16 @@ type ruleRow struct {
 // checkNoPricingRules 确认没有已发布的规则会作用到这个 offer / 档位上。
 func checkNoPricingRules(ctx context.Context, conn sqlx.SqlConn, offerCode, variantCode string) error {
 	var rows []ruleRow
-	// 匹配口径照 Java 的 matchesScope：通配 `*` 或对上 offer_code / variant_code。
-	// 生效窗口：effective_time 为空或已到，expire_time 为空或未到。
+	// 匹配口径照 Java 的 PricingRuleEngine（2026-10-10 Java 回复）：
+	//   scope_code='*' 是全局通配、不看 scope_type；OFFER / VARIANT / COMPONENT 三种都只拿 scope_code 比 **offer 编码**，
+	//   VARIANT 不比档位编码。
+	// 生效窗口：effective_time 为空 = 发布即生效，expire_time 为空 = 永不过期，过期时间当天含（>=）。
 	const q = "SELECT `rule_code`,`scope_type`,`scope_code`,`factor_key` FROM `afv_billing_charge_rule` " +
 		"WHERE `status` = 'PUBLISHED' AND `deleted` = 0 " +
 		"AND (`effective_time` IS NULL OR `effective_time` <= NOW()) " +
-		"AND (`expire_time` IS NULL OR `expire_time` > NOW()) " +
-		"AND (`scope_code` = '*' OR `scope_code` = ? OR `scope_code` = ?)"
-	if err := conn.QueryRowsCtx(ctx, &rows, q, offerCode, variantCode); err != nil {
+		"AND (`expire_time` IS NULL OR `expire_time` >= NOW()) " +
+		"AND (`scope_code` = '*' OR `scope_code` = ?)"
+	if err := conn.QueryRowsCtx(ctx, &rows, q, offerCode); err != nil {
 		return err
 	}
 	if len(rows) == 0 {

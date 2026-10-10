@@ -714,3 +714,64 @@ func btoi(b bool) int {
 	}
 	return 0
 }
+
+// 同一个用户同时有两张在途单冻在同一批次上：退其中一张，只能退回它自己冻结的那几个批次与数量，
+// 不能拿别人的（Java 的单也会这样共用批次）。2026-10-10 Java 回复 2.1 / 2.2。
+func TestRealRefundOnlyOwnBatches(t *testing.T) {
+	conn := openDB(t)
+	defer setup(t, conn, 1000)()
+	ctx := context.Background()
+	s := New(Conf{Mode: ModeOn}, conn)
+
+	// 批次 1（先过期）500、批次 2 500。A 冻 100（批次 1），B 冻 450（批次 1 的 400 + 批次 2 的 50）
+	a, err := s.Freeze(ctx, Charge{UserID: testUser, RequestID: "own-a", EntryCode: testEntryAll, Kind: KindVideo, Seconds: 10})
+	if err != nil {
+		t.Fatalf("冻结 A: %v", err)
+	}
+	b, err := s.Freeze(ctx, Charge{UserID: testUser, RequestID: "own-b", EntryCode: testEntryAll, Kind: KindVideo, Seconds: 45})
+	if err != nil {
+		t.Fatalf("冻结 B: %v", err)
+	}
+	want(t, "A 100 点", a.PricePoints, 100)
+	want(t, "B 450 点", b.PricePoints, 450)
+
+	frozenOf := func() (b1, b2 int64) {
+		var rows []struct {
+			Frozen int64 `db:"frozen"`
+		}
+		if err := conn.QueryRowsCtx(ctx, &rows, "SELECT frozen FROM afv_points_batch WHERE user_id = ? ORDER BY (expire_time IS NULL), expire_time", testUser); err != nil || len(rows) != 2 {
+			t.Fatalf("读批次: %v %d", err, len(rows))
+		}
+		return rows[0].Frozen, rows[1].Frozen
+	}
+	f1, f2 := frozenOf()
+	want(t, "批次 1 冻结", f1, 500)
+	want(t, "批次 2 冻结", f2, 50)
+
+	// 批次 1 在退款前被过期任务置成 EXPIRED：退回后要回到 ACTIVE
+	if _, err := conn.ExecCtx(ctx, "UPDATE afv_points_batch SET status = 'EXPIRED' WHERE user_id = ? AND expire_time IS NOT NULL", testUser); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Refund(ctx, b, "退 B"); err != nil {
+		t.Fatalf("退 B: %v", err)
+	}
+	f1, f2 = frozenOf()
+	want(t, "退 B 后批次 1 只剩 A 的 100", f1, 100)
+	want(t, "退 B 后批次 2 不再冻结", f2, 0)
+	var st string
+	if err := conn.QueryRowCtx(ctx, &st, "SELECT status FROM afv_points_batch WHERE user_id = ? AND expire_time IS NOT NULL", testUser); err != nil {
+		t.Fatal(err)
+	}
+	if st != "ACTIVE" {
+		t.Fatalf("退回的批次应置回 ACTIVE，实际 %s", st)
+	}
+	checkConsistent(t, conn)
+
+	if err := s.Refund(ctx, a, "退 A"); err != nil {
+		t.Fatalf("退 A: %v", err)
+	}
+	f1, f2 = frozenOf()
+	want(t, "全退后批次 1 冻结", f1, 0)
+	want(t, "全退后批次 2 冻结", f2, 0)
+	checkConsistent(t, conn)
+}
