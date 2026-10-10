@@ -168,31 +168,23 @@ if ("LOCALLIFE".equals(bizType)) {
 `afv_asset` / `afv_asset_item` / `afv_app_user` / `afv_team` / `afv_team_member` / `afv_workspace*` /
 `afv_points_*` / `afv_billing_reservation*` / `afv_billing_offer*` / `afv_app_user_feature` / `afv_public_template_*`。
 
-## 九、附：我们需要的配置（待配置 / 待确认，不是现成的）
+## 九、附：我们用到的配置（2026-10-10 已对照测试库核实）
 
-> 2026-10-10 更正：这一节原来写成了「我们用到的配置」，像是库里现成的。Java 对照**仓库**后回复说多数查不到。
-> 实查**测试库**的结果是：模型码 `xiaoqi-video-1.0-lite-b6`、`doubao-seedance-2-0-b8`、`doubao-seedance-2-0-b12` **确实存在**
-> （`afv_ai_model`），但仓库的迁移里没有，说明是后台手工配的——所以两边看到的不是同一份。
-> 其余的（入口码对应的 offer、`_cloud` / `_lite` 档位、`ai_chat` 能力码）测试库里有没有，还没逐项核实。
-> 下面分「已核实」和「待确认」，不再把没核实的写成已有的。
+> Java 对照**仓库**回复说多数查不到，原因是这些是后台手工配在库里的，仓库迁移里没有。
+> 以下是**测试库 fusion_aigc 实查**的结果（`afv_billing_offer` / `_variant` / `afv_ai_model`）。线上库请对方另行核对。
 
-**已核实（Java 仓库迁移 + 本地库 + 测试库）**
+| 入口码 `entry_code` | offer_code | 能力码 | 档位 | 默认模型 |
+|---|---|---|---|---|
+| `exploreShop` | `explore_shop` | `ecom_video_gen` | `_cloud` / `_lite` | `doubao-seedance-2-5` / `xiaoqi-video-1.0-lite-b6` |
+| `shortDrama` | `short_drama` | `ecom_video_gen` | `_cloud` / `_lite` | 同上 |
+| `voiceover` | `voiceover` | `ecom_video_gen` | `_cloud` / `_lite` | 同上 |
+| `digitalHuman` | `digital_human` | `ecom_video_gen` | `_cloud` / `_lite` | 同上 |
+| `videoRemake` | `video_remake` | `ecom_video_gen` | `_cloud` / `_lite` | `doubao-seedance-2-0-b12` / `xiaoqi-video-1.0-lite-b6` |
+| `actionTransfer` | `action_transfer` | `video_to_video` | `_cloud` / **`_standard`**（应为 `_lite`） | `doubao-seedance-2-0-b8` / `xiaoqi-video-1.0-lite-b6` |
+| `imageTextNote` / `poster` / `longImage` | — | 期望 `ecom_image_gen`，`PER_IMAGE` | **测试库里没有，待配** | 待产品定（图片三场景选哪个模型） |
+| `aiCopywriting` | — | 没有合适的能力码 | **没有，建议不计费** | — |
 
-- 入口码 `entry_code` 是驼峰（`actionTransfer`），offer 编码 `offer_code` 是下划线（`action_transfer`）。
-- `actionTransfer`：offer `action_transfer`，能力码 `video_to_video`，分类 `VIDEO`，档位 `action_transfer_standard`（`quality_tier=standard`，默认模型 `xiaoqi-video-1.0-lite`）。
-- 现有档位命名是 `<offer>_standard`，另有按模型的 `<offer>_xiaoqi`（模型 `xiaoqi-image-1.0-max`）、`<offer>_mini`、`<offer>_seedance_2.0` 等。`quality_tier` 现在基本都是 `standard`，**不能用它区分档次**。
-- 能力码里没有 `ai_chat`（仓库和本地库）；聊天相关的是 `chat_image_gen` / `chat_video_gen`。测试库里有没有待核实。
-- 测试库 `afv_ai_model` 里有 `xiaoqi-video-1.0-lite`、`xiaoqi-video-1.0-lite-b6`、`doubao-seedance-2-0-b8`、`doubao-seedance-2-0-b12`（后者三个不在仓库迁移里，应是手工配的）。
-
-**我们需要对方确认 / 配置（线上库里有没有、叫什么，以对方清单为准）**
-
-| 入口码 `entry_code` | 需要的能力 | 计量 | 状态 |
-|---|---|---|---|
-| `imageTextNote` / `poster` / `longImage` | 图片类，期望 `ecom_image_gen` | `PER_IMAGE` | 待确认是否已配 |
-| `exploreShop` / `shortDrama` / `voiceover` / `digitalHuman` / `videoRemake` | 视频类，期望 `ecom_video_gen` | `PER_SECOND` | 待确认是否已配 |
-| `actionTransfer` | `video_to_video` | `PER_SECOND` | **已有** |
-| `aiCopywriting` | 没有合适的能力码；产品倾向不计费 | — | 待产品定 |
-
-选档位：我们的代码支持按**模型码**选（`default_model_id`），也支持按 `<offer>_<tier>` 档位码或 `quality_tier` 选。
-由于现有 `quality_tier` 不区分档次，**实际用哪个选法，等对方给出清单、确认档位怎么命名后再定**。
-在此之前计费保持 `off`，不会拿一个不存在的档位去扣点。
+- 以上六个视频入口的 `quality_tier` 都是 `standard`，**不能靠它区分档次**，所以我们按档位码 `<offer_code>_<cloud|lite>` 选。
+- 模型码里的 `-b6` / `-b8` / `-b12` 把单价编进了码里，调价就会换码，所以不用模型码当对接键。
+- `actionTransfer` 的 lite 档叫 `action_transfer_standard`，和别的模块不一致，我们按 `_lite` 找不到，要改名（见《计费入口码-后台填写指引》五点八）。
+- 能力码 `ai_chat` 是 `TEXT_CHAT` 对话，不是「帮写文案」，所以 `aiCopywriting` 没有合适的能力码。
