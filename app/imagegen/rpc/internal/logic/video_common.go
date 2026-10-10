@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"aigc-life/app/copywriting/rpc/copywriting"
@@ -144,7 +147,7 @@ func remakeTask(c *model.AfvVideoCreation) (aigc.Task, error) {
 		return nil, xerr.New(xerr.ServerError, "剧情内容异常，请重新解析")
 	}
 	return aigc.VideoRemake{
-		Script: text, Duration: int(c.Duration),
+		Script: text, Duration: clampRemakeSeconds(int(c.Duration)),
 		AspectRatio: c.Size, Model: c.Model,
 	}, nil
 }
@@ -190,4 +193,27 @@ func failVideo(ctx context.Context, svcCtx *svc.ServiceContext, id, from int64, 
 	if err != nil {
 		logx.WithContext(ctx).Errorf("fail video %d: %v", id, err)
 	}
+}
+
+// minRemakeSeconds 71 底层的 Seedance 要求时长 ≥ 4 秒（2026-10-10 测试服实测：传 1 会报校验错误）。
+const minRemakeSeconds = 4
+
+func clampRemakeSeconds(s int) int {
+	if s < minRemakeSeconds {
+		return minRemakeSeconds
+	}
+	return s
+}
+
+var scriptTotalRe = regexp.MustCompile(`【总时长】[：:]\s*([0-9]+(?:\.[0-9]+)?)`)
+
+// remakeSeconds 原片时长。70 有时不回 duration（实测出现过），这时从剧情文本里的「【总时长】：5.0 秒」取；
+// 都没有就按最短档，不能是 0 或 1。
+func remakeSeconds(parsed float64, script string) int {
+	if parsed <= 0 {
+		if m := scriptTotalRe.FindStringSubmatch(script); m != nil {
+			parsed, _ = strconv.ParseFloat(m[1], 64)
+		}
+	}
+	return clampRemakeSeconds(int(math.Round(parsed)))
 }

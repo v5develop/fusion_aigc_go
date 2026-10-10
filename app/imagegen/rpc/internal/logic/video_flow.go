@@ -3,7 +3,6 @@ package logic
 import (
 	"context"
 	"encoding/json"
-	"math"
 	"strings"
 	"time"
 
@@ -75,13 +74,10 @@ func (p *Poller) pollVideoParse(ctx context.Context, c *model.AfvVideoCreation) 
 			failVideo(ctx, svcCtx, c.Id, model.VideoPlanning, "没能解析出剧情，换一个视频试试")
 			return
 		}
-		seconds := int(math.Round(r.Duration))
+		seconds := remakeSeconds(r.Duration, text)
 		if cfg.MaxVideoSeconds > 0 && seconds > cfg.MaxVideoSeconds {
 			failVideo(ctx, svcCtx, c.Id, model.VideoPlanning, videoLimits(cfg).LimitMsg())
 			return
-		}
-		if seconds <= 0 {
-			seconds = 1 // 71 要求 duration > 0
 		}
 		script, _ := json.Marshal(text)
 		if _, err := svcCtx.Video.FinishParse(ctx, c.Id, string(script), int64(seconds)); err != nil {
