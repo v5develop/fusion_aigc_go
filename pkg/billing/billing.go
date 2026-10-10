@@ -94,10 +94,11 @@ type Charge struct {
 	EntryCode string
 	// Tier 档次，按 `<offer_code>_<tier>` 档位码或 quality_tier 找档位。
 	//
-	// ⚠️ 2026-10-10 Java 回复：仓库里没有 `_cloud` / `_lite` 档位，也没有 `-b6/-b8/-b12` 的模型码；
-	// 现有档位是 `<offer>_standard` 等，quality_tier 基本都是 standard、区分不了档次。
-	// 这里的 cloud / lite 只是我们原先的假设，**真要计费前要按线上库的实际档位重新定选法**
-	// （可能改成按 ModelCode 选）。计费 Mode 在那之前保持 off。
+	// ⚠️ 2026-10-10 Java 回复：他们的仓库里没有 `_cloud` / `_lite` 档位和 `-b6/-b8/-b12` 的模型码，
+	// 现有档位是 `<offer>_standard` 等、quality_tier 基本都是 standard。
+	// 但测试库 afv_ai_model 里确实有 `-b6/-b8/-b12`（手工配的，仓库迁移里没有）。
+	// 所以两边看到的配置不是同一份；`_cloud` / `_lite` 档位在测试库有没有还没核实。
+	// **真要计费前要按测试 / 线上库的实际档位重新定选法**（可能改成按 ModelCode 选）。计费 Mode 在那之前保持 off。
 	Tier string
 	// ModelCode 模型码，对应 afv_billing_offer_variant 默认模型的 afv_ai_model.code。
 	// 一般不用填，填了优先于 Tier。

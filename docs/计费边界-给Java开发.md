@@ -170,17 +170,19 @@ if ("LOCALLIFE".equals(bizType)) {
 
 ## 九、附：我们需要的配置（待配置 / 待确认，不是现成的）
 
-> 2026-10-10 更正：这一节原来写成了「我们用到的配置」，像是库里现成的，**不对**。
-> Java 对照仓库后回复：这些入口码里只有 `actionTransfer` 有对应的 offer，其余都查不到；
-> 原先写的档位命名 `<offer_code>_cloud` / `_lite`、模型码 `-b6` / `-b8` / `-b12`、能力码 `ai_chat` 也都在仓库里找不到。
-> 下面只写**已核实**的和**我们需要对方确认**的两类，不再把想要的写成已有的。
+> 2026-10-10 更正：这一节原来写成了「我们用到的配置」，像是库里现成的。Java 对照**仓库**后回复说多数查不到。
+> 实查**测试库**的结果是：模型码 `xiaoqi-video-1.0-lite-b6`、`doubao-seedance-2-0-b8`、`doubao-seedance-2-0-b12` **确实存在**
+> （`afv_ai_model`），但仓库的迁移里没有，说明是后台手工配的——所以两边看到的不是同一份。
+> 其余的（入口码对应的 offer、`_cloud` / `_lite` 档位、`ai_chat` 能力码）测试库里有没有，还没逐项核实。
+> 下面分「已核实」和「待确认」，不再把没核实的写成已有的。
 
-**已核实（Java 仓库迁移 + 本地库）**
+**已核实（Java 仓库迁移 + 本地库 + 测试库）**
 
 - 入口码 `entry_code` 是驼峰（`actionTransfer`），offer 编码 `offer_code` 是下划线（`action_transfer`）。
 - `actionTransfer`：offer `action_transfer`，能力码 `video_to_video`，分类 `VIDEO`，档位 `action_transfer_standard`（`quality_tier=standard`，默认模型 `xiaoqi-video-1.0-lite`）。
 - 现有档位命名是 `<offer>_standard`，另有按模型的 `<offer>_xiaoqi`（模型 `xiaoqi-image-1.0-max`）、`<offer>_mini`、`<offer>_seedance_2.0` 等。`quality_tier` 现在基本都是 `standard`，**不能用它区分档次**。
-- 能力码里没有 `ai_chat`；聊天相关的是 `chat_image_gen` / `chat_video_gen`。
+- 能力码里没有 `ai_chat`（仓库和本地库）；聊天相关的是 `chat_image_gen` / `chat_video_gen`。测试库里有没有待核实。
+- 测试库 `afv_ai_model` 里有 `xiaoqi-video-1.0-lite`、`xiaoqi-video-1.0-lite-b6`、`doubao-seedance-2-0-b8`、`doubao-seedance-2-0-b12`（后者三个不在仓库迁移里，应是手工配的）。
 
 **我们需要对方确认 / 配置（线上库里有没有、叫什么，以对方清单为准）**
 
