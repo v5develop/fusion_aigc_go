@@ -168,15 +168,29 @@ if ("LOCALLIFE".equals(bizType)) {
 `afv_asset` / `afv_asset_item` / `afv_app_user` / `afv_team` / `afv_team_member` / `afv_workspace*` /
 `afv_points_*` / `afv_billing_reservation*` / `afv_billing_offer*` / `afv_app_user_feature` / `afv_public_template_*`。
 
-## 九、附：我们用到的配置
+## 九、附：我们需要的配置（待配置 / 待确认，不是现成的）
 
-| 入口码 `entry_code` | 能力码 `feature_code` | 计量 |
-|---|---|---|
-| `imageTextNote` / `poster` / `longImage` | `ecom_image_gen` | `PER_IMAGE` |
-| `exploreShop` / `shortDrama` / `voiceover` / `digitalHuman` / `videoRemake` | `ecom_video_gen` | `PER_SECOND` |
-| `actionTransfer` | `video_to_video` | `PER_SECOND` |
-| `aiCopywriting` | `ai_chat` | `PER_REQUEST` |
+> 2026-10-10 更正：这一节原来写成了「我们用到的配置」，像是库里现成的，**不对**。
+> Java 对照仓库后回复：这些入口码里只有 `actionTransfer` 有对应的 offer，其余都查不到；
+> 原先写的档位命名 `<offer_code>_cloud` / `_lite`、模型码 `-b6` / `-b8` / `-b12`、能力码 `ai_chat` 也都在仓库里找不到。
+> 下面只写**已核实**的和**我们需要对方确认**的两类，不再把想要的写成已有的。
 
-档位命名 `<offer_code>_cloud` / `<offer_code>_lite`——
-我们按**档次**选档位，不按模型码（你们把单价编进了模型码 `-b6`/`-b8`/`-b12`，
-调价就会换码，拿它当对接键一调价我们就挂）。
+**已核实（Java 仓库迁移 + 本地库）**
+
+- 入口码 `entry_code` 是驼峰（`actionTransfer`），offer 编码 `offer_code` 是下划线（`action_transfer`）。
+- `actionTransfer`：offer `action_transfer`，能力码 `video_to_video`，分类 `VIDEO`，档位 `action_transfer_standard`（`quality_tier=standard`，默认模型 `xiaoqi-video-1.0-lite`）。
+- 现有档位命名是 `<offer>_standard`，另有按模型的 `<offer>_xiaoqi`（模型 `xiaoqi-image-1.0-max`）、`<offer>_mini`、`<offer>_seedance_2.0` 等。`quality_tier` 现在基本都是 `standard`，**不能用它区分档次**。
+- 能力码里没有 `ai_chat`；聊天相关的是 `chat_image_gen` / `chat_video_gen`。
+
+**我们需要对方确认 / 配置（线上库里有没有、叫什么，以对方清单为准）**
+
+| 入口码 `entry_code` | 需要的能力 | 计量 | 状态 |
+|---|---|---|---|
+| `imageTextNote` / `poster` / `longImage` | 图片类，期望 `ecom_image_gen` | `PER_IMAGE` | 待确认是否已配 |
+| `exploreShop` / `shortDrama` / `voiceover` / `digitalHuman` / `videoRemake` | 视频类，期望 `ecom_video_gen` | `PER_SECOND` | 待确认是否已配 |
+| `actionTransfer` | `video_to_video` | `PER_SECOND` | **已有** |
+| `aiCopywriting` | 没有合适的能力码；产品倾向不计费 | — | 待产品定 |
+
+选档位：我们的代码支持按**模型码**选（`default_model_id`），也支持按 `<offer>_<tier>` 档位码或 `quality_tier` 选。
+由于现有 `quality_tier` 不区分档次，**实际用哪个选法，等对方给出清单、确认档位怎么命名后再定**。
+在此之前计费保持 `off`，不会拿一个不存在的档位去扣点。

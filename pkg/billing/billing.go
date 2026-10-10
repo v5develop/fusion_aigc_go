@@ -92,13 +92,12 @@ type Charge struct {
 	RequestID string
 	// EntryCode 入口码，对应 afv_billing_offer.entry_code（驼峰，如 digitalHuman）
 	EntryCode string
-	// Tier 档次：`cloud` / `lite`。**优先用这个选档位**。
+	// Tier 档次，按 `<offer_code>_<tier>` 档位码或 quality_tier 找档位。
 	//
-	// 为什么不用模型码：两边的码对不上。我们下发给前端和执行面的是
-	// `seedance2.5` / `lite` / `doubao-seedance-2-0-260128`，而计费配置里是
-	// `doubao-seedance-2-5` / `xiaoqi-video-1.0-lite-b6` / `doubao-seedance-2-0-b8`。
-	// 计费那边还把单价编进了模型码（-b6/-b8/-b12），调价就会换码——拿它当对接键，
-	// 对方一调价我们就挂。档次是稳定的。
+	// ⚠️ 2026-10-10 Java 回复：仓库里没有 `_cloud` / `_lite` 档位，也没有 `-b6/-b8/-b12` 的模型码；
+	// 现有档位是 `<offer>_standard` 等，quality_tier 基本都是 standard、区分不了档次。
+	// 这里的 cloud / lite 只是我们原先的假设，**真要计费前要按线上库的实际档位重新定选法**
+	// （可能改成按 ModelCode 选）。计费 Mode 在那之前保持 off。
 	Tier string
 	// ModelCode 模型码，对应 afv_billing_offer_variant 默认模型的 afv_ai_model.code。
 	// 一般不用填，填了优先于 Tier。
