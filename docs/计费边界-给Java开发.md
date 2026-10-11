@@ -181,8 +181,8 @@ if ("LOCALLIFE".equals(bizType)) {
 | `digitalHuman` | `digital_human` | `ecom_video_gen` | `_cloud` / `_lite` | 同上 |
 | `videoRemake` | `video_remake` | `ecom_video_gen` | `_cloud` / `_lite` | `doubao-seedance-2-0-b12` / `xiaoqi-video-1.0-lite-b6` |
 | `actionTransfer` | `action_transfer` | `video_to_video` | `_cloud` / **`_standard`**（应为 `_lite`） | `doubao-seedance-2-0-b8` / `xiaoqi-video-1.0-lite-b6` |
-| `imageTextNote` / `poster` / `longImage` | — | 期望 `ecom_image_gen`，`PER_IMAGE` | **测试库里没有，待配** | 待产品定（图片三场景选哪个模型） |
-| `aiCopywriting` | — | 没有合适的能力码 | **没有，建议不计费** | — |
+| `imageTextNote` / `poster` / `longImage` | — | 期望 `ecom_image_gen`，`PER_IMAGE` | **测试库里没有，待配** | 产品 10/11 定：GPT Image 2（`creaft-image-2`，id 181），详见《回复-计费边界-给Java开发-261010》第 9 节 |
+| `aiCopywriting` | — | — | **没有** | 产品 10/11 定：不计费 |
 
 - 以上六个视频入口的 `quality_tier` 都是 `standard`，**不能靠它区分档次**，所以我们按档位码 `<offer_code>_<cloud|lite>` 选。
 - 模型码里的 `-b6` / `-b8` / `-b12` 把单价编进了码里，调价就会换码，所以不用模型码当对接键。

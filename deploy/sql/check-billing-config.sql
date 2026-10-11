@@ -15,7 +15,7 @@ FROM (
   SELECT 'longImage'                   UNION ALL SELECT 'exploreShop'   UNION ALL
   SELECT 'shortDrama'                  UNION ALL SELECT 'voiceover'     UNION ALL
   SELECT 'digitalHuman'                UNION ALL SELECT 'videoRemake'   UNION ALL
-  SELECT 'actionTransfer'              UNION ALL SELECT 'aiCopywriting'
+  SELECT 'actionTransfer'
 ) x
 LEFT JOIN afv_billing_offer o
        ON o.entry_code = x.entry_code AND o.deleted = 0 AND o.status = 'ENABLED'

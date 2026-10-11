@@ -51,7 +51,7 @@ type Conf struct {
 	//
 	// 产品 2026-09-27 定了开。前提是入口码挂的能力码要真有人被发放过——
 	// 图片视频都共享电商的码（ecom_image_gen / ecom_video_gen / video_to_video，各 18 人），
-	// AI文案复用 ai_chat（16 人）。**千万别挂 locallife_image_gen**（只有 2 人，还是手工发的），
+	// AI文案不计费、不做准入（产品 2026-10-11 定）。**千万别挂 locallife_image_gen**（只有 2 人，还是手工发的），
 	// 也别新建能力码——新码零发放，开了就是把那个功能对所有人关掉。
 	// 上线前用 deploy/sql/check-billing-entitlement.sql 核一遍。
 	//
@@ -98,7 +98,7 @@ type Charge struct {
 	// 2026-10-10 在测试库核实：六个视频入口都有 `<offer>_cloud` / `<offer>_lite` 档位，模型码带 -b6/-b8/-b12。
 	// Java 对照仓库说查不到，是因为这些是后台手工配的、仓库迁移里没有。
 	// 例外：actionTransfer 的 lite 档叫 `action_transfer_standard`，要改名成 `_lite` 才找得到。
-	// 图文笔记 / 海报 / 长图 / AI文案 在测试库里还没有 offer。
+	// 图文笔记 / 海报 / 长图 在测试库里还没有 offer（产品 2026-10-11 定模型 GPT Image 2 = creaft-image-2，等后台配）；AI文案不计费。
 	Tier string
 	// ModelCode 模型码，对应 afv_billing_offer_variant 默认模型的 afv_ai_model.code。
 	// 一般不用填，填了优先于 Tier。

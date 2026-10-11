@@ -17,5 +17,5 @@ LEFT JOIN (
 ) g ON g.feature_code = o.feature_code
 WHERE o.deleted = 0 AND o.entry_code IN
   ('imageTextNote','poster','longImage','exploreShop','shortDrama',
-   'voiceover','digitalHuman','videoRemake','actionTransfer','aiCopywriting')
+   'voiceover','digitalHuman','videoRemake','actionTransfer')
 ORDER BY COALESCE(g.users, 0), o.entry_code;
