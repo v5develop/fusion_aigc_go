@@ -86,12 +86,14 @@ seed() {
 
 echo "== 公共数字人（digitalHuman / publicModel）"
 # extra.role 是职业标签，extra.avatarUrl 是头像（可空，空则前端用形象图）
-# 2026-10-11 「公共数字人-店长小林」改名「小林」。seed 按标题去重，所以先把老行改名，别重复插一条。
-q "UPDATE afv_public_template_assets SET title='小林' WHERE biz_type='$BIZ' AND title='公共数字人-店长小林' AND deleted=0"
-seed digitalHuman publicModel image 10 '小林'             "$IMG" "JSON_OBJECT('role','店长','avatarUrl','$IMG')"
-seed digitalHuman publicModel image 20 '公共数字人-探店达人阿杰' "$IMG" "JSON_OBJECT('role','探店达人','avatarUrl','$IMG')"
-seed digitalHuman publicModel image 30 '公共数字人-白领小雅'   "$IMG" "JSON_OBJECT('role','白领','avatarUrl','$IMG')"
-seed digitalHuman publicModel image 40 '公共数字人-学生小北'   "$IMG" "JSON_OBJECT('role','学生','avatarUrl','$IMG')"
+# 2026-10-11 名字去掉「公共数字人-xx」前缀，只留人名。seed 按标题去重，所以先把老库里的旧标题改掉，别重复插。
+for pair in '公共数字人-店长小林:小林' '公共数字人-探店达人阿杰:阿杰' '公共数字人-白领小雅:小雅' '公共数字人-学生小北:小北'; do
+  q "UPDATE afv_public_template_assets SET title='${pair#*:}' WHERE biz_type='$BIZ' AND title='${pair%%:*}' AND deleted=0"
+done
+seed digitalHuman publicModel image 10 '小林' "$IMG" "JSON_OBJECT('role','店长','avatarUrl','$IMG')"
+seed digitalHuman publicModel image 20 '阿杰' "$IMG" "JSON_OBJECT('role','探店达人','avatarUrl','$IMG')"
+seed digitalHuman publicModel image 30 '小雅' "$IMG" "JSON_OBJECT('role','白领','avatarUrl','$IMG')"
+seed digitalHuman publicModel image 40 '小北' "$IMG" "JSON_OBJECT('role','学生','avatarUrl','$IMG')"
 
 echo "== 海报模板（poster / template）"
 seed poster template image 10 '海报模板-促销大字报' "$IMG"
