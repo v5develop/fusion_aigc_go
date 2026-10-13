@@ -101,8 +101,8 @@ VideoRemake:             # 爆款视频复刻（70 解析 → 71 复刻）
     # 本地指向 mock-linkparse（make run-all 会启动）；服务器上由 deploy.env 的 LINK_PARSE_URL 覆盖
     BaseURL: "http://127.0.0.1:5058"
     TimeoutSeconds: 60
-  ParseTimeoutMinutes: 15
-  GenTimeoutMinutes: 40
+  ParseTimeoutMinutes: 30
+  GenTimeoutMinutes: 180
   AssetType: video
   AssetEntryCode: videoRemake
 VideoLimits:

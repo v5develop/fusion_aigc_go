@@ -45,7 +45,7 @@ type Conf struct {
 	// 所以按任务类型分开配，视频给足。
 	Hold struct {
 		DefaultMinutes int `json:",default=15"` // 图片、文案这类快的
-		VideoMinutes   int `json:",default=90"` // 视频：要大于我们自己的任务超时
+		VideoMinutes   int `json:",default=200"` // 视频：要大于我们自己的任务超时（复刻出片最长 180）
 	}
 	// CheckEntitlement 用不用创作权益做准入（afv_app_user_feature）。
 	//
@@ -147,7 +147,7 @@ func New(c Conf, conn sqlx.SqlConn) *Service {
 		c.Hold.DefaultMinutes = 15
 	}
 	if c.Hold.VideoMinutes <= 0 {
-		c.Hold.VideoMinutes = 90
+		c.Hold.VideoMinutes = 200
 	}
 	return &Service{conf: c, conn: conn}
 }
