@@ -8,7 +8,7 @@
 
 | 进程 | 端口 | 对外 | 说明 |
 |---|---|---|---|
-| `gateway-api` | 8888 | ✅ | App 接口 `/api/v1/*` |
+| `gateway-api` | 8888 | ✅ | App 接口 `/lf-api/v1/*` |
 | `admin-api` | 8889 | ✅ | 运营后台 `/admin/v1/*` |
 | `copywriting-rpc` | 9201 | ❌ | AI文案 |
 | `digitalhuman-rpc` | 9202 | ❌ | AI数字人 |
@@ -118,8 +118,8 @@ WantedBy=multi-user.target
 ## 6. 验证
 
 ```bash
-curl -s -H 'X-User-Id: 1' http://<host>:8888/api/v1/copywriting/options | head -c 200   # 文案选项
-curl -s -H 'X-User-Id: 1' http://<host>:8888/api/v1/notes/options | head -c 200         # 笔记类型
+curl -s -H 'X-User-Id: 1' http://<host>:8888/lf-api/v1/copywriting/options | head -c 200   # 文案选项
+curl -s -H 'X-User-Id: 1' http://<host>:8888/lf-api/v1/notes/options | head -c 200         # 笔记类型
 curl -s -H 'X-Admin-Id: 1' http://<host>:8889/admin/v1/digital-humans/tts-model         # 配音模型
 ```
 

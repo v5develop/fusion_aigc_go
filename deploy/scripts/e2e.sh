@@ -3,7 +3,7 @@
 # 用法：deploy/scripts/e2e.sh
 set -euo pipefail
 
-GW=${GW:-http://127.0.0.1:8888/api/v1}
+GW=${GW:-http://127.0.0.1:8888/lf-api/v1}
 ADMIN=${ADMIN:-http://127.0.0.1:8889/admin/v1}
 # SKIP_MODEL=1 跳过真实调模型的段落（模型账号欠费/限流时仍能验证其余逻辑）
 SKIP_MODEL=${SKIP_MODEL:-0}

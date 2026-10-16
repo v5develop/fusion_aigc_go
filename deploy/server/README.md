@@ -91,7 +91,7 @@ bash /opt/aigc-life/install.sh voices
 1. 宝塔 →「安全」→ 放行端口 `18888`、`18889`；
 2. 云服务器控制台（阿里云/腾讯云）→ 安全组 → 同样放行这两个端口。
 
-前端地址：`http://<服务器公网IP>:18888/api/v1`
+前端地址：`http://<服务器公网IP>:18888/lf-api/v1`
 
 **方式 B：用宝塔建网站做反向代理（有域名、要 HTTPS 时用）**
 
@@ -100,7 +100,7 @@ bash /opt/aigc-life/install.sh voices
 3. 站点「设置」→「SSL」申请证书；
 4. 反向代理默认的上传大小可能是 1M，站点「配置文件」里加一行 `client_max_body_size 20m;`（本地开发才用网关代传上传，线上是前端直传 OSS，一般用不到）。
 
-前端地址：`https://aigc-api.xxx.com/api/v1`。运营后台同理再建一个站点代理到 `18889`。
+前端地址：`https://aigc-api.xxx.com/lf-api/v1`。运营后台同理再建一个站点代理到 `18889`。
 
 ## 四、验证与接口文档
 
@@ -116,7 +116,7 @@ bash /opt/aigc-life/install.sh voices
 **命令行验证**：
 
 ```bash
-curl -s -H 'X-User-Id: 1' http://127.0.0.1:18888/api/v1/image-creations/options?kind=voiceover
+curl -s -H 'X-User-Id: 1' http://127.0.0.1:18888/lf-api/v1/image-creations/options?kind=voiceover
 ```
 
 返回 `{"code":0,...}` 就正常。前端联调文档在安装目录 `docs/` 下（`api-app.md`、`api-voiceover.md`）。
@@ -131,9 +131,9 @@ curl -s -H 'X-User-Id: 1' http://127.0.0.1:18888/api/v1/image-creations/options?
 
 ```bash
 cd /opt/aigc-life
-GW=http://127.0.0.1:18888/api/v1 bash scripts/e2e-real.sh          # 只跑便宜的（文案/档案/笔记/海报/长图）
-GW=http://127.0.0.1:18888/api/v1 bash scripts/e2e-real.sh video    # 出视频的（口播/动作迁移/探店/短剧/复刻/数字人）
-GW=http://127.0.0.1:18888/api/v1 bash scripts/e2e-real.sh all      # 全部
+GW=http://127.0.0.1:18888/lf-api/v1 bash scripts/e2e-real.sh          # 只跑便宜的（文案/档案/笔记/海报/长图）
+GW=http://127.0.0.1:18888/lf-api/v1 bash scripts/e2e-real.sh video    # 出视频的（口播/动作迁移/探店/短剧/复刻/数字人）
+GW=http://127.0.0.1:18888/lf-api/v1 bash scripts/e2e-real.sh all      # 全部
 ```
 
 - **出视频的模块会真实产生费用**，而且慢（云端 2–10 分钟，本地 GPU 可能十几分钟），脚本最多等 45 分钟。

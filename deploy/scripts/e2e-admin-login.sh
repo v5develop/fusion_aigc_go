@@ -6,7 +6,7 @@
 set -euo pipefail
 
 ADMIN=${ADMIN:-http://127.0.0.1:8889/admin/v1}
-GW=${GW:-http://127.0.0.1:8888/api/v1}
+GW=${GW:-http://127.0.0.1:8888/lf-api/v1}
 MOCKUNION=${MOCKUNION:-http://127.0.0.1:5056}
 USER=e2e_admin
 PWD_OK='e2e-Pass-1234'

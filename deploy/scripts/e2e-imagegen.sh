@@ -5,7 +5,7 @@
 # 用法：deploy/scripts/e2e-imagegen.sh
 set -euo pipefail
 
-GW=${GW:-http://127.0.0.1:8888/api/v1}
+GW=${GW:-http://127.0.0.1:8888/lf-api/v1}
 ADMIN=${ADMIN:-http://127.0.0.1:8889/admin/v1}
 USER_ID=${USER_ID:-$(( (RANDOM << 15 | RANDOM) + 100000 ))}
 PASS=0

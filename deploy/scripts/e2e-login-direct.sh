@@ -13,7 +13,7 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 
 PORT=${PORT:-8891}
-GW="http://127.0.0.1:$PORT/api/v1"
+GW="http://127.0.0.1:$PORT/lf-api/v1"
 REDIS=${REDIS:-redis-7}          # docker 容器名
 UNION_UID=999000000000000091     # 联盟库里的假用户
 AES_KEY=1234567890ABCDEF         # 联盟的手机号加密密钥（他们配置里的默认值）

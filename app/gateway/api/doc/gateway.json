@@ -17,7 +17,7 @@
   },
   "basePath": "/",
   "paths": {
-    "/api/v1/action-videos": {
+    "/lf-api/v1/action-videos": {
       "get": {
         "security": [
           {
@@ -207,7 +207,7 @@
         }
       }
     },
-    "/api/v1/action-videos/{id}": {
+    "/lf-api/v1/action-videos/{id}": {
       "delete": {
         "security": [
           {
@@ -261,7 +261,7 @@
         }
       }
     },
-    "/api/v1/agreements/aigc": {
+    "/lf-api/v1/agreements/aigc": {
       "get": {
         "security": [
           {
@@ -315,7 +315,7 @@
         }
       }
     },
-    "/api/v1/agreements/aigc/accept": {
+    "/lf-api/v1/agreements/aigc/accept": {
       "post": {
         "security": [
           {
@@ -369,7 +369,7 @@
         }
       }
     },
-    "/api/v1/auth/login": {
+    "/lf-api/v1/auth/login": {
       "post": {
         "consumes": [
           "application/json"
@@ -473,7 +473,7 @@
         }
       }
     },
-    "/api/v1/auth/me": {
+    "/lf-api/v1/auth/me": {
       "get": {
         "security": [
           {
@@ -532,7 +532,7 @@
         }
       }
     },
-    "/api/v1/copywriting": {
+    "/lf-api/v1/copywriting": {
       "get": {
         "security": [
           {
@@ -793,7 +793,7 @@
         }
       }
     },
-    "/api/v1/copywriting/ai-write": {
+    "/lf-api/v1/copywriting/ai-write": {
       "post": {
         "security": [
           {
@@ -890,7 +890,7 @@
         }
       }
     },
-    "/api/v1/copywriting/generate": {
+    "/lf-api/v1/copywriting/generate": {
       "post": {
         "security": [
           {
@@ -1028,7 +1028,7 @@
         }
       }
     },
-    "/api/v1/copywriting/options": {
+    "/lf-api/v1/copywriting/options": {
       "get": {
         "security": [
           {
@@ -1182,7 +1182,7 @@
         }
       }
     },
-    "/api/v1/copywriting/{id}": {
+    "/lf-api/v1/copywriting/{id}": {
       "get": {
         "security": [
           {
@@ -1444,7 +1444,7 @@
         }
       }
     },
-    "/api/v1/copywriting/{id}/derivatives": {
+    "/lf-api/v1/copywriting/{id}/derivatives": {
       "get": {
         "security": [
           {
@@ -1572,7 +1572,7 @@
         }
       }
     },
-    "/api/v1/copywriting/{id}/regenerate": {
+    "/lf-api/v1/copywriting/{id}/regenerate": {
       "post": {
         "security": [
           {
@@ -1675,7 +1675,7 @@
         }
       }
     },
-    "/api/v1/digital-humans": {
+    "/lf-api/v1/digital-humans": {
       "get": {
         "security": [
           {
@@ -1962,7 +1962,7 @@
         }
       }
     },
-    "/api/v1/digital-humans/options": {
+    "/lf-api/v1/digital-humans/options": {
       "get": {
         "security": [
           {
@@ -2124,7 +2124,7 @@
         }
       }
     },
-    "/api/v1/digital-humans/portraits": {
+    "/lf-api/v1/digital-humans/portraits": {
       "post": {
         "security": [
           {
@@ -2246,7 +2246,7 @@
         }
       }
     },
-    "/api/v1/digital-humans/portraits/{id}": {
+    "/lf-api/v1/digital-humans/portraits/{id}": {
       "get": {
         "security": [
           {
@@ -2332,7 +2332,7 @@
         }
       }
     },
-    "/api/v1/digital-humans/portraits/{id}/regenerate": {
+    "/lf-api/v1/digital-humans/portraits/{id}/regenerate": {
       "post": {
         "security": [
           {
@@ -2426,7 +2426,7 @@
         }
       }
     },
-    "/api/v1/digital-humans/public": {
+    "/lf-api/v1/digital-humans/public": {
       "get": {
         "security": [
           {
@@ -2501,7 +2501,7 @@
         }
       }
     },
-    "/api/v1/digital-humans/{id}": {
+    "/lf-api/v1/digital-humans/{id}": {
       "get": {
         "security": [
           {
@@ -2648,7 +2648,7 @@
         }
       }
     },
-    "/api/v1/image-creations": {
+    "/lf-api/v1/image-creations": {
       "get": {
         "security": [
           {
@@ -3043,7 +3043,7 @@
         }
       }
     },
-    "/api/v1/image-creations/options": {
+    "/lf-api/v1/image-creations/options": {
       "get": {
         "security": [
           {
@@ -3206,7 +3206,7 @@
         }
       }
     },
-    "/api/v1/image-creations/templates": {
+    "/lf-api/v1/image-creations/templates": {
       "get": {
         "security": [
           {
@@ -3293,7 +3293,7 @@
         }
       }
     },
-    "/api/v1/image-creations/{id}": {
+    "/lf-api/v1/image-creations/{id}": {
       "get": {
         "security": [
           {
@@ -3463,7 +3463,7 @@
         }
       }
     },
-    "/api/v1/notes": {
+    "/lf-api/v1/notes": {
       "get": {
         "security": [
           {
@@ -3616,7 +3616,7 @@
         }
       }
     },
-    "/api/v1/notes/options": {
+    "/lf-api/v1/notes/options": {
       "get": {
         "security": [
           {
@@ -3702,7 +3702,7 @@
         }
       }
     },
-    "/api/v1/notes/plan": {
+    "/lf-api/v1/notes/plan": {
       "post": {
         "security": [
           {
@@ -3858,7 +3858,7 @@
         }
       }
     },
-    "/api/v1/notes/{id}": {
+    "/lf-api/v1/notes/{id}": {
       "get": {
         "security": [
           {
@@ -4158,7 +4158,7 @@
         }
       }
     },
-    "/api/v1/notes/{id}/generate": {
+    "/lf-api/v1/notes/{id}/generate": {
       "post": {
         "security": [
           {
@@ -4293,7 +4293,7 @@
         }
       }
     },
-    "/api/v1/notes/{id}/replan": {
+    "/lf-api/v1/notes/{id}/replan": {
       "post": {
         "security": [
           {
@@ -4417,7 +4417,7 @@
         }
       }
     },
-    "/api/v1/shop-profiles": {
+    "/lf-api/v1/shop-profiles": {
       "get": {
         "security": [
           {
@@ -4652,7 +4652,7 @@
         }
       }
     },
-    "/api/v1/shop-profiles/{id}": {
+    "/lf-api/v1/shop-profiles/{id}": {
       "get": {
         "security": [
           {
@@ -4905,7 +4905,7 @@
         }
       }
     },
-    "/api/v1/upload": {
+    "/lf-api/v1/upload": {
       "post": {
         "security": [
           {
@@ -4959,7 +4959,7 @@
         }
       }
     },
-    "/api/v1/upload/credentials": {
+    "/lf-api/v1/upload/credentials": {
       "get": {
         "security": [
           {
@@ -5040,7 +5040,7 @@
         }
       }
     },
-    "/api/v1/upload/presign": {
+    "/lf-api/v1/upload/presign": {
       "post": {
         "security": [
           {
@@ -5131,7 +5131,7 @@
         }
       }
     },
-    "/api/v1/video-creations": {
+    "/lf-api/v1/video-creations": {
       "get": {
         "security": [
           {
@@ -5538,7 +5538,7 @@
         }
       }
     },
-    "/api/v1/video-creations/options": {
+    "/lf-api/v1/video-creations/options": {
       "get": {
         "security": [
           {
@@ -5676,7 +5676,7 @@
         }
       }
     },
-    "/api/v1/video-creations/{id}": {
+    "/lf-api/v1/video-creations/{id}": {
       "get": {
         "security": [
           {
@@ -5854,7 +5854,7 @@
         }
       }
     },
-    "/api/v1/video-creations/{id}/generate": {
+    "/lf-api/v1/video-creations/{id}/generate": {
       "post": {
         "security": [
           {
@@ -6005,7 +6005,7 @@
         }
       }
     },
-    "/api/v1/video-creations/{id}/replan": {
+    "/lf-api/v1/video-creations/{id}/replan": {
       "post": {
         "security": [
           {
@@ -6134,7 +6134,7 @@
         }
       }
     },
-    "/api/v1/voices": {
+    "/lf-api/v1/voices": {
       "get": {
         "security": [
           {
@@ -6224,7 +6224,7 @@
         }
       }
     },
-    "/api/v1/voices/categories": {
+    "/lf-api/v1/voices/categories": {
       "get": {
         "security": [
           {

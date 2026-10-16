@@ -4,7 +4,7 @@
 # AI帮写真实调用模型（SKIP_MODEL=1 可跳过）。
 set -euo pipefail
 
-GW=${GW:-http://127.0.0.1:8888/api/v1}
+GW=${GW:-http://127.0.0.1:8888/lf-api/v1}
 ADMIN=${ADMIN:-http://127.0.0.1:8889/admin/v1}
 MOCK=${MOCK:-http://127.0.0.1:5055}
 USER_ID=${USER_ID:-$(( (RANDOM << 15 | RANDOM) + 100000 ))}

@@ -9,7 +9,7 @@
 #    登录会把昵称/头像同步成测试数据。
 set -euo pipefail
 
-GW=${GW:-http://127.0.0.1:8888/api/v1}
+GW=${GW:-http://127.0.0.1:8888/lf-api/v1}
 MOCKUNION=${MOCKUNION:-http://127.0.0.1:5056}
 UNION_ID=${UNION_ID:-999000000000000042}
 PASS=0
