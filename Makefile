@@ -79,6 +79,7 @@ package:
 	cp deploy/etc/*.yaml dist/aigc-life/etc-dev/
 	cp deploy/sql/V*.sql dist/aigc-life/sql/
 	cp deploy/scripts/gen-voice-previews.sh deploy/scripts/e2e-real.sh deploy/scripts/seed-templates.sh dist/aigc-life/scripts/
+	cp deploy/sql/fix-billing-config-1016.sql deploy/sql/check-billing-online.sql dist/aigc-life/scripts/   # 手工执行的，不会被 install.sh 自动跑
 	cp docs/*.md dist/aigc-life/docs/
 	cp deploy/server/install.sh deploy/server/deploy.env.example deploy/server/README.md dist/aigc-life/
 	@echo $(VERSION) > dist/aigc-life/VERSION
