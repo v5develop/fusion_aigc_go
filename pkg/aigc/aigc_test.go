@@ -182,3 +182,13 @@ func TestNewLifeTaskID(t *testing.T) {
 		t.Fatal("同一阶段重做不能撞号")
 	}
 }
+
+func TestExactTaskID(t *testing.T) {
+	if got := ExactTaskID("AiCreation_life_vid_28", false); got != "AiCreation_life_vid_28" {
+		t.Fatalf("首次提交要和任务中心编号完全一致: %s", got)
+	}
+	again := ExactTaskID("AiCreation_life_vid_28", true)
+	if !strings.HasPrefix(again, "AiCreation_life_vid_28_") || again == "AiCreation_life_vid_28" {
+		t.Fatalf("重做要以编号开头并带随机码: %s", again)
+	}
+}

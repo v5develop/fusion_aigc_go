@@ -1,6 +1,8 @@
 package logic
 
 import (
+	"aigc-life/pkg/aigc"
+	"aigc-life/pkg/taskcenter"
 	"context"
 	"strings"
 
@@ -73,7 +75,7 @@ func (l *GenerateLogic) Generate(in *pb.GenerateReq) (*pb.NoteInfo, error) {
 		return nil, xerr.New(xerr.Conflict, "构思结果异常，请重新构思")
 	}
 
-	taskID := newRefTaskID(l.svcCtx, "note", n.Id, "img")
+	taskID := aigc.ExactTaskID(taskcenter.Ref("note", n.Id), n.GenTaskId.Valid) // 出图只有这一个执行面任务，和任务中心编号一致；失败重做才加随机码
 	ok, err := l.svcCtx.Note.StartGenerate(l.ctx, n.Id, title, content, jsonList(tags), int64(count), taskID)
 	if err != nil {
 		return nil, err

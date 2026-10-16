@@ -1,6 +1,7 @@
 package logic
 
 import (
+	"aigc-life/pkg/taskcenter"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -62,7 +63,7 @@ func (l *GenerateVideoLogic) GenerateVideo(in *pb.GenerateVideoReq) (*pb.VideoIn
 			return nil, err
 		}
 	}
-	taskID := newRefTaskID(l.svcCtx, "vid", c.Id, "gen")
+	taskID := aigc.ExactTaskID(taskcenter.Ref("vid", c.Id), c.GenTaskId.Valid) // 出片只有这一个执行面任务，和任务中心编号一致；失败重做才加随机码
 	ok, err := l.svcCtx.Video.StartGenerate(l.ctx, c.Id, taskID)
 	if err != nil {
 		return nil, err

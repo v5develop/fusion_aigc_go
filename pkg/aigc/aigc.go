@@ -82,6 +82,20 @@ func NewLifeTaskID(prefix, ref, stage string) string {
 	return prefix + "_" + ref + "_" + stage + "_" + hex.EncodeToString(b)
 }
 
+// ExactTaskID 提交给执行面的 task_id 直接等于任务中心的编号（ref，如 AiCreation_life_vid_28），两边完全一致。
+//
+// 只适合一条记录里「只有这一个执行面任务」的步骤（出片、单张图等）。
+// again=true 表示这条记录这个步骤之前提交过（失败后重新生成）：执行面的结果会保留两天，
+// 同一个 task_id 再提交可能读到上一次的旧结果，所以重做时在末尾加 4 位随机码，仍以 ref 开头。
+func ExactTaskID(ref string, again bool) string {
+	if !again {
+		return ref
+	}
+	b := make([]byte, 2)
+	_, _ = rand.Read(b)
+	return ref + "_" + hex.EncodeToString(b)
+}
+
 // SubmitResult 提交成功的返回。TaskType 是路由后的类型，可能与请求不同（85+lite→45、9 缺省→86、92+lite→91）。
 type SubmitResult struct {
 	TaskID      string `json:"task_id"`

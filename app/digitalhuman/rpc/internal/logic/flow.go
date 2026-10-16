@@ -1,6 +1,7 @@
 package logic
 
 import (
+	"aigc-life/pkg/taskcenter"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -168,7 +169,7 @@ func startDigitalHuman(svcCtx *svc.ServiceContext, h *model.AfvDigitalHuman, voi
 			}
 		}
 
-		taskID := newRefTaskID(svcCtx, "dh", h.Id, "gen")
+		taskID := aigc.ExactTaskID(taskcenter.Ref("dh", h.Id), h.VideoTaskId.Valid) // 数字人出片只有这一个执行面任务，和任务中心编号一致
 		ok, err := svcCtx.Human.StartRendering(ctx, h.Id, d.URL, int64(secs), taskID)
 		if err != nil || !ok {
 			log.Errorf("start rendering: ok=%v err=%v", ok, err)

@@ -94,6 +94,9 @@ func submit(ctx context.Context, svcCtx *svc.ServiceContext, c *model.AfvImageCr
 	tasks := make([]imageTask, 0, c.ImageCount)
 	for i := int64(0); i < c.ImageCount; i++ {
 		id := newRefTaskID(svcCtx, "img", c.Id, fmt.Sprintf("i%d", i+1))
+		if c.ImageCount == 1 { // 只出一张：执行面任务就这一个，直接用任务中心编号
+			id = aigc.ExactTaskID(taskcenter.Ref("img", c.Id), false)
+		}
 		if _, err := svcCtx.Aigc.Submit(ctx, id, task); err != nil {
 			logx.WithContext(ctx).Errorf("submit %s %d (%d/%d): %v", c.Kind, c.Id, i+1, c.ImageCount, err)
 			tasks = append(tasks, imageTask{TaskID: id, Status: aigc.StatusFailed, Error: "提交生成失败"})
