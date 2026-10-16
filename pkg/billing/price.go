@@ -189,6 +189,11 @@ func price(ctx context.Context, conn sqlx.SqlConn, c Charge) (*Quote, error) {
 			}
 		}
 	}
+	// 算出 0 点 = 配置有洞（单价写成 0、步骤全是只记成本、没有收费步骤），不能当"免费"放过去。
+	if q.PricePoints <= 0 {
+		return nil, fmt.Errorf("%w: %s 的档位 %s 算出 %d 点，没有有效的收费步骤或单价为 0",
+			ErrNoOffer, c.EntryCode, v.VariantCode, q.PricePoints)
+	}
 	return q, nil
 }
 

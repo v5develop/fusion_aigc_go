@@ -72,7 +72,7 @@ package:
 		echo "build $$name"; \
 		GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -tags timetzdata -trimpath -ldflags '-s -w' -o dist/aigc-life/bin/$$name ./app/$$s || exit 1; \
 	done
-	@for t in mock-aigc mkconf seed; do \
+	@for t in mock-aigc mkconf seed billing-check; do \
 		echo "build $$t"; \
 		GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -tags timetzdata -trimpath -ldflags '-s -w' -o dist/aigc-life/bin/$$t ./tools/$$t || exit 1; \
 	done

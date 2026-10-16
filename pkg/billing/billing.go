@@ -149,6 +149,9 @@ func New(c Conf, conn sqlx.SqlConn) *Service {
 	if c.Hold.VideoMinutes <= 0 {
 		c.Hold.VideoMinutes = 200
 	}
+	if c.Mode != ModeOn {
+		logx.Errorf("billing: Mode=%s，所有生成任务**不会扣点**；正式上线前必须是 on", c.Mode)
+	}
 	return &Service{conf: c, conn: conn}
 }
 
@@ -182,17 +185,17 @@ func (s *Service) Balance(ctx context.Context, userID int64) (*Account, error) {
 // Java 把这道闸放在报价里（BillingPricingServiceImpl.validateFeatureAvailable），
 // 我们直接写计费表、不走它的报价接口，所以得自己来。
 //
-// 没开校验、或这个入口码还没配计费方案时一律放行——
-// 权益校验不该因为计费没配好就把功能拦死。
+// 没开校验时放行。入口码没配计费方案时**不放行**，返回 ErrNoOffer（2026-10-16 起）：
+// 缺配置静默放行等于这个入口免费，出了事没人知道。
 func (s *Service) CheckAccess(ctx context.Context, userID int64, entryCode string) error {
 	if !s.conf.CheckEntitlement {
 		return nil
 	}
 	code, err := featureCodeOf(ctx, s.conn, entryCode)
 	if err != nil {
+		// 缺配置不静默放行：入口没配计费方案就不知道该查哪个能力码，宁可拦下并报警，也别让人白用。
 		if errors.Is(err, ErrNoOffer) {
-			logx.WithContext(ctx).Errorf("billing: 入口码 %s 没配计费方案，权益校验跳过", entryCode)
-			return nil
+			logx.WithContext(ctx).Errorf("billing: 入口码 %s 没配计费方案，拒绝放行（请先在后台配置）", entryCode)
 		}
 		return err
 	}

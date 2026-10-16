@@ -7,6 +7,7 @@
 #   bash install.sh stop       停止全部
 #   bash install.sh logs <服务> 看日志，如 logs gateway-api
 #   bash install.sh voices     生成系统音色试听（首次部署后执行一次）
+#   bash install.sh check-billing   计费配置检查（缺场景/步骤/单价、档位配错会报出来）
 #   bash install.sh seed-templates  造联调用的公共素材（公共数字人 / 模板 / 口播背景 / 动作视频）
 #   bash install.sh uninstall  停止并注销服务（不删数据库、不删安装目录）
 #
@@ -59,6 +60,7 @@ load_env() {
   UNION_REDIS_DB=${UNION_REDIS_DB:-0}
   UNION_PHONE_AES_KEY=${UNION_PHONE_AES_KEY:-}
   UNION_DB_DSN=${UNION_DB_DSN:-}; UNION_USER_TABLE=${UNION_USER_TABLE:-}
+  BILLING_MODE=${BILLING_MODE:-off}
   SESSION_REDIS_ADDR=${SESSION_REDIS_ADDR:-}; SESSION_REDIS_PASS=${SESSION_REDIS_PASS:-}
   SESSION_REDIS_DB=${SESSION_REDIS_DB:-10}
   FUSION_BASE_URL=${FUSION_BASE_URL:-}; FUSION_APP_KEY=${FUSION_APP_KEY:-}
@@ -372,6 +374,14 @@ cmd_install() {
   mkdir -p "$INSTALL_DIR"/{bin,etc,logs,run}
   all_stop # 升级：先停旧进程
   cp -f "$PKG"/bin/* "$INSTALL_DIR/bin/"
+
+  # 计费配置检查：缺配置的入口提交时会被拒，这里提前报出来，不靠人记得。
+  if ! cmd_check_billing; then
+    if [[ ${BILLING_MODE:-off} == on ]]; then
+      die "BILLING_MODE=on 但计费配置有问题（见上），先在后台补齐再装"
+    fi
+    yellow "  ! 计费配置有问题（见上）。当前 BILLING_MODE=${BILLING_MODE:-off}，不影响安装；开计费前必须全部修好"
+  fi
   chmod +x "$INSTALL_DIR"/bin/*
   [[ $ENV_FILE == "$INSTALL_DIR/deploy.env" ]] || cp -f "$ENV_FILE" "$INSTALL_DIR/deploy.env"
   chmod 600 "$INSTALL_DIR/deploy.env"
@@ -456,6 +466,17 @@ cmd_seed_templates() {
     MYSQL_BIN=${MYSQL_BIN:-} bash "$INSTALL_DIR/scripts/seed-templates.sh"
 }
 
+# cmd_check_billing 计费配置检查：把每个会计费的入口 × 档位真的算一遍价，缺场景/步骤/单价、
+# 算出 0 点、档位配错都会报出来。只读。有 ERROR 返回非 0。
+# 安装时自动跑一遍；BILLING_MODE=on 时有 ERROR 会中止安装（缺配置不准上线计费）。
+cmd_check_billing() {
+  local bin="$INSTALL_DIR/bin/billing-check"
+  [[ -x $bin ]] || bin="$PKG/bin/billing-check"
+  [[ -x $bin ]] || { yellow "  ! 没有 billing-check，跳过计费配置检查"; return 0; }
+  local dsn="$DB_USER:$DB_PASS@tcp($DB_HOST:$DB_PORT)/$DB_NAME?charset=utf8mb4&parseTime=true&loc=Asia%2FShanghai"
+  "$bin" -dsn "$dsn"
+}
+
 cmd_voices() {
   command -v jq >/dev/null 2>&1 || die "需要 jq：CentOS 执行 yum install -y jq，Ubuntu/Debian 执行 apt install -y jq"
   ADMIN="http://127.0.0.1:$ADMIN_PORT/admin/v1" bash "$INSTALL_DIR/scripts/gen-voice-previews.sh"
@@ -482,6 +503,7 @@ case ${1:-install} in
   stop)      all_stop; cmd_status ;;
   logs)      cmd_logs "${2:-}" ;;
   voices)    cmd_voices ;;
+  check-billing) cmd_check_billing ;;
   seed-templates) cmd_seed_templates ;;
   uninstall) cmd_uninstall ;;
   *) sed -n '2,11p' "$0"; exit 1 ;;
