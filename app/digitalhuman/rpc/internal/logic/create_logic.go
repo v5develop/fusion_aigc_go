@@ -1,6 +1,7 @@
 package logic
 
 import (
+	"aigc-life/pkg/billing"
 	"context"
 	"errors"
 	"strings"
@@ -83,13 +84,20 @@ func (l *CreateLogic) Create(in *pb.CreateReq) (*pb.DigitalHumanInfo, error) {
 		}
 	}
 
+	// 时长要等配音出来才知道，先按最短时长拦一道明显不够的；真正冻结在配音之后
+	if err := l.svcCtx.Billing.Enough(l.ctx, billing.Charge{
+		UserID: in.UserId, EntryCode: "digitalHuman", Kind: billing.KindVideo,
+		Tier: billing.TierOf(mdl), Count: 1, Seconds: minVideoSeconds,
+	}); err != nil {
+		return nil, err
+	}
+
 	row := &model.AfvDigitalHuman{
 		CopywritingId: nullInt(in.CopywritingId),
 		UserId: in.UserId, Name: name, PortraitSource: in.PortraitSource, PortraitRefId: nullInt(src.RefID),
 		ImageUrl: src.ImageURL, VoiceId: v.Id, Script: script, Model: mdl, TtsTaskId: nullStr(newTaskID(l.svcCtx)),
 		RequestId: nullStr(in.RequestId), Status: model.DhStatusDubbing,
 	}
-	// TODO 计费：等计费方案确认后，在这里预扣 100 点，失败时退回（同 AI文案）
 	res, err := l.svcCtx.Human.Insert(l.ctx, row)
 	if err != nil {
 		if isDuplicate(err) {

@@ -44,7 +44,7 @@ type Conf struct {
 	// 照 30 分钟写，任务还在跑钱就被回收了，等成功去确认单子已经不是 HELD。
 	// 所以按任务类型分开配，视频给足。
 	Hold struct {
-		DefaultMinutes int `json:",default=15"`  // 图片、文案这类快的
+		DefaultMinutes int `json:",default=30"`  // 图片、文案这类快的（海报长图自己的超时是 20 分钟，要比它长）
 		VideoMinutes   int `json:",default=200"` // 视频：要大于我们自己的任务超时（复刻出片最长 180）
 	}
 	// CheckEntitlement 用不用创作权益做准入（afv_app_user_feature）。
@@ -144,7 +144,7 @@ func New(c Conf, conn sqlx.SqlConn) *Service {
 		c.Mode = ModeOff
 	}
 	if c.Hold.DefaultMinutes <= 0 {
-		c.Hold.DefaultMinutes = 15
+		c.Hold.DefaultMinutes = 30
 	}
 	if c.Hold.VideoMinutes <= 0 {
 		c.Hold.VideoMinutes = 200

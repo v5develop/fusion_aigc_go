@@ -10,7 +10,7 @@ ADMIN=${ADMIN:-http://127.0.0.1:8889/admin/v1}
 USER_ID=${USER_ID:-$(( (RANDOM << 15 | RANDOM) + 100000 ))}
 PASS=0
 TMP=$(mktemp -d)
-MYSQL=(docker exec -i mysql-8.0.36 mysql --default-character-set=utf8mb4 -uroot -p123456 fusion_aigc -N)
+MYSQL=(docker exec -i mysql-8.0.36 mysql --default-character-set=utf8mb4 -uroot -p123456 "${E2E_DB:-fusion_aigc}" -N)
 sql() { "${MYSQL[@]}" -e "$1" 2>/dev/null; }
 
 red()   { printf '\033[31m%s\033[0m\n' "$*"; }

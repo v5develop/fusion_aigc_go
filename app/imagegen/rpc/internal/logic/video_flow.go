@@ -129,8 +129,8 @@ func (p *Poller) pollVideoGenerates(ctx context.Context) {
 			}
 			if ok {
 				saveVideoAsset(ctx, svcCtx, c, u)
+				svcCtx.Billing.Done(ctx, c.UserId, c.GenTaskId.String, 0)
 			}
-			// TODO 计费：成功结算
 		case r != nil && r.Done():
 			logx.WithContext(ctx).Infof("%s %d generate %s %s: %s", c.Kind, c.Id, c.GenTaskId.String, r.Status, r.ErrorMsg)
 			failVideo(ctx, svcCtx, c.Id, model.VideoGenerating, "生成失败，请重试")

@@ -9,6 +9,9 @@ Log:
   Encoding: plain
 # 现有系统库；OSS 配置从库里读，不写在这里
 DataSource: root:123456@tcp(127.0.0.1:3306)/fusion_aigc?charset=utf8mb4&parseTime=true&loc=Asia%2FShanghai&time_zone=%27%2B08%3A00%27
+# 计费：off 不计费 / shadow 只算价记日志、不拦用户 / on 真扣（服务器上由 deploy.env 的 BILLING_MODE 写入）
+Billing:
+  Mode: "off"
 # AIGC 执行面（构思 74、出图 75）。正式地址待提供，本地先指向 mock-aigc；置空则构思与生成返回「暂未开放」
 Aigc:
   Endpoint: http://127.0.0.1:5055   # 正式：http://<aigc_server>:5000

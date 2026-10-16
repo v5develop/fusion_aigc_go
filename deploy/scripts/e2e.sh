@@ -8,7 +8,7 @@ ADMIN=${ADMIN:-http://127.0.0.1:8889/admin/v1}
 # SKIP_MODEL=1 跳过真实调模型的段落（模型账号欠费/限流时仍能验证其余逻辑）
 SKIP_MODEL=${SKIP_MODEL:-0}
 USER_ID=${USER_ID:-$(( (RANDOM << 15 | RANDOM) + 100000 ))}
-MYSQL=(docker exec -i mysql-8.0.36 mysql --default-character-set=utf8mb4 -uroot -p123456 fusion_aigc -N)
+MYSQL=(docker exec -i mysql-8.0.36 mysql --default-character-set=utf8mb4 -uroot -p123456 "${E2E_DB:-fusion_aigc}" -N)
 sql() { "${MYSQL[@]}" -e "$1" 2>/dev/null; }
 # 生成历史那段会造几条成品记录，跑完删掉（文案本身用的是随机用户，不清理）
 cleanup() {

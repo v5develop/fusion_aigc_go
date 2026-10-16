@@ -1,6 +1,7 @@
 package svc
 
 import (
+	"aigc-life/pkg/billing"
 	"time"
 
 	"aigc-life/app/copywriting/rpc/copywriting"
@@ -19,6 +20,7 @@ import (
 )
 
 type ServiceContext struct {
+	Billing     *billing.Service
 	Config      config.Config
 	Creation    model.AfvImageCreationModel
 	ActionVideo model.AfvActionVideoModel
@@ -41,6 +43,7 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	return &ServiceContext{
 		TaskCenter:      taskcenter.New(conn, 10*time.Minute, taskSources(c)...),
 		Config:          c,
+		Billing:         billing.New(c.Billing, conn),
 		Creation:        model.NewAfvImageCreationModel(conn),
 		ActionVideo:     model.NewAfvActionVideoModel(conn),
 		DigitalHumanRpc: digitalhuman.NewDigitalHuman(zrpc.MustNewClient(c.DigitalHumanRpc)),

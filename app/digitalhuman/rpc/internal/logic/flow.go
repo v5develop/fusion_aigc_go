@@ -14,6 +14,7 @@ import (
 	"aigc-life/pkg/aigc"
 	"aigc-life/pkg/asset"
 	"aigc-life/pkg/storage"
+	"aigc-life/pkg/xerr"
 
 	"github.com/zeromicro/go-zero/core/logx"
 	"github.com/zeromicro/go-zero/core/threading"
@@ -113,7 +114,7 @@ func submitPortrait(ctx context.Context, svcCtx *svc.ServiceContext, p *model.Af
 		finishPortrait(ctx, svcCtx, p.Id, model.PortraitFailed, nil, "提交生成失败，请重试")
 		return
 	}
-	// TODO 计费：等计费方案确认后，在这里预扣 100 点，失败时退回（同 AI文案）
+	// AI 定制形象不收费（不在计费入口里）
 	// TODO 任务：确认后写 afv_creation_task（mode=75，execution_task_id=task_id）
 }
 
@@ -170,9 +171,16 @@ func startDigitalHuman(svcCtx *svc.ServiceContext, h *model.AfvDigitalHuman, voi
 		}
 
 		taskID := aigc.ExactTaskID(taskcenter.Ref("dh", h.Id), h.VideoTaskId.Valid) // 数字人出片只有这一个执行面任务，和任务中心编号一致
+		// 配音时长出来了，冻结点数；点数不够就到此为止，记录标失败
+		if _, err := svcCtx.Billing.Hold(ctx, humanCharge(h, taskID, secs)); err != nil {
+			_, msg, _ := xerr.Parse(err)
+			failHuman(ctx, svcCtx, h.Id, model.DhStatusDubbing, msg)
+			return
+		}
 		ok, err := svcCtx.Human.StartRendering(ctx, h.Id, d.URL, int64(secs), taskID)
 		if err != nil || !ok {
 			log.Errorf("start rendering: ok=%v err=%v", ok, err)
+			svcCtx.Billing.Fail(ctx, h.UserId, taskID, "未能开始生成")
 			return
 		}
 		cfg := svcCtx.Config.Video
@@ -196,10 +204,19 @@ func startDigitalHuman(svcCtx *svc.ServiceContext, h *model.AfvDigitalHuman, voi
 func failHuman(ctx context.Context, svcCtx *svc.ServiceContext, id, from int64, reason string) {
 	ctx, cancel := detach(ctx, 10*time.Second)
 	defer cancel()
-	if _, err := svcCtx.Human.Finish(ctx, id, from, model.DhStatusFailed, "", reason); err != nil {
+	ok, err := svcCtx.Human.Finish(ctx, id, from, model.DhStatusFailed, "", reason)
+	if err != nil {
 		logx.WithContext(ctx).Errorf("mark failed %d: %v", id, err)
+		return
 	}
-	// TODO 计费：失败退回
+	// 出片阶段失败 / 超时：退回冻结的点数（配音阶段还没冻结）
+	if ok && from == model.DhStatusRendering {
+		if h, ferr := svcCtx.Human.FindOne(ctx, id); ferr == nil {
+			svcCtx.Billing.Fail(ctx, h.UserId, h.VideoTaskId.String, reason)
+		} else {
+			logx.WithContext(ctx).Errorf("digital human %d: 找不到记录，无法退回点数: %v", id, ferr)
+		}
+	}
 }
 
 // ---- 轮询 ----
@@ -306,8 +323,8 @@ func (p *Poller) pollVideos(ctx context.Context) {
 				logx.WithContext(ctx).Errorf("finish %d: %v", it.Id, err)
 			} else if ok {
 				saveVideoAsset(ctx, svcCtx, it, videoURL)
+				svcCtx.Billing.Done(ctx, it.UserId, it.VideoTaskId.String, 0)
 			}
-			// TODO 计费：成功结算
 		case r != nil && r.Done():
 			logx.WithContext(ctx).Infof("digital human %d task %s %s: %s", it.Id, it.VideoTaskId.String, r.Status, r.ErrorMsg)
 			failHuman(ctx, svcCtx, it.Id, model.DhStatusRendering, "视频生成失败，请重试")

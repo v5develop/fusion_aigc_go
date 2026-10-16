@@ -46,7 +46,6 @@ func submitGenerate(ctx context.Context, svcCtx *svc.ServiceContext, id int64, t
 		failGenerate(ctx, svcCtx, id, "提交生成失败，请重试")
 		return
 	}
-	// TODO 计费：等计费方案确认后，生成扣 100 点，失败退回
 	// TODO 任务：确认后写 afv_creation_task（mode=75，parent 为构思任务）
 }
 
@@ -57,8 +56,17 @@ func failPlan(ctx context.Context, svcCtx *svc.ServiceContext, id int64, reason 
 }
 
 func failGenerate(ctx context.Context, svcCtx *svc.ServiceContext, id int64, reason string) {
-	if _, err := svcCtx.Note.FinishGenerate(ctx, id, model.StatusGenFailed, "", reason); err != nil {
+	ok, err := svcCtx.Note.FinishGenerate(ctx, id, model.StatusGenFailed, "", reason)
+	if err != nil {
 		logx.WithContext(ctx).Errorf("mark generate failed %d: %v", id, err)
+		return
+	}
+	if ok { // 出图失败 / 超时：退回出图时冻结的点数
+		if n, ferr := svcCtx.Note.FindOne(ctx, id); ferr == nil {
+			svcCtx.Billing.Fail(ctx, n.UserId, n.GenTaskId.String, reason)
+		} else {
+			logx.WithContext(ctx).Errorf("note %d: 找不到记录，无法退回点数: %v", id, ferr)
+		}
 	}
 }
 
@@ -185,8 +193,8 @@ func (p *Poller) pollGenerates(ctx context.Context) {
 				logx.WithContext(ctx).Errorf("finish generate %d: %v", n.Id, err)
 			} else if ok {
 				saveNoteAssets(ctx, svcCtx, n, urls) // 设计稿：成品自动存进素材库
+				svcCtx.Billing.Done(ctx, n.UserId, n.GenTaskId.String, len(urls))
 			}
-			// TODO 计费：成功结算
 		case r != nil && r.Done():
 			logx.WithContext(ctx).Infof("note %d generate %s %s: %s", n.Id, n.GenTaskId.String, r.Status, r.ErrorMsg)
 			failGenerate(ctx, svcCtx, n.Id, "生成失败，请重试")

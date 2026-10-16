@@ -79,7 +79,7 @@ check "App 端不暴露音色参数" "$(api GET /voices | jq '[.list[]|has("voic
 VOICE_ID=$(api GET '/voices?category=selling' | jq -r '.list[0].id')
 
 echo "== 公共数字人（复用现有模板素材表，本地测试直接插数据，结束时清理）"
-MYSQL=(docker exec -i mysql-8.0.36 mysql --default-character-set=utf8mb4 -uroot -p123456 fusion_aigc -N)
+MYSQL=(docker exec -i mysql-8.0.36 mysql --default-character-set=utf8mb4 -uroot -p123456 "${E2E_DB:-fusion_aigc}" -N)
 sql() { "${MYSQL[@]}" -e "$1" 2>/dev/null; }
 public_model() { # public_model 名字 职业 图片 上架(0/1) 排序 [业务域] → 素材 id
   sql "INSERT INTO afv_public_template_assets (biz_type,type,title,url,extra) VALUES ('${6:-localLife}','image','$1','$3',JSON_OBJECT('role','$2'));

@@ -76,9 +76,17 @@ func (l *GenerateLogic) Generate(in *pb.GenerateReq) (*pb.NoteInfo, error) {
 	}
 
 	taskID := aigc.ExactTaskID(taskcenter.Ref("note", n.Id), n.GenTaskId.Valid) // 出图只有这一个执行面任务，和任务中心编号一致；失败重做才加随机码
+	// 冻结点数（点数不够就到此为止，状态不动）
+	if _, err := l.svcCtx.Billing.Hold(l.ctx, noteCharge(n.UserId, taskID, count)); err != nil {
+		return nil, err
+	}
 	ok, err := l.svcCtx.Note.StartGenerate(l.ctx, n.Id, title, content, jsonList(tags), int64(count), taskID)
 	if err != nil {
+		l.svcCtx.Billing.Fail(l.ctx, n.UserId, taskID, "未能开始生成")
 		return nil, err
+	}
+	if !ok {
+		l.svcCtx.Billing.Fail(l.ctx, n.UserId, taskID, "未能开始生成")
 	}
 	if ok {
 		submitGenerate(l.ctx, l.svcCtx, n.Id, taskID, task)

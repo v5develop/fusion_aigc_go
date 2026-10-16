@@ -64,6 +64,7 @@ func main() {
 	fusionKey := flag.String("fusion-key", "", "Java 服务分配的 appKey")
 	fusionSecret := flag.String("fusion-secret", "", "Java 服务分配的 appSecret")
 	fusionKeyVer := flag.String("fusion-key-version", "", "密钥版本，留空则不带")
+	billingMode := flag.String("billing-mode", "", "计费档位 off / shadow / on（写进笔记、数字人、图片视频三个服务的 Billing.Mode），留空保持开发配置")
 	flag.Parse()
 	if *out == "" || *logs == "" || *dsn == "" || *aigc == "" || *ports == "" {
 		flag.Usage()
@@ -96,7 +97,7 @@ func main() {
 			linkParse: *linkParse, unionRedis: *unionRedis, unionRedisPass: *unionRedisPass, unionRedisDB: *unionRedisDB,
 			unionDSN: *unionDSN, unionTable: *unionTable, unionPhoneKey: *unionPhoneKey, sessionRedis: *sessionRedis, sessionRedisPass: *sessionRedisPass,
 			sessionRedisDB: *sessionRedisDB,
-			fusionURL:      *fusionURL, fusionKey: *fusionKey, fusionSecret: *fusionSecret, fusionKeyVer: *fusionKeyVer}
+			fusionURL:      *fusionURL, fusionKey: *fusionKey, fusionSecret: *fusionSecret, fusionKeyVer: *fusionKeyVer, billingMode: *billingMode}
 		if err := e.apply(root); err != nil {
 			log.Fatalf("%s: %v", file, err)
 		}
@@ -146,6 +147,7 @@ type editor struct {
 	fusionKey        string
 	fusionSecret     string
 	fusionKeyVer     string
+	billingMode      string
 	name             string
 	ports            map[string]int
 	dsn              string
@@ -248,6 +250,15 @@ func (e editor) apply(root *yaml.Node) error {
 	if vr := get(root, "VideoRemake"); vr != nil {
 		if lp := get(vr, "LinkParse"); lp != nil {
 			set(lp, "BaseURL", scalar(e.linkParse))
+		}
+	}
+	// 计费档位：只有接了计费的三个服务有这段
+	if b := get(root, "Billing"); b != nil && e.billingMode != "" {
+		switch e.billingMode {
+		case "off", "shadow", "on":
+			set(b, "Mode", quoted(e.billingMode)) // 必须带引号：YAML 里裸的 on / off 会被当成布尔值,配置加载直接报 type mismatch
+		default:
+			return fmt.Errorf("-billing-mode 只能是 off / shadow / on，收到 %q", e.billingMode)
 		}
 	}
 	if s := get(root, "Storage"); s != nil {

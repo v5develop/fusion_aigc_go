@@ -10,6 +10,9 @@ Etcd:
 Log:
   Encoding: plain
 DataSource: root:123456@tcp(127.0.0.1:3306)/fusion_aigc?charset=utf8mb4&parseTime=true&loc=Asia%2FShanghai&time_zone=%27%2B08%3A00%27
+# 计费：off 不计费 / shadow 只算价记日志、不拦用户 / on 真扣（服务器上由 deploy.env 的 BILLING_MODE 写入）
+Billing:
+  Mode: "off"
 # AIGC 执行面（海报 78、长图 76、动作迁移 9、数字人口播 92）。正式地址待提供，本地先指向 mock-aigc
 Aigc:
   Endpoint: http://127.0.0.1:5055   # 正式：http://<aigc_server>:5000

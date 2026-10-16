@@ -128,6 +128,10 @@ func (l *CreateLogic) Create(in *pb.CreateReq) (*pb.ImageInfo, error) {
 
 // insertAndSubmit 落记录后提交执行面任务。同一 request_id 并发重复提交时返回先到的那条。
 func (l *CreateLogic) insertAndSubmit(row *model.AfvImageCreation, cfg *config.KindConf, typeLabel string) (*pb.ImageInfo, error) {
+	// 先冻结点数（点数不够就到此为止，不落记录）。同一请求号重复提交，冻结是幂等的
+	if _, err := l.svcCtx.Billing.Hold(l.ctx, imageCharge(row)); err != nil {
+		return nil, err
+	}
 	res, err := l.svcCtx.Creation.Insert(l.ctx, row)
 	if err != nil {
 		if isDuplicate(err) {
@@ -137,9 +141,11 @@ func (l *CreateLogic) insertAndSubmit(row *model.AfvImageCreation, cfg *config.K
 			}
 			return toInfo(old), nil
 		}
+		l.svcCtx.Billing.Fail(l.ctx, row.UserId, row.RequestId.String, "落库失败")
 		return nil, err
 	}
 	if row.Id, err = res.LastInsertId(); err != nil {
+		l.svcCtx.Billing.Fail(l.ctx, row.UserId, row.RequestId.String, "落库失败")
 		return nil, err
 	}
 	tasks := submit(l.ctx, l.svcCtx, row, cfg, typeLabel)

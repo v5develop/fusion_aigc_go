@@ -104,7 +104,6 @@ func submit(ctx context.Context, svcCtx *svc.ServiceContext, c *model.AfvImageCr
 		}
 		tasks = append(tasks, imageTask{TaskID: id})
 	}
-	// TODO 计费：等计费方案确认后，这里预扣 100 点（按次还是按张待定），失败退回
 	// TODO 任务：确认后写 afv_creation_task（海报 mode=78 / 长图 mode=76 / 动作迁移 9 / 数字人口播 92）
 	return tasks
 }
@@ -220,10 +219,16 @@ func (p *Poller) pollOne(ctx context.Context, c *model.AfvImageCreation, timedOu
 		logx.WithContext(ctx).Errorf("finish %d: %v", c.Id, err)
 		return
 	}
-	if ok && status == model.StatusDone {
-		saveAssets(ctx, svcCtx, c, urls)
+	if !ok {
+		return // 别处已经收过尾了（不重复结算）
 	}
-	// TODO 计费：成功结算 / 失败退回
+	if status == model.StatusDone {
+		saveAssets(ctx, svcCtx, c, urls)
+		// 一次出多张时可能部分成功：按成功的张数确认，差额退回
+		svcCtx.Billing.Done(ctx, c.UserId, c.RequestId.String, len(urls))
+	} else {
+		svcCtx.Billing.Fail(ctx, c.UserId, c.RequestId.String, reason)
+	}
 }
 
 // query 查一次结果；网络抖动等查询失败返回 nil，下一轮再查。

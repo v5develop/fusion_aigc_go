@@ -9,7 +9,7 @@ ADMIN=${ADMIN:-http://127.0.0.1:8889/admin/v1}
 USER_ID=${USER_ID:-$(( (RANDOM << 15 | RANDOM) + 100000 ))}
 PASS=0
 TMP=$(mktemp -d)
-MYSQL=(docker exec -i mysql-8.0.36 mysql --default-character-set=utf8mb4 -uroot -p123456 fusion_aigc -N)
+MYSQL=(docker exec -i mysql-8.0.36 mysql --default-character-set=utf8mb4 -uroot -p123456 "${E2E_DB:-fusion_aigc}" -N)
 sql() { "${MYSQL[@]}" -e "$1" 2>/dev/null; }
 trap 'sql "DELETE FROM afv_digital_human WHERE user_id IN ($USER_ID, $((USER_ID+1)))"; sql "DELETE FROM afv_asset_item WHERE asset_id IN (SELECT id FROM (SELECT id FROM afv_asset WHERE user_id=$USER_ID) x); DELETE FROM afv_asset WHERE user_id=$USER_ID; DELETE FROM afv_workspace_tag WHERE workspace_id IN (SELECT id FROM (SELECT id FROM afv_workspace WHERE owner_user_id=$USER_ID) x); DELETE FROM afv_workspace_member WHERE user_id=$USER_ID; DELETE FROM afv_workspace WHERE owner_user_id=$USER_ID"; rm -rf "$TMP"' EXIT
 

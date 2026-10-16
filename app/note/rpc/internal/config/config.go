@@ -3,6 +3,7 @@ package config
 import (
 	"aigc-life/pkg/aigc"
 	"aigc-life/pkg/asset"
+	"aigc-life/pkg/billing"
 	"aigc-life/pkg/storage"
 
 	"github.com/zeromicro/go-zero/zrpc"
@@ -12,6 +13,8 @@ type Config struct {
 	zrpc.RpcServerConf
 	// DataSource fusion_aigc 库
 	DataSource string
+	// Billing 计费：off 不计费（默认）/ shadow 只算价记日志 / on 真扣。由 deploy.env 的 BILLING_MODE 写入
+	Billing billing.Conf
 	// Aigc AIGC 执行面（构思 74、出图 75）。Endpoint 为空时构思与生成返回「暂未开放」。
 	Aigc aigc.Conf
 	// Storage 须与网关一致：素材与编辑时新增的图片只接受本存储签发的上传地址

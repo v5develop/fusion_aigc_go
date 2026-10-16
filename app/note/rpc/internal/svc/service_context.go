@@ -1,6 +1,7 @@
 package svc
 
 import (
+	"aigc-life/pkg/billing"
 	"time"
 
 	"aigc-life/pkg/taskcenter"
@@ -19,6 +20,7 @@ import (
 )
 
 type ServiceContext struct {
+	Billing         *billing.Service
 	Config          config.Config
 	Note            model.AfvImageTextNoteModel
 	Shared          *model.SharedModel
@@ -47,6 +49,7 @@ func NewServiceContext(c config.Config) *ServiceContext {
 			Result:  "JSON_UNQUOTE(JSON_EXTRACT(image_urls, '$[0]'))", Results: "image_urls", Fail: "fail_reason", Prompt: "title",
 		}),
 		Config:          c,
+		Billing:         billing.New(c.Billing, conn),
 		Note:            model.NewAfvImageTextNoteModel(conn),
 		Shared:          shared,
 		Aigc:            aigc.New(c.Aigc),
