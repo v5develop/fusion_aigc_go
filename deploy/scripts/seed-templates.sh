@@ -124,8 +124,8 @@ q "SELECT CONCAT('  ', p.module_code, ' / ', p.slot_code, '  ', COUNT(*), ' 条'
 echo
 gray "占位素材而已，上线前让运营在现有后台的「模板素材」页面把 url 换成真实图片/视频。"
 gray "前端马上能看到数据的接口："
-gray "  GET /lf-api/v1/digital-humans/public                      公共数字人"
-gray "  GET /lf-api/v1/image-creations/templates?kind=poster      海报模板"
-gray "  GET /lf-api/v1/image-creations/templates?kind=longImage   长图模板"
-gray "  GET /lf-api/v1/image-creations/templates?kind=voiceover   口播预设背景"
-gray "  GET /lf-api/v1/action-videos                              预置动作视频"
+gray "  GET /api/v1/local-life/digital-humans/public                      公共数字人"
+gray "  GET /api/v1/local-life/image-creations/templates?kind=poster      海报模板"
+gray "  GET /api/v1/local-life/image-creations/templates?kind=longImage   长图模板"
+gray "  GET /api/v1/local-life/image-creations/templates?kind=voiceover   口播预设背景"
+gray "  GET /api/v1/local-life/action-videos                              预置动作视频"

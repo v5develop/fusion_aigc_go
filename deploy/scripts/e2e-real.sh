@@ -9,12 +9,12 @@
 # 可用模块：copywriting shopProfile note poster longImage voiceover actionTransfer
 #           exploreShop shortDrama videoRemake digitalHuman
 #
-# 环境变量：GW=http://127.0.0.1:18888/lf-api/v1  USER_ID=990909  TIMEOUT=2700（秒）
+# 环境变量：GW=http://127.0.0.1:18888/api/v1/local-life  USER_ID=990909  TIMEOUT=2700（秒）
 #
 # ⚠️ 出视频的模块会**真实产生费用**，而且慢（云端 2–10 分钟，本地 GPU 可能十几分钟）。
 set -uo pipefail
 
-GW=${GW:-http://127.0.0.1:18888/lf-api/v1}
+GW=${GW:-http://127.0.0.1:18888/api/v1/local-life}
 USER_ID=${USER_ID:-990909}
 TIMEOUT=${TIMEOUT:-2700}
 SAMPLE_IMAGE=${SAMPLE_IMAGE:-https://xx-shop-img.oss-cn-hangzhou.aliyuncs.com/images/20260915/9db717232a3645a79f006d92260dc7d4.png}

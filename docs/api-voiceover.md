@@ -10,7 +10,7 @@
 
 ## 0. 通用约定（摘要）
 
-- 网关：`http://<host>:8888`，所有接口前缀 `/lf-api/v1`。
+- 网关：`http://<host>:8888`，所有接口前缀 `/api/v1/local-life`。
 - 每个请求都带 `X-User-Id: <用户ID>`（开发模式；接正式登录后只换请求头，接口不变）。
 - **提交生成**必须带 `X-Request-Id: <UUID>`：每次点「开始生成」新生成一个，网络失败重试时**沿用同一个**，避免重复生成、重复扣点。
 - 响应统一是 `{"code":0,"msg":"ok","data":{…}}`，HTTP 状态码都是 200，用 `code` 判断；`code != 0` 时直接把 `msg` 提示给用户（错误码表见第 9 节）。
@@ -46,7 +46,7 @@
 ## 2. 进页面：表单配置
 
 ```
-GET /lf-api/v1/image-creations/options?kind=voiceover
+GET /api/v1/local-life/image-creations/options?kind=voiceover
 ```
 
 返回（实际响应）：
@@ -93,7 +93,7 @@ GET /lf-api/v1/image-creations/options?kind=voiceover
 ### 3.1 AI帮写
 
 ```
-POST /lf-api/v1/copywriting/ai-write
+POST /api/v1/local-life/copywriting/ai-write
 Content-Type: application/json
 
 {"scene": "voiceover", "context": "西湖边的咖啡店，主打手冲", "max_len": 60}
@@ -110,7 +110,7 @@ Content-Type: application/json
 ### 3.2 AI文案（选择AI文案弹窗）
 
 ```
-GET /lf-api/v1/copywriting?keyword=睡眠&page=1&page_size=20
+GET /api/v1/local-life/copywriting?keyword=睡眠&page=1&page_size=20
 ```
 
 返回 `{"list": [...], "total": 12}`，每条：
@@ -145,7 +145,7 @@ GET /lf-api/v1/copywriting?keyword=睡眠&page=1&page_size=20
 1. 取上传地址：
 
    ```
-   POST /lf-api/v1/upload/presign
+   POST /api/v1/local-life/upload/presign
    {"kind": "image", "content_type": "image/jpeg"}
    ```
 
@@ -169,12 +169,12 @@ GET /lf-api/v1/copywriting?keyword=睡眠&page=1&page_size=20
 - 上传后的地址是公有桶的永久地址，不带过期签名。
 
 > 另有 `GET /upload/credentials?kind=image`（STS 临时凭证，前端自行签名上传），功能相同，保留兼容，新接入请用预签名。
-> 本地联调没有 OSS 时可用 `POST /lf-api/v1/upload`（multipart，字段 `file`）代传，**仅本地可用**。
+> 本地联调没有 OSS 时可用 `POST /api/v1/local-life/upload`（multipart，字段 `file`）代传，**仅本地可用**。
 
 ### 4.2 AI公共数字人
 
 ```
-GET /lf-api/v1/digital-humans/public
+GET /api/v1/local-life/digital-humans/public
 ```
 
 ```json
@@ -188,14 +188,14 @@ GET /lf-api/v1/digital-humans/public
 
 和「AI数字人」模块是**同一套接口**，流程是：填表 → 出 4 张图 → 选一张。
 
-1. `GET /lf-api/v1/digital-humans/options` 取表单选项（性别、年龄、肤色、职业角色）。
-2. `POST /lf-api/v1/digital-humans/portraits`（要带 `X-Request-Id`）：
+1. `GET /api/v1/local-life/digital-humans/options` 取表单选项（性别、年龄、肤色、职业角色）。
+2. `POST /api/v1/local-life/digital-humans/portraits`（要带 `X-Request-Id`）：
 
    ```json
    {"gender": "female", "age": "youth", "skin_tone": "fair", "role": "store_manager", "description": "长发，微笑"}
    ```
 
-3. 轮询 `GET /lf-api/v1/digital-humans/portraits/:id`，直到 `status != 0`：`1` 完成，`image_urls` 里有 4 张 9:16 图；`2` 失败，看 `fail_reason`。
+3. 轮询 `GET /api/v1/local-life/digital-humans/portraits/:id`，直到 `status != 0`：`1` 完成，`image_urls` 里有 4 张 9:16 图；`2` 失败，看 `fail_reason`。
 4. 用户选中第 N 张（0 起）后，提交口播时传 `portrait_source=AI` + `portrait_id` + `image_index=N`。
 
 注意：
@@ -216,7 +216,7 @@ GET /lf-api/v1/digital-humans/public
 预设背景列表：
 
 ```
-GET /lf-api/v1/image-creations/templates?kind=voiceover
+GET /api/v1/local-life/image-creations/templates?kind=voiceover
 ```
 
 ```json
@@ -230,7 +230,7 @@ GET /lf-api/v1/image-creations/templates?kind=voiceover
 ## 6. 开始生成
 
 ```
-POST /lf-api/v1/image-creations
+POST /api/v1/local-life/image-creations
 X-Request-Id: 4F1C7E0A-9D2B-4E8B-A1F0-2C3D4E5F6A7B
 Content-Type: application/json
 ```
@@ -294,7 +294,7 @@ Content-Type: application/json
 ## 7. 生成中与结果
 
 ```
-GET /lf-api/v1/image-creations/:id
+GET /api/v1/local-life/image-creations/:id
 ```
 
 轮询直到 `status != 0`：
@@ -334,8 +334,8 @@ GET /lf-api/v1/image-creations/:id
 ## 8. 历史记录与删除
 
 ```
-GET    /lf-api/v1/image-creations?kind=voiceover&status=-1&page=1&page_size=20
-DELETE /lf-api/v1/image-creations/:id
+GET    /api/v1/local-life/image-creations?kind=voiceover&status=-1&page=1&page_size=20
+DELETE /api/v1/local-life/image-creations/:id
 ```
 
 - 列表返回 `{"list": [...], "total": N}`，每条结构同第 7 节，按创建时间倒序。

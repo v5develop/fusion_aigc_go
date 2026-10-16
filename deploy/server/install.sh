@@ -336,11 +336,11 @@ wait_ok() { # wait_ok 名称 URL 请求头
 
 self_check() {
   local ok=0
-  wait_ok "App 网关（文案选项）" "http://127.0.0.1:$GATEWAY_PORT/lf-api/v1/copywriting/options" "X-User-Id: 1" || ok=1
-  wait_ok "App 网关 → 图文笔记服务" "http://127.0.0.1:$GATEWAY_PORT/lf-api/v1/notes/options" "X-User-Id: 1" || ok=1
-  wait_ok "App 网关 → 海报/口播服务" "http://127.0.0.1:$GATEWAY_PORT/lf-api/v1/image-creations/options?kind=voiceover" "X-User-Id: 1" || ok=1
-  wait_ok "App 网关 → 数字人服务" "http://127.0.0.1:$GATEWAY_PORT/lf-api/v1/voices/categories" "X-User-Id: 1" || ok=1
-  wait_ok "OSS 直传凭证（STS）" "http://127.0.0.1:$GATEWAY_PORT/lf-api/v1/upload/credentials?kind=image" "X-User-Id: 1" || ok=1
+  wait_ok "App 网关（文案选项）" "http://127.0.0.1:$GATEWAY_PORT/api/v1/local-life/copywriting/options" "X-User-Id: 1" || ok=1
+  wait_ok "App 网关 → 图文笔记服务" "http://127.0.0.1:$GATEWAY_PORT/api/v1/local-life/notes/options" "X-User-Id: 1" || ok=1
+  wait_ok "App 网关 → 海报/口播服务" "http://127.0.0.1:$GATEWAY_PORT/api/v1/local-life/image-creations/options?kind=voiceover" "X-User-Id: 1" || ok=1
+  wait_ok "App 网关 → 数字人服务" "http://127.0.0.1:$GATEWAY_PORT/api/v1/local-life/voices/categories" "X-User-Id: 1" || ok=1
+  wait_ok "OSS 直传凭证（STS）" "http://127.0.0.1:$GATEWAY_PORT/api/v1/local-life/upload/credentials?kind=image" "X-User-Id: 1" || ok=1
   wait_ok "运营后台" "http://127.0.0.1:$ADMIN_PORT/admin/v1/copywriting/model" "X-Admin-Id: 1" || ok=1
   if [[ $ok != 0 ]]; then
     red "有检查没通过，看日志：bash install.sh logs <服务名>（日志目录 $INSTALL_DIR/logs）"
@@ -428,7 +428,7 @@ cmd_install() {
   green "部署完成（版本 $(cat "$PKG/VERSION" 2>/dev/null || echo '?')）"
   cat <<EOF
 
-  App 接口：  http://<服务器公网IP>:$GATEWAY_PORT/lf-api/v1     （给前端；内网 ${ip:-?}）
+  App 接口：  http://<服务器公网IP>:$GATEWAY_PORT/api/v1/local-life     （给前端；内网 ${ip:-?}）
   运营后台：  http://<服务器公网IP>:$ADMIN_PORT/admin/v1
   接口文档：  http://<服务器公网IP>:$GATEWAY_PORT/swagger   （App，Swagger，可在线调试）
               http://<服务器公网IP>:$ADMIN_PORT/swagger   （运营后台）

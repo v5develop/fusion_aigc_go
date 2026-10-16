@@ -29,7 +29,7 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Handler: auth.LoginHandler(serverCtx),
 			},
 		},
-		rest.WithPrefix("/lf-api/v1"),
+		rest.WithPrefix("/api/v1/local-life"),
 	)
 
 	server.AddRoutes(
@@ -44,7 +44,7 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				},
 			}...,
 		),
-		rest.WithPrefix("/lf-api/v1"),
+		rest.WithPrefix("/api/v1/local-life"),
 	)
 
 	server.AddRoutes(
@@ -83,7 +83,7 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				},
 			}...,
 		),
-		rest.WithPrefix("/lf-api/v1"),
+		rest.WithPrefix("/api/v1/local-life"),
 	)
 
 	server.AddRoutes(
@@ -152,7 +152,7 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				},
 			}...,
 		),
-		rest.WithPrefix("/lf-api/v1"),
+		rest.WithPrefix("/api/v1/local-life"),
 	)
 
 	server.AddRoutes(
@@ -227,7 +227,7 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				},
 			}...,
 		),
-		rest.WithPrefix("/lf-api/v1"),
+		rest.WithPrefix("/api/v1/local-life"),
 	)
 
 	server.AddRoutes(
@@ -290,7 +290,7 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				},
 			}...,
 		),
-		rest.WithPrefix("/lf-api/v1"),
+		rest.WithPrefix("/api/v1/local-life"),
 	)
 
 	server.AddRoutes(
@@ -347,7 +347,7 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				},
 			}...,
 		),
-		rest.WithPrefix("/lf-api/v1"),
+		rest.WithPrefix("/api/v1/local-life"),
 	)
 
 	server.AddRoutes(
@@ -386,7 +386,7 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				},
 			}...,
 		),
-		rest.WithPrefix("/lf-api/v1"),
+		rest.WithPrefix("/api/v1/local-life"),
 	)
 
 	server.AddRoutes(
@@ -437,6 +437,6 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				},
 			}...,
 		),
-		rest.WithPrefix("/lf-api/v1"),
+		rest.WithPrefix("/api/v1/local-life"),
 	)
 }

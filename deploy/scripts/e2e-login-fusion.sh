@@ -12,7 +12,7 @@ cd "$(dirname "$0")/../.."
 
 PORT=${PORT:-8890}
 FUSION_PORT=${FUSION_PORT:-5057}
-GW="http://127.0.0.1:$PORT/lf-api/v1"
+GW="http://127.0.0.1:$PORT/api/v1/local-life"
 MOCKUNION=${MOCKUNION:-http://127.0.0.1:5056}
 FUSION="http://127.0.0.1:$FUSION_PORT"
 APP_KEY=12345678910
