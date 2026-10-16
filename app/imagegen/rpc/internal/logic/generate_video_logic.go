@@ -62,7 +62,7 @@ func (l *GenerateVideoLogic) GenerateVideo(in *pb.GenerateVideoReq) (*pb.VideoIn
 			return nil, err
 		}
 	}
-	taskID := newTaskID(l.svcCtx)
+	taskID := newRefTaskID(l.svcCtx, "vid", c.Id, "gen")
 	ok, err := l.svcCtx.Video.StartGenerate(l.ctx, c.Id, taskID)
 	if err != nil {
 		return nil, err

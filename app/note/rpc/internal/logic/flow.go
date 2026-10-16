@@ -9,12 +9,18 @@ import (
 	"aigc-life/app/note/rpc/internal/svc"
 	"aigc-life/pkg/aigc"
 	"aigc-life/pkg/asset"
+	"aigc-life/pkg/taskcenter"
 
 	"github.com/zeromicro/go-zero/core/logx"
 )
 
 func newTaskID(svcCtx *svc.ServiceContext) string {
 	return aigc.NewTaskID(svcCtx.Config.TaskIDPrefix)
+}
+
+// newRefTaskID 提交执行面用的 task_id，带上任务中心的编号（AiCreation_life_<src>_<id>），方便按它查执行面日志。
+func newRefTaskID(svcCtx *svc.ServiceContext, src string, id int64, stage string) string {
+	return aigc.NewLifeTaskID(svcCtx.Config.TaskIDPrefix, taskcenter.Ref(src, id), stage)
 }
 
 // submitPlan 提交构思任务（74）；提交失败直接标记构思失败。

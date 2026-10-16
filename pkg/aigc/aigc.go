@@ -67,6 +67,21 @@ func NewTaskID(prefix string) string {
 	return prefix + "_" + hex.EncodeToString(b)
 }
 
+// NewLifeTaskID 生成本地生活任务提交给执行面的 task_id：
+//
+//	<prefix>_<任务中心 task_id>_<阶段>_<4位hex>
+//
+// 例：aigclife_AiCreation_life_vid_28_gen_a1b2。
+// 为什么这样：现有系统任务中心里这条任务叫 AiCreation_life_vid_28，执行面的日志只认提交给它的 task_id，
+// 两边不一致就没法拿任务中心的编号去查执行面日志。把任务中心的编号整段放进去，搜它就能找到（含各阶段）。
+// 前缀仍是 prefix（执行面按 split('_')[0] 路由回调，不能变）；末尾 4 位 hex 保证同一阶段重做（重新构思等）时不撞号。
+// ref 用 taskcenter.Ref 生成。
+func NewLifeTaskID(prefix, ref, stage string) string {
+	b := make([]byte, 2)
+	_, _ = rand.Read(b)
+	return prefix + "_" + ref + "_" + stage + "_" + hex.EncodeToString(b)
+}
+
 // SubmitResult 提交成功的返回。TaskType 是路由后的类型，可能与请求不同（85+lite→45、9 缺省→86、92+lite→91）。
 type SubmitResult struct {
 	TaskID      string `json:"task_id"`

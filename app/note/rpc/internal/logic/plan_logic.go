@@ -87,8 +87,8 @@ func (l *PlanLogic) Plan(in *pb.PlanReq) (*pb.NoteInfo, error) {
 	row := &model.AfvImageTextNote{
 		UserId: in.UserId, NoteType: in.NoteType, Topic: topic, MaterialUrls: nullStr(jsonList(materials)),
 		DigitalHumanId: sql.NullInt64{Int64: in.DigitalHumanId, Valid: in.DigitalHumanId > 0}, PersonUrl: nullStr(personURL),
-		ShopProfileId:  sql.NullInt64{Int64: in.ShopProfileId, Valid: in.ShopProfileId > 0},
-		CopywritingId:  sql.NullInt64{Int64: in.CopywritingId, Valid: in.CopywritingId > 0},
+		ShopProfileId: sql.NullInt64{Int64: in.ShopProfileId, Valid: in.ShopProfileId > 0},
+		CopywritingId: sql.NullInt64{Int64: in.CopywritingId, Valid: in.CopywritingId > 0},
 		PlanTaskId:    nullStr(newTaskID(l.svcCtx)), ImageCount: count, RequestId: nullStr(in.RequestId),
 		Status: model.StatusPlanning,
 	}
@@ -105,6 +105,10 @@ func (l *PlanLogic) Plan(in *pb.PlanReq) (*pb.NoteInfo, error) {
 	}
 	if row.Id, err = res.LastInsertId(); err != nil {
 		return nil, err
+	}
+	// 构思任务号要带任务中心编号（编号插入后才有），改失败就沿用插入时的随机号，不影响出结果
+	if id := newRefTaskID(l.svcCtx, "note", row.Id, "plan"); l.svcCtx.Note.SetPlanTaskID(l.ctx, row.Id, id) == nil {
+		row.PlanTaskId = nullStr(id)
 	}
 	submitPlan(l.ctx, l.svcCtx, row)
 	if cur, err := l.svcCtx.Note.FindOne(l.ctx, row.Id); err == nil {

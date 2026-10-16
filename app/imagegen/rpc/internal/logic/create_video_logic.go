@@ -151,6 +151,7 @@ func (l *CreateVideoLogic) CreateVideo(in *pb.CreateVideoReq) (*pb.VideoInfo, er
 	if row.Id, err = res.LastInsertId(); err != nil {
 		return nil, err
 	}
+	refPlanTaskID(l.ctx, l.svcCtx, row)
 	if err := submitPlan(l.ctx, l.svcCtx, row, videoShopProfileText(l.ctx, l.svcCtx, in.ShopProfileId, in.UserId)); err != nil {
 		failVideo(l.ctx, l.svcCtx, row.Id, model.VideoPlanning, "提交构思失败，请重试")
 		return nil, err
@@ -232,9 +233,12 @@ func (l *CreateVideoLogic) createRemake(in *pb.CreateVideoReq) (*pb.VideoInfo, e
 	if linked != nil {
 		// 后台：下载直链（会过期，所以当场下）→ 转存到我们的桶 → 再交给执行面 70
 		go l.fetchAndSubmit(row.Id, in.UserId, linked)
-	} else if err := submitPlan(l.ctx, l.svcCtx, row, ""); err != nil {
-		failVideo(l.ctx, l.svcCtx, row.Id, model.VideoPlanning, "提交解析失败，请重试")
-		return nil, err
+	} else {
+		refPlanTaskID(l.ctx, l.svcCtx, row)
+		if err := submitPlan(l.ctx, l.svcCtx, row, ""); err != nil {
+			failVideo(l.ctx, l.svcCtx, row.Id, model.VideoPlanning, "提交解析失败，请重试")
+			return nil, err
+		}
 	}
 	cur, err := findOwnedVideo(l.ctx, l.svcCtx, row.Id, in.UserId)
 	if err != nil {
@@ -298,7 +302,7 @@ func (l *CreateVideoLogic) fetchAndSubmit(id, userID int64, v *linkparse.Video) 
 	}
 	cover := l.saveCover(ctx, userID, v)
 
-	taskID := newTaskID(l.svcCtx)
+	taskID := newRefTaskID(l.svcCtx, "vid", id, "plan")
 	if err := l.svcCtx.Video.FinishFetch(ctx, id, videoURL, cover, taskID); err != nil {
 		log.Errorf("finish fetch %d: %v", id, err)
 		failVideo(ctx, l.svcCtx, id, model.VideoPlanning, "视频转存失败，请重试")

@@ -73,7 +73,7 @@ func (l *GenerateLogic) Generate(in *pb.GenerateReq) (*pb.NoteInfo, error) {
 		return nil, xerr.New(xerr.Conflict, "构思结果异常，请重新构思")
 	}
 
-	taskID := newTaskID(l.svcCtx)
+	taskID := newRefTaskID(l.svcCtx, "note", n.Id, "img")
 	ok, err := l.svcCtx.Note.StartGenerate(l.ctx, n.Id, title, content, jsonList(tags), int64(count), taskID)
 	if err != nil {
 		return nil, err

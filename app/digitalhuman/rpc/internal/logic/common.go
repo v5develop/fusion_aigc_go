@@ -12,6 +12,7 @@ import (
 	"aigc-life/app/digitalhuman/rpc/internal/svc"
 	"aigc-life/app/digitalhuman/rpc/pb"
 	"aigc-life/pkg/aigc"
+	"aigc-life/pkg/taskcenter"
 	"aigc-life/pkg/tts"
 	"aigc-life/pkg/xerr"
 
@@ -182,6 +183,11 @@ func checkText(ctx context.Context, svcCtx *svc.ServiceContext, scene, text stri
 
 func newTaskID(svcCtx *svc.ServiceContext) string {
 	return aigc.NewTaskID(svcCtx.Config.TaskIDPrefix)
+}
+
+// newRefTaskID 提交执行面用的 task_id，带上任务中心的编号（AiCreation_life_<src>_<id>），方便按它查执行面日志。
+func newRefTaskID(svcCtx *svc.ServiceContext, src string, id int64, stage string) string {
+	return aigc.NewLifeTaskID(svcCtx.Config.TaskIDPrefix, taskcenter.Ref(src, id), stage)
 }
 
 // ttsCall 一次配音调用所需的信息。

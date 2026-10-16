@@ -3,6 +3,7 @@ package logic
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"aigc-life/app/imagegen/model"
@@ -11,6 +12,7 @@ import (
 	"aigc-life/pkg/aigc"
 	"aigc-life/pkg/asset"
 	"aigc-life/pkg/pagex"
+	"aigc-life/pkg/taskcenter"
 
 	"github.com/zeromicro/go-zero/core/logx"
 )
@@ -19,6 +21,20 @@ func pagexOffset(page, size int64) (int64, int64) { return pagex.Offset(page, si
 
 func newTaskID(svcCtx *svc.ServiceContext) string {
 	return aigc.NewTaskID(svcCtx.Config.TaskIDPrefix)
+}
+
+// newRefTaskID 提交执行面用的 task_id，带上任务中心的编号（AiCreation_life_<src>_<id>），方便按它查执行面日志。
+func newRefTaskID(svcCtx *svc.ServiceContext, src string, id int64, stage string) string {
+	return aigc.NewLifeTaskID(svcCtx.Config.TaskIDPrefix, taskcenter.Ref(src, id), stage)
+}
+
+// refPlanTaskID 新建后把出剧本 / 解析的任务号换成带任务中心编号的（编号插入后才有）。
+// 改失败就沿用插入时的随机号，不影响出结果。
+func refPlanTaskID(ctx context.Context, svcCtx *svc.ServiceContext, row *model.AfvVideoCreation) {
+	id := newRefTaskID(svcCtx, "vid", row.Id, "plan")
+	if svcCtx.Video.SetPlanTaskID(ctx, row.Id, id) == nil {
+		row.PlanTaskId = nullStr(id)
+	}
 }
 
 // imageTask 一张图对应的执行面任务与结果。一次生成 N 张就是 N 个任务。
@@ -77,7 +93,7 @@ func submit(ctx context.Context, svcCtx *svc.ServiceContext, c *model.AfvImageCr
 	task := buildTask(c, cfg, mats, typeLabel)
 	tasks := make([]imageTask, 0, c.ImageCount)
 	for i := int64(0); i < c.ImageCount; i++ {
-		id := newTaskID(svcCtx)
+		id := newRefTaskID(svcCtx, "img", c.Id, fmt.Sprintf("i%d", i+1))
 		if _, err := svcCtx.Aigc.Submit(ctx, id, task); err != nil {
 			logx.WithContext(ctx).Errorf("submit %s %d (%d/%d): %v", c.Kind, c.Id, i+1, c.ImageCount, err)
 			tasks = append(tasks, imageTask{TaskID: id, Status: aigc.StatusFailed, Error: "提交生成失败"})
@@ -130,7 +146,7 @@ const pollBatch = 100
 
 func (p *Poller) tick(ctx context.Context) {
 	svcCtx := p.svcCtx
-	p.pollVideos(ctx) // 探店视频 / 带货短剧（两步）
+	p.pollVideos(ctx)                 // 探店视频 / 带货短剧（两步）
 	defer svcCtx.TaskCenter.Sync(ctx) // 本轮的状态变化同步进任务中心
 	rows, err := svcCtx.Creation.ListGenerating(ctx, time.Now(), pollBatch)
 	if err != nil {

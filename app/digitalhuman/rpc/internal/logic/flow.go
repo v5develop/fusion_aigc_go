@@ -168,7 +168,7 @@ func startDigitalHuman(svcCtx *svc.ServiceContext, h *model.AfvDigitalHuman, voi
 			}
 		}
 
-		taskID := newTaskID(svcCtx)
+		taskID := newRefTaskID(svcCtx, "dh", h.Id, "gen")
 		ok, err := svcCtx.Human.StartRendering(ctx, h.Id, d.URL, int64(secs), taskID)
 		if err != nil || !ok {
 			log.Errorf("start rendering: ok=%v err=%v", ok, err)

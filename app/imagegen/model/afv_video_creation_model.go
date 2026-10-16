@@ -56,6 +56,8 @@ type (
 		FinishFetch(ctx context.Context, id int64, videoURL, coverURL, planTaskID string) error
 		// Replan 重新构思：换一个出剧本任务号，清掉旧剧本，转回「构思中」
 		Replan(ctx context.Context, id int64, planTaskID string) (bool, error)
+		// SetPlanTaskID 新建后改出剧本任务号：任务号要带任务中心编号，而编号要插入后才有。只改还在构思中的。
+		SetPlanTaskID(ctx context.Context, id int64, planTaskID string) error
 		// FinishGenerate 出片结束（成功或失败）
 		FinishGenerate(ctx context.Context, id int64, status int64, videoURL, failReason string) (bool, error)
 		SoftDelete(ctx context.Context, id int64) error
@@ -168,6 +170,12 @@ func (m *customAfvVideoCreationModel) Replan(ctx context.Context, id int64, plan
 	q := fmt.Sprintf("UPDATE %s SET `plan_task_id` = ?, `plan_script` = NULL, `status` = ?, `fail_reason` = NULL "+
 		"WHERE `id` = ? AND `status` IN (?, ?)", m.table)
 	return affected(m.conn.ExecCtx(ctx, q, nullString(planTaskID), VideoPlanning, id, VideoPlanned, VideoFailed))
+}
+
+func (m *customAfvVideoCreationModel) SetPlanTaskID(ctx context.Context, id int64, planTaskID string) error {
+	q := fmt.Sprintf("UPDATE %s SET `plan_task_id` = ? WHERE `id` = ? AND `status` = ?", m.table)
+	_, err := m.conn.ExecCtx(ctx, q, nullString(planTaskID), id, VideoPlanning)
+	return err
 }
 
 func (m *customAfvVideoCreationModel) FinishGenerate(ctx context.Context, id int64, status int64, videoURL, failReason string) (bool, error) {

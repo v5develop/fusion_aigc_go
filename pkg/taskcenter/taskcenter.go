@@ -45,7 +45,11 @@ type Source struct {
 	Prompt  string // 提示词 / 文案，放进 request_params.prompt 供列表展示
 }
 
-func (s Source) taskID() string { return fmt.Sprintf("AiCreation_life_%s_", s.Prefix) }
+func (s Source) taskID() string { return fmt.Sprintf("AiCreation_life_%s_", s.Prefix) } // 与 Ref 同一格式
+
+// Ref 一条源表记录在任务中心里的 task_id（AiCreation_life_<Prefix>_<id>）。
+// 提交执行面的 task_id 也要带上它（aigc.NewLifeTaskID），好用任务中心的编号查执行面日志。
+func Ref(prefix string, id int64) string { return fmt.Sprintf("AiCreation_life_%s_%d", prefix, id) }
 
 func orNull(e string) string {
 	if strings.TrimSpace(e) == "" {

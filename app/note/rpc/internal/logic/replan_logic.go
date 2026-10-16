@@ -44,7 +44,7 @@ func (l *ReplanLogic) Replan(in *pb.ReplanReq) (*pb.NoteInfo, error) {
 		}
 		count = int64(in.ImageCount)
 	}
-	taskID := newTaskID(l.svcCtx)
+	taskID := newRefTaskID(l.svcCtx, "note", n.Id, "plan")
 	ok, err := l.svcCtx.Note.Replan(l.ctx, n.Id, taskID, count)
 	if err != nil {
 		return nil, err

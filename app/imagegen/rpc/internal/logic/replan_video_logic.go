@@ -42,7 +42,7 @@ func (l *ReplanVideoLogic) ReplanVideo(in *pb.IdUserReq) (*pb.VideoInfo, error) 
 	if err := requireAigc(l.svcCtx); err != nil {
 		return nil, err
 	}
-	taskID := newTaskID(l.svcCtx)
+	taskID := newRefTaskID(l.svcCtx, "vid", c.Id, "plan")
 	ok, err := l.svcCtx.Video.Replan(l.ctx, c.Id, taskID)
 	if err != nil {
 		return nil, err

@@ -36,6 +36,8 @@ type (
 		FinishPlan(ctx context.Context, id int64, p *Plan, failReason string) (bool, error)
 		// Replan 待确认/构思失败 → 构思中，换新的构思任务（可同时改套图数量）。
 		Replan(ctx context.Context, id int64, taskID string, imageCount int64) (bool, error)
+		// SetPlanTaskID 新建后改构思任务号：任务号要带任务中心编号，而编号要插入后才有。只改还在构思中的。
+		SetPlanTaskID(ctx context.Context, id int64, taskID string) error
 		// StartGenerate 待确认/生成失败 → 生成中，同时保存用户在规划页改过的文字。
 		StartGenerate(ctx context.Context, id int64, title, content, tags string, count int64, taskID string) (bool, error)
 		// FinishGenerate 生成中 → 已完成/生成失败。
@@ -128,6 +130,12 @@ func (m *customAfvImageTextNoteModel) Replan(ctx context.Context, id int64, task
 	q := fmt.Sprintf("UPDATE %s SET `status` = ?, `plan_task_id` = ?, `image_count` = ?, `plan_script` = NULL, `fail_reason` = NULL "+
 		"WHERE `id` = ? AND `status` IN (?, ?) AND `deleted` = 0", m.table)
 	return affected(m.conn.ExecCtx(ctx, q, StatusPlanning, taskID, imageCount, id, StatusPlanned, StatusPlanFailed))
+}
+
+func (m *customAfvImageTextNoteModel) SetPlanTaskID(ctx context.Context, id int64, taskID string) error {
+	q := fmt.Sprintf("UPDATE %s SET `plan_task_id` = ? WHERE `id` = ? AND `status` = ?", m.table)
+	_, err := m.conn.ExecCtx(ctx, q, taskID, id, StatusPlanning)
+	return err
 }
 
 func (m *customAfvImageTextNoteModel) StartGenerate(ctx context.Context, id int64, title, content, tags string, count int64, taskID string) (bool, error) {

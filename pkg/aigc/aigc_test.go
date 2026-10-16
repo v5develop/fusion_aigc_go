@@ -165,3 +165,20 @@ func TestNoteImagesBody(t *testing.T) {
 		t.Fatalf("image %v", img)
 	}
 }
+
+func TestNewLifeTaskID(t *testing.T) {
+	a := NewLifeTaskID("aigclife", "AiCreation_life_vid_28", "gen")
+	if !strings.HasPrefix(a, "aigclife_AiCreation_life_vid_28_gen_") {
+		t.Fatalf("要以前缀 + 任务中心编号 + 阶段开头: %s", a)
+	}
+	if strings.Split(a, "_")[0] != "aigclife" {
+		t.Fatalf("执行面按 split('_')[0] 路由，前缀不能变: %s", a)
+	}
+	seen := map[string]bool{}
+	for i := 0; i < 50; i++ { // 末尾 4 位随机，重做同一阶段要能出不同的号（50 次全相同的概率可忽略）
+		seen[NewLifeTaskID("aigclife", "AiCreation_life_vid_28", "gen")] = true
+	}
+	if len(seen) < 2 {
+		t.Fatal("同一阶段重做不能撞号")
+	}
+}
