@@ -5,6 +5,7 @@ import (
 
 	"aigc-life/app/copywriting/model"
 	"aigc-life/app/copywriting/rpc/internal/config"
+	"aigc-life/pkg/billing"
 	"aigc-life/pkg/llm"
 	"aigc-life/pkg/moderation"
 	"aigc-life/pkg/semaphore"
@@ -22,6 +23,8 @@ type ServiceContext struct {
 	Moderation  moderation.Checker
 	// Sem 按模型限制并发（afv_ai_model.max_concurrency）
 	Sem *semaphore.Group
+	// Billing 文案计费（预扣 / 确认 / 退回）；Mode=off 时全部是空操作
+	Billing *billing.Service
 }
 
 func NewServiceContext(c config.Config) *ServiceContext {
@@ -36,6 +39,7 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		LLM:         llm.New(),
 		Moderation:  moderation.New(c.Moderation.Mode, blockWords(option)),
 		Sem:         semaphore.NewGroup(),
+		Billing:     billing.New(c.Billing, conn),
 	}
 }
 

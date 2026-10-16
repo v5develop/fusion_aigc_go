@@ -22,7 +22,7 @@ Storage:
   Prefix: aigc-life
   LocalDir: data/files
   LocalBaseUrl: http://127.0.0.1:8888/files
-TaskIDPrefix: aigclife
+TaskIDPrefix: AiCreationLife
 Agreement:
   AigcVersion: 1        # 条款改版后 +1，用户需重新同意
 Portrait:

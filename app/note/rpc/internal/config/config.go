@@ -26,7 +26,7 @@ type Config struct {
 	// Asset 成品写进素材库（afv_asset）：每张图一行，用 source_task_id 串起来
 	Asset asset.Conf
 	// TaskIDPrefix 提交执行面的 task_id 前缀，不能含下划线
-	TaskIDPrefix string `json:",default=aigclife"`
+	TaskIDPrefix string `json:",default=AiCreationLife"`
 	Limits       struct {
 		MaxTopicLen   int `json:",default=500"`
 		MaxMaterials  int `json:",default=3"` // 上传素材上限

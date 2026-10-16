@@ -4,7 +4,7 @@ RPCS := copywriting digitalhuman note imagegen
 # 使用 goctl 内置默认模板，避免受本机 ~/.goctl 自定义模板影响
 GOCTL_HOME := $(CURDIR)/deploy/goctl
 
-.PHONY: gen gen-rpc gen-api gen-model db build test run-all stop-all release package
+.PHONY: gen gen-rpc gen-api gen-model db build test test-migrate run-all stop-all release package
 
 gen: gen-rpc gen-api gen-model
 
@@ -21,21 +21,22 @@ gen-api:
 	goctl api swagger --api app/admin/api/admin.api --dir app/admin/api/doc --filename admin
 
 gen-model:
-	goctl model mysql ddl -src deploy/sql/V1.0.106__ai_copywriting.sql -dir app/copywriting/model --style=go_zero --home $(GOCTL_HOME)
-	goctl model mysql ddl -src deploy/sql/V1.0.114__shop_profile.sql -dir app/copywriting/model --style=go_zero --home $(GOCTL_HOME)
-	goctl model mysql ddl -src deploy/sql/V1.0.108__ai_digital_human.sql -dir app/digitalhuman/model --style=go_zero --home $(GOCTL_HOME)
-	goctl model mysql ddl -src deploy/sql/V1.0.109__ai_image_text_note.sql -dir app/note/model --style=go_zero --home $(GOCTL_HOME)
+	goctl model mysql ddl -src deploy/sql/Go_V1.0.0__ai_copywriting.sql -dir app/copywriting/model --style=go_zero --home $(GOCTL_HOME)
+	goctl model mysql ddl -src deploy/sql/Go_V1.0.7__shop_profile.sql -dir app/copywriting/model --style=go_zero --home $(GOCTL_HOME)
+	goctl model mysql ddl -src deploy/sql/Go_V1.0.1__ai_digital_human.sql -dir app/digitalhuman/model --style=go_zero --home $(GOCTL_HOME)
+	goctl model mysql ddl -src deploy/sql/Go_V1.0.2__ai_image_text_note.sql -dir app/note/model --style=go_zero --home $(GOCTL_HOME)
 	@echo '注意：V1.0.111 含 INSERT..SELECT，goctl 解析不了，改表结构时手工截出 CREATE TABLE 再生成 app/imagegen/model'
 
+# 本地开发用：直接执行、不写 go_schema_history 记录。正式环境只走 install.sh（会登记、会备份）
 # 建新表（只新增 afv_copywriting* / afv_digital_human* 等新表，不碰现有表结构）
 db:
-	docker exec -i mysql-8.0.36 mysql --default-character-set=utf8mb4 -uroot -p123456 fusion_aigc < deploy/sql/V1.0.106__ai_copywriting.sql
-	docker exec -i mysql-8.0.36 mysql --default-character-set=utf8mb4 -uroot -p123456 fusion_aigc < deploy/sql/V1.0.108__ai_digital_human.sql
-	docker exec -i mysql-8.0.36 mysql --default-character-set=utf8mb4 -uroot -p123456 fusion_aigc < deploy/sql/V1.0.109__ai_image_text_note.sql
-	docker exec -i mysql-8.0.36 mysql --default-character-set=utf8mb4 -uroot -p123456 fusion_aigc < deploy/sql/V1.0.110__asset_category_localLife.sql
-	docker exec -i mysql-8.0.36 mysql --default-character-set=utf8mb4 -uroot -p123456 fusion_aigc < deploy/sql/V1.0.111__ai_poster_long_image.sql
-	docker exec -i mysql-8.0.36 mysql --default-character-set=utf8mb4 -uroot -p123456 fusion_aigc < deploy/sql/V1.0.114__shop_profile.sql
-	docker exec -i mysql-8.0.36 mysql --default-character-set=utf8mb4 -uroot -p123456 fusion_aigc < deploy/sql/V1.0.116__ai_video_creation.sql
+	docker exec -i mysql-8.0.36 mysql --default-character-set=utf8mb4 -uroot -p123456 fusion_aigc < deploy/sql/Go_V1.0.0__ai_copywriting.sql
+	docker exec -i mysql-8.0.36 mysql --default-character-set=utf8mb4 -uroot -p123456 fusion_aigc < deploy/sql/Go_V1.0.1__ai_digital_human.sql
+	docker exec -i mysql-8.0.36 mysql --default-character-set=utf8mb4 -uroot -p123456 fusion_aigc < deploy/sql/Go_V1.0.2__ai_image_text_note.sql
+	docker exec -i mysql-8.0.36 mysql --default-character-set=utf8mb4 -uroot -p123456 fusion_aigc < deploy/sql/Go_V1.0.3__asset_category_local_life.sql
+	docker exec -i mysql-8.0.36 mysql --default-character-set=utf8mb4 -uroot -p123456 fusion_aigc < deploy/sql/Go_V1.0.4__ai_poster_long_image.sql
+	docker exec -i mysql-8.0.36 mysql --default-character-set=utf8mb4 -uroot -p123456 fusion_aigc < deploy/sql/Go_V1.0.7__shop_profile.sql
+	docker exec -i mysql-8.0.36 mysql --default-character-set=utf8mb4 -uroot -p123456 fusion_aigc < deploy/sql/Go_V1.0.9__ai_video_creation.sql
 
 build:
 	@mkdir -p bin
@@ -45,12 +46,16 @@ build:
 	go build -o bin/imagegen-rpc     ./app/imagegen/rpc
 	go build -o bin/gateway-api      ./app/gateway/api
 	go build -o bin/admin-api        ./app/admin/api
-	go build -o bin/mock-aigc        ./tools/mock-aigc
-	go build -o bin/mock-union       ./tools/mock-union
-	go build -o bin/mock-linkparse   ./tools/mock-linkparse
+	go build -o bin/mock-aigc        ./tools/mocks/mock-aigc
+	go build -o bin/mock-union       ./tools/mocks/mock-union
+	go build -o bin/mock-linkparse   ./tools/mocks/mock-linkparse
 
 test:
 	go test ./...
+
+# 迁移记录逻辑（离线，用假库）
+test-migrate:
+	bash tests/migrate/migrate_test.sh
 
 # 交叉编译 Linux 二进制（部署用），产物在 bin/linux/
 release:
@@ -72,17 +77,21 @@ package:
 		echo "build $$name"; \
 		GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -tags timetzdata -trimpath -ldflags '-s -w' -o dist/aigc-life/bin/$$name ./app/$$s || exit 1; \
 	done
-	@for t in mock-aigc mkconf seed billing-check; do \
+	@for t in mkconf seed billing-check; do \
 		echo "build $$t"; \
-		GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -tags timetzdata -trimpath -ldflags '-s -w' -o dist/aigc-life/bin/$$t ./tools/$$t || exit 1; \
+		GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -tags timetzdata -trimpath -ldflags '-s -w' -o dist/aigc-life/bin/$$t ./tools/ops/$$t || exit 1; \
 	done
 	cp deploy/etc/*.yaml dist/aigc-life/etc-dev/
-	cp deploy/sql/V*.sql dist/aigc-life/sql/
-	cp deploy/scripts/gen-voice-previews.sh deploy/scripts/e2e-real.sh deploy/scripts/seed-templates.sh dist/aigc-life/scripts/
-	cp deploy/sql/fix-billing-config-1016.sql deploy/sql/check-billing-online.sql dist/aigc-life/scripts/   # 手工执行的，不会被 install.sh 自动跑
-	cp docs/*.md dist/aigc-life/docs/
+	cp deploy/sql/Go_V*.sql dist/aigc-life/sql/
+	cp deploy/server/migrate.sh dist/aigc-life/
+	cp deploy/scripts/gen-voice-previews.sh deploy/scripts/seed-templates.sh dist/aigc-life/scripts/   # e2e-real 会真实调用模型、产生费用，不进正式包
+	cp deploy/sql/ops/fix-billing-offers-2026-10-16.sql deploy/sql/ops/check-billing-online.sql dist/aigc-life/scripts/   # 手工执行的，不会被 install.sh 自动跑
+	cp -r docs/api dist/aigc-life/docs/   # 前端接口文档；计费与问答文档是内部资料，不进正式包
 	cp deploy/server/install.sh deploy/server/deploy.env.example deploy/server/README.md dist/aigc-life/
+	cp -r deploy/server/nginx dist/aigc-life/
 	@echo $(VERSION) > dist/aigc-life/VERSION
+	@if ls dist/aigc-life/bin | grep -q mock; then echo "正式包里不能有 mock"; exit 1; fi
+	@if ls dist/aigc-life/docs | grep -qv "^api$$"; then echo "正式包只带 docs/api"; exit 1; fi
 	tar -C dist -czf dist/aigc-life-$(VERSION).tar.gz aigc-life
 	@ls -lh dist/aigc-life-$(VERSION).tar.gz
 

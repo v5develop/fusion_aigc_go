@@ -34,17 +34,7 @@ rpc 之间通过 etcd 发现，**只有两个网关需要对外暴露**。
 按顺序执行，只新建表 / 插数据，不改现有表结构（112、113、115、117 是给本项目自己的表加列，**不能重复执行**；一键脚本会自动判断跳过）：
 
 ```bash
-mysql fusion_aigc < deploy/sql/V1.0.106__ai_copywriting.sql        # AI文案
-mysql fusion_aigc < deploy/sql/V1.0.108__ai_digital_human.sql      # AI数字人
-mysql fusion_aigc < deploy/sql/V1.0.109__ai_image_text_note.sql    # 图文笔记
-mysql fusion_aigc < deploy/sql/V1.0.110__asset_category_localLife.sql   # 素材库分类
-mysql fusion_aigc < deploy/sql/V1.0.111__ai_poster_long_image.sql  # 海报/长图
-mysql fusion_aigc < deploy/sql/V1.0.112__ai_action_transfer.sql    # 动作迁移
-mysql fusion_aigc < deploy/sql/V1.0.113__ai_voiceover.sql          # 数字人口播
-mysql fusion_aigc < deploy/sql/V1.0.114__shop_profile.sql          # 店铺档案
-mysql fusion_aigc < deploy/sql/V1.0.115__note_shop_profile.sql     # 图文笔记关联店铺档案
-mysql fusion_aigc < deploy/sql/V1.0.116__ai_video_creation.sql     # 探店视频 / 带货短剧
-mysql fusion_aigc < deploy/sql/V1.0.117__ai_video_remake.sql       # 爆款视频复刻
+正式环境由 `install.sh` 执行 `deploy/sql/Go_V*.sql`：先整库备份，再按版本顺序执行，每个版本登记到 `go_schema_history`（与 Java 的 `flyway_schema_history` 分开）。不要手工逐个 `mysql < 文件`，那样不会登记。
 ```
 
 还需要**手动加两行配置**（脚本不含，怕误改现有环境）：
@@ -127,7 +117,7 @@ curl -s -H 'X-Admin-Id: 1' http://<host>:8889/admin/v1/digital-humans/tts-model 
 
 ## 7. 运营需要先准备的数据
 
-否则 App 端对应的列表是空的。前五项可以用 `go run ./tools/seed -kind ... -csv ...` 批量导入：
+否则 App 端对应的列表是空的。前五项可以用 `go run ./tools/ops/seed -kind ... -csv ...` 批量导入：
 
 | 内容 | 在哪维护 |
 |---|---|

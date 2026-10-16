@@ -35,7 +35,7 @@ load_env() {
     if [[ -f $installed ]] && ! cmp -s "$f" "$installed"; then
       yellow "⚠️  两份 deploy.env 内容不一致，本次用的是：$f"
       yellow "    另一份（会被覆盖）：$installed"
-      yellow "    要改配置请改 $f；确认无误就回车继续，Ctrl-C 取消。"
+      yellow "    要改配置请改 ${f}；确认无误就回车继续，Ctrl-C 取消。"
       read -r _ < /dev/tty || true
     fi
   elif [[ -f $installed ]]; then
@@ -52,26 +52,43 @@ load_env() {
   DB_HOST=${DB_HOST:-127.0.0.1}; DB_PORT=${DB_PORT:-3306}; DB_NAME=${DB_NAME:-fusion_aigc}; DB_USER=${DB_USER:-root}
   GATEWAY_PORT=${GATEWAY_PORT:-18888}; ADMIN_PORT=${ADMIN_PORT:-18889}
   COPYWRITING_PORT=${COPYWRITING_PORT:-19201}; DIGITALHUMAN_PORT=${DIGITALHUMAN_PORT:-19202}
-  NOTE_PORT=${NOTE_PORT:-19203}; IMAGEGEN_PORT=${IMAGEGEN_PORT:-19204}; MOCK_PORT=${MOCK_PORT:-15055}
-  MOCK_ENABLED=${MOCK_ENABLED:-1}; LOG_KEEP_DAYS=${LOG_KEEP_DAYS:-7}
-  UNION_BASE_URL=${UNION_BASE_URL:-}; AUTH_MODE=${AUTH_MODE:-dev}; JWT_SECRET=${JWT_SECRET:-}
+  NOTE_PORT=${NOTE_PORT:-19203}; IMAGEGEN_PORT=${IMAGEGEN_PORT:-19204}
+  LOG_KEEP_DAYS=${LOG_KEEP_DAYS:-7}
+  UNION_BASE_URL=${UNION_BASE_URL:-}; AUTH_MODE=${AUTH_MODE:-token}; SWAGGER_ENABLED=${SWAGGER_ENABLED:-0}; TASK_ID_PREFIX=${TASK_ID_PREFIX:-AiCreationLife}; JWT_SECRET=${JWT_SECRET:-}
   ADMIN_JWT_SECRET=${ADMIN_JWT_SECRET:-}; LINK_PARSE_URL=${LINK_PARSE_URL:-}
   UNION_REDIS_ADDR=${UNION_REDIS_ADDR:-}; UNION_REDIS_PASS=${UNION_REDIS_PASS:-}
   UNION_REDIS_DB=${UNION_REDIS_DB:-0}
   UNION_PHONE_AES_KEY=${UNION_PHONE_AES_KEY:-}
   UNION_DB_DSN=${UNION_DB_DSN:-}; UNION_USER_TABLE=${UNION_USER_TABLE:-}
-  BILLING_MODE=${BILLING_MODE:-off}
+  # Java 的 .env 路径：AIGC 地址与会话参数从它读，保证两边同一个值（显式写在 deploy.env 的优先）
+  JAVA_ENV_FILE=${JAVA_ENV_FILE:-}
+  java_env() { # 读不到（没配文件 / 没这个键）返回空串，且退出码恒为 0：set -e 下赋值不能因此中断安装
+    local f=${JAVA_ENV_FILE:-}
+    [[ -n $f && -r $f ]] || return 0
+    { grep -E "^$1=" "$f" || true; } | tail -1 | cut -d= -f2- | tr -d '\r' | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//"
+    return 0
+  }
+  AIGC_ENDPOINT=${AIGC_ENDPOINT:-$(java_env AIGC_BASE_URL)}
+  BILLING_MODE=${BILLING_MODE:-on}
   case $BILLING_MODE in off|shadow|on) ;; *) die "BILLING_MODE 只能是 off / shadow / on，现在是：$BILLING_MODE" ;; esac
+  # 正式版不允许免费：只接受 on（off / shadow 都不扣点）
+  if [[ $BILLING_MODE != on ]]; then die "正式版只允许 BILLING_MODE=on（当前 $BILLING_MODE，线上不允许免费）"; fi
   SESSION_REDIS_ADDR=${SESSION_REDIS_ADDR:-}; SESSION_REDIS_PASS=${SESSION_REDIS_PASS:-}
   SESSION_REDIS_DB=${SESSION_REDIS_DB:-10}
+  # 会话与 Java 共用：下面三项必须与 Java 生产环境的 max-concurrent-sessions / TOKEN_ACCESS_HOURS / TOKEN_REFRESH_DAYS 一致
+  SESSION_MAX_CONCURRENT=${SESSION_MAX_CONCURRENT:-$(java_env APP_SECURITY_TOKEN_MAX_CONCURRENT_SESSIONS)}; SESSION_MAX_CONCURRENT=${SESSION_MAX_CONCURRENT:-0}
+  TOKEN_ACCESS_HOURS=${TOKEN_ACCESS_HOURS:-$(java_env TOKEN_ACCESS_HOURS)}; TOKEN_ACCESS_HOURS=${TOKEN_ACCESS_HOURS:-2}
+  TOKEN_REFRESH_DAYS=${TOKEN_REFRESH_DAYS:-$(java_env TOKEN_REFRESH_DAYS)}; TOKEN_REFRESH_DAYS=${TOKEN_REFRESH_DAYS:-7}
+  # 公网域名与 Java 的地址：nginx 把 App 接口和刷新令牌分别转到网关与 Java
+  PUBLIC_DOMAIN=${PUBLIC_DOMAIN:-}; JAVA_UPSTREAM=${JAVA_UPSTREAM:-127.0.0.1:18080}
+  [[ -n $PUBLIC_DOMAIN ]] || die "PUBLIC_DOMAIN 必填：前端访问的域名（nginx 的 server_name）"
   FUSION_BASE_URL=${FUSION_BASE_URL:-}; FUSION_APP_KEY=${FUSION_APP_KEY:-}
   FUSION_APP_SECRET=${FUSION_APP_SECRET:-}; FUSION_KEY_VERSION=${FUSION_KEY_VERSION:-}
-  if [[ $MOCK_ENABLED == 1 ]]; then
-    AIGC_ENDPOINT=http://127.0.0.1:$MOCK_PORT
-  fi
-  [[ -n ${AIGC_ENDPOINT:-} ]] || die "MOCK_ENABLED=0 时必须填 AIGC_ENDPOINT"
+  [[ -n ${AIGC_ENDPOINT:-} ]] || die "必须填 AIGC_ENDPOINT（或在 deploy.env 设 JAVA_ENV_FILE，从 Java 的 .env 读取 AIGC_BASE_URL）"
+  [[ $TASK_ID_PREFIX =~ ^[A-Za-z0-9]+$ ]] || die "TASK_ID_PREFIX 只能是字母数字（不含下划线），当前：$TASK_ID_PREFIX"
+  # 正式版只支持 token：dev 会信任请求头 X-User-Id / X-Admin-Id，任何人可冒充用户或管理员
+  if [[ $AUTH_MODE != token ]]; then die "正式版只支持 AUTH_MODE=token（当前 $AUTH_MODE）"; fi
   SERVICES=("${RPCS[@]}" "${APIS[@]}")
-  [[ $MOCK_ENABLED == 1 ]] && SERVICES=(mock-aigc "${SERVICES[@]}")
   if command -v systemctl >/dev/null 2>&1 && [[ -d /run/systemd/system ]]; then USE_SYSTEMD=1; else USE_SYSTEMD=0; fi
 }
 
@@ -79,7 +96,7 @@ port_of() {
   case $1 in
     gateway-api) echo "$GATEWAY_PORT" ;; admin-api) echo "$ADMIN_PORT" ;;
     copywriting-rpc) echo "$COPYWRITING_PORT" ;; digitalhuman-rpc) echo "$DIGITALHUMAN_PORT" ;;
-    note-rpc) echo "$NOTE_PORT" ;; imagegen-rpc) echo "$IMAGEGEN_PORT" ;; mock-aigc) echo "$MOCK_PORT" ;;
+    note-rpc) echo "$NOTE_PORT" ;; imagegen-rpc) echo "$IMAGEGEN_PORT" ;;
   esac
 }
 
@@ -96,40 +113,31 @@ find_mysql() {
 q() { MYSQL_PWD="$DB_PASS" "$MYSQL_BIN" -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" --default-character-set=utf8mb4 -N -B "$DB_NAME" -e "$1"; }
 
 run_sql_file() { MYSQL_PWD="$DB_PASS" "$MYSQL_BIN" -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" --default-character-set=utf8mb4 "$DB_NAME" < "$1"; }
+db_exec() { MYSQL_PWD="$DB_PASS" "$MYSQL_BIN" -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" --default-character-set=utf8mb4 "$DB_NAME" -e "$1"; }
 
 has_table()  { [[ $(q "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$DB_NAME' AND table_name='$1'") != 0 ]]; }
 has_column() { [[ $(q "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='$DB_NAME' AND table_name='$1' AND column_name='$2'") != 0 ]]; }
 
 # 每个脚本先看数据库里是否已经有它建的东西，有就跳过（手工执行过的也能识别），所以可以重复运行 install.sh
-migrate() {
-  local f name
-  for f in "$PKG"/sql/V*.sql; do
-    name=$(basename "$f")
-    local done_=0
-    case $name in
-      V1.0.106__*) has_table afv_copywriting && done_=1 ;;
-      V1.0.108__*) has_table afv_digital_human && done_=1 ;;
-      V1.0.109__*) has_table afv_image_text_note && done_=1 ;;
-      V1.0.110__*) done_=0 ;; # 只插配置数据，脚本本身可重复执行
-      V1.0.111__*) has_table afv_image_creation && done_=1 ;;
-      V1.0.112__*) has_column afv_image_creation input_image_url && done_=1 ;;
-      V1.0.113__*) has_column afv_image_creation input_bg_url && done_=1 ;;
-      V1.0.114__*) has_table afv_shop_profile && done_=1 ;;
-      V1.0.115__*) has_column afv_image_text_note shop_profile_id && done_=1 ;;
-      V1.0.116__*) has_table afv_video_creation && done_=1 ;;
-      V1.0.117__*) has_column afv_video_creation source_video_url && done_=1 ;;
-      V1.0.118__*) has_column afv_image_creation copywriting_id && done_=1 ;;
-      V1.0.119__*) has_column afv_digital_human model && done_=1 ;;
-      *) die "不认识的迁移脚本 ${name}：请在 install.sh 的 migrate() 里补上它的判断条件" ;;
-    esac
-    if [[ $done_ == 1 ]]; then
-      echo "  - $name 已执行过，跳过"
-    else
-      run_sql_file "$f" || die "执行 $name 失败"
-      green "  ✓ $name"
-    fi
-  done
+# 迁移前的整库备份是可选的：BACKUP_BEFORE_MIGRATE=1 才做（大库耗时长、占磁盘，由运维决定）。
+backup_db() {
+  local dump out
+  if [[ ${BACKUP_BEFORE_MIGRATE:-0} != 1 ]]; then
+    yellow "  ! 未开启迁移前备份（BACKUP_BEFORE_MIGRATE=0）。迁移会改生产库，要留回滚手段请设 BACKUP_BEFORE_MIGRATE=1"
+    return 0
+  fi
+  dump="$(dirname "$MYSQL_BIN")/mysqldump"
+  [[ -x $dump ]] || dump=$(command -v mysqldump || true)
+  [[ -n ${dump:-} && -x $dump ]] || die "BACKUP_BEFORE_MIGRATE=1 但找不到 mysqldump"
+  out="${INSTALL_DIR:-/opt/aigc-life}/backup/${DB_NAME}-$(date +%Y%m%d-%H%M%S).sql.gz"
+  mkdir -p "$(dirname "$out")"
+  MYSQL_PWD="$DB_PASS" "$dump" -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" --single-transaction --quick --no-tablespaces "$DB_NAME" | gzip > "$out" \
+    || die "迁移前备份失败：$out"
+  green "  ✓ 迁移前备份：$out"
 }
+
+# 迁移逻辑在 migrate.sh（记录写 go_schema_history，与 Java 的 flyway_schema_history 分开）
+. "$PKG/migrate.sh"
 
 # 现有系统的表，我们只读写、不创建。测试/预发的库经常比线上落后，
 # 缺表的话装完是能起来的，等前端联调点到那个功能才蹦出 500——很难查。
@@ -190,20 +198,18 @@ check_db_config() {
   # 私有桶：只有接真实执行面时才用得上。
   # 执行面的产物落在现有系统的私有桶里，必须转存到公有桶前端才看得到。
   # 缺了这几项，下载产物时不会签名，私有桶直接回 403——
-  # 表现是"生成成功了但最后一步失败"，而且用 mock 联调时永远碰不到（mock 返回的是公有桶地址）。
-  if [[ $MOCK_ENABLED != 1 ]]; then
-    local priv=() k2
-    for k2 in storage_private_bucket storage_private_endpoint storage_private_access_key storage_private_secret_key; do
-      [[ $(q "SELECT COUNT(*) FROM afv_system_config WHERE config_key='$k2' AND deleted=0 AND COALESCE(config_value,'')<>''") != 0 ]] || priv+=("$k2")
-    done
-    if (( ${#priv[@]} )); then
-      red "✗ afv_system_config 缺少私有桶配置：${priv[*]}"
-      red "  接真实执行面时，产物在它的私有桶里，必须转存才能给前端看。"
-      red "  缺了会表现成「任务跑完了但结果保存失败」。"
-      die "要么把这几项配上，要么先用 MOCK_ENABLED=1 联调"
-    fi
-    green "  ✓ 私有桶配置齐全（产物转存用）"
+  # 表现是"生成成功了但最后一步失败"，而且只有接真实执行面时才会碰到。
+  local priv=() k2
+  for k2 in storage_private_bucket storage_private_endpoint storage_private_access_key storage_private_secret_key; do
+    [[ $(q "SELECT COUNT(*) FROM afv_system_config WHERE config_key='$k2' AND deleted=0 AND COALESCE(config_value,'')<>''") != 0 ]] || priv+=("$k2")
+  done
+  if (( ${#priv[@]} )); then
+    red "✗ afv_system_config 缺少私有桶配置：${priv[*]}"
+    red "  接真实执行面时，产物在它的私有桶里，必须转存才能给前端看。"
+    red "  缺了会表现成「任务跑完了但结果保存失败」。"
+    die "把这几项配上再装（私有桶配置在后台 系统设置里）"
   fi
+  green "  ✓ 私有桶配置齐全（产物转存用）"
   if [[ $(q "SELECT COUNT(*) FROM afv_system_config WHERE config_key='ai_tts_model_id' AND deleted=0 AND COALESCE(config_value,'')<>''") == 0 ]]; then
     local id
     id=$(q "SELECT id FROM afv_ai_model WHERE code='qwen-audio-3.1-tts-flash' AND deleted=0 ORDER BY id LIMIT 1" || true)
@@ -256,11 +262,7 @@ ensure_secret() {
 # ---------- 服务 ----------
 exec_line() {
   local s=$1
-  if [[ $s == mock-aigc ]]; then
-    echo "$INSTALL_DIR/bin/mock-aigc -addr 127.0.0.1:$MOCK_PORT -sample-image '${MOCK_SAMPLE_IMAGE:-}' -sample-video '${MOCK_SAMPLE_VIDEO:-}'"
-  else
-    echo "$INSTALL_DIR/bin/$s -f $INSTALL_DIR/etc/$s.yaml"
-  fi
+  echo "$INSTALL_DIR/bin/$s -f $INSTALL_DIR/etc/$s.yaml"
 }
 
 write_unit() {
@@ -315,7 +317,7 @@ svc_active() {
   fi
 }
 
-all_stop() { local s; for s in "${APIS[@]}" "${RPCS[@]}" mock-aigc; do svc_stop "$s"; done; }
+all_stop() { local s; for s in "${APIS[@]}" "${RPCS[@]}"; do svc_stop "$s"; done; }
 
 all_start() {
   local s
@@ -323,6 +325,20 @@ all_start() {
 }
 
 # ---------- 自检 ----------
+# 健康检查：token 模式下请求没有令牌，业务接口返回 401 是正常的，所以只确认进程在线（能返回 1xx–4xx）。
+# 开发模式（dev）仍然校验业务返回 "code":0。
+wait_up() { # wait_up 名称 URL
+  local name=$1 url=$2 code=""
+  for _ in $(seq 1 30); do
+    code=$(curl -s -o /dev/null -m 5 -w '%{http_code}' "$url" 2>/dev/null || true)
+    if [[ $code =~ ^[1-4][0-9][0-9]$ ]]; then green "  ✓ ${name}（进程在线，HTTP ${code}）"; return 0; fi
+    sleep 1
+  done
+  red "  ✗ ${name}：没有响应（最后 HTTP ${code:-000}）"; return 1
+}
+wait_check() { # 名称 URL 请求头
+  if [[ $AUTH_MODE == token ]]; then wait_up "$1" "$2"; else wait_ok "$@"; fi
+}
 wait_ok() { # wait_ok 名称 URL 请求头
   local name=$1 url=$2 header=$3 resp=""
   for _ in $(seq 1 30); do
@@ -336,12 +352,12 @@ wait_ok() { # wait_ok 名称 URL 请求头
 
 self_check() {
   local ok=0
-  wait_ok "App 网关（文案选项）" "http://127.0.0.1:$GATEWAY_PORT/api/v1/local-life/copywriting/options" "X-User-Id: 1" || ok=1
-  wait_ok "App 网关 → 图文笔记服务" "http://127.0.0.1:$GATEWAY_PORT/api/v1/local-life/notes/options" "X-User-Id: 1" || ok=1
-  wait_ok "App 网关 → 海报/口播服务" "http://127.0.0.1:$GATEWAY_PORT/api/v1/local-life/image-creations/options?kind=voiceover" "X-User-Id: 1" || ok=1
-  wait_ok "App 网关 → 数字人服务" "http://127.0.0.1:$GATEWAY_PORT/api/v1/local-life/voices/categories" "X-User-Id: 1" || ok=1
-  wait_ok "OSS 直传凭证（STS）" "http://127.0.0.1:$GATEWAY_PORT/api/v1/local-life/upload/credentials?kind=image" "X-User-Id: 1" || ok=1
-  wait_ok "运营后台" "http://127.0.0.1:$ADMIN_PORT/admin/v1/copywriting/model" "X-Admin-Id: 1" || ok=1
+  wait_check "App 网关（文案选项）" "http://127.0.0.1:$GATEWAY_PORT/api/v1/local-life/copywriting/options" "X-User-Id: 1" || ok=1
+  wait_check "App 网关 → 图文笔记服务" "http://127.0.0.1:$GATEWAY_PORT/api/v1/local-life/notes/options" "X-User-Id: 1" || ok=1
+  wait_check "App 网关 → 海报/口播服务" "http://127.0.0.1:$GATEWAY_PORT/api/v1/local-life/image-creations/options?kind=voiceover" "X-User-Id: 1" || ok=1
+  wait_check "App 网关 → 数字人服务" "http://127.0.0.1:$GATEWAY_PORT/api/v1/local-life/voices/categories" "X-User-Id: 1" || ok=1
+  wait_check "OSS 直传凭证（STS）" "http://127.0.0.1:$GATEWAY_PORT/api/v1/local-life/upload/credentials?kind=image" "X-User-Id: 1" || ok=1
+  wait_check "运营后台" "http://127.0.0.1:$ADMIN_PORT/admin/v1/copywriting/model" "X-Admin-Id: 1" || ok=1
   if [[ $ok != 0 ]]; then
     red "有检查没通过，看日志：bash install.sh logs <服务名>（日志目录 $INSTALL_DIR/logs）"
     return 1
@@ -356,7 +372,7 @@ cmd_install() {
   command -v curl >/dev/null 2>&1 || die "缺少 curl"
   [[ -x $PKG/bin/gateway-api ]] || die "安装包不完整：没有 $PKG/bin/gateway-api"
   green "  ✓ $(uname -sm)，$([[ $USE_SYSTEMD == 1 ]] && echo 'systemd 管理进程' || echo '无 systemd，用 nohup 管理进程')"
-  echo "  配置文件：$ENV_FILE（以后改配置就改这一份，改完重跑本脚本）"
+  echo "  配置文件：${ENV_FILE}（以后改配置就改这一份，改完重跑本脚本）"
   check_ports # 先查端口，冲突就什么都不动
 
   step "2/6 检查数据库"
@@ -367,7 +383,7 @@ cmd_install() {
   check_db_config
 
   step "3/6 建表（只新建本项目的表，已存在的自动跳过）"
-  migrate
+  migrate_go
 
   step "4/6 安装程序与配置 → $INSTALL_DIR"
   ensure_secret JWT_SECRET
@@ -384,6 +400,9 @@ cmd_install() {
     yellow "  ! 计费配置有问题（见上）。当前 BILLING_MODE=${BILLING_MODE:-off}，不影响安装；开计费前必须全部修好"
   fi
   chmod +x "$INSTALL_DIR"/bin/*
+  mkdir -p "$INSTALL_DIR/nginx"
+  sed -e "s|__SERVER_NAME__|$PUBLIC_DOMAIN|g" -e "s|__GATEWAY_PORT__|$GATEWAY_PORT|g" -e "s|__JAVA_UPSTREAM__|$JAVA_UPSTREAM|g" \
+    "$PKG/nginx/aigc-life.conf.tmpl" > "$INSTALL_DIR/nginx/aigc-life.conf"
   [[ $ENV_FILE == "$INSTALL_DIR/deploy.env" ]] || cp -f "$ENV_FILE" "$INSTALL_DIR/deploy.env"
   chmod 600 "$INSTALL_DIR/deploy.env"
   cp -rf "$PKG"/sql "$PKG"/scripts "$PKG"/docs "$PKG"/install.sh "$PKG"/deploy.env.example "$PKG"/VERSION "$INSTALL_DIR/" 2>/dev/null || true
@@ -391,26 +410,27 @@ cmd_install() {
   "$INSTALL_DIR/bin/mkconf" -src "$PKG/etc-dev" -out "$INSTALL_DIR/etc" -logs "$INSTALL_DIR/logs" \
     -dsn "$dsn" -aigc "$AIGC_ENDPOINT" -keep-days "$LOG_KEEP_DAYS" \
     -jwt-secret "$JWT_SECRET" -admin-jwt-secret "$ADMIN_JWT_SECRET" \
-    -auth-mode "$AUTH_MODE" -union "$UNION_BASE_URL" \
+    -auth-mode "$AUTH_MODE" -union "$UNION_BASE_URL" -swagger=$([[ $SWAGGER_ENABLED == 1 ]] && echo true || echo false) -task-id-prefix "$TASK_ID_PREFIX" \
     -link-parse "$LINK_PARSE_URL" \
     -union-redis "$UNION_REDIS_ADDR" -union-redis-pass "$UNION_REDIS_PASS" \
     -union-redis-db "$UNION_REDIS_DB" \
     -union-db-dsn "$UNION_DB_DSN" -union-user-table "$UNION_USER_TABLE" \
     -union-phone-key "$UNION_PHONE_AES_KEY" \
     -session-redis "$SESSION_REDIS_ADDR" -session-redis-pass "$SESSION_REDIS_PASS" \
-    -session-redis-db "$SESSION_REDIS_DB" \
+    -session-redis-db "$SESSION_REDIS_DB" -session-max "$SESSION_MAX_CONCURRENT" \
+    -token-access-hours "$TOKEN_ACCESS_HOURS" -token-refresh-days "$TOKEN_REFRESH_DAYS" \
     -fusion-url "$FUSION_BASE_URL" -fusion-key "$FUSION_APP_KEY" -fusion-secret "$FUSION_APP_SECRET" \
     -fusion-key-version "$FUSION_KEY_VERSION" -billing-mode "$BILLING_MODE" \
     -ports "copywriting=$COPYWRITING_PORT,digitalhuman=$DIGITALHUMAN_PORT,note=$NOTE_PORT,imagegen=$IMAGEGEN_PORT,gateway=$GATEWAY_PORT,admin=$ADMIN_PORT"
+  chmod 600 "$INSTALL_DIR"/etc/*.yaml   # 配置里有数据库口令、JWT 密钥、会话 Redis 口令
 
   step "5/6 启动服务"
   local s
   if [[ $USE_SYSTEMD == 1 ]]; then
     for s in "${SERVICES[@]}"; do write_unit "$s"; done
-    if [[ $MOCK_ENABLED != 1 ]]; then
-      systemctl disable aigc-life-mock-aigc >/dev/null 2>&1 || true
-      rm -f /etc/systemd/system/aigc-life-mock-aigc.service
-    fi
+    # 清理早期开发版遗留的 mock 服务（正式版不再包含它）
+    systemctl disable aigc-life-mock-aigc >/dev/null 2>&1 || true
+    rm -f /etc/systemd/system/aigc-life-mock-aigc.service
     systemctl daemon-reload
   fi
   all_start
@@ -426,16 +446,16 @@ cmd_install() {
   ip=$(hostname -I 2>/dev/null | awk '{print $1}')
   echo
   green "部署完成（版本 $(cat "$PKG/VERSION" 2>/dev/null || echo '?')）"
+  if [[ $SWAGGER_ENABLED == 1 ]]; then SWAGGER_HINT="http://<服务器公网IP>:$GATEWAY_PORT/swagger（App） ，http://<服务器公网IP>:$ADMIN_PORT/swagger（运营后台）"; else SWAGGER_HINT="已关闭（正式环境默认关；需要时设 SWAGGER_ENABLED=1）"; fi
   cat <<EOF
 
-  App 接口：  http://<服务器公网IP>:$GATEWAY_PORT/api/v1/local-life     （给前端；内网 ${ip:-?}）
-  运营后台：  http://<服务器公网IP>:$ADMIN_PORT/admin/v1
-  接口文档：  http://<服务器公网IP>:$GATEWAY_PORT/swagger   （App，Swagger，可在线调试）
-              http://<服务器公网IP>:$ADMIN_PORT/swagger   （运营后台）
-  执行面：    $([[ $MOCK_ENABLED == 1 ]] && echo "mock（联调用，成品是示例图/示例视频）" || echo "$AIGC_ENDPOINT")
+  App 接口：  https://$PUBLIC_DOMAIN/api/v1/local-life     （经 nginx；网关只监听本机 127.0.0.1:${GATEWAY_PORT}）
+  运营后台：  仅本机 http://127.0.0.1:$ADMIN_PORT/admin/v1（不走公网，用 ssh 隧道访问）
+  接口文档：  $SWAGGER_HINT
+  执行面：    $AIGC_ENDPOINT
 
-  外网访问还要放行端口：宝塔「安全」页 + 云服务器安全组，放行 ${GATEWAY_PORT}、$ADMIN_PORT
-  （或者用宝塔建网站做反向代理，见部署文档）
+  公网只开 80/443：${GATEWAY_PORT}、$ADMIN_PORT 不对外（不要在安全组里放行）。
+  nginx 配置已生成：$INSTALL_DIR/nginx/aigc-life.conf，把它加进宝塔站点 $PUBLIC_DOMAIN 的配置并 reload。
 
   常用：bash $INSTALL_DIR/install.sh status | restart | logs gateway-api
   首次部署：bash $INSTALL_DIR/install.sh voices          生成系统音色试听
@@ -487,7 +507,7 @@ cmd_uninstall() {
   all_stop
   if [[ $USE_SYSTEMD == 1 ]]; then
     local s
-    for s in "${RPCS[@]}" "${APIS[@]}" mock-aigc; do
+    for s in "${RPCS[@]}" "${APIS[@]}"; do
       systemctl disable "aigc-life-$s" >/dev/null 2>&1 || true
       rm -f "/etc/systemd/system/aigc-life-$s.service"
     done

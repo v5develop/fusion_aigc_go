@@ -19,7 +19,7 @@ type Config struct {
 	// Storage 照片与配音文件存储：local 仅开发用；oss 写现有公有桶（配置从 afv_system_config 读）
 	Storage storage.Conf
 	// TaskIDPrefix 提交执行面的 task_id 前缀（执行面按它路由回调；我们用轮询，前缀只用于排查）。不能含下划线。
-	TaskIDPrefix string `json:",default=aigclife"`
+	TaskIDPrefix string `json:",default=AiCreationLife"`
 	// PublicModel 公共数字人在现有模板素材投放位（afv_public_template_asset_placement）里的位置
 	PublicModel struct {
 		BizType string `json:",default=localLife"`

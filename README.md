@@ -5,12 +5,12 @@ Go + go-zero，数据落在现有系统的 `fusion_aigc` 库，新表 `afv_` 前
 
 | 模块 | 设计方案 | 建表脚本 |
 |---|---|---|
-| AI文案 | `~/Documents/echo/ai-copywriting-design.md` | `deploy/sql/V1.0.106__ai_copywriting.sql` |
-| 店铺档案 | `~/Documents/echo/shop-profile-design.md` | `deploy/sql/V1.0.114__shop_profile.sql`、`V1.0.115__note_shop_profile.sql` |
-| AI数字人 | `~/Documents/echo/digital-human-design.md` | `deploy/sql/V1.0.108__ai_digital_human.sql` |
-| AI图文笔记 | `~/Documents/echo/image-text-note-design.md` | `deploy/sql/V1.0.109__ai_image_text_note.sql` |
-| 探店视频/带货短剧 | `~/Documents/echo/explore-shop-short-drama-design.md` | `deploy/sql/V1.0.116__ai_video_creation.sql` |
-| AI海报/长图/动作迁移/数字人口播 | `~/Documents/echo/image-video-creation-design.md` | `deploy/sql/V1.0.111__ai_poster_long_image.sql`、`V1.0.112__ai_action_transfer.sql`、`V1.0.113__ai_voiceover.sql` |
+| AI文案 | `~/Documents/echo/ai-copywriting-design.md` | `deploy/sql/Go_V1.0.0__ai_copywriting.sql` |
+| 店铺档案 | `~/Documents/echo/shop-profile-design.md` | `deploy/sql/Go_V1.0.7__shop_profile.sql`、`V1.0.8__note_shop_profile.sql` |
+| AI数字人 | `~/Documents/echo/digital-human-design.md` | `deploy/sql/Go_V1.0.1__ai_digital_human.sql` |
+| AI图文笔记 | `~/Documents/echo/image-text-note-design.md` | `deploy/sql/Go_V1.0.2__ai_image_text_note.sql` |
+| 探店视频/带货短剧 | `~/Documents/echo/explore-shop-short-drama-design.md` | `deploy/sql/Go_V1.0.9__ai_video_creation.sql` |
+| AI海报/长图/动作迁移/数字人口播 | `~/Documents/echo/image-video-creation-design.md` | `deploy/sql/Go_V1.0.4__ai_poster_long_image.sql`、`V1.0.5__ai_action_transfer.sql`、`V1.0.6__ai_voiceover.sql` |
 
 ## 服务
 
@@ -36,7 +36,7 @@ Go + go-zero，数据落在现有系统的 `fusion_aigc` 库，新表 `afv_` 前
 
 ```bash
 # 批量导入运营数据（公共数字人 / 海报模板 / 长图模板 / 预置动作视频），按 url 去重、可重复执行
-go run ./tools/seed -dsn '<mysql dsn>' -kind posterTemplate -csv poster.csv -dry
+go run ./tools/ops/seed -dsn '<mysql dsn>' -kind posterTemplate -csv poster.csv -dry
 # 批量生成系统音色试听（默认只补没有试听的；--force 全部重来）
 ADMIN=http://<host>:8889/admin/v1 deploy/scripts/gen-voice-previews.sh
 ```
@@ -44,7 +44,7 @@ ADMIN=http://<host>:8889/admin/v1 deploy/scripts/gen-voice-previews.sh
 ## 文档
 
 - **部署**：一键部署见 `deploy/server/README.md`（`make package` → 服务器 `bash install.sh`）；手工部署细节见 `deploy/README.md`
-- **给前端的接口文档**：`docs/api-app.md`（数字人口播单独一份：`docs/api-voiceover.md`）
+- **给前端的接口文档**：`docs/api/api-app.md`（数字人口播单独一份：`docs/api/api-voiceover.md`）
 
 ## 本地运行
 
@@ -52,23 +52,23 @@ ADMIN=http://<host>:8889/admin/v1 deploy/scripts/gen-voice-previews.sh
 docker compose -f deploy/docker-compose.yml up -d etcd   # 依赖 etcd；mysql 用现有容器
 make db          # 建新表 + 种子数据
 make run-all     # 编译并后台启动（含 mock-aigc），日志在 logs/
-deploy/scripts/e2e.sh               # AI文案端到端测试（49 项，真实调用模型）
-deploy/scripts/e2e-digitalhuman.sh  # AI数字人端到端测试（73 项，执行面走 mock，TTS 真实调用；会临时插入并清理模板素材测试数据）
-deploy/scripts/e2e-note.sh          # AI图文笔记端到端测试（62 项，执行面走 mock；SKIP_MODEL=1 跳过真实模型）
-deploy/scripts/e2e-imagegen.sh      # 海报/长图/动作迁移/数字人口播端到端测试（96 项，执行面走 mock；会临时插入并清理模板素材；SKIP_MODEL=1 跳过 AI帮写）
-deploy/scripts/e2e-video.sh         # 探店视频/带货短剧/爆款视频复刻端到端测试（58 项，两步流程走 mock）
-deploy/scripts/e2e-login.sh         # App 登录端到端测试（30 项，联盟走本地 mock-union）
-deploy/scripts/e2e-login-fusion.sh  # 建档交给现有 Java 服务那条路（9 项，自己起 mock-fusion 和一个临时网关）
-deploy/scripts/e2e-login-direct.sh  # 自己验临时 token 那条路（15 项，读本地 Redis + 联盟用户库，真跑）
-deploy/scripts/e2e-admin-login.sh   # 运营后台登录端到端测试（20 项，临时插账号跑完删，不碰真实账号）
+tests/e2e/e2e.sh               # AI文案端到端测试（49 项，真实调用模型）
+tests/e2e/e2e-digitalhuman.sh  # AI数字人端到端测试（73 项，执行面走 mock，TTS 真实调用；会临时插入并清理模板素材测试数据）
+tests/e2e/e2e-note.sh          # AI图文笔记端到端测试（62 项，执行面走 mock；SKIP_MODEL=1 跳过真实模型）
+tests/e2e/e2e-imagegen.sh      # 海报/长图/动作迁移/数字人口播端到端测试（96 项，执行面走 mock；会临时插入并清理模板素材；SKIP_MODEL=1 跳过 AI帮写）
+tests/e2e/e2e-video.sh         # 探店视频/带货短剧/爆款视频复刻端到端测试（58 项，两步流程走 mock）
+tests/e2e/e2e-login.sh         # App 登录端到端测试（30 项，联盟走本地 mock-union）
+tests/e2e/e2e-login-fusion.sh  # 建档交给现有 Java 服务那条路（9 项，自己起 mock-fusion 和一个临时网关）
+tests/e2e/e2e-login-direct.sh  # 自己验临时 token 那条路（15 项，读本地 Redis + 联盟用户库，真跑）
+tests/e2e/e2e-admin-login.sh   # 运营后台登录端到端测试（20 项，临时插账号跑完删，不碰真实账号）
 deploy/scripts/seed-templates.sh    # 造联调用的公共素材（公共数字人/模板/口播背景/动作视频，占位图）
-deploy/scripts/e2e-real.sh          # 真实链路回归：对着已部署环境每个模块真实跑一条（会产生费用，见脚本头部）
+tests/e2e/e2e-real.sh          # 真实链路回归：对着已部署环境每个模块真实跑一条（会产生费用，见脚本头部）
 make stop-all
 ```
 
-身份：App 用联盟临时 token 换令牌（见 `docs/api-app.md`）。令牌默认发**和 AIGC（Java）服务同一套**的会话
+身份：App 用联盟临时 token 换令牌（见 `docs/api/api-app.md`）。令牌默认发**和 AIGC（Java）服务同一套**的会话
 （32 位 hex + 共用 Redis 的 `fusion:token:*`），一个 token 两边都认；没配那台 Redis 时回落到我们自己签的 JWT。
-后台用现有账号 `afv_admin_user` 登录（见 `docs/api-admin.md`）。
+后台用现有账号 `afv_admin_user` 登录（见 `docs/api/api-admin.md`）。
 联调期 `Auth.Mode=dev` 时没带令牌仍认请求头 `X-User-Id` / `X-Admin-Id`，**上线必须改成 `token`**。
 `ai_tts_model_id` 这一行配置 `make db` 不会插，需在各环境手动加（见建表脚本头部注释）。
 
@@ -191,7 +191,7 @@ App 带着联盟（xxlm）的 token 调 `POST /api/v1/auth/login`，网关做三
 - 中间件优先认 `Authorization: Bearer <我们的令牌>`；`Auth.Mode=dev` 时没带令牌才退回 `X-User-Id`，**线上设成 `token`**。
 - 令牌密钥 `Auth.Jwt.Secret` 由部署脚本按环境生成写进配置（`deploy.env` 的 `JWT_SECRET`，留空自动生成）。
 - 不做 refresh token：联盟 token 在 App 手里，过期后再登录一次即可。
-- 本地联调有 `tools/mock-union`（:5056）模拟联盟这两个接口，`make run-all` 会启动。
+- 本地联调有 `tools/mocks/mock-union`（:5056）模拟联盟这两个接口，`make run-all` 会启动。
 
 ## AI文案
 
@@ -217,7 +217,7 @@ App 带着联盟（xxlm）的 token 调 `POST /api/v1/auth/login`，网关做三
 - **网络重试**：调百炼（文案、TTS）遇到连接/握手这类网络抖动自动重试一次。
 - **素材库**：生成成功后写进现有 `afv_asset`（开关 `Asset.Enabled`）。笔记每张图一行、用 `source_task_id` 成组（同现有套图）；
   数字人定制形象是一行主资产 + 4 条 `afv_asset_item`；口播视频一行。用户删除或编辑时，素材库同步删除 / 重写。
-  聚合分类与入口归属见 `deploy/sql/V1.0.110__asset_category_localLife.sql`（只插数据，可重复执行）。
+  聚合分类与入口归属见 `deploy/sql/Go_V1.0.3__asset_category_local_life.sql`（只插数据，可重复执行）。
 
 ## 待办（代码里都有 TODO，`grep -rn TODO app pkg`）
 

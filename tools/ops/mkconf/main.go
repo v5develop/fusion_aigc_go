@@ -1,0 +1,364 @@
+// mkconf 由开发配置（deploy/etc/*.yaml）生成服务器配置，install.sh 调用。
+//
+// 只改和环境有关的几项，其余（业务参数、注释）原样保留，开发配置改了服务器配置自动跟上：
+//
+//   - 数据库 DataSource、执行面 Aigc.Endpoint、存储 Storage.Mode=oss
+//
+//   - 端口：rpc 的 ListenOn、api 的 Port
+//
+//   - 不用 etcd：rpc 服务端去掉 Etcd，客户端的 Etcd 换成直连 Endpoints（单机部署够用，少装一个组件）
+//
+//   - 日志写文件（按天切分，保留 KeepDays 天），Mode=pro
+//
+//     mkconf -src deploy/etc -out /opt/aigc-life/etc -logs /opt/aigc-life/logs \
+//     -dsn 'user:pass@tcp(127.0.0.1:3306)/fusion_aigc?...' -aigc http://127.0.0.1:15055 \
+//     -ports copywriting=19201,digitalhuman=19202,note=19203,imagegen=19204,gateway=18888,admin=18889
+package main
+
+import (
+	"bytes"
+	"flag"
+	"fmt"
+	"log"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+
+	"gopkg.in/yaml.v3"
+)
+
+// 配置文件 → 端口表里的名字
+var services = map[string]string{
+	"copywriting-rpc.yaml":  "copywriting",
+	"digitalhuman-rpc.yaml": "digitalhuman",
+	"note-rpc.yaml":         "note",
+	"imagegen-rpc.yaml":     "imagegen",
+	"gateway-api.yaml":      "gateway",
+	"admin-api.yaml":        "admin",
+}
+
+func main() {
+	src := flag.String("src", "deploy/etc", "开发配置目录")
+	out := flag.String("out", "", "输出目录")
+	logs := flag.String("logs", "", "日志目录")
+	dsn := flag.String("dsn", "", "MySQL DSN")
+	aigc := flag.String("aigc", "", "AIGC 执行面地址（联调期为 mock-aigc）")
+	ports := flag.String("ports", "", "端口表，如 copywriting=19201,…,gateway=18888,admin=18889")
+	keepDays := flag.Int("keep-days", 7, "日志保留天数")
+	jwtSecret := flag.String("jwt-secret", "", "App 令牌签名密钥（只写进网关配置）")
+	adminJwtSecret := flag.String("admin-jwt-secret", "", "后台令牌签名密钥（只写进后台配置，与 App 分开）")
+	authMode := flag.String("auth-mode", "", "网关鉴权模式：dev / token")
+	union := flag.String("union", "", "联盟用户服务地址（登录用）")
+	linkParse := flag.String("link-parse", "", "分享链接解析服务地址（爆款视频复刻的链接入口）")
+	unionRedis := flag.String("union-redis", "", "联盟的 Redis 地址：配了就自己验临时 token，不调联盟接口")
+	unionRedisPass := flag.String("union-redis-pass", "", "联盟 Redis 密码")
+	unionDSN := flag.String("union-db-dsn", "", "联盟用户库的连接串；留空则复用本服务的数据库账号")
+	unionTable := flag.String("union-user-table", "", "联盟用户表（带库名），留空用默认值")
+	unionPhoneKey := flag.String("union-phone-key", "", "联盟手机号的 AES 密钥；不配则手机号留空")
+	unionRedisDB := flag.Int("union-redis-db", 0, "联盟 Redis 的库号（它用 go-zero 封装，是 0 号库）")
+	sessionRedis := flag.String("session-redis", "", "AIGC(Java) 服务的 Redis：配了就发和它同一套的令牌")
+	sessionRedisPass := flag.String("session-redis-pass", "", "该 Redis 的密码")
+	sessionRedisDB := flag.Int("session-redis-db", 10, "该 Redis 的库号，必须和 AIGC 服务一致（它是 10）")
+	fusionURL := flag.String("fusion-url", "", "现有 Java 服务地址（建档交给它；留空则我们自己写表）")
+	fusionKey := flag.String("fusion-key", "", "Java 服务分配的 appKey")
+	fusionSecret := flag.String("fusion-secret", "", "Java 服务分配的 appSecret")
+	fusionKeyVer := flag.String("fusion-key-version", "", "密钥版本，留空则不带")
+	taskIDPrefix := flag.String("task-id-prefix", "AiCreationLife", "执行面 task_id 前缀：只能字母数字，不含下划线（执行面按 split('_')[0] 路由）")
+	listenHost := flag.String("listen-host", "127.0.0.1", "网关与后台监听地址：只绑回环，公网入口走 nginx")
+	accessHours := flag.Int("token-access-hours", 2, "App 令牌有效小时，必须与 Java 的 TOKEN_ACCESS_HOURS 一致")
+	refreshDays := flag.Int("token-refresh-days", 7, "刷新令牌天数，必须与 Java 的 TOKEN_REFRESH_DAYS 一致")
+	sessionMax := flag.Int("session-max", 0, "每用户并发会话上限，0 = 不限，必须与 Java 的 max-concurrent-sessions 一致")
+	swagger := flag.Bool("swagger", false, "网关与后台是否开放 /swagger 接口文档（正式环境必须关）")
+	billingMode := flag.String("billing-mode", "", "计费档位 off / shadow / on（写进笔记、数字人、图片视频三个服务的 Billing.Mode），留空保持开发配置")
+	flag.Parse()
+	for _, r := range *taskIDPrefix {
+		if !(r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' || r >= '0' && r <= '9') {
+			log.Fatalf("task-id-prefix 只能是字母数字（不含下划线）: %q", *taskIDPrefix)
+		}
+	}
+	if *taskIDPrefix == "" {
+		log.Fatal("task-id-prefix 不能为空")
+	}
+	if *out == "" || *logs == "" || *dsn == "" || *aigc == "" || *ports == "" {
+		flag.Usage()
+		os.Exit(2)
+	}
+	portOf, err := parsePorts(*ports)
+	if err != nil {
+		log.Fatal(err)
+	}
+	for _, name := range services {
+		if portOf[name] == 0 {
+			log.Fatalf("端口表缺少 %s", name)
+		}
+	}
+	if err := os.MkdirAll(*out, 0o755); err != nil {
+		log.Fatal(err)
+	}
+	for file, name := range services {
+		raw, err := os.ReadFile(filepath.Join(*src, file))
+		if err != nil {
+			log.Fatal(err)
+		}
+		var doc yaml.Node
+		if err := yaml.Unmarshal(raw, &doc); err != nil {
+			log.Fatalf("%s: %v", file, err)
+		}
+		root := doc.Content[0]
+		e := editor{name: name, ports: portOf, dsn: *dsn, aigc: *aigc, logDir: filepath.Join(*logs, name), keepDays: *keepDays,
+			jwtSecret: *jwtSecret, adminJwtSecret: *adminJwtSecret, authMode: *authMode, union: *union,
+			linkParse: *linkParse, unionRedis: *unionRedis, unionRedisPass: *unionRedisPass, unionRedisDB: *unionRedisDB,
+			unionDSN: *unionDSN, unionTable: *unionTable, unionPhoneKey: *unionPhoneKey, sessionRedis: *sessionRedis, sessionRedisPass: *sessionRedisPass,
+			sessionRedisDB: *sessionRedisDB,
+			fusionURL:      *fusionURL, fusionKey: *fusionKey, fusionSecret: *fusionSecret, fusionKeyVer: *fusionKeyVer, billingMode: *billingMode, swagger: *swagger, taskIDPrefix: *taskIDPrefix,
+			listenHost: *listenHost, accessHours: *accessHours, refreshDays: *refreshDays, sessionMax: *sessionMax}
+		if err := e.apply(root); err != nil {
+			log.Fatalf("%s: %v", file, err)
+		}
+		var buf bytes.Buffer
+		buf.WriteString("# 由 install.sh 根据 deploy.env 生成，重新安装会覆盖；要改环境相关的值请改 deploy.env\n")
+		enc := yaml.NewEncoder(&buf)
+		enc.SetIndent(2)
+		if err := enc.Encode(&doc); err != nil {
+			log.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(*out, file), buf.Bytes(), 0o600); err != nil {
+			log.Fatal(err)
+		}
+		fmt.Printf("  生成 %s\n", filepath.Join(*out, file))
+	}
+}
+
+func parsePorts(s string) (map[string]int, error) {
+	m := map[string]int{}
+	for _, kv := range strings.Split(s, ",") {
+		k, v, ok := strings.Cut(strings.TrimSpace(kv), "=")
+		n, err := strconv.Atoi(v)
+		if !ok || err != nil || n <= 0 || n > 65535 {
+			return nil, fmt.Errorf("端口表格式不对：%q", kv)
+		}
+		m[k] = n
+	}
+	return m, nil
+}
+
+type editor struct {
+	jwtSecret        string
+	adminJwtSecret   string
+	authMode         string
+	union            string
+	unionRedis       string
+	unionRedisPass   string
+	unionDSN         string
+	unionTable       string
+	unionRedisDB     int
+	unionPhoneKey    string
+	sessionRedis     string
+	sessionRedisPass string
+	sessionRedisDB   int
+	linkParse        string
+	fusionURL        string
+	fusionKey        string
+	fusionSecret     string
+	fusionKeyVer     string
+	billingMode      string
+	swagger          bool
+	listenHost       string
+	accessHours      int
+	refreshDays      int
+	sessionMax       int
+	taskIDPrefix     string
+	name             string
+	ports            map[string]int
+	dsn              string
+	aigc             string
+	logDir           string
+	keepDays         int
+}
+
+func (e editor) apply(root *yaml.Node) error {
+	set(root, "Mode", scalar("pro"))
+	if e.name == "note" || e.name == "digitalhuman" || e.name == "imagegen" { // 执行面 task_id 前缀
+		set(root, "TaskIDPrefix", scalar(e.taskIDPrefix))
+	}
+	if e.name == "gateway" || e.name == "admin" { // 接口文档默认关；只有显式 -swagger 才开
+		set(root, "Swagger", scalar(strconv.FormatBool(e.swagger)))
+		set(root, "Host", scalar(e.listenHost)) // 只绑回环，公网只经 nginx
+	}
+	set(root, "Log", mapping(
+		"Mode", scalar("file"), "Path", scalar(e.logDir), "KeepDays", scalar(strconv.Itoa(e.keepDays)),
+		"Encoding", scalar("plain"), "Rotation", scalar("daily"),
+	))
+	port := strconv.Itoa(e.ports[e.name])
+	if get(root, "ListenOn") != nil { // rpc 服务端：只在本机监听，不注册 etcd
+		set(root, "ListenOn", scalar("127.0.0.1:"+port))
+		del(root, "Etcd")
+	}
+	if get(root, "Port") != nil { // api 网关与后台：只绑本机，公网经 nginx（-listen-host 可改）
+		set(root, "Host", scalar(e.listenHost))
+		set(root, "Port", scalar(port))
+	}
+	if get(root, "DataSource") != nil {
+		set(root, "DataSource", scalar(e.dsn))
+	}
+	if a := get(root, "Aigc"); a != nil {
+		set(a, "Endpoint", scalar(e.aigc))
+	}
+	if a := get(root, "Auth"); a != nil { // 网关与后台的鉴权
+		if e.authMode != "" {
+			set(a, "Mode", scalar(e.authMode))
+		}
+		// 后台和 App 各用一份密钥，互相拿不过去
+		secret := e.jwtSecret
+		if e.name == "admin" {
+			secret = e.adminJwtSecret
+		}
+		if secret != "" && get(a, "Jwt") != nil {
+			set(get(a, "Jwt"), "Secret", scalar(secret))
+		}
+		// 和 AIGC 服务共用的会话：只对网关有意义（后台用自己的 JWT）
+		if e.name == "gateway" {
+			if e.sessionRedis != "" {
+				sn := mapping("RedisAddr", quoted(e.sessionRedis))
+				if e.sessionRedisPass != "" {
+					set(sn, "RedisPass", quoted(e.sessionRedisPass))
+				}
+				set(sn, "RedisDB", scalar(strconv.Itoa(e.sessionRedisDB)))
+				set(sn, "AccessHours", scalar(strconv.Itoa(e.accessHours)))
+				set(sn, "RefreshDays", scalar(strconv.Itoa(e.refreshDays)))
+				set(sn, "MaxSessions", scalar(strconv.Itoa(e.sessionMax)))
+				set(a, "Session", sn)
+			} else {
+				del(a, "Session")
+			}
+		}
+	}
+	// 下面两个地址：本地模板指向 mock，服务器上**没配就得清空**，
+	// 否则会留着 127.0.0.1 的 mock 地址，表现成「接口在但一直失败」，比直接说「未开放」难查得多。
+	if u := get(root, "Union"); u != nil {
+		set(u, "BaseURL", scalar(e.union))
+		// 配了 Redis 就自己验临时 token（服务器访问不到联盟域名时用），没配则删掉这段走 HTTP
+		if e.unionRedis != "" {
+			d := mapping("RedisAddr", quoted(e.unionRedis), "RedisDB", scalar(strconv.Itoa(e.unionRedisDB)))
+			if e.unionRedisPass != "" {
+				set(d, "RedisPass", quoted(e.unionRedisPass))
+			}
+			// 联盟用户库：留空则复用本服务的数据库账号（要求它对联盟库有读权限）。
+			// 各环境的库名不一定一样（测试环境是 unionec，不是默认的 unionec_app），
+			// 所以表名也放出来配。
+			if e.unionDSN != "" {
+				set(d, "UserDSN", quoted(e.unionDSN))
+			}
+			if e.unionTable != "" {
+				set(d, "UserTable", quoted(e.unionTable))
+			}
+			if e.unionPhoneKey != "" {
+				set(d, "PhoneAesKey", quoted(e.unionPhoneKey))
+			}
+			set(u, "Direct", d)
+		} else {
+			del(u, "Direct")
+		}
+	}
+	// 建档交给现有 Java 服务；三样齐了才写，缺一样就走我们自己写表那条路
+	if get(root, "Union") != nil && e.fusionURL != "" && e.fusionKey != "" && e.fusionSecret != "" {
+		f := mapping(
+			"BaseURL", scalar(e.fusionURL),
+			"AppKey", quoted(e.fusionKey), // appKey 常是纯数字，不加引号会被当成数字
+			"AppSecret", quoted(e.fusionSecret),
+			"TimeoutSeconds", scalar("10"),
+		)
+		if e.fusionKeyVer != "" {
+			set(f, "KeyVersion", quoted(e.fusionKeyVer))
+		}
+		set(root, "Fusion", f)
+	}
+	// 爆款视频复刻的链接入口：配了才开放，没配清空（同上）
+	if vr := get(root, "VideoRemake"); vr != nil {
+		if lp := get(vr, "LinkParse"); lp != nil {
+			set(lp, "BaseURL", scalar(e.linkParse))
+		}
+	}
+	// 计费档位：只有接了计费的三个服务有这段
+	if b := get(root, "Billing"); b != nil && e.billingMode != "" {
+		switch e.billingMode {
+		case "off", "shadow", "on":
+			set(b, "Mode", quoted(e.billingMode)) // 必须带引号：YAML 里裸的 on / off 会被当成布尔值,配置加载直接报 type mismatch
+		default:
+			return fmt.Errorf("-billing-mode 只能是 off / shadow / on，收到 %q", e.billingMode)
+		}
+	}
+	if s := get(root, "Storage"); s != nil {
+		set(s, "Mode", scalar("oss")) // 线上必须 oss：执行面要能访问、前端要直传
+	}
+	// rpc 客户端：Etcd{Key: xxx.rpc} → Endpoints[127.0.0.1:端口]
+	for i := 1; i < len(root.Content); i += 2 {
+		v := root.Content[i]
+		etcd := get(v, "Etcd")
+		if v.Kind != yaml.MappingNode || etcd == nil {
+			continue
+		}
+		key := get(etcd, "Key")
+		if key == nil {
+			return fmt.Errorf("%s.Etcd 缺少 Key", root.Content[i-1].Value)
+		}
+		target := strings.TrimSuffix(key.Value, ".rpc")
+		p := e.ports[target]
+		if p == 0 {
+			return fmt.Errorf("%s 指向的 %s 没有端口", root.Content[i-1].Value, key.Value)
+		}
+		del(v, "Etcd")
+		set(v, "Endpoints", &yaml.Node{Kind: yaml.SequenceNode, Style: yaml.FlowStyle,
+			Content: []*yaml.Node{scalar(fmt.Sprintf("127.0.0.1:%d", p))}})
+	}
+	return nil
+}
+
+func scalar(v string) *yaml.Node { return &yaml.Node{Kind: yaml.ScalarNode, Value: v} }
+
+// quoted 强制带引号：纯数字的 appKey 不加引号会被解析成数字，服务起不来
+func quoted(v string) *yaml.Node {
+	return &yaml.Node{Kind: yaml.ScalarNode, Value: v, Style: yaml.DoubleQuotedStyle}
+}
+
+func mapping(kv ...any) *yaml.Node {
+	n := &yaml.Node{Kind: yaml.MappingNode}
+	for i := 0; i < len(kv); i += 2 {
+		n.Content = append(n.Content, scalar(kv[i].(string)), kv[i+1].(*yaml.Node))
+	}
+	return n
+}
+
+func get(m *yaml.Node, key string) *yaml.Node {
+	if m == nil || m.Kind != yaml.MappingNode {
+		return nil
+	}
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		if m.Content[i].Value == key {
+			return m.Content[i+1]
+		}
+	}
+	return nil
+}
+
+// set 覆盖已有键的值（保留键上的注释），没有则追加。
+func set(m *yaml.Node, key string, v *yaml.Node) {
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		if m.Content[i].Value == key {
+			v.LineComment = ""
+			m.Content[i+1] = v
+			return
+		}
+	}
+	m.Content = append(m.Content, scalar(key), v)
+}
+
+func del(m *yaml.Node, key string) {
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		if m.Content[i].Value == key {
+			m.Content = append(m.Content[:i], m.Content[i+2:]...)
+			return
+		}
+	}
+}

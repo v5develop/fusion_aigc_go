@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -167,16 +168,16 @@ func TestNoteImagesBody(t *testing.T) {
 }
 
 func TestNewLifeTaskID(t *testing.T) {
-	a := NewLifeTaskID("aigclife", "AiCreation_life_vid_28", "gen")
-	if !strings.HasPrefix(a, "aigclife_AiCreation_life_vid_28_gen_") {
+	a := NewLifeTaskID("AiCreationLife", "AiCreation_life_vid_28", "gen")
+	if !strings.HasPrefix(a, "AiCreationLife_AiCreation_life_vid_28_gen_") {
 		t.Fatalf("要以前缀 + 任务中心编号 + 阶段开头: %s", a)
 	}
-	if strings.Split(a, "_")[0] != "aigclife" {
+	if strings.Split(a, "_")[0] != "AiCreationLife" {
 		t.Fatalf("执行面按 split('_')[0] 路由，前缀不能变: %s", a)
 	}
 	seen := map[string]bool{}
 	for i := 0; i < 50; i++ { // 末尾 4 位随机，重做同一阶段要能出不同的号（50 次全相同的概率可忽略）
-		seen[NewLifeTaskID("aigclife", "AiCreation_life_vid_28", "gen")] = true
+		seen[NewLifeTaskID("AiCreationLife", "AiCreation_life_vid_28", "gen")] = true
 	}
 	if len(seen) < 2 {
 		t.Fatal("同一阶段重做不能撞号")
@@ -190,5 +191,24 @@ func TestExactTaskID(t *testing.T) {
 	again := ExactTaskID("AiCreation_life_vid_28", true)
 	if !strings.HasPrefix(again, "AiCreation_life_vid_28_") || again == "AiCreation_life_vid_28" {
 		t.Fatalf("重做要以编号开头并带随机码: %s", again)
+	}
+}
+
+func TestNewTaskIDMatchesFusionAigcFormat(t *testing.T) {
+	// 与 fusion-aigc 的 "<前缀>_" + UUID v4 去连字符 一致：32 位小写 hex，第 13 位是版本 4，第 17 位是变体 8/9/a/b
+	re := regexp.MustCompile(`^AiCreationLife_[0-9a-f]{32}$`)
+	seen := map[string]bool{}
+	for i := 0; i < 200; i++ {
+		id := NewTaskID("AiCreationLife")
+		if !re.MatchString(id) {
+			t.Fatalf("格式不对: %q", id)
+		}
+		if id[len("AiCreationLife_")+12] != '4' || !strings.ContainsRune("89ab", rune(id[len("AiCreationLife_")+16])) {
+			t.Fatalf("不是 UUID v4 形态: %q", id)
+		}
+		if seen[id] {
+			t.Fatalf("重复: %q", id)
+		}
+		seen[id] = true
 	}
 }

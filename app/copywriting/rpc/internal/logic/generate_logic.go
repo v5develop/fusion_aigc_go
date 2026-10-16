@@ -1,8 +1,10 @@
 package logic
 
 import (
+	"aigc-life/pkg/billing"
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -95,7 +97,10 @@ func (l *GenerateLogic) Generate(in *pb.GenerateReq) (*pb.CopywritingInfo, error
 		ShopProfileId: nullInt(in.ShopProfileId), ModelId: nullInt(mc.ModelID), Status: model.StatusGenerating,
 		RequestId: nullStr(in.RequestId),
 	}
-	// TODO 计费：等 entry_code / offer / 定价确认后，在这里预扣 100 点，失败时退回（Config.Billing）
+	// 计费：先只查点数够不够，不冻结；冻结在落库后做（按记录号幂等，1062 重复提交不会多冻）
+	if err := l.svcCtx.Billing.Enough(l.ctx, copywritingCharge(l.svcCtx.Config.BillingEntryCode, in.UserId, "")); err != nil {
+		return nil, err
+	}
 	// TODO 任务：等 mode 等枚举确认后，写一条 afv_creation_task，external_ref = 文案 id（Config.Task）
 	res, err := l.svcCtx.Copywriting.Insert(l.ctx, row)
 	if err != nil {
@@ -113,51 +118,70 @@ func (l *GenerateLogic) Generate(in *pb.GenerateReq) (*pb.CopywritingInfo, error
 		return nil, err
 	}
 
-	startGenerate(l.svcCtx, row.Id, in.Source, parts)
+	if _, err := l.svcCtx.Billing.Hold(l.ctx, copywritingCharge(l.svcCtx.Config.BillingEntryCode, in.UserId, billingRequestID(row.Id))); err != nil {
+		finishFailed(l.ctx, l.svcCtx, row.Id, in.UserId, "未能开始生成")
+		return nil, err
+	}
+	startGenerate(l.svcCtx, row.Id, in.UserId, in.Source, parts)
 	return toInfo(row, nil), nil
 }
 
 // startGenerate 后台调用模型并回写结果。文本生成通常几秒，客户端轮询 Get 拿结果。
-func startGenerate(svcCtx *svc.ServiceContext, id int64, source string, parts promptParts) {
+func startGenerate(svcCtx *svc.ServiceContext, id, userID int64, source string, parts promptParts) {
 	threading.GoSafe(func() {
 		ctx, cancel := context.WithTimeout(context.Background(),
 			time.Duration(svcCtx.Config.Generate.TimeoutSeconds)*time.Second)
 		defer cancel()
+		// 结算与失败落库不受生成超时影响：生成卡到最后一秒才返回时，ctx 已过期，
+		// 用它去确认扣费会失败，用户拿到结果却没扣点（只能等预留单过期回收）。
+		settle := context.WithoutCancel(ctx)
 		log := logx.WithContext(ctx).WithFields(logx.Field("copywriting_id", id))
 
 		mc, err := endpoint(ctx, svcCtx)
 		if err != nil {
-			finishFailed(ctx, svcCtx, id, "写作模型不可用")
+			finishFailed(settle, svcCtx, id, userID, "写作模型不可用")
 			return
 		}
 		system, user := buildGeneratePrompt(ctx, svcCtx, source, parts)
 		text, err := mc.chat(ctx, svcCtx, system, user)
 		if err != nil {
 			log.Errorf("generate: %v", err)
-			finishFailed(ctx, svcCtx, id, "生成失败，请重试")
+			finishFailed(settle, svcCtx, id, userID, "生成失败，请重试")
 			return
 		}
 		title, body := splitTitleBody(text)
 		if body == "" {
-			finishFailed(ctx, svcCtx, id, "生成内容为空，请重试")
+			finishFailed(settle, svcCtx, id, userID, "生成内容为空，请重试")
 			return
 		}
 		if r, err := svcCtx.Moderation.Check(ctx, "generate_output", title+"\n"+body); err != nil {
 			log.Errorf("moderation: %v", err)
 		} else if !r.Passed {
 			log.Infof("moderation blocked output, label=%s", r.Label)
-			finishFailed(ctx, svcCtx, id, "生成内容未通过审核，请调整主题后重试")
+			finishFailed(settle, svcCtx, id, userID, "生成内容未通过审核，请调整主题后重试")
 			return
 		}
-		if _, err := svcCtx.Copywriting.FinishGenerate(ctx, id, model.StatusDone, title, body, int64(runeLen(body)), ""); err != nil {
+		if _, err := svcCtx.Copywriting.FinishGenerate(settle, id, model.StatusDone, title, body, int64(runeLen(body)), ""); err != nil {
 			log.Errorf("finish generate: %v", err)
+			svcCtx.Billing.Fail(settle, userID, billingRequestID(id), "保存结果失败")
+			return
 		}
-		// TODO 计费：成功结算 / 失败退回
+		svcCtx.Billing.Done(settle, userID, billingRequestID(id), 1)
 	})
 }
 
-func finishFailed(ctx context.Context, svcCtx *svc.ServiceContext, id int64, reason string) {
+// finishFailed 记为失败并退回冻结的点数（没冻结过的 Fail 是空操作）
+func finishFailed(ctx context.Context, svcCtx *svc.ServiceContext, id, userID int64, reason string) {
 	if _, err := svcCtx.Copywriting.FinishGenerate(ctx, id, model.StatusFailed, "", "", 0, reason); err != nil {
 		logx.WithContext(ctx).Errorf("mark failed %d: %v", id, err)
 	}
+	svcCtx.Billing.Fail(ctx, userID, billingRequestID(id), reason)
 }
+
+// copywritingCharge 文案一次生成算一次（重新生成算新的一次）。
+func copywritingCharge(entry string, userID int64, requestID string) billing.Charge {
+	return billing.Charge{UserID: userID, RequestID: requestID, EntryCode: entry, Kind: billing.KindQuick, Count: 1}
+}
+
+// billingRequestID 计费请求号按记录号生成：同一条记录只冻结一次，重试不会重复扣。
+func billingRequestID(id int64) string { return fmt.Sprintf("copywriting-%d", id) }

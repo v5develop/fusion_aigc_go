@@ -27,7 +27,7 @@ DigitalHumanRpc:
 CopywritingRpc:               # 取店铺档案拼好的文本
   Etcd: {Hosts: [127.0.0.1:2379], Key: copywriting.rpc}
   NonBlock: true
-TaskIDPrefix: aigclife
+TaskIDPrefix: AiCreationLife
 Limits:
   MaxTopicLen: 500
   MaxMaterials: 3       # 上传素材最多 3 张

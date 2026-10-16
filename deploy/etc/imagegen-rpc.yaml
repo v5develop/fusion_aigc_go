@@ -42,7 +42,7 @@ LongImage:
   AssetType: image
   AssetEntryCode: longImage
   TimeoutMinutes: 20
-TaskIDPrefix: aigclife
+TaskIDPrefix: AiCreationLife
 Limits:
   MaxContentLen: 500
   MaxMaterials: 3       # 海报、长图都最多 3 张

@@ -1,0 +1,9 @@
+.git
+docs
+bin
+dist
+data
+deploy/docker/etc
+.env
+app.env
+*.md

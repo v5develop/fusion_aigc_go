@@ -1,6 +1,10 @@
 package config
 
-import "github.com/zeromicro/go-zero/zrpc"
+import (
+	"aigc-life/pkg/billing"
+
+	"github.com/zeromicro/go-zero/zrpc"
+)
 
 type Config struct {
 	zrpc.RpcServerConf
@@ -10,8 +14,10 @@ type Config struct {
 	Generate GenerateConf
 	// Task 写入 afv_creation_task 的取值。枚举值待数据库负责人确认，确认前 Enabled=false。
 	Task TaskConf
-	// Billing 计费接入。等 entry_code / offer / 定价确认后打开。
-	Billing BillingConf
+	// Billing 计费：off 不计费 / shadow 只算价 / on 真扣。由 deploy.env 的 BILLING_MODE 经 mkconf 写入
+	Billing billing.Conf
+	// BillingEntryCode 文案计费的入口码（afv_billing_offer.entry_code）。方案见 deploy/sql/Go_V1.0.13__add_copywriting_billing.sql
+	BillingEntryCode string `json:",default=aiCopywriting"`
 	// ShopProfile 店铺档案：条数与各字段字数上限（字符数，汉字算 2，与设计稿便签一致）
 	ShopProfile ShopProfileConf
 	// Moderation 内容审核：keyword-关键词过滤（词库见 afv_copywriting_option 的 BLOCKWORD）、off-不审核
@@ -29,7 +35,7 @@ type GenerateConf struct {
 	DefaultWords    int `json:",default=200"`
 	// MinWords / MaxWords 自定义字数的范围：太小模型写不出东西，太大会超时且没人看
 	MinWords       int `json:",default=50"`
-	MaxWords       int `json:",default=1000"`  // 产品 2026-09-24 定 50–1000
+	MaxWords       int `json:",default=1000"` // 产品 2026-09-24 定 50–1000
 	TimeoutSeconds int `json:",default=120"`
 }
 
@@ -53,10 +59,4 @@ type TaskConf struct {
 	// Mode 已定：0 = 非 AIGC 执行面任务。AI文案直接调模型，不走 AIGC 编排，故无模式可填。
 	// 以后若接入 AIGC 执行面，需向 AIGC 同事申请正式值。
 	Mode int `json:",default=0"`
-}
-
-type BillingConf struct {
-	Enabled     bool   `json:",default=false"`
-	VariantCode string `json:",optional"`
-	PricePoints int64  `json:",default=100"`
 }

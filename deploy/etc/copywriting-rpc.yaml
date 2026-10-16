@@ -25,6 +25,6 @@ Task:
   FeatureCode: locallife_text_gen
   Mode: 0              # 已定：0 = 非 AIGC 执行面任务（不调 AIGC 同事的接口，无模式可填）
 Billing:
-  Enabled: false
-  VariantCode: ai_copywriting_std
-  PricePoints: 100
+  Mode: off                # 由 mkconf 按 BILLING_MODE 写入（线上 on）
+  CheckEntitlement: false  # 文案不做权益准入
+BillingEntryCode: aiCopywriting

@@ -1,4 +1,4 @@
-// Package aigc AIGC 执行面的任务提交与结果轮询，对接文档见项目根目录《任务调用与轮询对接文档.md》。
+// Package aigc AIGC 执行面的任务提交与结果轮询，对接文档见项目《任务调用与轮询对接文档.md》。
 //
 // 流程：Submit 提交任务 → 每 5–10s 调一次 GetResult，直到 success / failed / not_found。
 // 结果只保留今天+昨天两天，产物 URL 拿到后需自行落库。
@@ -60,18 +60,27 @@ func New(c Conf) *Client {
 // Enabled 是否已配置地址。
 func (c *Client) Enabled() bool { return c.endpoint != "" }
 
-// NewTaskID 生成 <prefix>_<32位hex>。前缀用于执行面按 task_id.split('_')[0] 路由回调，不能含下划线。
+// NewTaskID 生成 <prefix>_<32位hex>。与 fusion-aigc（Java）的 IdUtil.fastSimpleUUID() 同一算法：
+// 随机 UUID v4 去掉连字符。两边只有前缀不同，后面的串生成方式一致。
+// 前缀用于执行面按 task_id.split('_')[0] 路由回调，不能含下划线。
 func NewTaskID(prefix string) string {
-	b := make([]byte, 16)
-	_, _ = rand.Read(b)
-	return prefix + "_" + hex.EncodeToString(b)
+	return prefix + "_" + uuidV4Hex()
+}
+
+// uuidV4Hex 返回随机 UUID v4 的 32 位小写 hex（无连字符），版本位与变体位与 java.util.UUID.randomUUID() 一致。
+func uuidV4Hex() string {
+	var b [16]byte
+	_, _ = rand.Read(b[:])
+	b[6] = b[6]&0x0f | 0x40 // version 4
+	b[8] = b[8]&0x3f | 0x80 // RFC 4122 variant
+	return hex.EncodeToString(b[:])
 }
 
 // NewLifeTaskID 生成本地生活任务提交给执行面的 task_id：
 //
 //	<prefix>_<任务中心 task_id>_<阶段>_<4位hex>
 //
-// 例：aigclife_AiCreation_life_vid_28_gen_a1b2。
+// 例：AiCreationLife_AiCreation_life_vid_28_gen_a1b2。
 // 为什么这样：现有系统任务中心里这条任务叫 AiCreation_life_vid_28，执行面的日志只认提交给它的 task_id，
 // 两边不一致就没法拿任务中心的编号去查执行面日志。把任务中心的编号整段放进去，搜它就能找到（含各阶段）。
 // 前缀仍是 prefix（执行面按 split('_')[0] 路由回调，不能变）；末尾 4 位 hex 保证同一阶段重做（重新构思等）时不撞号。

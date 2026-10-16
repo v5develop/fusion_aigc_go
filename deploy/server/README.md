@@ -55,7 +55,7 @@ DB_USER=root
 DB_PASS=你的密码        # 宝塔「数据库」页能看到 / 重置
 ```
 
-其余保持默认即可（端口、mock 执行面都已经配好）。
+其余保持默认即可（端口已经配好）。
 
 **4. 正式安装**
 
@@ -68,7 +68,7 @@ bash install.sh
 ```
 == 1/6 检查环境          ✓ Linux x86_64，systemd 管理进程
 == 2/6 检查数据库        ✓ 已连接 127.0.0.1:3306/fusion_aigc
-== 3/6 建表              ✓ V1.0.106__ai_copywriting.sql …（已存在的显示“跳过”）
+== 3/6 建表              ✓ V1.0.0__ai_copywriting.sql …（已存在的显示“跳过”）
 == 4/6 安装程序与配置    ✓ 端口都可用
 == 5/6 启动服务          ✓ gateway-api（端口 18888）…
 == 6/6 自检              ✓ App 网关 / 数字人 / 图文笔记 / 海报口播 / OSS 直传凭证 / 运营后台
@@ -82,36 +82,38 @@ yum install -y jq     # Ubuntu/Debian：apt install -y jq
 bash /opt/aigc-life/install.sh voices
 ```
 
-## 三、让外网访问（二选一）
+## 三、对外入口（只经 nginx）
 
-只有两个端口需要对外：`18888`（App 接口，给前端）和 `18889`（运营后台）。
+公网只开 80 / 443，经宝塔站点反向代理到本机网关。`18888`（网关）、`18889`（后台）、各 rpc 端口**都只监听 127.0.0.1**，不要在安全组或宝塔「安全」里放行。
 
-**方式 A：直接放行端口（最快）**
+1. 在 `deploy.env` 填 `PUBLIC_DOMAIN`（如 `aigc-api.xxx.com`）和 `JAVA_UPSTREAM`（Java 服务地址，刷新令牌用）；
+2. 安装完成后，`$INSTALL_DIR/nginx/aigc-life.conf` 已经渲染好，内容只放行两类路径：
+   - `/api/v1/local-life/` → 本机网关（App 接口）；
+   - `/api/v1/auth/refresh` → Java（与 AIGC 共用会话，刷新在那边做）；
+   - 其它路径一律 404（后台、接口文档、指标都不走公网）；
+3. 宝塔 →「网站」→ 添加站点 `PUBLIC_DOMAIN`（纯静态即可）→「SSL」申请证书；
+4. 站点「配置文件」里把 `aigc-life.conf` 的 `upstream` 和 `server` 内容加进去（或 include 进来），保存后重载 nginx；
+5. 前端地址：`https://<PUBLIC_DOMAIN>/api/v1/local-life`。
 
-1. 宝塔 →「安全」→ 放行端口 `18888`、`18889`；
-2. 云服务器控制台（阿里云/腾讯云）→ 安全组 → 同样放行这两个端口。
+**运营后台不对公网开放**：需要时用 ssh 隧道访问本机端口：
 
-前端地址：`http://<服务器公网IP>:18888/api/v1/local-life`
+```bash
+ssh -L 18889:127.0.0.1:18889 root@<服务器>
+# 然后浏览器打开 http://127.0.0.1:18889/admin/v1/...
+```
 
-**方式 B：用宝塔建网站做反向代理（有域名、要 HTTPS 时用）**
-
-1. 宝塔 →「网站」→ 添加站点，域名如 `aigc-api.xxx.com`（纯静态即可）；
-2. 站点「设置」→「反向代理」→ 添加：目标 URL `http://127.0.0.1:18888`；
-3. 站点「设置」→「SSL」申请证书；
-4. 反向代理默认的上传大小可能是 1M，站点「配置文件」里加一行 `client_max_body_size 20m;`（本地开发才用网关代传上传，线上是前端直传 OSS，一般用不到）。
-
-前端地址：`https://aigc-api.xxx.com/api/v1/local-life`。运营后台同理再建一个站点代理到 `18889`。
+**会话与 Java 共用**：`SESSION_MAX_CONCURRENT`、`TOKEN_ACCESS_HOURS`、`TOKEN_REFRESH_DAYS` 必须和 Java 生产环境的 `max-concurrent-sessions`、`TOKEN_ACCESS_HOURS`、`TOKEN_REFRESH_DAYS` 完全一致，否则两边对同一个会话的上限与过期规则不一样。
 
 ## 四、验证与接口文档
 
-**在线接口文档（Swagger）**，浏览器直接打开，可以在页面上调试：
+**在线接口文档（Swagger）**，默认关闭（正式环境不可见）。需要联调时在 `deploy.env` 设 `SWAGGER_ENABLED=1` 后重装，开启后可在浏览器直接打开调试：
 
-- App 接口：`http://<服务器公网IP>:18888/swagger`
-- 运营后台：`http://<服务器公网IP>:18889/swagger`
+- App 接口（仅本机）：`http://127.0.0.1:18888/swagger`
+- 运营后台（仅本机，ssh 隧道）：`http://127.0.0.1:18889/swagger`
 
 调试前先点右上角「Authorize」，填 `X-User-Id`（后台填 `X-Admin-Id`），比如 `1`，之后每个接口「Try it out」→「Execute」就会带上。
-文档由代码里的接口定义自动生成，和实际接口一致。按页面逐步对接的说明在安装目录 `docs/` 下（`api-app.md`、`api-voiceover.md`）。
-上线前如需关闭文档页：在仓库的 `deploy/etc/gateway-api.yaml`、`admin-api.yaml` 里加一行 `Swagger: false`，重新打包安装。
+文档由代码里的接口定义自动生成，和实际接口一致。按页面逐步对接的说明在安装目录 `docs/api/` 下（`api-app.md`、`api-voiceover.md`）。
+文档页由安装时的 `SWAGGER_ENABLED` 决定，不需要改 yaml。
 
 **命令行验证**：
 
@@ -119,21 +121,13 @@ bash /opt/aigc-life/install.sh voices
 curl -s -H 'X-User-Id: 1' http://127.0.0.1:18888/api/v1/local-life/image-creations/options?kind=voiceover
 ```
 
-返回 `{"code":0,...}` 就正常。前端联调文档在安装目录 `docs/` 下（`api-app.md`、`api-voiceover.md`）。
-
-**关于 mock**：现在没有 AIGC 执行面的正式地址，自带的 `mock-aigc` 会模拟它：提交后约 10 秒「生成完成」，
-成品统一是 `deploy.env` 里 `MOCK_SAMPLE_IMAGE` / `MOCK_SAMPLE_VIDEO` 这两个示例文件（会真实转存到 OSS，前端能打开/播放）。
-在文案里写 `mock-fail` 可以模拟生成失败。
+返回 `{"code":0,...}` 就正常。前端联调文档在安装目录 `docs/api/` 下（`api-app.md`、`api-voiceover.md`）。
 
 ## 四·五、真实链路回归（切到正式执行面后跑一次）
 
-`e2e-real.sh` 对着已部署的环境，每个模块真实跑一条，确认返回结构与耗时：
 
 ```bash
 cd /opt/aigc-life
-GW=http://127.0.0.1:18888/api/v1/local-life bash scripts/e2e-real.sh          # 只跑便宜的（文案/档案/笔记/海报/长图）
-GW=http://127.0.0.1:18888/api/v1/local-life bash scripts/e2e-real.sh video    # 出视频的（口播/动作迁移/探店/短剧/复刻/数字人）
-GW=http://127.0.0.1:18888/api/v1/local-life bash scripts/e2e-real.sh all      # 全部
 ```
 
 - **出视频的模块会真实产生费用**，而且慢（云端 2–10 分钟，本地 GPU 可能十几分钟），脚本最多等 45 分钟。
@@ -151,7 +145,7 @@ bash /opt/aigc-life/install.sh logs gateway-api  # 看日志（Ctrl+C 退出）
 bash /opt/aigc-life/install.sh uninstall         # 停止并注销服务（不删库、不删目录）
 ```
 
-- 服务名：`gateway-api` `admin-api` `copywriting-rpc` `digitalhuman-rpc` `note-rpc` `imagegen-rpc` `mock-aigc`。
+- 服务名：`gateway-api` `admin-api` `copywriting-rpc` `digitalhuman-rpc` `note-rpc` `imagegen-rpc`。
 - 已注册成系统服务：**服务器重启后自动启动**，进程挂了 3 秒后自动拉起（`systemctl status aigc-life-gateway-api` 也能看）。
 - 日志在 `/opt/aigc-life/logs/`：`<服务>.out` 是启动输出，`<服务>/` 目录下是业务日志，按天切分、保留 7 天。
 - 重启不丢任务：生成中的记录都在库里，服务起来后会接着查结果。
@@ -173,11 +167,10 @@ cd /root/aigc-life && bash install.sh
 拿到 AIGC 执行面地址后，改 `/opt/aigc-life/deploy.env`：
 
 ```bash
-MOCK_ENABLED=0
 AIGC_ENDPOINT=http://<执行面地址>:5000
 ```
 
-再执行 `bash /opt/aigc-life/install.sh`，mock 会被停掉并注销。
+再执行 `bash /opt/aigc-life/install.sh`，早期开发版遗留的 mock 服务会被注销。
 
 ## 八、运营数据（否则 App 里对应列表是空的）
 
@@ -200,10 +193,10 @@ AIGC_ENDPOINT=http://<执行面地址>:5000
 | `afv_system_config 缺少 …` | 连错库了，或现有系统没配 OSS / 文案模型。本项目复用这些配置 |
 | `缺少配音模型配置`（黄色） | 只影响数字人配音和音色试听。在 `afv_ai_model` 加一行 `code=qwen-audio-3.1-tts-flash`、`model_type=4`、`ai_provider_id=百炼那条`，再执行一次 `bash install.sh` 会自动补上 `ai_tts_model_id` |
 | 自检某项 ✗ | `bash install.sh logs <服务名>` 看报错 |
-| 外网访问不了 | 宝塔「安全」和云服务器安全组都要放行，或用反向代理（第三节） |
+| 外网访问不了 | 确认 nginx 站点已加载 `aigc-life.conf`、证书已配；网关端口不对外是正常的（第三节） |
 
 ## 十、现在的限制（上线前要补）
 
 - **用户鉴权**：接口信任请求头 `X-User-Id`，运营后台信任 `X-Admin-Id`，只适合联调。
 - **计费**：生成不扣点。
-- **执行面**：目前是 mock。
+- **执行面**：由 `AIGC_ENDPOINT` 指定（正式地址）。

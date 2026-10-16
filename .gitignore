@@ -3,3 +3,16 @@ logs/
 data/
 .DS_Store
 dist/
+
+# 本地/单机 compose：变量与渲染出的容器配置（含口令）不入库
+.env
+deploy/docker/etc/
+deploy/docker/etc-prod/
+.env.prod
+
+# 本地/单机 compose：环境文件与渲染出的容器配置（含口令）不入库（都在 deploy/ 下）
+deploy/.env
+deploy/.env.prod
+
+# 接口文档静态资源：版本固定，需要纳入版本控制（见该目录 README.md）
+!pkg/swaggerui/dist/

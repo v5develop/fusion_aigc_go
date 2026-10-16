@@ -40,7 +40,7 @@ type Config struct {
 	}
 	// Voiceover 数字人口播：口播文案 + 人物图（+ 背景图）→ 视频（执行面 92，lite 路由到 91）
 	Voiceover    KindConf
-	TaskIDPrefix string `json:",default=aigclife"`
+	TaskIDPrefix string `json:",default=AiCreationLife"`
 	Limits       struct {
 		MaxContentLen int `json:",default=500"`
 		MaxMaterials  int `json:",default=3"`

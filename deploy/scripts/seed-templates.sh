@@ -72,7 +72,7 @@ seed() {
     [[ -n $id ]] || { red "✗ 素材写入失败：$title"; return 1; }
     gray "  + 素材 $id  $title"
   else
-    gray "  · 素材 $id  $title（已存在）"
+    gray "  · 素材 $id  ${title}（已存在）"
   fi
   # 投放位：同一素材在同一个位置只放一次
   if [[ -z $(q "SELECT id FROM afv_public_template_asset_placement

@@ -1,6 +1,6 @@
 // Package appuser 本服务的 App 用户：复用现有系统的 afv_app_user 表。
 //
-// 用户从联盟（xxlm）过来，落库口径完全照现有 Java 服务（见根目录《联盟用户注册登录流程与写表.md》的
+// 用户从联盟（xxlm）过来，落库口径完全照现有 Java 服务（见《联盟用户注册登录流程与写表.md》的
 // createUnionUserWithProfile）：username = union_<联盟用户ID>、login_source=UNION、data_source=2、
 // source_app_key/external_user_id 成对写、密码是随机串的 BCrypt（本地登不进来），
 // 并且**建号和建团队在一个事务里**（afv_team + afv_team_member），

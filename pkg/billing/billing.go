@@ -53,7 +53,7 @@ type Conf struct {
 	// 图片视频都共享电商的码（ecom_image_gen / ecom_video_gen / video_to_video，各 18 人），
 	// AI文案不计费、不做准入（产品 2026-10-11 定）。**千万别挂 locallife_image_gen**（只有 2 人，还是手工发的），
 	// 也别新建能力码——新码零发放，开了就是把那个功能对所有人关掉。
-	// 上线前用 deploy/sql/check-billing-entitlement.sql 核一遍。
+	// 上线前用 deploy/sql/ops/check-billing-entitlement.sql 核一遍。
 	//
 	// ⚠️ 这是**准入闸，不是钱**，所以 Mode=off 也生效（见 CheckAccess）。
 	CheckEntitlement bool `json:",default=true"`
