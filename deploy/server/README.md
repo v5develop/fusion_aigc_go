@@ -17,7 +17,7 @@
 | 计费只能是 `BILLING_MODE=on` | 线上不允许免费（`off` / `shadow` 都不扣点）；计费配置自检有错误时中止安装 |
 | 必须有执行面地址 | `AIGC_ENDPOINT`，或经 `JAVA_ENV_FILE` 从 Java 的 `.env` 读取 `AIGC_BASE_URL` |
 | 必须有公网域名 | `PUBLIC_DOMAIN`，用来渲染 nginx 站点配置 |
-| 必须与 Java 共用会话 | `SESSION_REDIS_ADDR`：nginx 把登录、点数等接口转给 Java，App 令牌必须两边都认 |
+| 必须与 Java 共用会话 | 会话 Redis 从 Java 的 `.env` 读取（`JAVA_ENV_FILE`）：nginx 把登录、点数等接口转给 Java，App 令牌必须两边都认 |
 | 安装包不含 mock | 正式包里没有 mock 执行面，打包时自检 |
 
 **对服务器上已有项目的影响**：
@@ -34,7 +34,7 @@
 |---|---|
 | 服务器 | Linux x86_64（CentOS 7+ / Ubuntu / Debian），root |
 | 数据库 | 现有系统的 `fusion_aigc` 库，一个能建表、改本项目表结构的账号 |
-| 会话 Redis | Java（AIGC）服务在用的那台 Redis，**库号与 Java 的 `REDIS_DB` 一致（线上为 10）** |
+| 会话 Redis | Java（AIGC）服务在用的那台 Redis，从 Java 的 `.env` 读取（`REDIS_HOST` / `REDIS_PORT` / `REDIS_PASSWORD` / `REDIS_DB`） |
 | Java 服务 | 本机可达的地址（默认 `127.0.0.1:18080`），nginx 把非本地生活的 `/api/v1/` 转给它 |
 | nginx | 宝塔自带即可，需要能给 `PUBLIC_DOMAIN` 配证书 |
 | 出网 | 能访问阿里云百炼（文案、配音）、OSS 与 AIGC 执行面 |
@@ -69,7 +69,7 @@ bash install.sh
 | `JAVA_UPSTREAM` | Java 服务地址，线上为 `127.0.0.1:18080` |
 | `JAVA_ENV_FILE` | Java 服务的 `.env` 路径（推荐）。执行面地址与会话参数从这里读，保证和 Java 一致 |
 | `AIGC_ENDPOINT` | 不填 `JAVA_ENV_FILE` 时必填，与 Java 的 `AIGC_BASE_URL` 相同 |
-| `SESSION_REDIS_ADDR` `SESSION_REDIS_PASS` | Java 会话所在的 Redis。**正式环境必须配**：App 的登录令牌要在 Go 和 Java 两边通用 |
+| `SESSION_REDIS_*` | 默认不用填：从 `JAVA_ENV_FILE` 读。只在覆盖时才填；Java 的 `REDIS_HOST` 若是容器服务名，宿主机解析不到，必须在这里填 `SESSION_REDIS_ADDR` |
 | `UNION_BASE_URL` | 联盟用户服务地址，登录用（与 Java 相同，只走 HTTP）；不配则登录接口返回「暂未开放」 |
 
 与 Java 保持一致的项：
@@ -80,9 +80,9 @@ bash install.sh
 | `SESSION_MAX_CONCURRENT` | `APP_SECURITY_TOKEN_MAX_CONCURRENT_SESSIONS` | 留空时从 `JAVA_ENV_FILE` 读 | `0`（不限） |
 | `TOKEN_ACCESS_HOURS` | `TOKEN_ACCESS_HOURS` | 留空时从 `JAVA_ENV_FILE` 读 | `2` |
 | `TOKEN_REFRESH_DAYS` | `TOKEN_REFRESH_DAYS` | 留空时从 `JAVA_ENV_FILE` 读 | `7` |
-| `SESSION_REDIS_DB` | `REDIS_DB` | **不会自动读，需手工保持一致** | `10` |
+| `SESSION_REDIS_DB` | `REDIS_DB` | 留空时从 `JAVA_ENV_FILE` 读 | `0`（与 Java 默认一致） |
 
-显式写在 `deploy.env` 里的值优先；`JAVA_ENV_FILE` 里也读不到时，用 Java 代码里的默认值。
+取值优先级：`deploy.env` 里显式写的 > `JAVA_ENV_FILE` 里的 Java 配置 > 默认值。安装和 `prepare` 会打印每个值的来源，便于核对。`JAVA_ENV_FILE` 指向的文件不可读时直接报错，不会静默回退。
 
 可选项：
 
@@ -232,7 +232,9 @@ cd /root/aigc-local-life && bash install.sh
 | `正式版只支持 AUTH_MODE=token` / `正式版只允许 BILLING_MODE=on` | 正式版不接受开发配置，按提示改 `deploy.env` |
 | `必须填 AIGC_ENDPOINT` | 填 `AIGC_ENDPOINT`，或设 `JAVA_ENV_FILE` 指向 Java 的 `.env` |
 | `PUBLIC_DOMAIN 必填` | 填前端访问的域名 |
-| `SESSION_REDIS_ADDR 必填` | 填 Java 会话所在的 Redis 地址与口令，库号与 Java 的 `REDIS_DB` 一致 |
+| `会话 Redis 未知` | 在 Java 的 `.env` 里要有 `REDIS_HOST`（设 `JAVA_ENV_FILE`），或在 `deploy.env` 显式设 `SESSION_REDIS_ADDR` |
+| `SESSION_REDIS_DB=… 与 Java 的 REDIS_DB=… 不一致` | 删掉 `deploy.env` 里的 `SESSION_REDIS_DB`，让它从 Java 读取 |
+| `Java 的 REDIS_HOST=… 看起来是容器服务名` | 在 `deploy.env` 显式设 `SESSION_REDIS_ADDR`（如 `127.0.0.1:6379`） |
 | `BILLING_MODE=on 但计费配置有问题` | 按列出的入口补齐计费配置，`install.sh check-billing` 全部通过后再装 |
 | `… 已执行过，但文件内容被改了` | 已发布的迁移被改动。恢复原文件，改动放进新的版本号 |
 | `端口 xxx 已被占用` | 在 `deploy.env` 换一个端口，重新 `bash install.sh` |
@@ -248,7 +250,7 @@ cd /root/aigc-local-life && bash install.sh
 ## 十、上线检查清单
 
 - [ ] 测试机上从空库完整装过一遍：迁移、自检、App 登录、Go 与 Java 令牌互通、文案计费扣点 / 退回
-- [ ] `deploy.env`：`PUBLIC_DOMAIN`、`JAVA_UPSTREAM`、`JAVA_ENV_FILE`（或 `AIGC_ENDPOINT`）、`SESSION_REDIS_*`、`UNION_*` 已填
+- [ ] `deploy.env`：`PUBLIC_DOMAIN`、`JAVA_UPSTREAM`、`JAVA_ENV_FILE`（或 `AIGC_ENDPOINT`）、`UNION_BASE_URL` 已填；安装输出的「配置来源」里 Redis 与会话参数都来自 `Java .env`
 - [ ] 会话参数与 Java 生产一致（上限、令牌时长、Redis 库号）
 - [ ] 首次上线已设 `BACKUP_BEFORE_MIGRATE=1`，并确认备份盘空间
 - [ ] `install.sh check-billing` 全部通过

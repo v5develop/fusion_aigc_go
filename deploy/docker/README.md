@@ -29,7 +29,7 @@
 2. 4 个 rpc：`prepare` 成功退出后启动，健康检查是端口可连。
 3. `gateway-api`、`admin-api`：4 个 rpc 都健康后启动，健康检查是 HTTP 能应答（未带令牌返回 401 属正常）。
 
-正式环境的硬规则在 `prepare` 里强制检查，没有放行开关：`AUTH_MODE=token`、`BILLING_MODE=on`、执行面地址、`PUBLIC_DOMAIN`、`SESSION_REDIS_ADDR`、两个 JWT 密钥都必须有。
+正式环境的硬规则在 `prepare` 里强制检查，没有放行开关：`AUTH_MODE=token`、`BILLING_MODE=on`、执行面地址（`AIGC_ENDPOINT` 或 `JAVA_ENV_FILE`）、`PUBLIC_DOMAIN`、会话 Redis（来自 `JAVA_ENV_FILE` 或显式填写）。JWT 密钥不需要。
 
 ---
 
@@ -65,9 +65,13 @@ cp .env.example .env && chmod 600 .env
 | `PUBLIC_DOMAIN` | `aigc.pengqiwl.com` |
 | `JAVA_UPSTREAM` | `127.0.0.1:18080` |
 | `JAVA_ENV_FILE` | 宿主机上 Java 服务 `.env` 的**绝对路径**（只读挂进 `prepare`）：执行面地址与会话参数从这里读，保证和 Java 一致 |
+  > **最小权限建议**：`prepare` 只需要下面几个键，不必把 Java 的整个 `.env`（含所有其它密钥）挂进去。在宿主机上抽出一份只含这些键的文件，`JAVA_ENV_FILE` 指向它：
+  > ```bash
+  > grep -E '^(AIGC_BASE_URL|REDIS_HOST|REDIS_PORT|REDIS_PASSWORD|REDIS_DB|TOKEN_ACCESS_HOURS|TOKEN_REFRESH_DAYS|APP_SECURITY_TOKEN_MAX_CONCURRENT_SESSIONS)=' /path/to/java/.env > /opt/aigc-local-life/java-session.env && chmod 600 /opt/aigc-local-life/java-session.env
+  > ```
+  > Java 的 `.env` 有改动时，重跑这条命令再 `docker compose up -d` 即可。
 | `AIGC_ENDPOINT` | 不填 `JAVA_ENV_FILE` 时必填，与 Java 的 `AIGC_BASE_URL` 相同 |
-| `SESSION_REDIS_ADDR` `SESSION_REDIS_PASS` | 宿主机 Redis：`127.0.0.1:6379` 与它的口令 |
-| `SESSION_REDIS_DB` | 与 Java 的 `REDIS_DB` 一致（线上 10）。**这一项不会从 `JAVA_ENV_FILE` 读，需手工对齐** |
+| `SESSION_REDIS_ADDR` `SESSION_REDIS_PASS` `SESSION_REDIS_DB` | 默认从 `JAVA_ENV_FILE` 读（`REDIS_HOST:REDIS_PORT`、`REDIS_PASSWORD`、`REDIS_DB`），与 Java 一致；只在需要覆盖时才填 |
 | `UNION_BASE_URL` | 联盟用户服务地址，登录用（与 Java 相同，只走 HTTP；不直连联盟库或联盟 Redis） |
 
 与 Java 保持一致的会话参数（`SESSION_MAX_CONCURRENT`、`TOKEN_ACCESS_HOURS`、`TOKEN_REFRESH_DAYS`）留空时从 `JAVA_ENV_FILE` 读，读不到用 Java 的默认值 0 / 2 / 7。其余可选项见 `.env.example` 里的注释。

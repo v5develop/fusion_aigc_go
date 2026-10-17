@@ -36,6 +36,11 @@ server {
         proxy_pass http://aigc_admin;
     }
 
+    # App 本地生活接口（Go 网关）。后台前缀 /api/v1/local-life/admin 已在上面单独转发，更长的前缀优先匹配
+    location /api/v1/local-life {
+        proxy_pass http://aigc_gateway;
+    }
+
     # Java 的其它后台接口（/api/v1/admin/...）不走公网：运营用内网或 VPN 访问。
     location ^~ /api/v1/admin {
         return 404;

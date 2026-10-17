@@ -26,7 +26,45 @@ yellow() { printf '\033[33m%s\033[0m\n' "$*"; }
 step()   { printf '\n\033[36m== %s\033[0m\n' "$*"; }
 die()    { red "✗ $*"; exit 1; }
 
-# ---------- 配置 ----------
+# ---------- 配置来源 ----------
+# env_get 文件 键：读 .env 里的一个键。取最后一次出现的值；支持 export、KEY = value、双引号 / 单引号、行尾注释。
+# 文件不存在或读不到，输出空串，退出码恒为 0（set -e 下不能因此中断）。
+env_get() {
+  [[ -n ${1:-} && -f $1 && -r $1 ]] || return 0
+  awk -v k="$2" '
+    { sub(/\r$/, "") }
+    /^[[:space:]]*(export[[:space:]]+)?[A-Za-z_][A-Za-z0-9_]*[[:space:]]*=/ {
+      line = $0; sub(/^[[:space:]]*(export[[:space:]]+)?/, "", line)
+      key = line; sub(/[[:space:]]*=.*$/, "", key)
+      if (key != k) next
+      val = line; sub(/^[^=]*=[[:space:]]*/, "", val)
+      q = substr(val, 1, 1)
+      if (q == "\"" || q == sprintf("%c", 39)) { val = substr(val, 2); sub(q ".*$", "", val) }
+      else { sub(/[[:space:]]+#.*$/, "", val); sub(/[[:space:]]+$/, "", val) }
+      found = val; has = 1
+    }
+    END { if (has) printf "%s", found }' "$1" || true
+}
+
+# 配置来源清单：每个值记下来自哪里，安装 / prepare 时打印出来，错了一眼能看出
+SRC_LINES=()
+src_line() { SRC_LINES+=("$(printf '%-30s ← %s' "$1" "$2")"); }
+
+# resolve 变量 Java键 默认值：优先级 deploy.env 显式写的 > Java 的 .env > 默认值（默认值为空表示必须显式给）
+resolve() {
+  local name=$1 jkey=$2 def=$3 cur="" from=""
+  eval "cur=\${$name:-}"
+  if [[ -n $cur ]]; then src_line "$name" "deploy.env"; return 0; fi
+  if [[ -n $jkey ]]; then
+    cur=$(env_get "${JAVA_ENV_FILE:-}" "$jkey")
+    if [[ -n $cur ]]; then from="Java .env（${jkey}）"; fi
+  fi
+  if [[ -z $cur && -n $def ]]; then cur=$def; from="默认值 $def"; fi
+  if [[ -z $cur ]]; then from="未设置"; fi
+  eval "$name=\$cur"
+  src_line "$name" "$from"
+}
+
 load_env() {
   local f="" installed=${INSTALL_DIR:-/opt/aigc-local-life}/deploy.env
   if [[ ${AIGC_CONTAINER:-0} == 1 ]]; then
@@ -60,22 +98,31 @@ load_env() {
   NOTE_PORT=${NOTE_PORT:-19203}; IMAGEGEN_PORT=${IMAGEGEN_PORT:-19204}
   LOG_KEEP_DAYS=${LOG_KEEP_DAYS:-7}
   UNION_BASE_URL=${UNION_BASE_URL:-}; AUTH_MODE=${AUTH_MODE:-token}; SWAGGER_ENABLED=${SWAGGER_ENABLED:-0}; TASK_ID_PREFIX=${TASK_ID_PREFIX:-AiCreationLife}; LINK_PARSE_URL=${LINK_PARSE_URL:-}
-  # Java 的 .env 路径：AIGC 地址与会话参数从它读，保证两边同一个值（显式写在 deploy.env 的优先）
+  # 与 Java 同源的配置：AIGC 地址、会话 Redis、会话参数都从 Java 的 .env 读（显式写在 deploy.env 的优先）
   JAVA_ENV_FILE=${JAVA_ENV_FILE:-}
-  java_env() { # 读不到（没配文件 / 没这个键）返回空串，且退出码恒为 0：set -e 下赋值不能因此中断安装
-    local f=${JAVA_ENV_FILE:-}
-    [[ -n $f && -r $f ]] || return 0
-    { grep -E "^$1=" "$f" || true; } | tail -1 | cut -d= -f2- | tr -d '\r' | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//"
-    return 0
-  }
-  AIGC_ENDPOINT=${AIGC_ENDPOINT:-$(java_env AIGC_BASE_URL)}
+  SRC_LINES=()
+  resolve AIGC_ENDPOINT AIGC_BASE_URL ""
   BILLING_MODE=${BILLING_MODE:-on}
-  SESSION_REDIS_ADDR=${SESSION_REDIS_ADDR:-}; SESSION_REDIS_PASS=${SESSION_REDIS_PASS:-}
-  SESSION_REDIS_DB=${SESSION_REDIS_DB:-10}
-  # 会话与 Java 共用：下面三项必须与 Java 生产环境的 max-concurrent-sessions / TOKEN_ACCESS_HOURS / TOKEN_REFRESH_DAYS 一致
-  SESSION_MAX_CONCURRENT=${SESSION_MAX_CONCURRENT:-$(java_env APP_SECURITY_TOKEN_MAX_CONCURRENT_SESSIONS)}; SESSION_MAX_CONCURRENT=${SESSION_MAX_CONCURRENT:-0}
-  TOKEN_ACCESS_HOURS=${TOKEN_ACCESS_HOURS:-$(java_env TOKEN_ACCESS_HOURS)}; TOKEN_ACCESS_HOURS=${TOKEN_ACCESS_HOURS:-2}
-  TOKEN_REFRESH_DAYS=${TOKEN_REFRESH_DAYS:-$(java_env TOKEN_REFRESH_DAYS)}; TOKEN_REFRESH_DAYS=${TOKEN_REFRESH_DAYS:-7}
+  # Redis 地址由 Java 的 REDIS_HOST:REDIS_PORT 组成；REDIS_HOST 是容器服务名时宿主机解析不到，记下来交给 validate_release 报错
+  REDIS_HOST_BAD=""
+  if [[ -n ${SESSION_REDIS_ADDR:-} ]]; then
+    src_line SESSION_REDIS_ADDR "deploy.env"
+  else
+    jh=$(env_get "${JAVA_ENV_FILE:-}" REDIS_HOST); jp=$(env_get "${JAVA_ENV_FILE:-}" REDIS_PORT)
+    if [[ -n $jh ]]; then
+      SESSION_REDIS_ADDR="$jh:${jp:-6379}"
+      src_line SESSION_REDIS_ADDR "Java .env（REDIS_HOST:REDIS_PORT）"
+      if [[ $jh != *.* && $jh != localhost ]]; then REDIS_HOST_BAD=$jh; fi
+    else
+      SESSION_REDIS_ADDR=""; src_line SESSION_REDIS_ADDR "未设置"
+    fi
+  fi
+  resolve SESSION_REDIS_PASS REDIS_PASSWORD ""
+  resolve SESSION_REDIS_DB REDIS_DB 0          # 与 Java 的默认一致：REDIS_DB 没配，Java 就在 0 号库
+  # 会话参数必须与 Java 一致（上限 / 令牌时长）
+  resolve SESSION_MAX_CONCURRENT APP_SECURITY_TOKEN_MAX_CONCURRENT_SESSIONS 0
+  resolve TOKEN_ACCESS_HOURS TOKEN_ACCESS_HOURS 2
+  resolve TOKEN_REFRESH_DAYS TOKEN_REFRESH_DAYS 7
   # 公网域名与 Java 的地址：nginx 把 App 接口和刷新令牌分别转到网关与 Java
   PUBLIC_DOMAIN=${PUBLIC_DOMAIN:-}; JAVA_UPSTREAM=${JAVA_UPSTREAM:-127.0.0.1:18080}
   FUSION_BASE_URL=${FUSION_BASE_URL:-}; FUSION_APP_KEY=${FUSION_APP_KEY:-}
@@ -87,13 +134,23 @@ load_env() {
 # validate_release 正式版的硬规则。只在 install / prepare 时检查，
 # 这样老安装缺新配置项时，status / logs / stop / uninstall 仍然能用。
 validate_release() {
+  local java_db l
   # JAVA_ENV_FILE 指向不存在的宿主机路径时，Docker 会把它挂成空目录，后面只会报「缺 AIGC_ENDPOINT」，很难查
-  if [[ -n ${JAVA_ENV_FILE:-} && -d $JAVA_ENV_FILE ]]; then die "JAVA_ENV_FILE 指向的是目录而不是文件（容器部署时多半是宿主机上这个路径不存在）：检查 .env 里的 JAVA_ENV_FILE"; fi
+  # JAVA_ENV_FILE 必须是可读的普通文件。Docker 在宿主机路径不存在时会建一个空目录，这里要明确报出来
+  if [[ -n ${JAVA_ENV_FILE:-} ]]; then
+    [[ -f $JAVA_ENV_FILE && -r $JAVA_ENV_FILE ]] || die "JAVA_ENV_FILE=$JAVA_ENV_FILE 不是可读的文件（容器部署时多半是宿主机上这个路径不存在，Docker 会建成空目录）"
+  fi
+  # 会话库号必须与 Java 一致：Java 的 REDIS_DB 与这里实际用的库号不同，两边的令牌互相找不到
+  java_db=$(env_get "${JAVA_ENV_FILE:-}" REDIS_DB)
+  if [[ -n $java_db && $java_db != "$SESSION_REDIS_DB" ]]; then die "SESSION_REDIS_DB=$SESSION_REDIS_DB 与 Java 的 REDIS_DB=$java_db 不一致：两边的令牌会互相找不到。删掉 deploy.env 里的 SESSION_REDIS_DB，让它从 Java 读取"; fi
+  if [[ -n ${REDIS_HOST_BAD:-} ]]; then die "Java 的 REDIS_HOST=$REDIS_HOST_BAD 看起来是容器服务名，宿主机解析不到。请在 deploy.env 显式设置 SESSION_REDIS_ADDR（如 127.0.0.1:6379）"; fi
+  echo "配置来源（显式 > Java .env > 默认值）："
+  for l in "${SRC_LINES[@]}"; do echo "    $l"; done
   case $BILLING_MODE in off|shadow|on) ;; *) die "BILLING_MODE 只能是 off / shadow / on，现在是：$BILLING_MODE" ;; esac
   # 正式版不允许免费：只接受 on（off / shadow 都不扣点）
   if [[ $BILLING_MODE != on ]]; then die "正式版只允许 BILLING_MODE=on（当前 ${BILLING_MODE}，线上不允许免费）"; fi
   # 正式版必须与 Java 共用会话：nginx 把登录、点数、素材等 /api/v1/ 接口转给 Java，令牌必须两边都认
-  [[ -n $SESSION_REDIS_ADDR ]] || die "SESSION_REDIS_ADDR 必填：填 Java 会话所在的 Redis（库号 SESSION_REDIS_DB 与 Java 的 REDIS_DB 一致），否则 App 令牌在 Java 接口上无效"
+  [[ -n $SESSION_REDIS_ADDR ]] || die "会话 Redis 未知：在 Java 的 .env 里要有 REDIS_HOST / REDIS_PORT（设 JAVA_ENV_FILE），或在 deploy.env 显式设 SESSION_REDIS_ADDR。否则 App 令牌在 Java 接口上无效"
   [[ -n $PUBLIC_DOMAIN ]] || die "PUBLIC_DOMAIN 必填：前端访问的域名（nginx 的 server_name）"
   [[ -n ${AIGC_ENDPOINT:-} ]] || die "必须填 AIGC_ENDPOINT（或在 deploy.env 设 JAVA_ENV_FILE，从 Java 的 .env 读取 AIGC_BASE_URL）"
   [[ $TASK_ID_PREFIX =~ ^[A-Za-z0-9]+$ ]] || die "TASK_ID_PREFIX 只能是字母数字（不含下划线），当前：$TASK_ID_PREFIX"
@@ -293,6 +350,27 @@ render_nginx() {
   sed -e "s|__SERVER_NAME__|$PUBLIC_DOMAIN|g" -e "s|__GATEWAY_PORT__|$GATEWAY_PORT|g" \
     -e "s|__ADMIN_PORT__|$ADMIN_PORT|g" -e "s|__JAVA_UPSTREAM__|$JAVA_UPSTREAM|g" \
     "$PKG/nginx/aigc-local-life.conf.tmpl" > "$INSTALL_DIR/nginx/aigc-local-life.conf"
+  check_nginx_site "$INSTALL_DIR/nginx/aigc-local-life.conf"
+}
+
+# check_nginx_site 站点文件：用宿主机的 nginx 检查语法（包进最小的 http 块里）。没有 nginx 只提醒，有语法错就中止。
+check_nginx_site() {
+  local site=$1 d
+  if ! command -v nginx >/dev/null 2>&1; then
+    yellow "  ! 本机没有 nginx：无法检查站点配置语法，请在宿主机上执行 nginx -t 确认"
+    return 0
+  fi
+  d=$(mktemp -d)
+  printf 'events {}\nhttp {\n  include %s;\n}\n' "$site" > "$d/nginx.conf"
+  if nginx -t -c "$d/nginx.conf" > "$d/out" 2>&1; then
+    green "  ✓ nginx 站点配置语法通过（宿主机 nginx -t）"
+    rm -rf "$d"
+  else
+    red "✗ nginx 站点配置有错："
+    cat "$d/out"
+    rm -rf "$d"
+    die "nginx 站点配置检查失败，修好模板后重跑"
+  fi
 }
 
 # ---------- 服务 ----------
