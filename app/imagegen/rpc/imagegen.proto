@@ -35,9 +35,47 @@ service ImageGen {
   // ---- 运营后台 ----
   rpc AdminList(ListReq) returns (ImageList);
   rpc AdminListVideos(VideoListReq) returns (VideoList);
+
+  // 生成选项（模型 / 比例 / 时长）的运营配置：只能改启用、名称、排序、默认
+  rpc AdminGenOptions(Empty) returns (GenOptionList);
+  rpc AdminUpdateGenOption(UpdateGenOptionReq) returns (GenOptionItem);
+  rpc AdminUpdateGenKind(UpdateGenKindReq) returns (GenKindItem);
 }
 
 message Empty {}
+
+message GenOptionItem {
+  int64 id = 1;
+  string group = 2;
+  string code = 3;
+  string label = 4;
+  int32 sort_order = 5;
+  bool enabled = 6;
+  bool is_default = 7;
+}
+
+message GenOptionList {
+  repeated GenOptionItem list = 1;
+  repeated GenKindItem kinds = 2;
+}
+
+message GenKindItem {
+  string kind = 1;
+  bool template_required = 2;
+}
+
+message UpdateGenKindReq {
+  string kind = 1;
+  bool template_required = 2;
+}
+
+message UpdateGenOptionReq {
+  int64 id = 1;
+  string label = 2;
+  int32 sort_order = 3;
+  bool enabled = 4;
+  bool is_default = 5;
+}
 
 message IdUserReq {
   int64 id = 1;

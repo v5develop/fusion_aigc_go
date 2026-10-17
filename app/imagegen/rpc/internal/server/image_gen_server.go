@@ -121,3 +121,19 @@ func (s *ImageGenServer) AdminListVideos(ctx context.Context, in *pb.VideoListRe
 	l := logic.NewAdminListVideosLogic(ctx, s.svcCtx)
 	return l.AdminListVideos(in)
 }
+
+// 生成选项（模型 / 比例 / 时长）的运营配置：只能改启用、名称、排序、默认
+func (s *ImageGenServer) AdminGenOptions(ctx context.Context, in *pb.Empty) (*pb.GenOptionList, error) {
+	l := logic.NewAdminGenOptionsLogic(ctx, s.svcCtx)
+	return l.AdminGenOptions(in)
+}
+
+func (s *ImageGenServer) AdminUpdateGenOption(ctx context.Context, in *pb.UpdateGenOptionReq) (*pb.GenOptionItem, error) {
+	l := logic.NewAdminUpdateGenOptionLogic(ctx, s.svcCtx)
+	return l.AdminUpdateGenOption(in)
+}
+
+func (s *ImageGenServer) AdminUpdateGenKind(ctx context.Context, in *pb.UpdateGenKindReq) (*pb.GenKindItem, error) {
+	l := logic.NewAdminUpdateGenKindLogic(ctx, s.svcCtx)
+	return l.AdminUpdateGenKind(in)
+}

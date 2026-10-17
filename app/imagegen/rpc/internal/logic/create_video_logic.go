@@ -77,23 +77,23 @@ func (l *CreateVideoLogic) CreateVideo(in *pb.CreateVideoReq) (*pb.VideoInfo, er
 
 	duration := in.Duration
 	if duration == 0 {
-		duration = int32(cfg.DefaultDuration)
+		duration = defaultDurationOf(l.ctx, l.svcCtx, genVideoDurations, int32(cfg.DefaultDuration))
 	}
-	if duration != 15 && duration != 30 {
-		return nil, xerr.Param("视频时长为 15 或 30 秒")
+	if !containsDuration(durationsOf(l.ctx, l.svcCtx, genVideoDurations, videoDurations), duration) {
+		return nil, xerr.Param("视频时长无效")
 	}
 	size := strings.TrimSpace(in.Size)
 	if size == "" {
-		size = cfg.DefaultSize
+		size = defaultSizeOf(l.ctx, l.svcCtx, in.Kind, cfg.DefaultSize)
 	}
-	if size != "9:16" && size != "16:9" {
+	if !validOption(l.ctx, l.svcCtx, genVideoSizes, videoSizes, size) {
 		return nil, xerr.Param("视频比例无效")
 	}
 	mdl := strings.TrimSpace(in.Model)
 	if mdl == "" {
-		mdl = cfg.DefaultModel
+		mdl = defaultOf(l.ctx, l.svcCtx, genVideoModels, cfg.DefaultModel)
 	}
-	if !validModel(videoModels, mdl) {
+	if !validModel(optionsOf(l.ctx, l.svcCtx, genVideoModels, videoModels), mdl) {
 		return nil, xerr.Param("模型无效")
 	}
 

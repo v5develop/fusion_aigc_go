@@ -81,23 +81,23 @@ func (l *CreateLogic) Create(in *pb.CreateReq) (*pb.ImageInfo, error) {
 			return nil, err
 		}
 		templateURL = t.Url
-	} else if cfg.TemplateRequired {
+	} else if templateRequired(l.ctx, l.svcCtx, in.Kind, cfg.TemplateRequired) {
 		return nil, xerr.Param("请选择模板")
 	}
 
 	size := strings.TrimSpace(in.Size)
 	if size == "" {
-		size = cfg.DefaultSize
+		size = defaultSizeOf(l.ctx, l.svcCtx, in.Kind, cfg.DefaultSize)
 	}
 	if in.Kind == model.KindPoster {
-		if _, ok := styleLabel(in.PosterStyle); !ok {
+		if !validOption(l.ctx, l.svcCtx, genPosterStyles, posterStyles, in.PosterStyle) {
 			return nil, xerr.Param("海报风格无效")
 		}
-		if !validSize(size) {
+		if !validSize(l.ctx, l.svcCtx, size) {
 			return nil, xerr.Param("图片比例无效")
 		}
 	} else {
-		size = cfg.DefaultSize // 长图比例固定
+		size = defaultSizeOf(l.ctx, l.svcCtx, in.Kind, cfg.DefaultSize) // 长图比例固定
 	}
 	count := int64(in.ImageCount)
 	if count == 0 {
@@ -108,9 +108,12 @@ func (l *CreateLogic) Create(in *pb.CreateReq) (*pb.ImageInfo, error) {
 	}
 
 	// 海报可以指定档位（options 下发的 models）；不传用配置里的默认。长图没有 model 参数
-	mdl := cfg.Model
+	mdl := cfg.Model // 长图没有 model 参数，留空
+	if in.Kind == model.KindPoster {
+		mdl = defaultOf(l.ctx, l.svcCtx, genPosterModels, cfg.Model)
+	}
 	if in.Kind == model.KindPoster && in.Model != "" {
-		if !validModel(posterModels, in.Model) {
+		if !validModel(optionsOf(l.ctx, l.svcCtx, genPosterModels, posterModels), in.Model) {
 			return nil, xerr.Newf(xerr.ParamError, "不支持的模型 %s", in.Model)
 		}
 		mdl = in.Model
@@ -158,13 +161,8 @@ func (l *CreateLogic) insertAndSubmit(row *model.AfvImageCreation, cfg *config.K
 	return toInfo(row), nil
 }
 
-func validSize(size string) bool {
-	for _, s := range posterSizes {
-		if s.Code == size {
-			return true
-		}
-	}
-	return false
+func validSize(ctx context.Context, svcCtx *svc.ServiceContext, size string) bool {
+	return validModel(optionsOf(ctx, svcCtx, genPosterSizes, posterSizes), size)
 }
 
 // createActionTransfer 动作迁移：人物图（上传/公共数字人/AI定制形象）+ 动作视频（预置或我导入的）→ 视频。
@@ -181,7 +179,7 @@ func (l *CreateLogic) createActionTransfer(in *pb.CreateReq, cfg *config.KindCon
 	if err != nil {
 		return nil, err
 	}
-	if !validActionModel(in.Model) {
+	if !validModel(optionsOf(l.ctx, l.svcCtx, genActionModels, actionModels), in.Model) {
 		return nil, xerr.Param("请选择模型")
 	}
 
@@ -219,25 +217,26 @@ func (l *CreateLogic) createVoiceover(in *pb.CreateReq, cfg *config.KindConf) (*
 	if content == "" {
 		return nil, xerr.Param("请输入口播文案")
 	}
+	vm := optionsOf(l.ctx, l.svcCtx, genVoiceoverModels, voiceoverModels)
 	mdl := in.Model
 	if mdl == "" {
-		mdl = voiceoverModels[0].Code
+		mdl = defaultOf(l.ctx, l.svcCtx, genVoiceoverModels, vm[0].Code)
 	}
-	if !validModel(voiceoverModels, mdl) {
+	if !validModel(vm, mdl) {
 		return nil, xerr.Param("模型无效")
 	}
 	duration := in.Duration
 	if duration == 0 {
-		duration = voiceoverDurations[0]
+		duration = defaultDurationOf(l.ctx, l.svcCtx, genVoiceoverDurations, voiceoverDurations[0])
 	}
-	if duration != 15 && duration != 30 {
-		return nil, xerr.Param("视频时长为 15 或 30 秒")
+	if !containsDuration(durationsOf(l.ctx, l.svcCtx, genVoiceoverDurations, voiceoverDurations), duration) {
+		return nil, xerr.Param("视频时长无效")
 	}
 	size := strings.TrimSpace(in.Size)
 	if size == "" {
-		size = cfg.DefaultSize
+		size = defaultSizeOf(l.ctx, l.svcCtx, in.Kind, cfg.DefaultSize)
 	}
-	if size != "9:16" && size != "16:9" {
+	if !validOption(l.ctx, l.svcCtx, genVoiceoverSizes, voiceoverSizes, size) {
 		return nil, xerr.Param("视频比例无效")
 	}
 	if err := checkText(l.ctx, l.svcCtx, "voiceover_input", content); err != nil {

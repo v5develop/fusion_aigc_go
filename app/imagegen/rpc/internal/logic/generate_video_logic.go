@@ -95,10 +95,10 @@ func (l *GenerateVideoLogic) applyRemakeOverrides(c *model.AfvVideoCreation, in 
 	if prompt == "" && mdl == "" && size == "" {
 		return nil
 	}
-	if mdl != "" && !validModel(remakeModels, mdl) {
+	if mdl != "" && !validModel(optionsOf(l.ctx, l.svcCtx, genRemakeModels, remakeModels), mdl) {
 		return xerr.Newf(xerr.ParamError, "不支持的模型 %s", mdl)
 	}
-	if size != "" && !validModel(videoSizes, size) {
+	if size != "" && !validModel(optionsOf(l.ctx, l.svcCtx, genVideoSizes, videoSizes), size) {
 		return xerr.Newf(xerr.ParamError, "不支持的比例 %s", size)
 	}
 	if prompt != "" {

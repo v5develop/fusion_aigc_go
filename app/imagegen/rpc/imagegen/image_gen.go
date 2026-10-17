@@ -19,6 +19,9 @@ type (
 	CreateReq            = pb.CreateReq
 	CreateVideoReq       = pb.CreateVideoReq
 	Empty                = pb.Empty
+	GenKindItem          = pb.GenKindItem
+	GenOptionItem        = pb.GenOptionItem
+	GenOptionList        = pb.GenOptionList
 	GenerateVideoReq     = pb.GenerateVideoReq
 	IdUserReq            = pb.IdUserReq
 	ImageInfo            = pb.ImageInfo
@@ -31,6 +34,8 @@ type (
 	OptionsResp          = pb.OptionsResp
 	Template             = pb.Template
 	TemplateList         = pb.TemplateList
+	UpdateGenKindReq     = pb.UpdateGenKindReq
+	UpdateGenOptionReq   = pb.UpdateGenOptionReq
 	VideoInfo            = pb.VideoInfo
 	VideoList            = pb.VideoList
 	VideoListReq         = pb.VideoListReq
@@ -64,6 +69,10 @@ type (
 		// ---- 运营后台 ----
 		AdminList(ctx context.Context, in *ListReq, opts ...grpc.CallOption) (*ImageList, error)
 		AdminListVideos(ctx context.Context, in *VideoListReq, opts ...grpc.CallOption) (*VideoList, error)
+		// 生成选项（模型 / 比例 / 时长）的运营配置：只能改启用、名称、排序、默认
+		AdminGenOptions(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*GenOptionList, error)
+		AdminUpdateGenOption(ctx context.Context, in *UpdateGenOptionReq, opts ...grpc.CallOption) (*GenOptionItem, error)
+		AdminUpdateGenKind(ctx context.Context, in *UpdateGenKindReq, opts ...grpc.CallOption) (*GenKindItem, error)
 	}
 
 	defaultImageGen struct {
@@ -174,4 +183,20 @@ func (m *defaultImageGen) AdminList(ctx context.Context, in *ListReq, opts ...gr
 func (m *defaultImageGen) AdminListVideos(ctx context.Context, in *VideoListReq, opts ...grpc.CallOption) (*VideoList, error) {
 	client := pb.NewImageGenClient(m.cli.Conn())
 	return client.AdminListVideos(ctx, in, opts...)
+}
+
+// 生成选项（模型 / 比例 / 时长）的运营配置：只能改启用、名称、排序、默认
+func (m *defaultImageGen) AdminGenOptions(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*GenOptionList, error) {
+	client := pb.NewImageGenClient(m.cli.Conn())
+	return client.AdminGenOptions(ctx, in, opts...)
+}
+
+func (m *defaultImageGen) AdminUpdateGenOption(ctx context.Context, in *UpdateGenOptionReq, opts ...grpc.CallOption) (*GenOptionItem, error) {
+	client := pb.NewImageGenClient(m.cli.Conn())
+	return client.AdminUpdateGenOption(ctx, in, opts...)
+}
+
+func (m *defaultImageGen) AdminUpdateGenKind(ctx context.Context, in *UpdateGenKindReq, opts ...grpc.CallOption) (*GenKindItem, error) {
+	client := pb.NewImageGenClient(m.cli.Conn())
+	return client.AdminUpdateGenKind(ctx, in, opts...)
 }

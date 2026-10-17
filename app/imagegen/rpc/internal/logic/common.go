@@ -69,8 +69,6 @@ func validModel(models []*pb.Option, code string) bool {
 	return false
 }
 
-func validActionModel(code string) bool { return validModel(actionModels, code) }
-
 // posterModels 海报出图档位。78 支持 mini / plus / max，本版只开 max（已定规则），
 // 但仍由后端下发，前端不写死——以后放开别的档位改这里即可。长图（76）没有 model 参数，不下发。
 var posterModels = []*pb.Option{

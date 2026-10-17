@@ -32,29 +32,32 @@ func (l *OptionsLogic) Options(in *pb.KindReq) (*pb.OptionsResp, error) {
 	}
 	lim := l.svcCtx.Config.Limits
 	resp := &pb.OptionsResp{
-		DefaultSize: cfg.DefaultSize, MaxImages: int32(lim.MaxImages), MaxMaterials: int32(lim.MaxMaterials),
-		MaxContentLen: int32(lim.MaxContentLen), TemplateRequired: cfg.TemplateRequired,
+		DefaultSize: defaultSizeOf(l.ctx, l.svcCtx, in.Kind, cfg.DefaultSize), MaxImages: int32(lim.MaxImages), MaxMaterials: int32(lim.MaxMaterials),
+		MaxContentLen: int32(lim.MaxContentLen), TemplateRequired: templateRequired(l.ctx, l.svcCtx, in.Kind, cfg.TemplateRequired),
 	}
 	if in.Kind == model.KindActionTransfer { // 动作迁移：只有模型选择
-		resp.Models = actionModels
+		resp.Models = optionsOf(l.ctx, l.svcCtx, genActionModels, actionModels)
 		resp.MaxImages = 1
 		return resp, nil
 	}
 	if in.Kind == model.KindVoiceover { // 数字人口播：模型、时长、比例
-		resp.Models, resp.DefaultModel = voiceoverModels, voiceoverModels[0].Code
-		resp.Durations, resp.DefaultDuration = voiceoverDurations, voiceoverDurations[0]
-		resp.Sizes = voiceoverSizes
+		vm := optionsOf(l.ctx, l.svcCtx, genVoiceoverModels, voiceoverModels)
+		resp.Models, resp.DefaultModel = vm, defaultOf(l.ctx, l.svcCtx, genVoiceoverModels, vm[0].Code)
+		resp.Durations = durationsOf(l.ctx, l.svcCtx, genVoiceoverDurations, voiceoverDurations)
+		resp.DefaultDuration = defaultDurationOf(l.ctx, l.svcCtx, genVoiceoverDurations, voiceoverDurations[0])
+		resp.Sizes = optionsOf(l.ctx, l.svcCtx, genVoiceoverSizes, voiceoverSizes)
 		resp.MaxImages, resp.MaxMaterials = 1, 0
 		resp.MaxContentLen = 0 // 口播文案字数不限
 		return resp, nil
 	}
 	if in.Kind == model.KindLongImage { // 长图比例固定，设计稿没有比例与风格选项
-		resp.Sizes = []*pb.Option{{Code: cfg.DefaultSize, Label: cfg.DefaultSize}}
+		resp.Sizes = optionsOf(l.ctx, l.svcCtx, genLongImageSizes, []*pb.Option{{Code: cfg.DefaultSize, Label: cfg.DefaultSize}})
 		return resp, nil
 	}
 	// 海报：档位由后端下发（前端不写死）；长图没有 model 参数，上面已 return
-	resp.Models, resp.DefaultModel = posterModels, cfg.Model
-	resp.Sizes, resp.PosterStyles = posterSizes, posterStyles
+	resp.Models = optionsOf(l.ctx, l.svcCtx, genPosterModels, posterModels)
+	resp.DefaultModel = defaultOf(l.ctx, l.svcCtx, genPosterModels, cfg.Model)
+	resp.Sizes, resp.PosterStyles = optionsOf(l.ctx, l.svcCtx, genPosterSizes, posterSizes), posterStyles
 	// 海报类型来自模板筛选维度字典，运营在现有后台维护
 	opts, err := l.svcCtx.Shared.ListFilterOptions(l.ctx, cfg.BizType, posterTypeFilter)
 	if err != nil {

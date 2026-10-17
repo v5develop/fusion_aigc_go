@@ -9,6 +9,7 @@ import (
 	auth "aigc-local-life/app/admin/api/internal/handler/auth"
 	copywriting "aigc-local-life/app/admin/api/internal/handler/copywriting"
 	digitalhuman "aigc-local-life/app/admin/api/internal/handler/digitalhuman"
+	genoption "aigc-local-life/app/admin/api/internal/handler/genoption"
 	imagegen "aigc-local-life/app/admin/api/internal/handler/imagegen"
 	note "aigc-local-life/app/admin/api/internal/handler/note"
 	"aigc-local-life/app/admin/api/internal/svc"
@@ -164,6 +165,33 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 					Method:  http.MethodPost,
 					Path:    "/digital-humans/voices/:id/preview",
 					Handler: digitalhuman.GenerateVoicePreviewHandler(serverCtx),
+				},
+			}...,
+		),
+		rest.WithPrefix("/api/v1/local-life/admin"),
+	)
+
+	server.AddRoutes(
+		rest.WithMiddlewares(
+			[]rest.Middleware{serverCtx.AdminAuth},
+			[]rest.Route{
+				{
+					// 改生成类型的模板必选开关（海报 / 长图 / 动作迁移）
+					Method:  http.MethodPut,
+					Path:    "/gen-kinds/:kind",
+					Handler: genoption.UpdateGenKindHandler(serverCtx),
+				},
+				{
+					// 生成选项列表（模型 / 比例 / 时长，含停用项）
+					Method:  http.MethodGet,
+					Path:    "/gen-options",
+					Handler: genoption.ListGenOptionsHandler(serverCtx),
+				},
+				{
+					// 改生成选项：名称 / 启用 / 排序 / 默认（编码不可改；海报风格不可改名）
+					Method:  http.MethodPut,
+					Path:    "/gen-options/:id",
+					Handler: genoption.UpdateGenOptionHandler(serverCtx),
 				},
 			}...,
 		),

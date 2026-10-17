@@ -29,6 +29,7 @@ type ServiceContext struct {
 	CopywritingRpc  copywriting.Copywriting
 	Video           model.AfvVideoCreationModel
 	Shared          *model.SharedModel
+	GenOpts         *model.GenOptionModel
 	Aigc            *aigc.Client
 	Asset           *asset.Writer
 	Storage         storage.Store
@@ -50,6 +51,7 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		CopywritingRpc:  copywriting.NewCopywriting(zrpc.MustNewClient(c.CopywritingRpc)),
 		Video:           model.NewAfvVideoCreationModel(conn),
 		Shared:          shared,
+		GenOpts:         model.NewGenOptionModel(conn),
 		Aigc:            aigc.New(c.Aigc),
 		Asset:           asset.NewWriter(conn),
 		Storage:         storage.New(c.Storage, conn),

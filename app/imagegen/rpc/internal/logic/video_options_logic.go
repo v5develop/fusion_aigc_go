@@ -29,12 +29,13 @@ func (l *VideoOptionsLogic) VideoOptions(in *pb.KindReq) (*pb.VideoOptionsResp, 
 	if in.Kind == model.KindVideoRemake {
 		c := &l.svcCtx.Config.VideoRemake
 		lim := videoLimits(c)
+		rm := optionsOf(l.ctx, l.svcCtx, genRemakeModels, remakeModels)
 		return &pb.VideoOptionsResp{
 			MaxVideoBytes: lim.MaxBytes, MaxVideoSeconds: int32(lim.MaxSeconds),
 			VideoFormats: lim.Formats, LinkEnabled: l.svcCtx.LinkParse.Enabled(),
 			// 剧情分析页的「生成设置」：改过的值在 generate 时回传
-			Models: remakeModels, DefaultModel: remakeModels[0].Code,
-			Sizes: videoSizes, // 不选就跟原片，所以没有 default_size
+			Models: rm, DefaultModel: defaultOf(l.ctx, l.svcCtx, genRemakeModels, rm[0].Code),
+			Sizes: optionsOf(l.ctx, l.svcCtx, genVideoSizes, videoSizes), // 不选就跟原片，所以没有 default_size
 		}, nil
 	}
 	cfg, err := videoKindConf(l.svcCtx, in.Kind)
@@ -43,9 +44,9 @@ func (l *VideoOptionsLogic) VideoOptions(in *pb.KindReq) (*pb.VideoOptionsResp, 
 	}
 	lim := l.svcCtx.Config.VideoLimits
 	return &pb.VideoOptionsResp{
-		Models: videoModels, DefaultModel: cfg.DefaultModel,
-		Durations: videoDurations, DefaultDuration: int32(cfg.DefaultDuration),
-		Sizes: videoSizes, DefaultSize: cfg.DefaultSize,
+		Models: optionsOf(l.ctx, l.svcCtx, genVideoModels, videoModels), DefaultModel: defaultOf(l.ctx, l.svcCtx, genVideoModels, cfg.DefaultModel),
+		Durations: durationsOf(l.ctx, l.svcCtx, genVideoDurations, videoDurations), DefaultDuration: defaultDurationOf(l.ctx, l.svcCtx, genVideoDurations, int32(cfg.DefaultDuration)),
+		Sizes: optionsOf(l.ctx, l.svcCtx, genVideoSizes, videoSizes), DefaultSize: defaultSizeOf(l.ctx, l.svcCtx, in.Kind, cfg.DefaultSize),
 		MaxUserTextLen: int32(lim.MaxUserTextLen), MaxSellingPointsLen: int32(lim.MaxSellingPointsLen),
 		PropRequired: in.Kind == model.KindShortDrama, // 短剧的商品图必填（87 要求）
 	}, nil

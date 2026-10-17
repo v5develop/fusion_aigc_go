@@ -120,6 +120,26 @@ type DigitalHumanListResp struct {
 type EmptyResp struct {
 }
 
+type GenKindItem struct {
+	Kind             string `json:"kind"`
+	TemplateRequired bool   `json:"template_required"`
+}
+
+type GenOptionItem struct {
+	Id        int64  `json:"id"`
+	Group     string `json:"group"`
+	Code      string `json:"code"`
+	Label     string `json:"label"`
+	SortOrder int32  `json:"sort_order"`
+	Enabled   bool   `json:"enabled"`
+	IsDefault bool   `json:"is_default"`
+}
+
+type GenOptionListResp struct {
+	List  []GenOptionItem `json:"list"`
+	Kinds []GenKindItem   `json:"kinds"`
+}
+
 type IdPath struct {
 	Id int64 `path:"id"`
 }
@@ -220,6 +240,19 @@ type SaveVoiceReq struct {
 	PreviewUrl string   `json:"preview_url,optional"`
 	SortOrder  int32    `json:"sort_order,optional"`
 	Status     int32    `json:"status,options=0|1"`
+}
+
+type UpdateGenKindReq struct {
+	Kind             string `path:"kind"`
+	TemplateRequired bool   `json:"template_required"`
+}
+
+type UpdateGenOptionReq struct {
+	Id        int64  `path:"id"`
+	Label     string `json:"label"`
+	SortOrder int32  `json:"sort_order"`
+	Enabled   bool   `json:"enabled"`
+	IsDefault bool   `json:"is_default"`
 }
 
 type Voice struct {

@@ -339,6 +339,34 @@ type (
 		List  []ImageCreation `json:"list"`
 		Total int64           `json:"total"`
 	}
+	GenOptionItem {
+		Id        int64  `json:"id"`
+		Group     string `json:"group"`
+		Code      string `json:"code"`
+		Label     string `json:"label"`
+		SortOrder int32  `json:"sort_order"`
+		Enabled   bool   `json:"enabled"`
+		IsDefault bool   `json:"is_default"`
+	}
+	GenOptionListResp {
+		List  []GenOptionItem `json:"list"`
+		Kinds []GenKindItem   `json:"kinds"`
+	}
+	GenKindItem {
+		Kind             string `json:"kind"`
+		TemplateRequired bool   `json:"template_required"`
+	}
+	UpdateGenKindReq {
+		Kind             string `path:"kind"`
+		TemplateRequired bool   `json:"template_required"`
+	}
+	UpdateGenOptionReq {
+		Id        int64  `path:"id"`
+		Label     string `json:"label"`
+		SortOrder int32  `json:"sort_order"`
+		Enabled   bool   `json:"enabled"`
+		IsDefault bool   `json:"is_default"`
+	}
 )
 
 @server (
@@ -356,6 +384,27 @@ service admin-api {
 	@doc "用户探店视频/带货短剧列表（只读，排查用）"
 	@handler listVideos
 	get /video-creations (AdminVideoListReq) returns (AdminVideoListResp)
+}
+
+@server (
+	prefix:     /api/v1/local-life/admin
+	middleware: AdminAuth
+	group:      genoption
+	tags:       "生成配置"
+	authType:   auth
+)
+service admin-api {
+	@doc "生成选项列表（模型 / 比例 / 时长，含停用项）"
+	@handler listGenOptions
+	get /gen-options returns (GenOptionListResp)
+
+	@doc "改生成选项：名称 / 启用 / 排序 / 默认（编码不可改；海报风格不可改名）"
+	@handler updateGenOption
+	put /gen-options/:id (UpdateGenOptionReq) returns (GenOptionItem)
+
+	@doc "改生成类型的模板必选开关（海报 / 长图 / 动作迁移）"
+	@handler updateGenKind
+	put /gen-kinds/:kind (UpdateGenKindReq) returns (GenKindItem)
 }
 
 // ---------------- 探店视频 / 带货短剧（后台只读）----------------
