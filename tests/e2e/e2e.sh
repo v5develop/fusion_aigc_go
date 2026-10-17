@@ -12,7 +12,7 @@ MYSQL=(docker exec -i mysql-8.0.36 mysql --default-character-set=utf8mb4 -uroot 
 sql() { "${MYSQL[@]}" -e "$1" 2>/dev/null; }
 # 生成历史那段会造几条成品记录，跑完删掉（文案本身用的是随机用户，不清理）
 cleanup() {
-  sql "DELETE FROM afv_image_creation WHERE user_id=$USER_ID;
+  sql "DELETE FROM afv_local_life_creation WHERE user_id=$USER_ID;
        DELETE FROM afv_video_creation WHERE user_id=$USER_ID;"
 }
 trap cleanup EXIT
@@ -174,7 +174,7 @@ DID=$(api POST /copywriting '{"title":"给生成历史用的","body":"这条文�
 ID=$DID
 check "还没用过时是空的" "$(api GET "/copywriting/$ID/derivatives?kind=all" | jq '.total')" 0
 # 直接造几条「已完成」的成品记录（各模块的提交链路由各自的 e2e 覆盖，这里只验聚合查询）
-sql "INSERT INTO afv_image_creation (user_id,kind,content,copywriting_id,size,image_urls,status)
+sql "INSERT INTO afv_local_life_creation (user_id,kind,content,copywriting_id,size,image_urls,status)
        VALUES ($USER_ID,'poster','海报信息',$ID,'2:3','[\"https://x/p.png\"]',1),
               ($USER_ID,'longImage','长图内容',$ID,'1:3','[\"https://x/l.png\"]',1),
               ($USER_ID,'voiceover','口播文案',$ID,'9:16','[\"https://x/v.mp4\"]',1),

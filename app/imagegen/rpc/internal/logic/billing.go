@@ -7,7 +7,7 @@ import (
 
 // imageCharge 图片类记录（海报 / 长图 / 动作迁移 / 数字人口播）的计费请求。入口码就是 kind。
 // 请求号用客户端的 X-Request-Id：一条记录只提交一次，轮询器结算时也从记录里拿得到。
-func imageCharge(c *model.AfvImageCreation) billing.Charge {
+func imageCharge(c *model.LocalLifeCreation) billing.Charge {
 	ch := billing.Charge{UserID: c.UserId, RequestID: c.RequestId.String, EntryCode: c.Kind, Kind: billing.KindQuick, Count: int(c.ImageCount)}
 	switch c.Kind {
 	case model.KindActionTransfer, model.KindVoiceover:

@@ -15,10 +15,10 @@ func toVideoCreation(c *imagegen.VideoInfo) *types.VideoCreation {
 	}
 }
 
-func toOptions(list []*imagegen.Option) []types.ImageGenOption {
-	out := make([]types.ImageGenOption, 0, len(list))
+func toOptions(list []*imagegen.Option) []types.CreationOption {
+	out := make([]types.CreationOption, 0, len(list))
 	for _, o := range list {
-		out = append(out, types.ImageGenOption{Code: o.Code, Label: o.Label})
+		out = append(out, types.CreationOption{Code: o.Code, Label: o.Label})
 	}
 	return out
 }

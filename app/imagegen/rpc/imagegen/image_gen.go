@@ -18,14 +18,14 @@ type (
 	ActionVideoList      = pb.ActionVideoList
 	CreateReq            = pb.CreateReq
 	CreateVideoReq       = pb.CreateVideoReq
+	CreationInfo         = pb.CreationInfo
+	CreationList         = pb.CreationList
 	Empty                = pb.Empty
 	GenKindItem          = pb.GenKindItem
 	GenOptionItem        = pb.GenOptionItem
 	GenOptionList        = pb.GenOptionList
 	GenerateVideoReq     = pb.GenerateVideoReq
 	IdUserReq            = pb.IdUserReq
-	ImageInfo            = pb.ImageInfo
-	ImageList            = pb.ImageList
 	ImportActionVideoReq = pb.ImportActionVideoReq
 	KindReq              = pb.KindReq
 	ListReq              = pb.ListReq
@@ -47,9 +47,9 @@ type (
 		// 模板列表（复用现有模板素材表，运营在现有后台维护）
 		ListTemplates(ctx context.Context, in *ListTemplatesReq, opts ...grpc.CallOption) (*TemplateList, error)
 		// 提交生成（异步，轮询 Get）。一张图一个执行面任务。
-		Create(ctx context.Context, in *CreateReq, opts ...grpc.CallOption) (*ImageInfo, error)
-		Get(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*ImageInfo, error)
-		List(ctx context.Context, in *ListReq, opts ...grpc.CallOption) (*ImageList, error)
+		Create(ctx context.Context, in *CreateReq, opts ...grpc.CallOption) (*CreationInfo, error)
+		Get(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*CreationInfo, error)
+		List(ctx context.Context, in *ListReq, opts ...grpc.CallOption) (*CreationList, error)
 		Delete(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*Empty, error)
 		// ---- 动作迁移：动作视频（预置来自模板素材表，我的来自用户导入）----
 		ListActionVideos(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*ActionVideoList, error)
@@ -67,7 +67,7 @@ type (
 		ListVideos(ctx context.Context, in *VideoListReq, opts ...grpc.CallOption) (*VideoList, error)
 		DeleteVideo(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*Empty, error)
 		// ---- 运营后台 ----
-		AdminList(ctx context.Context, in *ListReq, opts ...grpc.CallOption) (*ImageList, error)
+		AdminList(ctx context.Context, in *ListReq, opts ...grpc.CallOption) (*CreationList, error)
 		AdminListVideos(ctx context.Context, in *VideoListReq, opts ...grpc.CallOption) (*VideoList, error)
 		// 生成选项（模型 / 比例 / 时长）的运营配置：只能改启用、名称、排序、默认
 		AdminGenOptions(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*GenOptionList, error)
@@ -99,17 +99,17 @@ func (m *defaultImageGen) ListTemplates(ctx context.Context, in *ListTemplatesRe
 }
 
 // 提交生成（异步，轮询 Get）。一张图一个执行面任务。
-func (m *defaultImageGen) Create(ctx context.Context, in *CreateReq, opts ...grpc.CallOption) (*ImageInfo, error) {
+func (m *defaultImageGen) Create(ctx context.Context, in *CreateReq, opts ...grpc.CallOption) (*CreationInfo, error) {
 	client := pb.NewImageGenClient(m.cli.Conn())
 	return client.Create(ctx, in, opts...)
 }
 
-func (m *defaultImageGen) Get(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*ImageInfo, error) {
+func (m *defaultImageGen) Get(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*CreationInfo, error) {
 	client := pb.NewImageGenClient(m.cli.Conn())
 	return client.Get(ctx, in, opts...)
 }
 
-func (m *defaultImageGen) List(ctx context.Context, in *ListReq, opts ...grpc.CallOption) (*ImageList, error) {
+func (m *defaultImageGen) List(ctx context.Context, in *ListReq, opts ...grpc.CallOption) (*CreationList, error) {
 	client := pb.NewImageGenClient(m.cli.Conn())
 	return client.List(ctx, in, opts...)
 }
@@ -175,7 +175,7 @@ func (m *defaultImageGen) DeleteVideo(ctx context.Context, in *IdUserReq, opts .
 }
 
 // ---- 运营后台 ----
-func (m *defaultImageGen) AdminList(ctx context.Context, in *ListReq, opts ...grpc.CallOption) (*ImageList, error) {
+func (m *defaultImageGen) AdminList(ctx context.Context, in *ListReq, opts ...grpc.CallOption) (*CreationList, error) {
 	client := pb.NewImageGenClient(m.cli.Conn())
 	return client.AdminList(ctx, in, opts...)
 }

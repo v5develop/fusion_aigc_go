@@ -23,6 +23,6 @@ func NewListLogic(ctx context.Context, svcCtx *svc.ServiceContext) *ListLogic {
 	}
 }
 
-func (l *ListLogic) List(in *pb.ListReq) (*pb.ImageList, error) {
+func (l *ListLogic) List(in *pb.ListReq) (*pb.CreationList, error) {
 	return list(l.ctx, l.svcCtx, in)
 }

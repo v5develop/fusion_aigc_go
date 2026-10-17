@@ -1,6 +1,8 @@
 package logic
 
 import (
+	"aigc-local-life/pkg/aigc"
+	"aigc-local-life/pkg/taskcenter"
 	"time"
 
 	"aigc-local-life/pkg/linkparse"
@@ -289,14 +291,14 @@ func (l *CreateVideoLogic) fetchAndSubmit(id, userID int64, v *linkparse.Video) 
 		failVideo(ctx, l.svcCtx, id, model.VideoPlanning, videoLimits(cfg).LimitMsg())
 		return
 	case err != nil:
-		log.Errorf("download %s: %v", v.URL, err)
+		aigc.LogStepFailed(ctx, aigc.Trace{Service: "imagegen", Kind: "videoRemake", Stage: "fetch", RecordID: id, UserID: userID, TaskCenterID: taskcenter.Ref("vid", id)}, "download", err)
 		failVideo(ctx, l.svcCtx, id, model.VideoPlanning, "视频下载失败，请重试")
 		return
 	}
 	key := storage.ObjectKey(l.svcCtx.Config.Storage.Prefix, "video", userID, extOf(ct))
 	videoURL, err := l.svcCtx.Storage.Put(ctx, key, ct, data)
 	if err != nil {
-		log.Errorf("put video: %v", err)
+		aigc.LogStepFailed(ctx, aigc.Trace{Service: "imagegen", Stage: "fetch", RecordID: id, UserID: userID, TaskCenterID: taskcenter.Ref("vid", id)}, "store", err)
 		failVideo(ctx, l.svcCtx, id, model.VideoPlanning, "视频转存失败，请重试")
 		return
 	}
@@ -304,7 +306,7 @@ func (l *CreateVideoLogic) fetchAndSubmit(id, userID int64, v *linkparse.Video) 
 
 	taskID := newRefTaskID(l.svcCtx, "vid", id, "plan")
 	if err := l.svcCtx.Video.FinishFetch(ctx, id, videoURL, cover, taskID); err != nil {
-		log.Errorf("finish fetch %d: %v", id, err)
+		aigc.LogStepFailed(ctx, aigc.Trace{Service: "imagegen", Stage: "fetch", RecordID: id, UserID: userID, TaskCenterID: taskcenter.Ref("vid", id)}, "finish", err)
 		failVideo(ctx, l.svcCtx, id, model.VideoPlanning, "视频转存失败，请重试")
 		return
 	}

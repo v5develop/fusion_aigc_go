@@ -38,14 +38,15 @@ guard_done() {
     Go_V1.0.1__*) has_table afv_digital_human ;;
     Go_V1.0.2__*) has_table afv_image_text_note ;;
     Go_V1.0.3__*) return 1 ;; # 只插配置数据，脚本本身可重复执行（NOT EXISTS）
-    Go_V1.0.4__*) has_table afv_image_creation ;;
-    Go_V1.0.5__*) has_column afv_image_creation input_image_url ;;
-    Go_V1.0.6__*) has_column afv_image_creation input_bg_url ;;
+    # 1.0.17 才改名：改名前的老库叫 afv_image_creation，改名后叫 afv_local_life_creation，两种都认
+    Go_V1.0.4__*) has_table afv_local_life_creation || has_table afv_image_creation ;;
+    Go_V1.0.5__*) has_column afv_local_life_creation input_image_url || has_column afv_image_creation input_image_url ;;
+    Go_V1.0.6__*) has_column afv_local_life_creation input_bg_url || has_column afv_image_creation input_bg_url ;;
     Go_V1.0.7__*) has_table afv_shop_profile ;;
     Go_V1.0.8__*) has_column afv_image_text_note shop_profile_id ;;
     Go_V1.0.9__*) has_table afv_video_creation ;;
     Go_V1.0.10__*) has_column afv_video_creation source_video_url ;;
-    Go_V1.0.11__*) has_column afv_image_creation copywriting_id ;;
+    Go_V1.0.11__*) has_column afv_local_life_creation copywriting_id || has_column afv_image_creation copywriting_id ;;
     Go_V1.0.12__*) has_column afv_digital_human model ;;
     Go_V1.0.13__*) [[ $(q "SELECT COUNT(*) FROM afv_billing_offer WHERE entry_code='aiCopywriting' AND deleted=0") != 0 ]] ;;
     *) return 1 ;;

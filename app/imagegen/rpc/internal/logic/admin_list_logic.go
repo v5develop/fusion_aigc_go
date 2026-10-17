@@ -24,6 +24,6 @@ func NewAdminListLogic(ctx context.Context, svcCtx *svc.ServiceContext) *AdminLi
 }
 
 // ---- 运营后台 ----
-func (l *AdminListLogic) AdminList(in *pb.ListReq) (*pb.ImageList, error) {
+func (l *AdminListLogic) AdminList(in *pb.ListReq) (*pb.CreationList, error) {
 	return list(l.ctx, l.svcCtx, in)
 }

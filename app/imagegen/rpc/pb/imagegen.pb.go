@@ -1235,7 +1235,7 @@ func (x *CreateReq) GetCopywritingId() int64 {
 	return 0
 }
 
-type ImageInfo struct {
+type CreationInfo struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
 	UserId        int64                  `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
@@ -1257,24 +1257,25 @@ type ImageInfo struct {
 	Status        int32                  `protobuf:"varint,13,opt,name=status,proto3" json:"status,omitempty"`                            // 0-生成中 1-已完成（含部分成功） 2-失败
 	FailReason    string                 `protobuf:"bytes,14,opt,name=fail_reason,json=failReason,proto3" json:"fail_reason,omitempty"`
 	CreateTime    int64                  `protobuf:"varint,15,opt,name=create_time,json=createTime,proto3" json:"create_time,omitempty"`
+	Media         string                 `protobuf:"bytes,21,opt,name=media,proto3" json:"media,omitempty"` // 成品媒体类型 image / video，由 kind 决定
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *ImageInfo) Reset() {
-	*x = ImageInfo{}
+func (x *CreationInfo) Reset() {
+	*x = CreationInfo{}
 	mi := &file_imagegen_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *ImageInfo) String() string {
+func (x *CreationInfo) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*ImageInfo) ProtoMessage() {}
+func (*CreationInfo) ProtoMessage() {}
 
-func (x *ImageInfo) ProtoReflect() protoreflect.Message {
+func (x *CreationInfo) ProtoReflect() protoreflect.Message {
 	mi := &file_imagegen_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -1286,149 +1287,156 @@ func (x *ImageInfo) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use ImageInfo.ProtoReflect.Descriptor instead.
-func (*ImageInfo) Descriptor() ([]byte, []int) {
+// Deprecated: Use CreationInfo.ProtoReflect.Descriptor instead.
+func (*CreationInfo) Descriptor() ([]byte, []int) {
 	return file_imagegen_proto_rawDescGZIP(), []int{17}
 }
 
-func (x *ImageInfo) GetId() int64 {
+func (x *CreationInfo) GetId() int64 {
 	if x != nil {
 		return x.Id
 	}
 	return 0
 }
 
-func (x *ImageInfo) GetUserId() int64 {
+func (x *CreationInfo) GetUserId() int64 {
 	if x != nil {
 		return x.UserId
 	}
 	return 0
 }
 
-func (x *ImageInfo) GetKind() string {
+func (x *CreationInfo) GetKind() string {
 	if x != nil {
 		return x.Kind
 	}
 	return ""
 }
 
-func (x *ImageInfo) GetContent() string {
+func (x *CreationInfo) GetContent() string {
 	if x != nil {
 		return x.Content
 	}
 	return ""
 }
 
-func (x *ImageInfo) GetMaterialUrls() []string {
+func (x *CreationInfo) GetMaterialUrls() []string {
 	if x != nil {
 		return x.MaterialUrls
 	}
 	return nil
 }
 
-func (x *ImageInfo) GetTemplateId() int64 {
+func (x *CreationInfo) GetTemplateId() int64 {
 	if x != nil {
 		return x.TemplateId
 	}
 	return 0
 }
 
-func (x *ImageInfo) GetTemplateUrl() string {
+func (x *CreationInfo) GetTemplateUrl() string {
 	if x != nil {
 		return x.TemplateUrl
 	}
 	return ""
 }
 
-func (x *ImageInfo) GetPosterType() string {
+func (x *CreationInfo) GetPosterType() string {
 	if x != nil {
 		return x.PosterType
 	}
 	return ""
 }
 
-func (x *ImageInfo) GetPosterStyle() string {
+func (x *CreationInfo) GetPosterStyle() string {
 	if x != nil {
 		return x.PosterStyle
 	}
 	return ""
 }
 
-func (x *ImageInfo) GetSize() string {
+func (x *CreationInfo) GetSize() string {
 	if x != nil {
 		return x.Size
 	}
 	return ""
 }
 
-func (x *ImageInfo) GetImageCount() int32 {
+func (x *CreationInfo) GetImageCount() int32 {
 	if x != nil {
 		return x.ImageCount
 	}
 	return 0
 }
 
-func (x *ImageInfo) GetImageUrls() []string {
+func (x *CreationInfo) GetImageUrls() []string {
 	if x != nil {
 		return x.ImageUrls
 	}
 	return nil
 }
 
-func (x *ImageInfo) GetInputImageUrl() string {
+func (x *CreationInfo) GetInputImageUrl() string {
 	if x != nil {
 		return x.InputImageUrl
 	}
 	return ""
 }
 
-func (x *ImageInfo) GetInputVideoUrl() string {
+func (x *CreationInfo) GetInputVideoUrl() string {
 	if x != nil {
 		return x.InputVideoUrl
 	}
 	return ""
 }
 
-func (x *ImageInfo) GetModel() string {
+func (x *CreationInfo) GetModel() string {
 	if x != nil {
 		return x.Model
 	}
 	return ""
 }
 
-func (x *ImageInfo) GetInputBgUrl() string {
+func (x *CreationInfo) GetInputBgUrl() string {
 	if x != nil {
 		return x.InputBgUrl
 	}
 	return ""
 }
 
-func (x *ImageInfo) GetDuration() int32 {
+func (x *CreationInfo) GetDuration() int32 {
 	if x != nil {
 		return x.Duration
 	}
 	return 0
 }
 
-func (x *ImageInfo) GetStatus() int32 {
+func (x *CreationInfo) GetStatus() int32 {
 	if x != nil {
 		return x.Status
 	}
 	return 0
 }
 
-func (x *ImageInfo) GetFailReason() string {
+func (x *CreationInfo) GetFailReason() string {
 	if x != nil {
 		return x.FailReason
 	}
 	return ""
 }
 
-func (x *ImageInfo) GetCreateTime() int64 {
+func (x *CreationInfo) GetCreateTime() int64 {
 	if x != nil {
 		return x.CreateTime
 	}
 	return 0
+}
+
+func (x *CreationInfo) GetMedia() string {
+	if x != nil {
+		return x.Media
+	}
+	return ""
 }
 
 type ListReq struct {
@@ -1438,6 +1446,7 @@ type ListReq struct {
 	Status        int32                  `protobuf:"varint,3,opt,name=status,proto3" json:"status,omitempty"` // -1 表示全部
 	Page          int64                  `protobuf:"varint,4,opt,name=page,proto3" json:"page,omitempty"`
 	PageSize      int64                  `protobuf:"varint,5,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	Media         string                 `protobuf:"bytes,6,opt,name=media,proto3" json:"media,omitempty"` // image / video，空=不限；图片表里视频与图片混存，按 kind 归属
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1507,28 +1516,35 @@ func (x *ListReq) GetPageSize() int64 {
 	return 0
 }
 
-type ImageList struct {
+func (x *ListReq) GetMedia() string {
+	if x != nil {
+		return x.Media
+	}
+	return ""
+}
+
+type CreationList struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	List          []*ImageInfo           `protobuf:"bytes,1,rep,name=list,proto3" json:"list,omitempty"`
+	List          []*CreationInfo        `protobuf:"bytes,1,rep,name=list,proto3" json:"list,omitempty"`
 	Total         int64                  `protobuf:"varint,2,opt,name=total,proto3" json:"total,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *ImageList) Reset() {
-	*x = ImageList{}
+func (x *CreationList) Reset() {
+	*x = CreationList{}
 	mi := &file_imagegen_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *ImageList) String() string {
+func (x *CreationList) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*ImageList) ProtoMessage() {}
+func (*CreationList) ProtoMessage() {}
 
-func (x *ImageList) ProtoReflect() protoreflect.Message {
+func (x *CreationList) ProtoReflect() protoreflect.Message {
 	mi := &file_imagegen_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -1540,19 +1556,19 @@ func (x *ImageList) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use ImageList.ProtoReflect.Descriptor instead.
-func (*ImageList) Descriptor() ([]byte, []int) {
+// Deprecated: Use CreationList.ProtoReflect.Descriptor instead.
+func (*CreationList) Descriptor() ([]byte, []int) {
 	return file_imagegen_proto_rawDescGZIP(), []int{19}
 }
 
-func (x *ImageList) GetList() []*ImageInfo {
+func (x *CreationList) GetList() []*CreationInfo {
 	if x != nil {
 		return x.List
 	}
 	return nil
 }
 
-func (x *ImageList) GetTotal() int64 {
+func (x *CreationList) GetTotal() int64 {
 	if x != nil {
 		return x.Total
 	}
@@ -2444,8 +2460,8 @@ const file_imagegen_proto_rawDesc = "" +
 	"\rbackground_id\x18\x14 \x01(\x03R\fbackgroundId\x12%\n" +
 	"\x0ebackground_url\x18\x15 \x01(\tR\rbackgroundUrl\x12\x1a\n" +
 	"\bduration\x18\x16 \x01(\x05R\bduration\x12%\n" +
-	"\x0ecopywriting_id\x18\x17 \x01(\x03R\rcopywritingId\"\xe1\x04\n" +
-	"\tImageInfo\x12\x0e\n" +
+	"\x0ecopywriting_id\x18\x17 \x01(\x03R\rcopywritingId\"\xfa\x04\n" +
+	"\fCreationInfo\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x17\n" +
 	"\auser_id\x18\x02 \x01(\x03R\x06userId\x12\x12\n" +
 	"\x04kind\x18\x03 \x01(\tR\x04kind\x12\x18\n" +
@@ -2473,15 +2489,17 @@ const file_imagegen_proto_rawDesc = "" +
 	"\vfail_reason\x18\x0e \x01(\tR\n" +
 	"failReason\x12\x1f\n" +
 	"\vcreate_time\x18\x0f \x01(\x03R\n" +
-	"createTime\"\x7f\n" +
+	"createTime\x12\x14\n" +
+	"\x05media\x18\x15 \x01(\tR\x05media\"\x95\x01\n" +
 	"\aListReq\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x16\n" +
 	"\x06status\x18\x03 \x01(\x05R\x06status\x12\x12\n" +
 	"\x04page\x18\x04 \x01(\x03R\x04page\x12\x1b\n" +
-	"\tpage_size\x18\x05 \x01(\x03R\bpageSize\"J\n" +
-	"\tImageList\x12'\n" +
-	"\x04list\x18\x01 \x03(\v2\x13.imagegen.ImageInfoR\x04list\x12\x14\n" +
+	"\tpage_size\x18\x05 \x01(\x03R\bpageSize\x12\x14\n" +
+	"\x05media\x18\x06 \x01(\tR\x05media\"P\n" +
+	"\fCreationList\x12*\n" +
+	"\x04list\x18\x01 \x03(\v2\x16.imagegen.CreationInfoR\x04list\x12\x14\n" +
 	"\x05total\x18\x02 \x01(\x03R\x05total\"\x96\x04\n" +
 	"\x10VideoOptionsResp\x12(\n" +
 	"\x06models\x18\x01 \x03(\v2\x10.imagegen.OptionR\x06models\x12#\n" +
@@ -2566,13 +2584,14 @@ const file_imagegen_proto_rawDesc = "" +
 	"\tpage_size\x18\x05 \x01(\x03R\bpageSize\"J\n" +
 	"\tVideoList\x12'\n" +
 	"\x04list\x18\x01 \x03(\v2\x13.imagegen.VideoInfoR\x04list\x12\x14\n" +
-	"\x05total\x18\x02 \x01(\x03R\x05total2\xfc\t\n" +
+	"\x05total\x18\x02 \x01(\x03R\x05total2\x88\n" +
+	"\n" +
 	"\bImageGen\x123\n" +
 	"\aOptions\x12\x11.imagegen.KindReq\x1a\x15.imagegen.OptionsResp\x12C\n" +
-	"\rListTemplates\x12\x1a.imagegen.ListTemplatesReq\x1a\x16.imagegen.TemplateList\x122\n" +
-	"\x06Create\x12\x13.imagegen.CreateReq\x1a\x13.imagegen.ImageInfo\x12/\n" +
-	"\x03Get\x12\x13.imagegen.IdUserReq\x1a\x13.imagegen.ImageInfo\x12.\n" +
-	"\x04List\x12\x11.imagegen.ListReq\x1a\x13.imagegen.ImageList\x12.\n" +
+	"\rListTemplates\x12\x1a.imagegen.ListTemplatesReq\x1a\x16.imagegen.TemplateList\x125\n" +
+	"\x06Create\x12\x13.imagegen.CreateReq\x1a\x16.imagegen.CreationInfo\x122\n" +
+	"\x03Get\x12\x13.imagegen.IdUserReq\x1a\x16.imagegen.CreationInfo\x121\n" +
+	"\x04List\x12\x11.imagegen.ListReq\x1a\x16.imagegen.CreationList\x12.\n" +
 	"\x06Delete\x12\x13.imagegen.IdUserReq\x1a\x0f.imagegen.Empty\x12B\n" +
 	"\x10ListActionVideos\x12\x13.imagegen.IdUserReq\x1a\x19.imagegen.ActionVideoList\x12J\n" +
 	"\x11ImportActionVideo\x12\x1e.imagegen.ImportActionVideoReq\x1a\x15.imagegen.ActionVideo\x129\n" +
@@ -2584,8 +2603,8 @@ const file_imagegen_proto_rawDesc = "" +
 	"\rGenerateVideo\x12\x1a.imagegen.GenerateVideoReq\x1a\x13.imagegen.VideoInfo\x129\n" +
 	"\n" +
 	"ListVideos\x12\x16.imagegen.VideoListReq\x1a\x13.imagegen.VideoList\x123\n" +
-	"\vDeleteVideo\x12\x13.imagegen.IdUserReq\x1a\x0f.imagegen.Empty\x123\n" +
-	"\tAdminList\x12\x11.imagegen.ListReq\x1a\x13.imagegen.ImageList\x12>\n" +
+	"\vDeleteVideo\x12\x13.imagegen.IdUserReq\x1a\x0f.imagegen.Empty\x126\n" +
+	"\tAdminList\x12\x11.imagegen.ListReq\x1a\x16.imagegen.CreationList\x12>\n" +
 	"\x0fAdminListVideos\x12\x16.imagegen.VideoListReq\x1a\x13.imagegen.VideoList\x12;\n" +
 	"\x0fAdminGenOptions\x12\x0f.imagegen.Empty\x1a\x17.imagegen.GenOptionList\x12M\n" +
 	"\x14AdminUpdateGenOption\x12\x1c.imagegen.UpdateGenOptionReq\x1a\x17.imagegen.GenOptionItem\x12G\n" +
@@ -2622,9 +2641,9 @@ var file_imagegen_proto_goTypes = []any{
 	(*Template)(nil),             // 14: imagegen.Template
 	(*TemplateList)(nil),         // 15: imagegen.TemplateList
 	(*CreateReq)(nil),            // 16: imagegen.CreateReq
-	(*ImageInfo)(nil),            // 17: imagegen.ImageInfo
+	(*CreationInfo)(nil),         // 17: imagegen.CreationInfo
 	(*ListReq)(nil),              // 18: imagegen.ListReq
-	(*ImageList)(nil),            // 19: imagegen.ImageList
+	(*CreationList)(nil),         // 19: imagegen.CreationList
 	(*VideoOptionsResp)(nil),     // 20: imagegen.VideoOptionsResp
 	(*CreateVideoReq)(nil),       // 21: imagegen.CreateVideoReq
 	(*GenerateVideoReq)(nil),     // 22: imagegen.GenerateVideoReq
@@ -2642,7 +2661,7 @@ var file_imagegen_proto_depIdxs = []int32{
 	8,  // 6: imagegen.OptionsResp.sizes:type_name -> imagegen.Option
 	8,  // 7: imagegen.OptionsResp.models:type_name -> imagegen.Option
 	14, // 8: imagegen.TemplateList.list:type_name -> imagegen.Template
-	17, // 9: imagegen.ImageList.list:type_name -> imagegen.ImageInfo
+	17, // 9: imagegen.CreationList.list:type_name -> imagegen.CreationInfo
 	8,  // 10: imagegen.VideoOptionsResp.models:type_name -> imagegen.Option
 	8,  // 11: imagegen.VideoOptionsResp.sizes:type_name -> imagegen.Option
 	23, // 12: imagegen.VideoList.list:type_name -> imagegen.VideoInfo
@@ -2669,9 +2688,9 @@ var file_imagegen_proto_depIdxs = []int32{
 	4,  // 33: imagegen.ImageGen.AdminUpdateGenKind:input_type -> imagegen.UpdateGenKindReq
 	12, // 34: imagegen.ImageGen.Options:output_type -> imagegen.OptionsResp
 	15, // 35: imagegen.ImageGen.ListTemplates:output_type -> imagegen.TemplateList
-	17, // 36: imagegen.ImageGen.Create:output_type -> imagegen.ImageInfo
-	17, // 37: imagegen.ImageGen.Get:output_type -> imagegen.ImageInfo
-	19, // 38: imagegen.ImageGen.List:output_type -> imagegen.ImageList
+	17, // 36: imagegen.ImageGen.Create:output_type -> imagegen.CreationInfo
+	17, // 37: imagegen.ImageGen.Get:output_type -> imagegen.CreationInfo
+	19, // 38: imagegen.ImageGen.List:output_type -> imagegen.CreationList
 	0,  // 39: imagegen.ImageGen.Delete:output_type -> imagegen.Empty
 	10, // 40: imagegen.ImageGen.ListActionVideos:output_type -> imagegen.ActionVideoList
 	9,  // 41: imagegen.ImageGen.ImportActionVideo:output_type -> imagegen.ActionVideo
@@ -2683,7 +2702,7 @@ var file_imagegen_proto_depIdxs = []int32{
 	23, // 47: imagegen.ImageGen.GenerateVideo:output_type -> imagegen.VideoInfo
 	25, // 48: imagegen.ImageGen.ListVideos:output_type -> imagegen.VideoList
 	0,  // 49: imagegen.ImageGen.DeleteVideo:output_type -> imagegen.Empty
-	19, // 50: imagegen.ImageGen.AdminList:output_type -> imagegen.ImageList
+	19, // 50: imagegen.ImageGen.AdminList:output_type -> imagegen.CreationList
 	25, // 51: imagegen.ImageGen.AdminListVideos:output_type -> imagegen.VideoList
 	2,  // 52: imagegen.ImageGen.AdminGenOptions:output_type -> imagegen.GenOptionList
 	1,  // 53: imagegen.ImageGen.AdminUpdateGenOption:output_type -> imagegen.GenOptionItem

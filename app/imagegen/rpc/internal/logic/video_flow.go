@@ -1,6 +1,7 @@
 package logic
 
 import (
+	"aigc-local-life/pkg/taskcenter"
 	"context"
 	"encoding/json"
 	"strings"
@@ -45,7 +46,7 @@ func (p *Poller) pollVideoPlans(ctx context.Context) {
 			}
 			finishVideoPlan(ctx, svcCtx, c, string(r.Script), "", model.VideoPlanned)
 		case r != nil && r.Done():
-			logx.WithContext(ctx).Infof("%s %d plan %s %s: %s", c.Kind, c.Id, c.PlanTaskId.String, r.Status, r.ErrorMsg)
+			aigc.LogOutcome(ctx, aigc.Trace{Service: "imagegen", Kind: c.Kind, Stage: "plan", RecordID: c.Id, UserID: c.UserId, TaskCenterID: taskcenter.Ref("vid", c.Id), ExecTaskID: c.PlanTaskId.String}, r)
 			finishVideoPlan(ctx, svcCtx, c, "", "构思失败，请重试", model.VideoFailed)
 		case time.Since(c.UpdateTime) > time.Duration(cfg.PlanTimeoutMinutes)*time.Minute:
 			finishVideoPlan(ctx, svcCtx, c, "", "构思超时，请重试", model.VideoFailed)
@@ -84,7 +85,7 @@ func (p *Poller) pollVideoParse(ctx context.Context, c *model.AfvVideoCreation) 
 			logx.WithContext(ctx).Errorf("finish parse %d: %v", c.Id, err)
 		}
 	case r != nil && r.Done():
-		logx.WithContext(ctx).Infof("videoRemake %d parse %s %s: %s", c.Id, c.PlanTaskId.String, r.Status, r.ErrorMsg)
+		aigc.LogOutcome(ctx, aigc.Trace{Service: "imagegen", Kind: "videoRemake", Stage: "parse", RecordID: c.Id, UserID: c.UserId, TaskCenterID: taskcenter.Ref("vid", c.Id), ExecTaskID: c.PlanTaskId.String}, r)
 		failVideo(ctx, svcCtx, c.Id, model.VideoPlanning, "视频解析失败，换一个视频试试")
 	case time.Since(c.UpdateTime) > time.Duration(cfg.ParseTimeoutMinutes)*time.Minute:
 		failVideo(ctx, svcCtx, c.Id, model.VideoPlanning, "视频解析超时，请重试")
@@ -92,6 +93,11 @@ func (p *Poller) pollVideoParse(ctx context.Context, c *model.AfvVideoCreation) 
 }
 
 func finishVideoPlan(ctx context.Context, svcCtx *svc.ServiceContext, c *model.AfvVideoCreation, script, reason string, status int64) {
+	if status == model.VideoFailed {
+		// 构思失败：和 failVideo 一样宣告 task_failed，坐标直接用当前记录，不再查库
+		t := aigc.Trace{Service: "imagegen", Kind: c.Kind, Stage: "plan", RecordID: c.Id, UserID: c.UserId, TaskCenterID: taskcenter.Ref("vid", c.Id)}
+		aigc.LogTaskFailed(ctx, t, reason, nil)
+	}
 	if _, err := svcCtx.Video.FinishPlan(ctx, c.Id, script, reason, status); err != nil {
 		logx.WithContext(ctx).Errorf("finish plan %s %d: %v", c.Kind, c.Id, err)
 	}
@@ -132,7 +138,7 @@ func (p *Poller) pollVideoGenerates(ctx context.Context) {
 				svcCtx.Billing.Done(ctx, c.UserId, c.GenTaskId.String, 0)
 			}
 		case r != nil && r.Done():
-			logx.WithContext(ctx).Infof("%s %d generate %s %s: %s", c.Kind, c.Id, c.GenTaskId.String, r.Status, r.ErrorMsg)
+			aigc.LogOutcome(ctx, aigc.Trace{Service: "imagegen", Kind: c.Kind, Stage: "generate", RecordID: c.Id, UserID: c.UserId, TaskCenterID: taskcenter.Ref("vid", c.Id), ExecTaskID: c.GenTaskId.String}, r)
 			failVideo(ctx, svcCtx, c.Id, model.VideoGenerating, "生成失败，请重试")
 		case time.Since(c.UpdateTime) > time.Duration(genTimeout)*time.Minute:
 			failVideo(ctx, svcCtx, c.Id, model.VideoGenerating, "生成超时，请重试")

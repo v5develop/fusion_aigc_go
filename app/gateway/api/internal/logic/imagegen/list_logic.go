@@ -29,16 +29,16 @@ func NewListLogic(ctx context.Context, svcCtx *svc.ServiceContext) *ListLogic {
 	}
 }
 
-func (l *ListLogic) List(req *types.ListImageGenReq) (resp *types.ImageGenListResp, err error) {
+func (l *ListLogic) List(req *types.ListCreationReq) (resp *types.CreationListResp, err error) {
 	out, err := l.svcCtx.ImageGenRpc.List(l.ctx, &imagegen.ListReq{
 		UserId: ctxdata.UserID(l.ctx), Kind: req.Kind, Status: req.Status, Page: req.Page, PageSize: req.PageSize,
 	})
 	if err != nil {
 		return nil, err
 	}
-	resp = &types.ImageGenListResp{List: make([]types.ImageCreation, 0, len(out.List)), Total: out.Total}
+	resp = &types.CreationListResp{List: make([]types.Creation, 0, len(out.List)), Total: out.Total}
 	for _, c := range out.List {
-		resp.List = append(resp.List, *toImageCreation(c))
+		resp.List = append(resp.List, *toCreation(c))
 	}
 	return resp, nil
 }

@@ -29,10 +29,10 @@ func NewGetLogic(ctx context.Context, svcCtx *svc.ServiceContext) *GetLogic {
 	}
 }
 
-func (l *GetLogic) Get(req *types.IdPath) (resp *types.ImageCreation, err error) {
+func (l *GetLogic) Get(req *types.IdPath) (resp *types.Creation, err error) {
 	out, err := l.svcCtx.ImageGenRpc.Get(l.ctx, &imagegen.IdUserReq{Id: req.Id, UserId: ctxdata.UserID(l.ctx)})
 	if err != nil {
 		return nil, err
 	}
-	return toImageCreation(out), nil
+	return toCreation(out), nil
 }

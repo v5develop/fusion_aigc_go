@@ -3,7 +3,9 @@ package logic
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"aigc-local-life/app/imagegen/model"
@@ -60,7 +62,7 @@ func dumpTasks(t []imageTask) string {
 //
 // poster_type / poster_style 是喂给模型的，传中文展示名（如「节日」「扁平插画」）；
 // 库里存的是编码，展示名在提交前查出来。
-func buildTask(c *model.AfvImageCreation, cfg *config.KindConf, mats []string, typeLabel string) aigc.Task {
+func buildTask(c *model.LocalLifeCreation, cfg *config.KindConf, mats []string, typeLabel string) aigc.Task {
 	if c.Kind == model.KindPoster {
 		style := ""
 		if c.PosterStyle.Valid {
@@ -88,18 +90,18 @@ func buildTask(c *model.AfvImageCreation, cfg *config.KindConf, mats []string, t
 }
 
 // submit 一张图一个任务，逐个提交；提交失败的那张直接记失败，其余照常。
-func submit(ctx context.Context, svcCtx *svc.ServiceContext, c *model.AfvImageCreation, cfg *config.KindConf, typeLabel string) []imageTask {
+func submit(ctx context.Context, svcCtx *svc.ServiceContext, c *model.LocalLifeCreation, cfg *config.KindConf, typeLabel string) []imageTask {
 	mats := parseList(c.MaterialUrls)
 	task := buildTask(c, cfg, mats, typeLabel)
 	tasks := make([]imageTask, 0, c.ImageCount)
 	for i := int64(0); i < c.ImageCount; i++ {
 		id := newRefTaskID(svcCtx, "img", c.Id, fmt.Sprintf("i%d", i+1))
 		if c.ImageCount == 1 { // 只出一张：执行面任务就这一个，直接用任务中心编号
-			id = aigc.ExactTaskID(taskcenter.Ref("img", c.Id), false)
+			id = aigc.ExactTaskID(svcCtx.Config.TaskIDPrefix, taskcenter.Ref("img", c.Id), false)
 		}
 		if _, err := svcCtx.Aigc.Submit(ctx, id, task); err != nil {
-			logx.WithContext(ctx).Errorf("submit %s %d (%d/%d): %v", c.Kind, c.Id, i+1, c.ImageCount, err)
-			tasks = append(tasks, imageTask{TaskID: id, Status: aigc.StatusFailed, Error: "提交生成失败"})
+			aigc.LogSubmitFailed(ctx, aigc.Trace{Service: "imagegen", Kind: c.Kind, Stage: "image", RecordID: c.Id, UserID: c.UserId, TaskCenterID: taskcenter.Ref("img", c.Id), ExecTaskID: id}, fmt.Errorf("第 %d/%d 张: %w", i+1, c.ImageCount, err))
+			tasks = append(tasks, imageTask{TaskID: id, Status: aigc.StatusFailed, Error: err.Error()})
 			continue
 		}
 		tasks = append(tasks, imageTask{TaskID: id})
@@ -165,7 +167,7 @@ func (p *Poller) tick(ctx context.Context) {
 }
 
 // pollOne 查这条记录名下还没结束的任务；全部结束（或超时）就收尾。
-func (p *Poller) pollOne(ctx context.Context, c *model.AfvImageCreation, timedOut bool) {
+func (p *Poller) pollOne(ctx context.Context, c *model.LocalLifeCreation, timedOut bool) {
 	svcCtx := p.svcCtx
 	tasks := parseTasks(c.Tasks.String)
 	changed := false
@@ -185,7 +187,7 @@ func (p *Poller) pollOne(ctx context.Context, c *model.AfvImageCreation, timedOu
 			tasks[i].Status, tasks[i].URL, changed = aigc.StatusSuccess, u, true
 		case r != nil && r.Done():
 			tasks[i].Status, tasks[i].Error, changed = aigc.StatusFailed, r.ErrorMsg, true
-			logx.WithContext(ctx).Infof("%s %d task %s %s: %s", c.Kind, c.Id, tasks[i].TaskID, r.Status, r.ErrorMsg)
+			aigc.LogOutcome(ctx, aigc.Trace{Service: "imagegen", Kind: c.Kind, Stage: "image", RecordID: c.Id, UserID: c.UserId, TaskCenterID: taskcenter.Ref("img", c.Id), ExecTaskID: tasks[i].TaskID}, r)
 		case timedOut:
 			tasks[i].Status, tasks[i].Error, changed = aigc.StatusFailed, "生成超时", true
 		}
@@ -213,6 +215,8 @@ func (p *Poller) pollOne(ctx context.Context, c *model.AfvImageCreation, timedOu
 	status, reason := model.StatusDone, ""
 	if len(urls) == 0 {
 		status, reason = model.StatusFailed, "生成失败，请重试"
+		// 全部失败：每张图的执行面原因汇总成一条 task_failed，运维按记录号即可看到整单的失败经过
+		aigc.LogTaskFailed(ctx, aigc.Trace{Service: "imagegen", Kind: c.Kind, Stage: "image", RecordID: c.Id, UserID: c.UserId, TaskCenterID: taskcenter.Ref("img", c.Id)}, reason, taskCauses(tasks))
 	}
 	ok, err := svcCtx.Creation.UpdateTasks(ctx, c.Id, dumpTasks(tasks), status, jsonList(urls), reason)
 	if err != nil {
@@ -247,7 +251,7 @@ func (p *Poller) query(ctx context.Context, taskID string) *aigc.Result {
 }
 
 // saveAssets 成品写进素材库：每张图一行，用第一个任务 ID 串成一组。
-func saveAssets(ctx context.Context, svcCtx *svc.ServiceContext, c *model.AfvImageCreation, urls []string) {
+func saveAssets(ctx context.Context, svcCtx *svc.ServiceContext, c *model.LocalLifeCreation, urls []string) {
 	if !svcCtx.Config.Asset.Enabled {
 		return
 	}
@@ -278,7 +282,7 @@ func saveAssets(ctx context.Context, svcCtx *svc.ServiceContext, c *model.AfvIma
 }
 
 // groupTaskID 一次生成的多张图在素材库里用同一个 source_task_id 成组（取第一个任务 ID）。
-func groupTaskID(c *model.AfvImageCreation) string {
+func groupTaskID(c *model.LocalLifeCreation) string {
 	if t := parseTasks(c.Tasks.String); len(t) > 0 {
 		return t[0].TaskID
 	}
@@ -286,9 +290,23 @@ func groupTaskID(c *model.AfvImageCreation) string {
 }
 
 // coverOf 素材库封面：动作迁移、数字人口播的成品是视频，用人物图当封面；图片类成品用自身。
-func coverOf(c *model.AfvImageCreation, url string) string {
+func coverOf(c *model.LocalLifeCreation, url string) string {
 	if (c.Kind == model.KindActionTransfer || c.Kind == model.KindVoiceover) && c.InputImageUrl.Valid {
 		return c.InputImageUrl.String
 	}
 	return url
+}
+
+// taskCauses 多张图里失败的那些：每张一行（执行面任务号 + 原因），给 task_failed 的 cause 用。
+func taskCauses(tasks []imageTask) error {
+	var lines []string
+	for _, t := range tasks {
+		if t.Status == aigc.StatusFailed {
+			lines = append(lines, fmt.Sprintf("exec_task_id=%s error=%q", t.TaskID, t.Error))
+		}
+	}
+	if len(lines) == 0 {
+		return nil
+	}
+	return errors.New(strings.Join(lines, "; "))
 }

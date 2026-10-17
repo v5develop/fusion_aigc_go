@@ -28,23 +28,28 @@ func NewListLogic(ctx context.Context, svcCtx *svc.ServiceContext) *ListLogic {
 	}
 }
 
-func (l *ListLogic) List(req *types.ImageGenListReq) (resp *types.ImageGenListResp, err error) {
+func (l *ListLogic) List(req *types.CreationListReq) (resp *types.CreationListResp, err error) {
 	out, err := l.svcCtx.ImageGenRpc.AdminList(l.ctx, &imagegen.ListReq{
-		UserId: req.UserId, Kind: req.Kind, Status: req.Status, Page: req.Page, PageSize: req.PageSize,
+		UserId: req.UserId, Kind: req.Kind, Media: req.Media, Status: req.Status, Page: req.Page, PageSize: req.PageSize,
 	})
 	if err != nil {
 		return nil, err
 	}
-	resp = &types.ImageGenListResp{List: make([]types.ImageCreation, 0, len(out.List)), Total: out.Total}
+	resp = &types.CreationListResp{List: make([]types.CreationItem, 0, len(out.List)), Total: out.Total}
 	for _, c := range out.List {
-		urls := c.ImageUrls
-		if urls == nil {
-			urls = []string{}
-		}
-		resp.List = append(resp.List, types.ImageCreation{
-			Id: c.Id, UserId: c.UserId, Kind: c.Kind, Content: c.Content, ImageUrls: urls,
+		item := types.CreationItem{
+			Id: c.Id, UserId: c.UserId, Kind: c.Kind, Media: c.Media, Content: c.Content, ImageUrls: []string{},
 			Status: c.Status, FailReason: c.FailReason, CreateTime: c.CreateTime,
-		})
+		}
+		// 视频成品（动作迁移、数字人口播）存在图片表里，地址只放 video_url，不再混进 image_urls
+		if c.Media == "video" {
+			if len(c.ImageUrls) > 0 {
+				item.VideoUrl = c.ImageUrls[0]
+			}
+		} else if c.ImageUrls != nil {
+			item.ImageUrls = c.ImageUrls
+		}
+		resp.List = append(resp.List, item)
 	}
 	return resp, nil
 }

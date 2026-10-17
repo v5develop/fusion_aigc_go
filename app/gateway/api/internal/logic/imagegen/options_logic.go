@@ -28,12 +28,12 @@ func NewOptionsLogic(ctx context.Context, svcCtx *svc.ServiceContext) *OptionsLo
 	}
 }
 
-func (l *OptionsLogic) Options(req *types.ImageGenOptionsReq) (resp *types.ImageGenOptionsResp, err error) {
+func (l *OptionsLogic) Options(req *types.CreationOptionsReq) (resp *types.CreationOptionsResp, err error) {
 	out, err := l.svcCtx.ImageGenRpc.Options(l.ctx, &imagegen.KindReq{Kind: req.Kind})
 	if err != nil {
 		return nil, err
 	}
-	return &types.ImageGenOptionsResp{
+	return &types.CreationOptionsResp{
 		PosterTypes: toOptions(out.PosterTypes), PosterStyles: toOptions(out.PosterStyles), Sizes: toOptions(out.Sizes),
 		DefaultSize: out.DefaultSize, MaxImages: out.MaxImages, MaxMaterials: out.MaxMaterials,
 		MaxContentLen: out.MaxContentLen, TemplateRequired: out.TemplateRequired, Models: toOptions(out.Models),

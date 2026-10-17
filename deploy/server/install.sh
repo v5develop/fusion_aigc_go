@@ -468,7 +468,7 @@ self_check() {
   local ok=0
   wait_check "App 网关（文案选项）" "http://127.0.0.1:$GATEWAY_PORT/api/v1/local-life/copywriting/options" "X-User-Id: 1" || ok=1
   wait_check "App 网关 → 图文笔记服务" "http://127.0.0.1:$GATEWAY_PORT/api/v1/local-life/notes/options" "X-User-Id: 1" || ok=1
-  wait_check "App 网关 → 海报/口播服务" "http://127.0.0.1:$GATEWAY_PORT/api/v1/local-life/image-creations/options?kind=voiceover" "X-User-Id: 1" || ok=1
+  wait_check "App 网关 → 海报/口播服务" "http://127.0.0.1:$GATEWAY_PORT/api/v1/local-life/creations/options?kind=voiceover" "X-User-Id: 1" || ok=1
   wait_check "App 网关 → 数字人服务" "http://127.0.0.1:$GATEWAY_PORT/api/v1/local-life/voices/categories" "X-User-Id: 1" || ok=1
   wait_check "OSS 直传凭证（STS）" "http://127.0.0.1:$GATEWAY_PORT/api/v1/local-life/upload/credentials?kind=image" "X-User-Id: 1" || ok=1
   wait_check "运营后台" "http://127.0.0.1:$ADMIN_PORT/api/v1/local-life/admin/copywriting/model" "X-Admin-Id: 1" || ok=1

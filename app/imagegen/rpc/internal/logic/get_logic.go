@@ -23,7 +23,7 @@ func NewGetLogic(ctx context.Context, svcCtx *svc.ServiceContext) *GetLogic {
 	}
 }
 
-func (l *GetLogic) Get(in *pb.IdUserReq) (*pb.ImageInfo, error) {
+func (l *GetLogic) Get(in *pb.IdUserReq) (*pb.CreationInfo, error) {
 	c, err := findOwned(l.ctx, l.svcCtx, in.Id, in.UserId)
 	if err != nil {
 		return nil, err

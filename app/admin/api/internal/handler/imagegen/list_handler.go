@@ -15,7 +15,7 @@ import (
 // 用户海报/长图列表（只读，排查用）
 func ListHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var req types.ImageGenListReq
+		var req types.CreationListReq
 		if err := httpx.Parse(r, &req); err != nil {
 			httpx.ErrorCtx(r.Context(), w, err)
 			return

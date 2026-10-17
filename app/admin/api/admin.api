@@ -318,26 +318,29 @@ service admin-api {
 
 // ---------------- AI 海报 / AI 长图 ----------------
 type (
-	ImageGenListReq {
+	CreationListReq {
 		UserId   int64  `form:"user_id,optional"`
-		Kind     string `form:"kind,optional,options=|poster|longImage|actionTransfer"`
+		Kind     string `form:"kind,optional,options=|poster|longImage|actionTransfer|voiceover"`
+		Media    string `form:"media,optional,options=|image|video"`
 		Status   int32  `form:"status,optional,default=-1"`
 		Page     int64  `form:"page,optional,default=1"`
 		PageSize int64  `form:"page_size,optional,default=20"`
 	}
-	ImageCreation {
+	CreationItem {
 		Id         int64    `json:"id"`
 		UserId     int64    `json:"user_id"`
 		Kind       string   `json:"kind"`
+		Media      string   `json:"media"`
 		Content    string   `json:"content"`
 		ImageUrls  []string `json:"image_urls"`
+		VideoUrl   string   `json:"video_url"`
 		Status     int32    `json:"status"`
 		FailReason string   `json:"fail_reason"`
 		CreateTime int64    `json:"create_time"`
 	}
-	ImageGenListResp {
-		List  []ImageCreation `json:"list"`
-		Total int64           `json:"total"`
+	CreationListResp {
+		List  []CreationItem `json:"list"`
+		Total int64          `json:"total"`
 	}
 	GenOptionItem {
 		Id        int64  `json:"id"`
@@ -379,7 +382,7 @@ type (
 service admin-api {
 	@doc "用户海报/长图列表（只读，排查用）"
 	@handler list
-	get /image-creations (ImageGenListReq) returns (ImageGenListResp)
+	get /creations (CreationListReq) returns (CreationListResp)
 
 	@doc "用户探店视频/带货短剧列表（只读，排查用）"
 	@handler listVideos

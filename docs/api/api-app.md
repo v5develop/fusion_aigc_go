@@ -162,7 +162,7 @@ OSS 已允许跨域 PUT。文件大小与类型由前端控制；后端只校验
 
 - 列表项：`id`（**业务记录 id**，直接打开对应详情接口）、`kind`、`size`（比例，如 `2:3`；笔记与数字人为空）、`cover_url`、`result_url`、`is_video`、`create_time`。
 - `kind` 七种：`note` 笔记 / `poster` 海报 / `long_image` 长图 / `voiceover` 口播 / `digital_human` 数字人视频 / `explore_video` 探店 / `promo_drama` 短剧。
-- ⚠️ **要有数据，提交时必须带 `copywriting_id`**：`POST /notes/plan`、`POST /image-creations`、`POST /video-creations`、`POST /digital-humans` 都加了这个**选填**字段，从「选择AI文案」进来的就带上那条文案的 id。不带不报错，只是不会出现在生成历史里。
+- ⚠️ **要有数据，提交时必须带 `copywriting_id`**：`POST /notes/plan`、`POST /creations`、`POST /video-creations`、`POST /digital-humans` 都加了这个**选填**字段，从「选择AI文案」进来的就带上那条文案的 id。不带不报错，只是不会出现在生成历史里。
 
 
 文案状态：`0` 生成中、`1` 已完成、`2` 失败。
@@ -229,15 +229,15 @@ OSS 已允许跨域 PUT。文件大小与类型由前端控制；后端只校验
 
 | 接口 | 说明 |
 |---|---|
-| `GET /image-creations/options?kind=` | 表单配置：海报类型与风格、比例、数量上限、模板是否必选；动作迁移、数字人口播的模型列表；数字人口播的时长 `durations` 与默认值 |
-| `GET /image-creations/templates?kind=&poster_type=` | 模板列表（海报可按类型筛）；`kind=voiceover` 返回数字人口播的**预设背景** |
+| `GET /creations/options?kind=` | 表单配置：海报类型与风格、比例、数量上限、模板是否必选；动作迁移、数字人口播的模型列表；数字人口播的时长 `durations` 与默认值 |
+| `GET /creations/templates?kind=&poster_type=` | 模板列表（海报可按类型筛）；`kind=voiceover` 返回数字人口播的**预设背景** |
 | `GET /action-videos` | 动作视频：`presets` 预置 + `mine` 我导入的 |
 | `POST /action-videos` | 导入动作视频（直传后回传 `url`，可带 `cover_url`），自动命名「我的动作N」 |
 | `DELETE /action-videos/:id` | 删除我导入的 |
-| `POST /image-creations` | 提交生成 |
-| `GET /image-creations/:id` | 详情（生成中轮询这个） |
-| `GET /image-creations?kind=&status=&page=` | 列表 |
-| `DELETE /image-creations/:id` | 删除 |
+| `POST /creations` | 提交生成 |
+| `GET /creations/:id` | 详情（生成中轮询这个） |
+| `GET /creations?kind=&status=&page=` | 列表 |
+| `DELETE /creations/:id` | 删除 |
 
 提交参数按类型：
 

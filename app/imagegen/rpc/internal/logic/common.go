@@ -166,8 +166,8 @@ func parseList(s sql.NullString) []string {
 	return v
 }
 
-func toInfo(c *model.AfvImageCreation) *pb.ImageInfo {
-	return &pb.ImageInfo{
+func toInfo(c *model.LocalLifeCreation) *pb.CreationInfo {
+	return &pb.CreationInfo{
 		Id: c.Id, UserId: c.UserId, Kind: c.Kind, Content: c.Content, MaterialUrls: parseList(c.MaterialUrls),
 		TemplateId: c.TemplateAssetId.Int64, TemplateUrl: c.TemplateUrl.String, PosterType: c.PosterType.String,
 		InputImageUrl: c.InputImageUrl.String, InputVideoUrl: c.InputVideoUrl.String, Model: c.Model,
@@ -178,7 +178,7 @@ func toInfo(c *model.AfvImageCreation) *pb.ImageInfo {
 	}
 }
 
-func findOwned(ctx context.Context, svcCtx *svc.ServiceContext, id, userID int64) (*model.AfvImageCreation, error) {
+func findOwned(ctx context.Context, svcCtx *svc.ServiceContext, id, userID int64) (*model.LocalLifeCreation, error) {
 	c, err := svcCtx.Creation.FindOwned(ctx, id, userID)
 	if errors.Is(err, model.ErrNotFound) {
 		return nil, xerr.NotFoundf("记录")
@@ -232,15 +232,15 @@ func materials(ctx context.Context, svcCtx *svc.ServiceContext, urls []string) (
 	return out, nil
 }
 
-func list(ctx context.Context, svcCtx *svc.ServiceContext, in *pb.ListReq) (*pb.ImageList, error) {
+func list(ctx context.Context, svcCtx *svc.ServiceContext, in *pb.ListReq) (*pb.CreationList, error) {
 	limit, offset := pagexOffset(in.Page, in.PageSize)
 	rows, total, err := svcCtx.Creation.List(ctx, model.ListFilter{
-		UserID: in.UserId, Kind: in.Kind, Status: int64(in.Status), Limit: limit, Offset: offset,
+		UserID: in.UserId, Kind: in.Kind, Media: in.Media, Status: int64(in.Status), Limit: limit, Offset: offset,
 	})
 	if err != nil {
 		return nil, err
 	}
-	resp := &pb.ImageList{List: make([]*pb.ImageInfo, 0, len(rows)), Total: total}
+	resp := &pb.CreationList{List: make([]*pb.CreationInfo, 0, len(rows)), Total: total}
 	for _, c := range rows {
 		resp.List = append(resp.List, toInfo(c))
 	}

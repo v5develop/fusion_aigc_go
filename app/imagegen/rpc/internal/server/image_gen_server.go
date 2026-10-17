@@ -36,17 +36,17 @@ func (s *ImageGenServer) ListTemplates(ctx context.Context, in *pb.ListTemplates
 }
 
 // 提交生成（异步，轮询 Get）。一张图一个执行面任务。
-func (s *ImageGenServer) Create(ctx context.Context, in *pb.CreateReq) (*pb.ImageInfo, error) {
+func (s *ImageGenServer) Create(ctx context.Context, in *pb.CreateReq) (*pb.CreationInfo, error) {
 	l := logic.NewCreateLogic(ctx, s.svcCtx)
 	return l.Create(in)
 }
 
-func (s *ImageGenServer) Get(ctx context.Context, in *pb.IdUserReq) (*pb.ImageInfo, error) {
+func (s *ImageGenServer) Get(ctx context.Context, in *pb.IdUserReq) (*pb.CreationInfo, error) {
 	l := logic.NewGetLogic(ctx, s.svcCtx)
 	return l.Get(in)
 }
 
-func (s *ImageGenServer) List(ctx context.Context, in *pb.ListReq) (*pb.ImageList, error) {
+func (s *ImageGenServer) List(ctx context.Context, in *pb.ListReq) (*pb.CreationList, error) {
 	l := logic.NewListLogic(ctx, s.svcCtx)
 	return l.List(in)
 }
@@ -112,7 +112,7 @@ func (s *ImageGenServer) DeleteVideo(ctx context.Context, in *pb.IdUserReq) (*pb
 }
 
 // ---- 运营后台 ----
-func (s *ImageGenServer) AdminList(ctx context.Context, in *pb.ListReq) (*pb.ImageList, error) {
+func (s *ImageGenServer) AdminList(ctx context.Context, in *pb.ListReq) (*pb.CreationList, error) {
 	l := logic.NewAdminListLogic(ctx, s.svcCtx)
 	return l.AdminList(in)
 }

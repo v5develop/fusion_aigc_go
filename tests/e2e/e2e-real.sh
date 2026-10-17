@@ -113,9 +113,9 @@ run_note() {
 run_image_kind() { # run_image_kind kind 说明 额外参数
   step "$2"
   local t0=$SECONDS d id
-  d=$(api POST /image-creations "$3") || { bad "提交失败"; return; }
+  d=$(api POST /creations "$3") || { bad "提交失败"; return; }
   id=$(jq -r .id <<<"$d")
-  d=$(poll "/image-creations/$id" 1 2)
+  d=$(poll "/creations/$id" 1 2)
   case $? in
     0) pass "生成完成（$(took $t0)）" "$(jq -r '.image_urls[0]' <<<"$d")" ;;
     2) bad "生成失败" "$(jq -r .fail_reason <<<"$d")" ;;
@@ -124,13 +124,13 @@ run_image_kind() { # run_image_kind kind 说明 额外参数
 }
 
 run_poster() {
-  local t; t=$(api GET '/image-creations/templates?kind=poster' | jq -r '.list[0].id // empty')
+  local t; t=$(api GET '/creations/templates?kind=poster' | jq -r '.list[0].id // empty')
   [[ -n $t ]] || { step "AI海报（78）"; skip "跳过：运营还没配海报模板"; return; }
   run_image_kind poster "AI海报（78）" "{\"kind\":\"poster\",\"content\":\"周末手冲咖啡 买一送一\",\"template_id\":$t,\"materials\":[],\"image_count\":1}"
 }
 
 run_longImage() {
-  local t; t=$(api GET '/image-creations/templates?kind=longImage' | jq -r '.list[0].id // empty')
+  local t; t=$(api GET '/creations/templates?kind=longImage' | jq -r '.list[0].id // empty')
   [[ -n $t ]] || { step "AI长图（76）"; skip "跳过：运营还没配长图模板"; return; }
   run_image_kind longImage "AI长图（76）" "{\"kind\":\"longImage\",\"content\":\"手冲咖啡入门：选豆、水温、手法\",\"template_id\":$t,\"image_count\":1}"
 }

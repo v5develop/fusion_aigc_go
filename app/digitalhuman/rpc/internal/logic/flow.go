@@ -110,7 +110,7 @@ func submitPortrait(ctx context.Context, svcCtx *svc.ServiceContext, p *model.Af
 	cfg := svcCtx.Config.Portrait
 	_, err := svcCtx.Aigc.Submit(ctx, p.TaskId.String, aigc.NoteImages{Images: images, Model: cfg.Model, Size: cfg.Size})
 	if err != nil {
-		logx.WithContext(ctx).Errorf("submit portrait %d: %v", p.Id, err)
+		aigc.LogSubmitFailed(ctx, aigc.Trace{Service: "digitalhuman", Stage: "portrait", RecordID: p.Id, UserID: p.UserId, ExecTaskID: p.TaskId.String}, err)
 		finishPortrait(ctx, svcCtx, p.Id, model.PortraitFailed, nil, "提交生成失败，请重试")
 		return
 	}
@@ -122,6 +122,9 @@ func submitPortrait(ctx context.Context, svcCtx *svc.ServiceContext, p *model.Af
 func finishPortrait(ctx context.Context, svcCtx *svc.ServiceContext, id, status int64, urls []string, reason string) {
 	ctx, cancel := detach(ctx, 10*time.Second)
 	defer cancel()
+	if status == model.PortraitFailed {
+		aigc.LogTaskFailed(ctx, portraitTrace(ctx, svcCtx, id), reason, nil)
+	}
 	var js string
 	if len(urls) > 0 {
 		b, _ := json.Marshal(urls)
@@ -170,7 +173,7 @@ func startDigitalHuman(svcCtx *svc.ServiceContext, h *model.AfvDigitalHuman, voi
 			}
 		}
 
-		taskID := aigc.ExactTaskID(taskcenter.Ref("dh", h.Id), h.VideoTaskId.Valid) // 数字人出片只有这一个执行面任务，和任务中心编号一致
+		taskID := aigc.ExactTaskID(svcCtx.Config.TaskIDPrefix, taskcenter.Ref("dh", h.Id), h.VideoTaskId.Valid) // 数字人出片只有这一个执行面任务，和任务中心编号一致
 		// 配音时长出来了，冻结点数；点数不够就到此为止，记录标失败
 		if _, err := svcCtx.Billing.Hold(ctx, humanCharge(h, taskID, secs)); err != nil {
 			_, msg, _ := xerr.Parse(err)
@@ -189,7 +192,7 @@ func startDigitalHuman(svcCtx *svc.ServiceContext, h *model.AfvDigitalHuman, voi
 			Duration: secs, Model: wireModel(h.Model),
 		})
 		if err != nil {
-			log.Errorf("submit video: %v", err)
+			aigc.LogSubmitFailed(ctx, aigc.Trace{Service: "digitalhuman", Stage: "rendering", RecordID: h.Id, UserID: h.UserId, TaskCenterID: taskcenter.Ref("dh", h.Id), ExecTaskID: taskID}, err)
 			failHuman(ctx, svcCtx, h.Id, model.DhStatusRendering, "提交生成失败，请重试")
 			return
 		}
@@ -201,9 +204,46 @@ func startDigitalHuman(svcCtx *svc.ServiceContext, h *model.AfvDigitalHuman, voi
 //
 // 注意：调用方的 ctx 可能正是因为超时才走到这里（配音超时），用它写库会被直接拒，
 // 记录就永远停在「配音中」。所以这里另起一个短超时的 ctx。
+
+// lookupCtx 失败日志要补的查库上下文：原 ctx 可能已经超时，单独给一个短超时，查不到也不影响业务。
+func lookupCtx(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+}
+
+// humanTrace 数字人口播失败的排障坐标：带上所属用户（查库失败则留空）。
+func humanTrace(ctx context.Context, svcCtx *svc.ServiceContext, id int64, stage string) aigc.Trace {
+	t := aigc.Trace{Service: "digitalhuman", Stage: stage, RecordID: id, TaskCenterID: taskcenter.Ref("dh", id)}
+	lctx, cancel := lookupCtx(ctx)
+	defer cancel()
+	if h, err := svcCtx.Human.FindOne(lctx, id); err == nil {
+		t.UserID = h.UserId
+	} else {
+		aigc.LogLookupFailed(ctx, t, err)
+	}
+	return t
+}
+
+// portraitTrace 肖像（形象图）失败的排障坐标：不在任务中心里，带上所属用户。
+func portraitTrace(ctx context.Context, svcCtx *svc.ServiceContext, id int64) aigc.Trace {
+	t := aigc.Trace{Service: "digitalhuman", Stage: "portrait", RecordID: id}
+	lctx, cancel := lookupCtx(ctx)
+	defer cancel()
+	if p, err := svcCtx.Portrait.FindOne(lctx, id); err == nil {
+		t.UserID = p.UserId
+	} else {
+		aigc.LogLookupFailed(ctx, t, err)
+	}
+	return t
+}
+
 func failHuman(ctx context.Context, svcCtx *svc.ServiceContext, id, from int64, reason string) {
 	ctx, cancel := detach(ctx, 10*time.Second)
 	defer cancel()
+	stage := "dubbing"
+	if from == model.DhStatusRendering {
+		stage = "rendering"
+	}
+	aigc.LogTaskFailed(ctx, humanTrace(ctx, svcCtx, id, stage), reason, nil)
 	ok, err := svcCtx.Human.Finish(ctx, id, from, model.DhStatusFailed, "", reason)
 	if err != nil {
 		logx.WithContext(ctx).Errorf("mark failed %d: %v", id, err)
@@ -295,7 +335,7 @@ func (p *Poller) pollPortraits(ctx context.Context) {
 				savePortraitAsset(ctx, svcCtx, it, urls) // 设计稿：4 张图自动存进素材库
 			}
 		case r != nil && r.Done():
-			logx.WithContext(ctx).Infof("portrait %d task %s %s: %s", it.Id, it.TaskId.String, r.Status, r.ErrorMsg)
+			aigc.LogOutcome(ctx, aigc.Trace{Service: "digitalhuman", Stage: "portrait", RecordID: it.Id, UserID: it.UserId, ExecTaskID: it.TaskId.String}, r)
 			finishPortrait(ctx, svcCtx, it.Id, model.PortraitFailed, nil, "生成失败，请重试")
 		case time.Since(it.CreateTime) > deadline:
 			finishPortrait(ctx, svcCtx, it.Id, model.PortraitFailed, nil, "生成超时，请重试")
@@ -326,7 +366,7 @@ func (p *Poller) pollVideos(ctx context.Context) {
 				svcCtx.Billing.Done(ctx, it.UserId, it.VideoTaskId.String, 0)
 			}
 		case r != nil && r.Done():
-			logx.WithContext(ctx).Infof("digital human %d task %s %s: %s", it.Id, it.VideoTaskId.String, r.Status, r.ErrorMsg)
+			aigc.LogOutcome(ctx, aigc.Trace{Service: "digitalhuman", Stage: "rendering", RecordID: it.Id, UserID: it.UserId, TaskCenterID: taskcenter.Ref("dh", it.Id), ExecTaskID: it.VideoTaskId.String}, r)
 			failHuman(ctx, svcCtx, it.Id, model.DhStatusRendering, "视频生成失败，请重试")
 		case time.Since(it.UpdateTime) > deadline:
 			failHuman(ctx, svcCtx, it.Id, model.DhStatusRendering, "视频生成超时，请重试")

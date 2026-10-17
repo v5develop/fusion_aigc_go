@@ -31,7 +31,7 @@ func submitPlan(ctx context.Context, svcCtx *svc.ServiceContext, n *model.AfvIma
 		ShopProfile: shopProfileText(ctx, svcCtx, n.ShopProfileId.Int64, n.UserId),
 	}
 	if _, err := svcCtx.Aigc.Submit(ctx, n.PlanTaskId.String, task); err != nil {
-		logx.WithContext(ctx).Errorf("submit plan %d: %v", n.Id, err)
+		aigc.LogSubmitFailed(ctx, aigc.Trace{Service: "note", Stage: "plan", RecordID: n.Id, UserID: n.UserId, TaskCenterID: taskcenter.Ref("note", n.Id), ExecTaskID: n.PlanTaskId.String}, err)
 		failPlan(ctx, svcCtx, n.Id, "提交构思失败，请重试")
 		return
 	}
@@ -42,20 +42,40 @@ func submitPlan(ctx context.Context, svcCtx *svc.ServiceContext, n *model.AfvIma
 // submitGenerate 提交出图任务（75）；提交失败直接标记生成失败。
 func submitGenerate(ctx context.Context, svcCtx *svc.ServiceContext, id int64, taskID string, task aigc.NoteImages) {
 	if _, err := svcCtx.Aigc.Submit(ctx, taskID, task); err != nil {
-		logx.WithContext(ctx).Errorf("submit generate %d: %v", id, err)
+		aigc.LogSubmitFailed(ctx, aigc.Trace{Service: "note", Stage: "generate", RecordID: id, TaskCenterID: taskcenter.Ref("note", id), ExecTaskID: taskID}, err)
 		failGenerate(ctx, svcCtx, id, "提交生成失败，请重试")
 		return
 	}
 	// TODO 任务：确认后写 afv_creation_task（mode=75，parent 为构思任务）
 }
 
+// lookupCtx 失败日志要补的查库上下文：原 ctx 可能已经超时，单独给一个短超时，查不到也不影响业务。
+func lookupCtx(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+}
+
+// noteTrace 笔记失败的排障坐标：带上所属用户（查库失败则留空）。
+func noteTrace(ctx context.Context, svcCtx *svc.ServiceContext, id int64, stage string) aigc.Trace {
+	t := aigc.Trace{Service: "note", Stage: stage, RecordID: id, TaskCenterID: taskcenter.Ref("note", id)}
+	lctx, cancel := lookupCtx(ctx)
+	defer cancel()
+	if n, err := svcCtx.Note.FindOne(lctx, id); err == nil {
+		t.UserID = n.UserId
+	} else {
+		aigc.LogLookupFailed(ctx, t, err)
+	}
+	return t
+}
+
 func failPlan(ctx context.Context, svcCtx *svc.ServiceContext, id int64, reason string) {
+	aigc.LogTaskFailed(ctx, noteTrace(ctx, svcCtx, id, "plan"), reason, nil)
 	if _, err := svcCtx.Note.FinishPlan(ctx, id, nil, reason); err != nil {
 		logx.WithContext(ctx).Errorf("mark plan failed %d: %v", id, err)
 	}
 }
 
 func failGenerate(ctx context.Context, svcCtx *svc.ServiceContext, id int64, reason string) {
+	aigc.LogTaskFailed(ctx, noteTrace(ctx, svcCtx, id, "generate"), reason, nil)
 	ok, err := svcCtx.Note.FinishGenerate(ctx, id, model.StatusGenFailed, "", reason)
 	if err != nil {
 		logx.WithContext(ctx).Errorf("mark generate failed %d: %v", id, err)
@@ -124,7 +144,7 @@ func (p *Poller) pollPlans(ctx context.Context) {
 		case r != nil && r.Status == aigc.StatusSuccess:
 			p.finishPlan(ctx, n, r.Script)
 		case r != nil && r.Done():
-			logx.WithContext(ctx).Infof("note %d plan %s %s: %s", n.Id, n.PlanTaskId.String, r.Status, r.ErrorMsg)
+			aigc.LogOutcome(ctx, aigc.Trace{Service: "note", Stage: "plan", RecordID: n.Id, UserID: n.UserId, TaskCenterID: taskcenter.Ref("note", n.Id), ExecTaskID: n.PlanTaskId.String}, r)
 			failPlan(ctx, svcCtx, n.Id, "构思失败，请重试")
 		case time.Since(n.UpdateTime) > deadline:
 			failPlan(ctx, svcCtx, n.Id, "构思超时，请重试")
@@ -196,7 +216,7 @@ func (p *Poller) pollGenerates(ctx context.Context) {
 				svcCtx.Billing.Done(ctx, n.UserId, n.GenTaskId.String, len(urls))
 			}
 		case r != nil && r.Done():
-			logx.WithContext(ctx).Infof("note %d generate %s %s: %s", n.Id, n.GenTaskId.String, r.Status, r.ErrorMsg)
+			aigc.LogOutcome(ctx, aigc.Trace{Service: "note", Stage: "generate", RecordID: n.Id, UserID: n.UserId, TaskCenterID: taskcenter.Ref("note", n.Id), ExecTaskID: n.GenTaskId.String}, r)
 			failGenerate(ctx, svcCtx, n.Id, "生成失败，请重试")
 		case time.Since(n.UpdateTime) > deadline:
 			failGenerate(ctx, svcCtx, n.Id, "生成超时，请重试")

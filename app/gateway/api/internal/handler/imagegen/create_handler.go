@@ -15,7 +15,7 @@ import (
 // 提交生成（一次可出多张，异步）
 func CreateHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var req types.CreateImageGenReq
+		var req types.CreateCreationReq
 		if err := httpx.Parse(r, &req); err != nil {
 			httpx.ErrorCtx(r.Context(), w, err)
 			return

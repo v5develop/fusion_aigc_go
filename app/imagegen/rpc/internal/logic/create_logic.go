@@ -31,7 +31,7 @@ func NewCreateLogic(ctx context.Context, svcCtx *svc.ServiceContext) *CreateLogi
 }
 
 // 提交生成（异步，轮询 Get）。一张图一个执行面任务。
-func (l *CreateLogic) Create(in *pb.CreateReq) (*pb.ImageInfo, error) {
+func (l *CreateLogic) Create(in *pb.CreateReq) (*pb.CreationInfo, error) {
 	if in.RequestId == "" {
 		return nil, xerr.Param("缺少 X-Request-Id")
 	}
@@ -119,7 +119,7 @@ func (l *CreateLogic) Create(in *pb.CreateReq) (*pb.ImageInfo, error) {
 		mdl = in.Model
 	}
 
-	row := &model.AfvImageCreation{
+	row := &model.LocalLifeCreation{
 		UserId: in.UserId, Kind: in.Kind, Content: content, MaterialUrls: nullStr(jsonList(mats)),
 		TemplateAssetId: nullInt(in.TemplateId), TemplateUrl: nullStr(templateURL),
 		PosterType: nullStr(in.PosterType), PosterStyle: nullStr(in.PosterStyle), Size: size, Model: mdl,
@@ -130,7 +130,7 @@ func (l *CreateLogic) Create(in *pb.CreateReq) (*pb.ImageInfo, error) {
 }
 
 // insertAndSubmit 落记录后提交执行面任务。同一 request_id 并发重复提交时返回先到的那条。
-func (l *CreateLogic) insertAndSubmit(row *model.AfvImageCreation, cfg *config.KindConf, typeLabel string) (*pb.ImageInfo, error) {
+func (l *CreateLogic) insertAndSubmit(row *model.LocalLifeCreation, cfg *config.KindConf, typeLabel string) (*pb.CreationInfo, error) {
 	// 先冻结点数（点数不够就到此为止，不落记录）。同一请求号重复提交，冻结是幂等的
 	if _, err := l.svcCtx.Billing.Hold(l.ctx, imageCharge(row)); err != nil {
 		return nil, err
@@ -166,7 +166,7 @@ func validSize(ctx context.Context, svcCtx *svc.ServiceContext, size string) boo
 }
 
 // createActionTransfer 动作迁移：人物图（上传/公共数字人/AI定制形象）+ 动作视频（预置或我导入的）→ 视频。
-func (l *CreateLogic) createActionTransfer(in *pb.CreateReq, cfg *config.KindConf) (*pb.ImageInfo, error) {
+func (l *CreateLogic) createActionTransfer(in *pb.CreateReq, cfg *config.KindConf) (*pb.CreationInfo, error) {
 	// 人物图交给数字人服务解析，三种来源的校验逻辑不重复写
 	p, err := l.svcCtx.DigitalHumanRpc.ResolvePortrait(l.ctx, &digitalhuman.ResolvePortraitReq{
 		UserId: in.UserId, PortraitSource: in.PortraitSource, ImageUrl: in.ImageUrl,
@@ -183,7 +183,7 @@ func (l *CreateLogic) createActionTransfer(in *pb.CreateReq, cfg *config.KindCon
 		return nil, xerr.Param("请选择模型")
 	}
 
-	row := &model.AfvImageCreation{
+	row := &model.LocalLifeCreation{
 		UserId: in.UserId, Kind: in.Kind, Content: "", InputImageUrl: nullStr(p.ImageUrl),
 		InputVideoUrl: nullStr(videoURL), Model: in.Model, ImageCount: 1,
 		RequestId: nullStr(in.RequestId), Status: model.StatusGenerating,
@@ -212,7 +212,7 @@ func (l *CreateLogic) actionVideo(in *pb.CreateReq, cfg *config.KindConf) (strin
 
 // createVoiceover 数字人口播：口播文案 + 人物图（上传/公共数字人/AI定制形象）+ 背景图（可选）→ 视频。
 // 执行面 92 一步出片，剧本由它内部生成。
-func (l *CreateLogic) createVoiceover(in *pb.CreateReq, cfg *config.KindConf) (*pb.ImageInfo, error) {
+func (l *CreateLogic) createVoiceover(in *pb.CreateReq, cfg *config.KindConf) (*pb.CreationInfo, error) {
 	content := strings.TrimSpace(in.Content) // 字数不限（产品确认）
 	if content == "" {
 		return nil, xerr.Param("请输入口播文案")
@@ -254,7 +254,7 @@ func (l *CreateLogic) createVoiceover(in *pb.CreateReq, cfg *config.KindConf) (*
 		return nil, err
 	}
 
-	row := &model.AfvImageCreation{
+	row := &model.LocalLifeCreation{
 		UserId: in.UserId, Kind: in.Kind, Content: content, InputImageUrl: nullStr(p.ImageUrl),
 		TemplateAssetId: nullInt(bgID), InputBgUrl: nullStr(bgURL), Size: size, Duration: int64(duration),
 		Model: mdl, ImageCount: 1, RequestId: nullStr(in.RequestId), Status: model.StatusGenerating,

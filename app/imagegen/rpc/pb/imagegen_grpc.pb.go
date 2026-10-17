@@ -54,9 +54,9 @@ type ImageGenClient interface {
 	// 模板列表（复用现有模板素材表，运营在现有后台维护）
 	ListTemplates(ctx context.Context, in *ListTemplatesReq, opts ...grpc.CallOption) (*TemplateList, error)
 	// 提交生成（异步，轮询 Get）。一张图一个执行面任务。
-	Create(ctx context.Context, in *CreateReq, opts ...grpc.CallOption) (*ImageInfo, error)
-	Get(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*ImageInfo, error)
-	List(ctx context.Context, in *ListReq, opts ...grpc.CallOption) (*ImageList, error)
+	Create(ctx context.Context, in *CreateReq, opts ...grpc.CallOption) (*CreationInfo, error)
+	Get(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*CreationInfo, error)
+	List(ctx context.Context, in *ListReq, opts ...grpc.CallOption) (*CreationList, error)
 	Delete(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*Empty, error)
 	// ---- 动作迁移：动作视频（预置来自模板素材表，我的来自用户导入）----
 	ListActionVideos(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*ActionVideoList, error)
@@ -74,7 +74,7 @@ type ImageGenClient interface {
 	ListVideos(ctx context.Context, in *VideoListReq, opts ...grpc.CallOption) (*VideoList, error)
 	DeleteVideo(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*Empty, error)
 	// ---- 运营后台 ----
-	AdminList(ctx context.Context, in *ListReq, opts ...grpc.CallOption) (*ImageList, error)
+	AdminList(ctx context.Context, in *ListReq, opts ...grpc.CallOption) (*CreationList, error)
 	AdminListVideos(ctx context.Context, in *VideoListReq, opts ...grpc.CallOption) (*VideoList, error)
 	// 生成选项（模型 / 比例 / 时长）的运营配置：只能改启用、名称、排序、默认
 	AdminGenOptions(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*GenOptionList, error)
@@ -110,9 +110,9 @@ func (c *imageGenClient) ListTemplates(ctx context.Context, in *ListTemplatesReq
 	return out, nil
 }
 
-func (c *imageGenClient) Create(ctx context.Context, in *CreateReq, opts ...grpc.CallOption) (*ImageInfo, error) {
+func (c *imageGenClient) Create(ctx context.Context, in *CreateReq, opts ...grpc.CallOption) (*CreationInfo, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ImageInfo)
+	out := new(CreationInfo)
 	err := c.cc.Invoke(ctx, ImageGen_Create_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -120,9 +120,9 @@ func (c *imageGenClient) Create(ctx context.Context, in *CreateReq, opts ...grpc
 	return out, nil
 }
 
-func (c *imageGenClient) Get(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*ImageInfo, error) {
+func (c *imageGenClient) Get(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*CreationInfo, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ImageInfo)
+	out := new(CreationInfo)
 	err := c.cc.Invoke(ctx, ImageGen_Get_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -130,9 +130,9 @@ func (c *imageGenClient) Get(ctx context.Context, in *IdUserReq, opts ...grpc.Ca
 	return out, nil
 }
 
-func (c *imageGenClient) List(ctx context.Context, in *ListReq, opts ...grpc.CallOption) (*ImageList, error) {
+func (c *imageGenClient) List(ctx context.Context, in *ListReq, opts ...grpc.CallOption) (*CreationList, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ImageList)
+	out := new(CreationList)
 	err := c.cc.Invoke(ctx, ImageGen_List_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -250,9 +250,9 @@ func (c *imageGenClient) DeleteVideo(ctx context.Context, in *IdUserReq, opts ..
 	return out, nil
 }
 
-func (c *imageGenClient) AdminList(ctx context.Context, in *ListReq, opts ...grpc.CallOption) (*ImageList, error) {
+func (c *imageGenClient) AdminList(ctx context.Context, in *ListReq, opts ...grpc.CallOption) (*CreationList, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ImageList)
+	out := new(CreationList)
 	err := c.cc.Invoke(ctx, ImageGen_AdminList_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -312,9 +312,9 @@ type ImageGenServer interface {
 	// 模板列表（复用现有模板素材表，运营在现有后台维护）
 	ListTemplates(context.Context, *ListTemplatesReq) (*TemplateList, error)
 	// 提交生成（异步，轮询 Get）。一张图一个执行面任务。
-	Create(context.Context, *CreateReq) (*ImageInfo, error)
-	Get(context.Context, *IdUserReq) (*ImageInfo, error)
-	List(context.Context, *ListReq) (*ImageList, error)
+	Create(context.Context, *CreateReq) (*CreationInfo, error)
+	Get(context.Context, *IdUserReq) (*CreationInfo, error)
+	List(context.Context, *ListReq) (*CreationList, error)
 	Delete(context.Context, *IdUserReq) (*Empty, error)
 	// ---- 动作迁移：动作视频（预置来自模板素材表，我的来自用户导入）----
 	ListActionVideos(context.Context, *IdUserReq) (*ActionVideoList, error)
@@ -332,7 +332,7 @@ type ImageGenServer interface {
 	ListVideos(context.Context, *VideoListReq) (*VideoList, error)
 	DeleteVideo(context.Context, *IdUserReq) (*Empty, error)
 	// ---- 运营后台 ----
-	AdminList(context.Context, *ListReq) (*ImageList, error)
+	AdminList(context.Context, *ListReq) (*CreationList, error)
 	AdminListVideos(context.Context, *VideoListReq) (*VideoList, error)
 	// 生成选项（模型 / 比例 / 时长）的运营配置：只能改启用、名称、排序、默认
 	AdminGenOptions(context.Context, *Empty) (*GenOptionList, error)
@@ -354,13 +354,13 @@ func (UnimplementedImageGenServer) Options(context.Context, *KindReq) (*OptionsR
 func (UnimplementedImageGenServer) ListTemplates(context.Context, *ListTemplatesReq) (*TemplateList, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListTemplates not implemented")
 }
-func (UnimplementedImageGenServer) Create(context.Context, *CreateReq) (*ImageInfo, error) {
+func (UnimplementedImageGenServer) Create(context.Context, *CreateReq) (*CreationInfo, error) {
 	return nil, status.Error(codes.Unimplemented, "method Create not implemented")
 }
-func (UnimplementedImageGenServer) Get(context.Context, *IdUserReq) (*ImageInfo, error) {
+func (UnimplementedImageGenServer) Get(context.Context, *IdUserReq) (*CreationInfo, error) {
 	return nil, status.Error(codes.Unimplemented, "method Get not implemented")
 }
-func (UnimplementedImageGenServer) List(context.Context, *ListReq) (*ImageList, error) {
+func (UnimplementedImageGenServer) List(context.Context, *ListReq) (*CreationList, error) {
 	return nil, status.Error(codes.Unimplemented, "method List not implemented")
 }
 func (UnimplementedImageGenServer) Delete(context.Context, *IdUserReq) (*Empty, error) {
@@ -396,7 +396,7 @@ func (UnimplementedImageGenServer) ListVideos(context.Context, *VideoListReq) (*
 func (UnimplementedImageGenServer) DeleteVideo(context.Context, *IdUserReq) (*Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method DeleteVideo not implemented")
 }
-func (UnimplementedImageGenServer) AdminList(context.Context, *ListReq) (*ImageList, error) {
+func (UnimplementedImageGenServer) AdminList(context.Context, *ListReq) (*CreationList, error) {
 	return nil, status.Error(codes.Unimplemented, "method AdminList not implemented")
 }
 func (UnimplementedImageGenServer) AdminListVideos(context.Context, *VideoListReq) (*VideoList, error) {

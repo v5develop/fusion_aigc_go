@@ -28,14 +28,14 @@ func NewTemplatesLogic(ctx context.Context, svcCtx *svc.ServiceContext) *Templat
 	}
 }
 
-func (l *TemplatesLogic) Templates(req *types.ImageGenTemplatesReq) (resp *types.ImageGenTemplatesResp, err error) {
+func (l *TemplatesLogic) Templates(req *types.CreationTemplatesReq) (resp *types.CreationTemplatesResp, err error) {
 	out, err := l.svcCtx.ImageGenRpc.ListTemplates(l.ctx, &imagegen.ListTemplatesReq{Kind: req.Kind, PosterType: req.PosterType})
 	if err != nil {
 		return nil, err
 	}
-	resp = &types.ImageGenTemplatesResp{List: make([]types.ImageGenTemplate, 0, len(out.List))}
+	resp = &types.CreationTemplatesResp{List: make([]types.CreationTemplate, 0, len(out.List))}
 	for _, t := range out.List {
-		resp.List = append(resp.List, types.ImageGenTemplate{Id: t.Id, Title: t.Title, Url: t.Url})
+		resp.List = append(resp.List, types.CreationTemplate{Id: t.Id, Title: t.Title, Url: t.Url})
 	}
 	return resp, nil
 }

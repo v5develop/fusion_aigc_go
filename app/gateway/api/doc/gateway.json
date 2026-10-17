@@ -11,7 +11,7 @@
   ],
   "swagger": "2.0",
   "info": {
-    "description": "HTTP 状态码一律 200，用响应里的 code 判断，业务数据在 data 里。提交生成类接口必须带 X-Request-Id（UUID，重试沿用同一个）。完整说明见安装目录 docs/ 下的接口文档。",
+    "description": "HTTP 状态码一律 200，用响应里的 code 判断，业务数据在 data 里。提交生成类接口必须带 Idempotency-Key（UUID，重试沿用同一个）。旧版本只带 X-Request-Id 时仍可用；两者同时带时以 Idempotency-Key 为准，X-Request-Id 用于链路追踪。完整说明见安装目录 docs/ 下的接口文档。",
     "title": "AIGC 本地生活 App 接口",
     "version": "v1"
   },
@@ -383,7 +383,7 @@
         "tags": [
           "登录"
         ],
-        "summary": "用联盟的临时 token 换本服务的令牌：没有的用户会自动建档",
+        "summary": "【已弃用，仅供旧版本使用】用联盟的临时 token 换令牌。新版本请直接调用 AIGC 的 POST /api/v1/auth/union-token-login（同一个临时 token，同一套响应与错误码）。本接口在下线日期前保留，行为与之一致。",
         "operationId": "authLogin",
         "parameters": [
           {
@@ -400,7 +400,11 @@
               "type": "object",
               "properties": {
                 "temp_token": {
-                  "description": "联盟的临时 token：前端调联盟 GET /api/v1/user/auth/token 拿到；5 分钟内有效、只能用一次",
+                  "description": "旧字段，仍接受：同一个临时 token",
+                  "type": "string"
+                },
+                "token": {
+                  "description": "Java 口径：联盟的临时 token（同 AIGC 的 /api/v1/auth/union-token-login）",
                   "type": "string"
                 }
               }
@@ -421,9 +425,24 @@
                 "data": {
                   "type": "object",
                   "properties": {
+                    "accessToken": {
+                      "type": "string"
+                    },
+                    "expiresIn": {
+                      "type": "integer"
+                    },
                     "expires_at": {
                       "description": "过期时间（unix 毫秒）",
                       "type": "integer"
+                    },
+                    "nickname": {
+                      "type": "string"
+                    },
+                    "refreshExpiresIn": {
+                      "type": "integer"
+                    },
+                    "refreshToken": {
+                      "type": "string"
                     },
                     "refresh_expires_at": {
                       "type": "integer"
@@ -459,6 +478,12 @@
                           "type": "string"
                         }
                       }
+                    },
+                    "userId": {
+                      "type": "integer"
+                    },
+                    "username": {
+                      "type": "string"
                     }
                   }
                 },
@@ -914,7 +939,7 @@
         "parameters": [
           {
             "type": "string",
-            "name": "X-Request-Id",
+            "name": "Idempotency-Key",
             "in": "header"
           },
           {
@@ -1596,7 +1621,7 @@
         "parameters": [
           {
             "type": "string",
-            "name": "X-Request-Id",
+            "name": "Idempotency-Key",
             "in": "header"
           },
           {
@@ -1663,6 +1688,850 @@
                       "type": "integer"
                     }
                   }
+                },
+                "msg": {
+                  "description": "business message",
+                  "type": "string",
+                  "example": "ok"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/local-life/creations": {
+      "get": {
+        "security": [
+          {
+            "auth": []
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "海报 / 长图 / 动作迁移 / 数字人口播"
+        ],
+        "summary": "列表",
+        "operationId": "imagegenList",
+        "parameters": [
+          {
+            "enum": [
+              "poster",
+              "longImage",
+              "actionTransfer",
+              "voiceover"
+            ],
+            "type": "string",
+            "name": "kind",
+            "in": "query",
+            "allowEmptyValue": true
+          },
+          {
+            "type": "integer",
+            "default": -1,
+            "example": -1,
+            "name": "status",
+            "in": "query",
+            "allowEmptyValue": true
+          },
+          {
+            "type": "integer",
+            "default": 1,
+            "example": 1,
+            "name": "page",
+            "in": "query",
+            "allowEmptyValue": true
+          },
+          {
+            "type": "integer",
+            "default": 20,
+            "example": 20,
+            "name": "page_size",
+            "in": "query",
+            "allowEmptyValue": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
+                  "type": "integer",
+                  "example": 0
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "list": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "kind",
+                          "media",
+                          "content",
+                          "material_urls",
+                          "template_id",
+                          "template_url",
+                          "poster_type",
+                          "poster_style",
+                          "size",
+                          "image_count",
+                          "image_urls",
+                          "video_url",
+                          "input_image_url",
+                          "input_video_url",
+                          "model",
+                          "input_bg_url",
+                          "duration",
+                          "status",
+                          "fail_reason",
+                          "create_time"
+                        ],
+                        "properties": {
+                          "content": {
+                            "type": "string"
+                          },
+                          "create_time": {
+                            "type": "integer"
+                          },
+                          "duration": {
+                            "description": "数字人口播的视频时长（秒）",
+                            "type": "integer"
+                          },
+                          "fail_reason": {
+                            "type": "string"
+                          },
+                          "id": {
+                            "type": "integer"
+                          },
+                          "image_count": {
+                            "type": "integer"
+                          },
+                          "image_urls": {
+                            "description": "图片成品；视频成品为空",
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "input_bg_url": {
+                            "description": "数字人口播的背景图；空=AI智能匹配",
+                            "type": "string"
+                          },
+                          "input_image_url": {
+                            "type": "string"
+                          },
+                          "input_video_url": {
+                            "type": "string"
+                          },
+                          "kind": {
+                            "type": "string"
+                          },
+                          "material_urls": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "media": {
+                            "description": "image / video，由 kind 决定：口播、动作迁移是视频",
+                            "type": "string"
+                          },
+                          "model": {
+                            "type": "string"
+                          },
+                          "poster_style": {
+                            "type": "string"
+                          },
+                          "poster_type": {
+                            "type": "string"
+                          },
+                          "size": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "integer"
+                          },
+                          "template_id": {
+                            "type": "integer"
+                          },
+                          "template_url": {
+                            "type": "string"
+                          },
+                          "video_url": {
+                            "description": "视频成品（口播、动作迁移）；图片成品为空",
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "total": {
+                      "type": "integer"
+                    }
+                  }
+                },
+                "msg": {
+                  "description": "business message",
+                  "type": "string",
+                  "example": "ok"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "security": [
+          {
+            "auth": []
+          }
+        ],
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "海报 / 长图 / 动作迁移 / 数字人口播"
+        ],
+        "summary": "提交生成（一次可出多张，异步）",
+        "operationId": "imagegenCreate",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "Idempotency-Key",
+            "in": "header"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "required": [
+                "kind"
+              ],
+              "properties": {
+                "action_video_id": {
+                  "type": "integer"
+                },
+                "background_id": {
+                  "type": "integer"
+                },
+                "background_source": {
+                  "type": "string",
+                  "enum": [
+                    "AI",
+                    "PRESET",
+                    "UPLOAD"
+                  ]
+                },
+                "background_url": {
+                  "type": "string"
+                },
+                "content": {
+                  "description": "海报信息 / 长图内容 / 口播文案",
+                  "type": "string"
+                },
+                "copywriting_id": {
+                  "description": "选填：内容来自哪条 AI文案（用于文案的生成历史）",
+                  "type": "integer"
+                },
+                "duration": {
+                  "type": "integer"
+                },
+                "image_count": {
+                  "type": "integer"
+                },
+                "image_index": {
+                  "type": "integer"
+                },
+                "image_url": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "poster",
+                    "longImage",
+                    "actionTransfer",
+                    "voiceover"
+                  ]
+                },
+                "material_urls": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "model": {
+                  "type": "string"
+                },
+                "my_action_video_id": {
+                  "type": "integer"
+                },
+                "portrait_id": {
+                  "type": "integer"
+                },
+                "portrait_source": {
+                  "type": "string",
+                  "enum": [
+                    "UPLOAD",
+                    "PUBLIC",
+                    "AI"
+                  ]
+                },
+                "poster_style": {
+                  "type": "string"
+                },
+                "poster_type": {
+                  "type": "string"
+                },
+                "public_id": {
+                  "type": "integer"
+                },
+                "size": {
+                  "type": "string"
+                },
+                "template_id": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
+                  "type": "integer",
+                  "example": 0
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "content": {
+                      "type": "string"
+                    },
+                    "create_time": {
+                      "type": "integer"
+                    },
+                    "duration": {
+                      "description": "数字人口播的视频时长（秒）",
+                      "type": "integer"
+                    },
+                    "fail_reason": {
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "integer"
+                    },
+                    "image_count": {
+                      "type": "integer"
+                    },
+                    "image_urls": {
+                      "description": "图片成品；视频成品为空",
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "input_bg_url": {
+                      "description": "数字人口播的背景图；空=AI智能匹配",
+                      "type": "string"
+                    },
+                    "input_image_url": {
+                      "type": "string"
+                    },
+                    "input_video_url": {
+                      "type": "string"
+                    },
+                    "kind": {
+                      "type": "string"
+                    },
+                    "material_urls": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "media": {
+                      "description": "image / video，由 kind 决定：口播、动作迁移是视频",
+                      "type": "string"
+                    },
+                    "model": {
+                      "type": "string"
+                    },
+                    "poster_style": {
+                      "type": "string"
+                    },
+                    "poster_type": {
+                      "type": "string"
+                    },
+                    "size": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "template_id": {
+                      "type": "integer"
+                    },
+                    "template_url": {
+                      "type": "string"
+                    },
+                    "video_url": {
+                      "description": "视频成品（口播、动作迁移）；图片成品为空",
+                      "type": "string"
+                    }
+                  }
+                },
+                "msg": {
+                  "description": "business message",
+                  "type": "string",
+                  "example": "ok"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/local-life/creations/options": {
+      "get": {
+        "security": [
+          {
+            "auth": []
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "海报 / 长图 / 动作迁移 / 数字人口播"
+        ],
+        "summary": "表单配置（海报/长图/动作迁移/数字人口播）",
+        "operationId": "imagegenOptions",
+        "parameters": [
+          {
+            "enum": [
+              "poster",
+              "longImage",
+              "actionTransfer",
+              "voiceover"
+            ],
+            "type": "string",
+            "name": "kind",
+            "in": "query",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
+                  "type": "integer",
+                  "example": 0
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "default_duration": {
+                      "description": "数字人口播默认时长",
+                      "type": "integer"
+                    },
+                    "default_model": {
+                      "description": "数字人口播默认模型",
+                      "type": "string"
+                    },
+                    "default_size": {
+                      "type": "string"
+                    },
+                    "durations": {
+                      "description": "数字人口播的视频时长（秒）",
+                      "type": "array",
+                      "items": {
+                        "type": "integer"
+                      }
+                    },
+                    "max_content_len": {
+                      "description": "0 = 不限（数字人口播）",
+                      "type": "integer"
+                    },
+                    "max_images": {
+                      "type": "integer"
+                    },
+                    "max_materials": {
+                      "type": "integer"
+                    },
+                    "models": {
+                      "description": "动作迁移、数字人口播的模型选择",
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "code",
+                          "label"
+                        ],
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "poster_styles": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "code",
+                          "label"
+                        ],
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "poster_types": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "code",
+                          "label"
+                        ],
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "sizes": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "code",
+                          "label"
+                        ],
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "template_required": {
+                      "type": "boolean"
+                    }
+                  }
+                },
+                "msg": {
+                  "description": "business message",
+                  "type": "string",
+                  "example": "ok"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/local-life/creations/templates": {
+      "get": {
+        "security": [
+          {
+            "auth": []
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "海报 / 长图 / 动作迁移 / 数字人口播"
+        ],
+        "summary": "模板列表（海报可按类型筛；数字人口播为预设背景）",
+        "operationId": "imagegenTemplates",
+        "parameters": [
+          {
+            "enum": [
+              "poster",
+              "longImage",
+              "voiceover"
+            ],
+            "type": "string",
+            "description": "voiceover：预设背景",
+            "name": "kind",
+            "in": "query",
+            "required": true
+          },
+          {
+            "type": "string",
+            "name": "poster_type",
+            "in": "query",
+            "allowEmptyValue": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
+                  "type": "integer",
+                  "example": 0
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "list": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "title",
+                          "url"
+                        ],
+                        "properties": {
+                          "id": {
+                            "type": "integer"
+                          },
+                          "title": {
+                            "type": "string"
+                          },
+                          "url": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "msg": {
+                  "description": "business message",
+                  "type": "string",
+                  "example": "ok"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/local-life/creations/{id}": {
+      "get": {
+        "security": [
+          {
+            "auth": []
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "海报 / 长图 / 动作迁移 / 数字人口播"
+        ],
+        "summary": "详情（生成中轮询此接口）",
+        "operationId": "imagegenGet",
+        "parameters": [
+          {
+            "type": "integer",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
+                  "type": "integer",
+                  "example": 0
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "content": {
+                      "type": "string"
+                    },
+                    "create_time": {
+                      "type": "integer"
+                    },
+                    "duration": {
+                      "description": "数字人口播的视频时长（秒）",
+                      "type": "integer"
+                    },
+                    "fail_reason": {
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "integer"
+                    },
+                    "image_count": {
+                      "type": "integer"
+                    },
+                    "image_urls": {
+                      "description": "图片成品；视频成品为空",
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "input_bg_url": {
+                      "description": "数字人口播的背景图；空=AI智能匹配",
+                      "type": "string"
+                    },
+                    "input_image_url": {
+                      "type": "string"
+                    },
+                    "input_video_url": {
+                      "type": "string"
+                    },
+                    "kind": {
+                      "type": "string"
+                    },
+                    "material_urls": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "media": {
+                      "description": "image / video，由 kind 决定：口播、动作迁移是视频",
+                      "type": "string"
+                    },
+                    "model": {
+                      "type": "string"
+                    },
+                    "poster_style": {
+                      "type": "string"
+                    },
+                    "poster_type": {
+                      "type": "string"
+                    },
+                    "size": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "template_id": {
+                      "type": "integer"
+                    },
+                    "template_url": {
+                      "type": "string"
+                    },
+                    "video_url": {
+                      "description": "视频成品（口播、动作迁移）；图片成品为空",
+                      "type": "string"
+                    }
+                  }
+                },
+                "msg": {
+                  "description": "business message",
+                  "type": "string",
+                  "example": "ok"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "security": [
+          {
+            "auth": []
+          }
+        ],
+        "consumes": [
+          "application/x-www-form-urlencoded"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "海报 / 长图 / 动作迁移 / 数字人口播"
+        ],
+        "summary": "删除",
+        "operationId": "imagegenRemove",
+        "parameters": [
+          {
+            "type": "integer",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
+                  "type": "integer",
+                  "example": 0
+                },
+                "data": {
+                  "type": "object"
                 },
                 "msg": {
                   "description": "business message",
@@ -1837,7 +2706,7 @@
         "parameters": [
           {
             "type": "string",
-            "name": "X-Request-Id",
+            "name": "Idempotency-Key",
             "in": "header"
           },
           {
@@ -2148,7 +3017,7 @@
         "parameters": [
           {
             "type": "string",
-            "name": "X-Request-Id",
+            "name": "Idempotency-Key",
             "in": "header"
           },
           {
@@ -2356,7 +3225,7 @@
         "parameters": [
           {
             "type": "string",
-            "name": "X-Request-Id",
+            "name": "Idempotency-Key",
             "in": "header"
           },
           {
@@ -2615,821 +3484,6 @@
         ],
         "summary": "删除数字人",
         "operationId": "digitalhumanRemove",
-        "parameters": [
-          {
-            "type": "integer",
-            "name": "id",
-            "in": "path",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "",
-            "schema": {
-              "type": "object",
-              "properties": {
-                "code": {
-                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
-                  "type": "integer",
-                  "example": 0
-                },
-                "data": {
-                  "type": "object"
-                },
-                "msg": {
-                  "description": "business message",
-                  "type": "string",
-                  "example": "ok"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/local-life/image-creations": {
-      "get": {
-        "security": [
-          {
-            "auth": []
-          }
-        ],
-        "produces": [
-          "application/json"
-        ],
-        "schemes": [
-          "https"
-        ],
-        "tags": [
-          "海报 / 长图 / 动作迁移 / 数字人口播"
-        ],
-        "summary": "列表",
-        "operationId": "imagegenList",
-        "parameters": [
-          {
-            "enum": [
-              "poster",
-              "longImage",
-              "actionTransfer",
-              "voiceover"
-            ],
-            "type": "string",
-            "name": "kind",
-            "in": "query",
-            "allowEmptyValue": true
-          },
-          {
-            "type": "integer",
-            "default": -1,
-            "example": -1,
-            "name": "status",
-            "in": "query",
-            "allowEmptyValue": true
-          },
-          {
-            "type": "integer",
-            "default": 1,
-            "example": 1,
-            "name": "page",
-            "in": "query",
-            "allowEmptyValue": true
-          },
-          {
-            "type": "integer",
-            "default": 20,
-            "example": 20,
-            "name": "page_size",
-            "in": "query",
-            "allowEmptyValue": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "",
-            "schema": {
-              "type": "object",
-              "properties": {
-                "code": {
-                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
-                  "type": "integer",
-                  "example": 0
-                },
-                "data": {
-                  "type": "object",
-                  "properties": {
-                    "list": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "required": [
-                          "id",
-                          "kind",
-                          "content",
-                          "material_urls",
-                          "template_id",
-                          "template_url",
-                          "poster_type",
-                          "poster_style",
-                          "size",
-                          "image_count",
-                          "image_urls",
-                          "input_image_url",
-                          "input_video_url",
-                          "model",
-                          "input_bg_url",
-                          "duration",
-                          "status",
-                          "fail_reason",
-                          "create_time"
-                        ],
-                        "properties": {
-                          "content": {
-                            "type": "string"
-                          },
-                          "create_time": {
-                            "type": "integer"
-                          },
-                          "duration": {
-                            "description": "数字人口播的视频时长（秒）",
-                            "type": "integer"
-                          },
-                          "fail_reason": {
-                            "type": "string"
-                          },
-                          "id": {
-                            "type": "integer"
-                          },
-                          "image_count": {
-                            "type": "integer"
-                          },
-                          "image_urls": {
-                            "type": "array",
-                            "items": {
-                              "type": "string"
-                            }
-                          },
-                          "input_bg_url": {
-                            "description": "数字人口播的背景图；空=AI智能匹配",
-                            "type": "string"
-                          },
-                          "input_image_url": {
-                            "type": "string"
-                          },
-                          "input_video_url": {
-                            "type": "string"
-                          },
-                          "kind": {
-                            "type": "string"
-                          },
-                          "material_urls": {
-                            "type": "array",
-                            "items": {
-                              "type": "string"
-                            }
-                          },
-                          "model": {
-                            "type": "string"
-                          },
-                          "poster_style": {
-                            "type": "string"
-                          },
-                          "poster_type": {
-                            "type": "string"
-                          },
-                          "size": {
-                            "type": "string"
-                          },
-                          "status": {
-                            "type": "integer"
-                          },
-                          "template_id": {
-                            "type": "integer"
-                          },
-                          "template_url": {
-                            "type": "string"
-                          }
-                        }
-                      }
-                    },
-                    "total": {
-                      "type": "integer"
-                    }
-                  }
-                },
-                "msg": {
-                  "description": "business message",
-                  "type": "string",
-                  "example": "ok"
-                }
-              }
-            }
-          }
-        }
-      },
-      "post": {
-        "security": [
-          {
-            "auth": []
-          }
-        ],
-        "consumes": [
-          "application/json"
-        ],
-        "produces": [
-          "application/json"
-        ],
-        "schemes": [
-          "https"
-        ],
-        "tags": [
-          "海报 / 长图 / 动作迁移 / 数字人口播"
-        ],
-        "summary": "提交生成（一次可出多张，异步）",
-        "operationId": "imagegenCreate",
-        "parameters": [
-          {
-            "type": "string",
-            "name": "X-Request-Id",
-            "in": "header"
-          },
-          {
-            "name": "body",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "type": "object",
-              "required": [
-                "kind"
-              ],
-              "properties": {
-                "action_video_id": {
-                  "type": "integer"
-                },
-                "background_id": {
-                  "type": "integer"
-                },
-                "background_source": {
-                  "type": "string",
-                  "enum": [
-                    "AI",
-                    "PRESET",
-                    "UPLOAD"
-                  ]
-                },
-                "background_url": {
-                  "type": "string"
-                },
-                "content": {
-                  "description": "海报信息 / 长图内容 / 口播文案",
-                  "type": "string"
-                },
-                "copywriting_id": {
-                  "description": "选填：内容来自哪条 AI文案（用于文案的生成历史）",
-                  "type": "integer"
-                },
-                "duration": {
-                  "type": "integer"
-                },
-                "image_count": {
-                  "type": "integer"
-                },
-                "image_index": {
-                  "type": "integer"
-                },
-                "image_url": {
-                  "type": "string"
-                },
-                "kind": {
-                  "type": "string",
-                  "enum": [
-                    "poster",
-                    "longImage",
-                    "actionTransfer",
-                    "voiceover"
-                  ]
-                },
-                "material_urls": {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                },
-                "model": {
-                  "type": "string"
-                },
-                "my_action_video_id": {
-                  "type": "integer"
-                },
-                "portrait_id": {
-                  "type": "integer"
-                },
-                "portrait_source": {
-                  "type": "string",
-                  "enum": [
-                    "UPLOAD",
-                    "PUBLIC",
-                    "AI"
-                  ]
-                },
-                "poster_style": {
-                  "type": "string"
-                },
-                "poster_type": {
-                  "type": "string"
-                },
-                "public_id": {
-                  "type": "integer"
-                },
-                "size": {
-                  "type": "string"
-                },
-                "template_id": {
-                  "type": "integer"
-                }
-              }
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "",
-            "schema": {
-              "type": "object",
-              "properties": {
-                "code": {
-                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
-                  "type": "integer",
-                  "example": 0
-                },
-                "data": {
-                  "type": "object",
-                  "properties": {
-                    "content": {
-                      "type": "string"
-                    },
-                    "create_time": {
-                      "type": "integer"
-                    },
-                    "duration": {
-                      "description": "数字人口播的视频时长（秒）",
-                      "type": "integer"
-                    },
-                    "fail_reason": {
-                      "type": "string"
-                    },
-                    "id": {
-                      "type": "integer"
-                    },
-                    "image_count": {
-                      "type": "integer"
-                    },
-                    "image_urls": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      }
-                    },
-                    "input_bg_url": {
-                      "description": "数字人口播的背景图；空=AI智能匹配",
-                      "type": "string"
-                    },
-                    "input_image_url": {
-                      "type": "string"
-                    },
-                    "input_video_url": {
-                      "type": "string"
-                    },
-                    "kind": {
-                      "type": "string"
-                    },
-                    "material_urls": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      }
-                    },
-                    "model": {
-                      "type": "string"
-                    },
-                    "poster_style": {
-                      "type": "string"
-                    },
-                    "poster_type": {
-                      "type": "string"
-                    },
-                    "size": {
-                      "type": "string"
-                    },
-                    "status": {
-                      "type": "integer"
-                    },
-                    "template_id": {
-                      "type": "integer"
-                    },
-                    "template_url": {
-                      "type": "string"
-                    }
-                  }
-                },
-                "msg": {
-                  "description": "business message",
-                  "type": "string",
-                  "example": "ok"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/local-life/image-creations/options": {
-      "get": {
-        "security": [
-          {
-            "auth": []
-          }
-        ],
-        "produces": [
-          "application/json"
-        ],
-        "schemes": [
-          "https"
-        ],
-        "tags": [
-          "海报 / 长图 / 动作迁移 / 数字人口播"
-        ],
-        "summary": "表单配置（海报/长图/动作迁移/数字人口播）",
-        "operationId": "imagegenOptions",
-        "parameters": [
-          {
-            "enum": [
-              "poster",
-              "longImage",
-              "actionTransfer",
-              "voiceover"
-            ],
-            "type": "string",
-            "name": "kind",
-            "in": "query",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "",
-            "schema": {
-              "type": "object",
-              "properties": {
-                "code": {
-                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
-                  "type": "integer",
-                  "example": 0
-                },
-                "data": {
-                  "type": "object",
-                  "properties": {
-                    "default_duration": {
-                      "description": "数字人口播默认时长",
-                      "type": "integer"
-                    },
-                    "default_model": {
-                      "description": "数字人口播默认模型",
-                      "type": "string"
-                    },
-                    "default_size": {
-                      "type": "string"
-                    },
-                    "durations": {
-                      "description": "数字人口播的视频时长（秒）",
-                      "type": "array",
-                      "items": {
-                        "type": "integer"
-                      }
-                    },
-                    "max_content_len": {
-                      "description": "0 = 不限（数字人口播）",
-                      "type": "integer"
-                    },
-                    "max_images": {
-                      "type": "integer"
-                    },
-                    "max_materials": {
-                      "type": "integer"
-                    },
-                    "models": {
-                      "description": "动作迁移、数字人口播的模型选择",
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "required": [
-                          "code",
-                          "label"
-                        ],
-                        "properties": {
-                          "code": {
-                            "type": "string"
-                          },
-                          "label": {
-                            "type": "string"
-                          }
-                        }
-                      }
-                    },
-                    "poster_styles": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "required": [
-                          "code",
-                          "label"
-                        ],
-                        "properties": {
-                          "code": {
-                            "type": "string"
-                          },
-                          "label": {
-                            "type": "string"
-                          }
-                        }
-                      }
-                    },
-                    "poster_types": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "required": [
-                          "code",
-                          "label"
-                        ],
-                        "properties": {
-                          "code": {
-                            "type": "string"
-                          },
-                          "label": {
-                            "type": "string"
-                          }
-                        }
-                      }
-                    },
-                    "sizes": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "required": [
-                          "code",
-                          "label"
-                        ],
-                        "properties": {
-                          "code": {
-                            "type": "string"
-                          },
-                          "label": {
-                            "type": "string"
-                          }
-                        }
-                      }
-                    },
-                    "template_required": {
-                      "type": "boolean"
-                    }
-                  }
-                },
-                "msg": {
-                  "description": "business message",
-                  "type": "string",
-                  "example": "ok"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/local-life/image-creations/templates": {
-      "get": {
-        "security": [
-          {
-            "auth": []
-          }
-        ],
-        "produces": [
-          "application/json"
-        ],
-        "schemes": [
-          "https"
-        ],
-        "tags": [
-          "海报 / 长图 / 动作迁移 / 数字人口播"
-        ],
-        "summary": "模板列表（海报可按类型筛；数字人口播为预设背景）",
-        "operationId": "imagegenTemplates",
-        "parameters": [
-          {
-            "enum": [
-              "poster",
-              "longImage",
-              "voiceover"
-            ],
-            "type": "string",
-            "description": "voiceover：预设背景",
-            "name": "kind",
-            "in": "query",
-            "required": true
-          },
-          {
-            "type": "string",
-            "name": "poster_type",
-            "in": "query",
-            "allowEmptyValue": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "",
-            "schema": {
-              "type": "object",
-              "properties": {
-                "code": {
-                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
-                  "type": "integer",
-                  "example": 0
-                },
-                "data": {
-                  "type": "object",
-                  "properties": {
-                    "list": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "required": [
-                          "id",
-                          "title",
-                          "url"
-                        ],
-                        "properties": {
-                          "id": {
-                            "type": "integer"
-                          },
-                          "title": {
-                            "type": "string"
-                          },
-                          "url": {
-                            "type": "string"
-                          }
-                        }
-                      }
-                    }
-                  }
-                },
-                "msg": {
-                  "description": "business message",
-                  "type": "string",
-                  "example": "ok"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/local-life/image-creations/{id}": {
-      "get": {
-        "security": [
-          {
-            "auth": []
-          }
-        ],
-        "produces": [
-          "application/json"
-        ],
-        "schemes": [
-          "https"
-        ],
-        "tags": [
-          "海报 / 长图 / 动作迁移 / 数字人口播"
-        ],
-        "summary": "详情（生成中轮询此接口）",
-        "operationId": "imagegenGet",
-        "parameters": [
-          {
-            "type": "integer",
-            "name": "id",
-            "in": "path",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "",
-            "schema": {
-              "type": "object",
-              "properties": {
-                "code": {
-                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
-                  "type": "integer",
-                  "example": 0
-                },
-                "data": {
-                  "type": "object",
-                  "properties": {
-                    "content": {
-                      "type": "string"
-                    },
-                    "create_time": {
-                      "type": "integer"
-                    },
-                    "duration": {
-                      "description": "数字人口播的视频时长（秒）",
-                      "type": "integer"
-                    },
-                    "fail_reason": {
-                      "type": "string"
-                    },
-                    "id": {
-                      "type": "integer"
-                    },
-                    "image_count": {
-                      "type": "integer"
-                    },
-                    "image_urls": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      }
-                    },
-                    "input_bg_url": {
-                      "description": "数字人口播的背景图；空=AI智能匹配",
-                      "type": "string"
-                    },
-                    "input_image_url": {
-                      "type": "string"
-                    },
-                    "input_video_url": {
-                      "type": "string"
-                    },
-                    "kind": {
-                      "type": "string"
-                    },
-                    "material_urls": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      }
-                    },
-                    "model": {
-                      "type": "string"
-                    },
-                    "poster_style": {
-                      "type": "string"
-                    },
-                    "poster_type": {
-                      "type": "string"
-                    },
-                    "size": {
-                      "type": "string"
-                    },
-                    "status": {
-                      "type": "integer"
-                    },
-                    "template_id": {
-                      "type": "integer"
-                    },
-                    "template_url": {
-                      "type": "string"
-                    }
-                  }
-                },
-                "msg": {
-                  "description": "business message",
-                  "type": "string",
-                  "example": "ok"
-                }
-              }
-            }
-          }
-        }
-      },
-      "delete": {
-        "security": [
-          {
-            "auth": []
-          }
-        ],
-        "consumes": [
-          "application/x-www-form-urlencoded"
-        ],
-        "produces": [
-          "application/json"
-        ],
-        "schemes": [
-          "https"
-        ],
-        "tags": [
-          "海报 / 长图 / 动作迁移 / 数字人口播"
-        ],
-        "summary": "删除",
-        "operationId": "imagegenRemove",
         "parameters": [
           {
             "type": "integer",
@@ -3726,7 +3780,7 @@
         "parameters": [
           {
             "type": "string",
-            "name": "X-Request-Id",
+            "name": "Idempotency-Key",
             "in": "header"
           },
           {
@@ -5343,7 +5397,7 @@
         "parameters": [
           {
             "type": "string",
-            "name": "X-Request-Id",
+            "name": "Idempotency-Key",
             "in": "header"
           },
           {
@@ -6300,7 +6354,7 @@
       "in": "header"
     }
   },
-  "x-date": "2026-09-27 09:20:26",
+  "x-date": "2026-10-17 18:13:11",
   "x-description": "This is a goctl generated swagger file.",
   "x-github": "https://github.com/zeromicro/go-zero",
   "x-go-zero-doc": "https://go-zero.dev/",

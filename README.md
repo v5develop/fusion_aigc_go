@@ -117,7 +117,7 @@ make stop-all
 
 ## AI海报 / AI长图 / 动作迁移 / 数字人口播
 
-一个服务 `imagegen`、一张表 `afv_image_creation`，用 `kind`（poster / longImage）区分，流程相同：
+一个服务 `imagegen`、一张表 `afv_local_life_creation`（Go_V1.0.17 由 `afv_image_creation` 改名），用 `kind` 区分（poster / longImage 为图片，actionTransfer / voiceover 为视频，见 `media`），流程相同：
 填内容（≤500 字）→ 选模板 → 生成设置 → 提交 → 轮询 → 存素材库。
 
 - **一张图一个执行面任务**：生成 N 张就提交 N 个任务，结果逐个回填；全部失败记失败，部分成功按完成处理、只返回成功的那几张。

@@ -495,40 +495,40 @@ service gateway-api {
 
 // ---------------- AI 海报 / AI 长图 ----------------
 type (
-	ImageGenOption {
+	CreationOption {
 		Code  string `json:"code"`
 		Label string `json:"label"`
 	}
-	ImageGenOptionsReq {
+	CreationOptionsReq {
 		Kind string `form:"kind,options=poster|longImage|actionTransfer|voiceover"`
 	}
-	ImageGenOptionsResp {
-		PosterTypes      []ImageGenOption `json:"poster_types"`
-		PosterStyles     []ImageGenOption `json:"poster_styles"`
-		Sizes            []ImageGenOption `json:"sizes"`
+	CreationOptionsResp {
+		PosterTypes      []CreationOption `json:"poster_types"`
+		PosterStyles     []CreationOption `json:"poster_styles"`
+		Sizes            []CreationOption `json:"sizes"`
 		DefaultSize      string           `json:"default_size"`
 		MaxImages        int32            `json:"max_images"`
 		MaxMaterials     int32            `json:"max_materials"`
 		MaxContentLen    int32            `json:"max_content_len"` // 0 = 不限（数字人口播）
 		TemplateRequired bool             `json:"template_required"`
-		Models           []ImageGenOption `json:"models"` // 动作迁移、数字人口播的模型选择
+		Models           []CreationOption `json:"models"` // 动作迁移、数字人口播的模型选择
 		DefaultModel     string           `json:"default_model"` // 数字人口播默认模型
 		Durations        []int32          `json:"durations"` // 数字人口播的视频时长（秒）
 		DefaultDuration  int32            `json:"default_duration"` // 数字人口播默认时长
 	}
-	ImageGenTemplatesReq {
+	CreationTemplatesReq {
 		Kind       string `form:"kind,options=poster|longImage|voiceover"` // voiceover：预设背景
 		PosterType string `form:"poster_type,optional"`
 	}
-	ImageGenTemplate {
+	CreationTemplate {
 		Id    int64  `json:"id"`
 		Title string `json:"title"`
 		Url   string `json:"url"`
 	}
-	ImageGenTemplatesResp {
-		List []ImageGenTemplate `json:"list"`
+	CreationTemplatesResp {
+		List []CreationTemplate `json:"list"`
 	}
-	CreateImageGenReq {
+	CreateCreationReq {
 		RequestId     string   `header:"Idempotency-Key"`
 		CopywritingId int64    `json:"copywriting_id,optional"` // 选填：内容来自哪条 AI文案（用于文案的生成历史）
 		Kind          string   `json:"kind,options=poster|longImage|actionTransfer|voiceover"`
@@ -570,9 +570,10 @@ type (
 		CoverUrl string `json:"cover_url,optional"`
 		Name     string `json:"name,optional"`
 	}
-	ImageCreation {
+	Creation {
 		Id            int64    `json:"id"`
 		Kind          string   `json:"kind"`
+		Media         string   `json:"media"` // image / video，由 kind 决定：口播、动作迁移是视频
 		Content       string   `json:"content"`
 		MaterialUrls  []string `json:"material_urls"`
 		TemplateId    int64    `json:"template_id"`
@@ -581,7 +582,8 @@ type (
 		PosterStyle   string   `json:"poster_style"`
 		Size          string   `json:"size"`
 		ImageCount    int32    `json:"image_count"`
-		ImageUrls     []string `json:"image_urls"`
+		ImageUrls     []string `json:"image_urls"` // 图片成品；视频成品为空
+		VideoUrl      string   `json:"video_url"` // 视频成品（口播、动作迁移）；图片成品为空
 		InputImageUrl string   `json:"input_image_url"`
 		InputVideoUrl string   `json:"input_video_url"`
 		Model         string   `json:"model"`
@@ -591,15 +593,15 @@ type (
 		FailReason    string   `json:"fail_reason"`
 		CreateTime    int64    `json:"create_time"`
 	}
-	ListImageGenReq {
+	ListCreationReq {
 		Kind     string `form:"kind,optional,options=|poster|longImage|actionTransfer|voiceover"`
 		Status   int32  `form:"status,optional,default=-1"`
 		Page     int64  `form:"page,optional,default=1"`
 		PageSize int64  `form:"page_size,optional,default=20"`
 	}
-	ImageGenListResp {
-		List  []ImageCreation `json:"list"`
-		Total int64           `json:"total"`
+	CreationListResp {
+		List  []Creation `json:"list"`
+		Total int64      `json:"total"`
 	}
 )
 
@@ -613,27 +615,27 @@ type (
 service gateway-api {
 	@doc "表单配置（海报/长图/动作迁移/数字人口播）"
 	@handler options
-	get /image-creations/options (ImageGenOptionsReq) returns (ImageGenOptionsResp)
+	get /creations/options (CreationOptionsReq) returns (CreationOptionsResp)
 
 	@doc "模板列表（海报可按类型筛；数字人口播为预设背景）"
 	@handler templates
-	get /image-creations/templates (ImageGenTemplatesReq) returns (ImageGenTemplatesResp)
+	get /creations/templates (CreationTemplatesReq) returns (CreationTemplatesResp)
 
 	@doc "提交生成（一次可出多张，异步）"
 	@handler create
-	post /image-creations (CreateImageGenReq) returns (ImageCreation)
+	post /creations (CreateCreationReq) returns (Creation)
 
 	@doc "列表"
 	@handler list
-	get /image-creations (ListImageGenReq) returns (ImageGenListResp)
+	get /creations (ListCreationReq) returns (CreationListResp)
 
 	@doc "详情（生成中轮询此接口）"
 	@handler get
-	get /image-creations/:id (IdPath) returns (ImageCreation)
+	get /creations/:id (IdPath) returns (Creation)
 
 	@doc "删除"
 	@handler remove
-	delete /image-creations/:id (IdPath) returns (EmptyResp)
+	delete /creations/:id (IdPath) returns (EmptyResp)
 
 	@doc "动作视频：预置（运营维护）+ 我导入的"
 	@handler actionVideos
@@ -733,11 +735,11 @@ type (
 		Size   string `json:"size,optional"` // 比例 9:16 / 16:9，不传跟原片
 	}
 	VideoOptionsResp {
-		Models              []ImageGenOption `json:"models"`
+		Models              []CreationOption `json:"models"`
 		DefaultModel        string           `json:"default_model"`
 		Durations           []int32          `json:"durations"`
 		DefaultDuration     int32            `json:"default_duration"`
-		Sizes               []ImageGenOption `json:"sizes"`
+		Sizes               []CreationOption `json:"sizes"`
 		DefaultSize         string           `json:"default_size"`
 		MaxUserTextLen      int32            `json:"max_user_text_len"`
 		MaxSellingPointsLen int32            `json:"max_selling_points_len"`
@@ -848,8 +850,8 @@ service gateway-api {
 // ---------------- 登录（前端先向联盟换临时 token，再拿它来换我们的令牌）----------------
 type (
 	LoginReq {
-		Token         string `json:"token,optional"`           // Java 口径：联盟的临时 token（同 AIGC 的 /api/v1/auth/union-token-login）
-		TempToken     string `json:"temp_token,optional"`      // 旧字段，仍接受：同一个临时 token
+		Token         string `json:"token,optional"` // Java 口径：联盟的临时 token（同 AIGC 的 /api/v1/auth/union-token-login）
+		TempToken     string `json:"temp_token,optional"` // 旧字段，仍接受：同一个临时 token
 		Authorization string `header:"Authorization,optional"` // 也可以放在这里：Bearer <临时token>
 	}
 	LoginUser {

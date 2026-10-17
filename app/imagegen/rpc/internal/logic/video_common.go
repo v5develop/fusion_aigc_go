@@ -1,6 +1,7 @@
 package logic
 
 import (
+	"aigc-local-life/pkg/taskcenter"
 	"context"
 	"encoding/json"
 	"errors"
@@ -8,6 +9,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"aigc-local-life/app/copywriting/rpc/copywriting"
 	"aigc-local-life/app/imagegen/model"
@@ -174,7 +176,7 @@ func genTask(c *model.AfvVideoCreation, cfg *config.VideoKindConf) (aigc.Task, e
 // submitPlan 提交出剧本的任务；失败直接标记失败（还没开始构思，没有可挽回的中间状态）。
 func submitPlan(ctx context.Context, svcCtx *svc.ServiceContext, c *model.AfvVideoCreation, shopProfile string) error {
 	if _, err := svcCtx.Aigc.Submit(ctx, c.PlanTaskId.String, planTask(c, shopProfile)); err != nil {
-		logx.WithContext(ctx).Errorf("submit %s plan %d: %v", c.Kind, c.Id, err)
+		aigc.LogSubmitFailed(ctx, aigc.Trace{Service: "imagegen", Kind: c.Kind, Stage: "plan", RecordID: c.Id, UserID: c.UserId, TaskCenterID: taskcenter.Ref("vid", c.Id), ExecTaskID: c.PlanTaskId.String}, err)
 		return xerr.New(xerr.ServerError, "提交构思失败，请重试")
 	}
 	// TODO 计费：等计费方案确认后，构思预扣 10 点、出片预扣 100 点，失败退回
@@ -182,7 +184,31 @@ func submitPlan(ctx context.Context, svcCtx *svc.ServiceContext, c *model.AfvVid
 }
 
 // failVideo 把记录标记为失败（只在它还处于 from 状态时生效）。
+
+// lookupCtx 失败日志要补的查库上下文：原 ctx 可能已经超时，单独给一个短超时，查不到也不影响业务。
+func lookupCtx(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+}
+
+// videoTrace 视频失败的排障坐标：带上所属用户与类型（查库失败则留空）。
+func videoTrace(ctx context.Context, svcCtx *svc.ServiceContext, id int64, stage string) aigc.Trace {
+	t := aigc.Trace{Service: "imagegen", Stage: stage, RecordID: id, TaskCenterID: taskcenter.Ref("vid", id)}
+	lctx, cancel := lookupCtx(ctx)
+	defer cancel()
+	if c, err := svcCtx.Video.FindOne(lctx, id); err == nil {
+		t.UserID, t.Kind = c.UserId, c.Kind
+	} else {
+		aigc.LogLookupFailed(ctx, t, err)
+	}
+	return t
+}
+
 func failVideo(ctx context.Context, svcCtx *svc.ServiceContext, id, from int64, reason string) {
+	stage := "plan"
+	if from == model.VideoGenerating {
+		stage = "generate"
+	}
+	aigc.LogTaskFailed(ctx, videoTrace(ctx, svcCtx, id, stage), reason, nil)
 	var err error
 	switch from {
 	case model.VideoPlanning:

@@ -111,7 +111,7 @@ const firstImage = "COALESCE(JSON_UNQUOTE(JSON_EXTRACT(`image_urls`, '$[0]')), '
 func imageCreationSource(kind, tableKind string, isVideo int) string {
 	return fmt.Sprintf("SELECT `id`, '%s' AS `kind`, %s AS `cover_url`, %s AS `result_url`, %d AS `is_video`, "+
 		"COALESCE(`size`, '') AS `size`, `create_time`, `copywriting_id`, `user_id` "+
-		"FROM `afv_image_creation` WHERE `kind` = '%s' AND `status` = 1 AND `deleted` = 0",
+		"FROM `afv_local_life_creation` WHERE `kind` = '%s' AND `status` = 1 AND `deleted` = 0",
 		kind, firstImage, firstImage, isVideo, tableKind)
 }
 

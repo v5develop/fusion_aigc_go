@@ -26,27 +26,27 @@
 
 | 页面区域 | 用到的接口 |
 |---|---|
-| 进页面：取表单配置 | `GET /image-creations/options?kind=voiceover` |
+| 进页面：取表单配置 | `GET /creations/options?kind=voiceover` |
 | 视频文案 · 手动输入 | 无（提交时带上即可） |
 | 视频文案 · 「AI帮写」 | `POST /copywriting/ai-write` |
 | 视频文案 · 「AI文案」→ 选择AI文案弹窗 | `GET /copywriting?keyword=` |
 | 出镜人物图 · 上传照片 | `GET /upload/credentials?kind=image`，然后直传 OSS |
 | 出镜人物图 · 「AI公共数字人」 | `GET /digital-humans/public` |
 | 出镜人物图 · 「AI定制数字人」 | `POST /digital-humans/portraits`，轮询 `GET /digital-humans/portraits/:id` |
-| 背景图片 · 预设背景（如「卧室」） | `GET /image-creations/templates?kind=voiceover` |
+| 背景图片 · 预设背景（如「卧室」） | `GET /creations/templates?kind=voiceover` |
 | 背景图片 · 「导入背景」 | `GET /upload/credentials?kind=image`，然后直传 OSS |
 | 背景图片 · 「AI智能匹配」 | 无（提交时不传背景） |
 | 生成设置弹窗 | 用 options 里的 `models` / `durations` / `sizes` |
-| 「开始生成」 | `POST /image-creations` |
-| 生成中 / 结果 | 轮询 `GET /image-creations/:id` |
-| 历史记录 | `GET /image-creations?kind=voiceover`、`DELETE /image-creations/:id` |
+| 「开始生成」 | `POST /creations` |
+| 生成中 / 结果 | 轮询 `GET /creations/:id` |
+| 历史记录 | `GET /creations?kind=voiceover`、`DELETE /creations/:id` |
 
 ---
 
 ## 2. 进页面：表单配置
 
 ```
-GET /api/v1/local-life/image-creations/options?kind=voiceover
+GET /api/v1/local-life/creations/options?kind=voiceover
 ```
 
 返回（实际响应）：
@@ -216,7 +216,7 @@ GET /api/v1/local-life/digital-humans/public
 预设背景列表：
 
 ```
-GET /api/v1/local-life/image-creations/templates?kind=voiceover
+GET /api/v1/local-life/creations/templates?kind=voiceover
 ```
 
 ```json
@@ -230,7 +230,7 @@ GET /api/v1/local-life/image-creations/templates?kind=voiceover
 ## 6. 开始生成
 
 ```
-POST /api/v1/local-life/image-creations
+POST /api/v1/local-life/creations
 X-Request-Id: 4F1C7E0A-9D2B-4E8B-A1F0-2C3D4E5F6A7B
 Content-Type: application/json
 ```
@@ -294,7 +294,7 @@ Content-Type: application/json
 ## 7. 生成中与结果
 
 ```
-GET /api/v1/local-life/image-creations/:id
+GET /api/v1/local-life/creations/:id
 ```
 
 轮询直到 `status != 0`：
@@ -334,8 +334,8 @@ GET /api/v1/local-life/image-creations/:id
 ## 8. 历史记录与删除
 
 ```
-GET    /api/v1/local-life/image-creations?kind=voiceover&status=-1&page=1&page_size=20
-DELETE /api/v1/local-life/image-creations/:id
+GET    /api/v1/local-life/creations?kind=voiceover&status=-1&page=1&page_size=20
+DELETE /api/v1/local-life/creations/:id
 ```
 
 - 列表返回 `{"list": [...], "total": N}`，每条结构同第 7 节，按创建时间倒序。

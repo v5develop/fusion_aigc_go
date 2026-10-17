@@ -184,13 +184,19 @@ func TestNewLifeTaskID(t *testing.T) {
 	}
 }
 
+// 单任务步骤：第一段必须是服务前缀（路由），后面整段保留任务中心编号（搜日志能命中）。
 func TestExactTaskID(t *testing.T) {
-	if got := ExactTaskID("AiCreation_life_vid_28", false); got != "AiCreation_life_vid_28" {
-		t.Fatalf("首次提交要和任务中心编号完全一致: %s", got)
+	const ref = "AiCreation_LF_78d041880cfc68974695eda3e14df316"
+	want := "AiCreationLife_" + ref
+	if got := ExactTaskID("AiCreationLife", ref, false); got != want {
+		t.Fatalf("首次提交: got %s, want %s", got, want)
 	}
-	again := ExactTaskID("AiCreation_life_vid_28", true)
-	if !strings.HasPrefix(again, "AiCreation_life_vid_28_") || again == "AiCreation_life_vid_28" {
-		t.Fatalf("重做要以编号开头并带随机码: %s", again)
+	if first := strings.SplitN(ExactTaskID("AiCreationLife", ref, false), "_", 2)[0]; first != "AiCreationLife" {
+		t.Fatalf("第一段必须是服务前缀，实际 %s", first)
+	}
+	again := ExactTaskID("AiCreationLife", ref, true)
+	if !strings.HasPrefix(again, want+"_") || again == want {
+		t.Fatalf("重做要以前缀+编号开头并带随机码: %s", again)
 	}
 }
 
@@ -210,5 +216,20 @@ func TestNewTaskIDMatchesFusionAigcFormat(t *testing.T) {
 			t.Fatalf("重复: %q", id)
 		}
 		seen[id] = true
+	}
+}
+
+// 排障判据：错误码、上游、消息都要在；traceback 超长要截断（按字符，不切坏中文）。
+func TestDescribeCarriesDiagnosticsAndTruncatesTraceback(t *testing.T) {
+	long := strings.Repeat("栈", 1000)
+	r := &Result{Status: StatusFailed, ErrorCode: 1203, Upstream: "vendor-x", ErrorMsg: "bad input", Traceback: long}
+	d := r.Describe()
+	for _, want := range []string{"status=failed", "error_code=1203", "upstream=vendor-x", `msg="bad input"`} {
+		if !strings.Contains(d, want) {
+			t.Fatalf("判据缺少 %q: %s", want, d)
+		}
+	}
+	if strings.Count(d, "栈") > tracebackLogLimit || !strings.Contains(d, "…") {
+		t.Fatalf("traceback 没有截断: %d 字", strings.Count(d, "栈"))
 	}
 }

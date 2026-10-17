@@ -52,21 +52,7 @@ type Copywriting struct {
 	CreateTime       int64  `json:"create_time"`
 }
 
-type CreateDigitalHumanReq struct {
-	RequestId      string `header:"Idempotency-Key"`
-	CopywritingId  int64  `json:"copywriting_id,optional"` // 选填：配音内容来自哪条 AI文案（用于文案的生成历史）
-	Name           string `json:"name,optional"`
-	PortraitSource string `json:"portrait_source,options=UPLOAD|PUBLIC|AI"`
-	ImageUrl       string `json:"image_url,optional"`
-	PublicId       int64  `json:"public_id,optional"`
-	PortraitId     int64  `json:"portrait_id,optional"`
-	ImageIndex     int32  `json:"image_index,optional"`
-	VoiceId        int64  `json:"voice_id"`
-	Script         string `json:"script"`
-	Model          string `json:"model,optional"` // 出片模型，不传用 options 里的第一项（seedance2.5）
-}
-
-type CreateImageGenReq struct {
+type CreateCreationReq struct {
 	RequestId        string   `header:"Idempotency-Key"`
 	CopywritingId    int64    `json:"copywriting_id,optional"` // 选填：内容来自哪条 AI文案（用于文案的生成历史）
 	Kind             string   `json:"kind,options=poster|longImage|actionTransfer|voiceover"`
@@ -89,6 +75,20 @@ type CreateImageGenReq struct {
 	BackgroundId     int64    `json:"background_id,optional"`
 	BackgroundUrl    string   `json:"background_url,optional"`
 	Duration         int32    `json:"duration,optional"`
+}
+
+type CreateDigitalHumanReq struct {
+	RequestId      string `header:"Idempotency-Key"`
+	CopywritingId  int64  `json:"copywriting_id,optional"` // 选填：配音内容来自哪条 AI文案（用于文案的生成历史）
+	Name           string `json:"name,optional"`
+	PortraitSource string `json:"portrait_source,options=UPLOAD|PUBLIC|AI"`
+	ImageUrl       string `json:"image_url,optional"`
+	PublicId       int64  `json:"public_id,optional"`
+	PortraitId     int64  `json:"portrait_id,optional"`
+	ImageIndex     int32  `json:"image_index,optional"`
+	VoiceId        int64  `json:"voice_id"`
+	Script         string `json:"script"`
+	Model          string `json:"model,optional"` // 出片模型，不传用 options 里的第一项（seedance2.5）
 }
 
 type CreatePortraitReq struct {
@@ -126,6 +126,74 @@ type CreateVideoReq struct {
 	Source         string `json:"source,optional,options=|upload|link"` // upload 上传本地视频 / link 粘贴链接
 	VideoUrl       string `json:"video_url,optional"`                   // upload：直传后的视频地址
 	Link           string `json:"link,optional"`                        // link：用户粘贴的分享链接
+}
+
+type Creation struct {
+	Id            int64    `json:"id"`
+	Kind          string   `json:"kind"`
+	Media         string   `json:"media"` // image / video，由 kind 决定：口播、动作迁移是视频
+	Content       string   `json:"content"`
+	MaterialUrls  []string `json:"material_urls"`
+	TemplateId    int64    `json:"template_id"`
+	TemplateUrl   string   `json:"template_url"`
+	PosterType    string   `json:"poster_type"`
+	PosterStyle   string   `json:"poster_style"`
+	Size          string   `json:"size"`
+	ImageCount    int32    `json:"image_count"`
+	ImageUrls     []string `json:"image_urls"` // 图片成品；视频成品为空
+	VideoUrl      string   `json:"video_url"`  // 视频成品（口播、动作迁移）；图片成品为空
+	InputImageUrl string   `json:"input_image_url"`
+	InputVideoUrl string   `json:"input_video_url"`
+	Model         string   `json:"model"`
+	InputBgUrl    string   `json:"input_bg_url"` // 数字人口播的背景图；空=AI智能匹配
+	Duration      int32    `json:"duration"`     // 数字人口播的视频时长（秒）
+	Status        int32    `json:"status"`
+	FailReason    string   `json:"fail_reason"`
+	CreateTime    int64    `json:"create_time"`
+}
+
+type CreationListResp struct {
+	List  []Creation `json:"list"`
+	Total int64      `json:"total"`
+}
+
+type CreationOption struct {
+	Code  string `json:"code"`
+	Label string `json:"label"`
+}
+
+type CreationOptionsReq struct {
+	Kind string `form:"kind,options=poster|longImage|actionTransfer|voiceover"`
+}
+
+type CreationOptionsResp struct {
+	PosterTypes      []CreationOption `json:"poster_types"`
+	PosterStyles     []CreationOption `json:"poster_styles"`
+	Sizes            []CreationOption `json:"sizes"`
+	DefaultSize      string           `json:"default_size"`
+	MaxImages        int32            `json:"max_images"`
+	MaxMaterials     int32            `json:"max_materials"`
+	MaxContentLen    int32            `json:"max_content_len"` // 0 = 不限（数字人口播）
+	TemplateRequired bool             `json:"template_required"`
+	Models           []CreationOption `json:"models"`           // 动作迁移、数字人口播的模型选择
+	DefaultModel     string           `json:"default_model"`    // 数字人口播默认模型
+	Durations        []int32          `json:"durations"`        // 数字人口播的视频时长（秒）
+	DefaultDuration  int32            `json:"default_duration"` // 数字人口播默认时长
+}
+
+type CreationTemplate struct {
+	Id    int64  `json:"id"`
+	Title string `json:"title"`
+	Url   string `json:"url"`
+}
+
+type CreationTemplatesReq struct {
+	Kind       string `form:"kind,options=poster|longImage|voiceover"` // voiceover：预设背景
+	PosterType string `form:"poster_type,optional"`
+}
+
+type CreationTemplatesResp struct {
+	List []CreationTemplate `json:"list"`
 }
 
 type Derivative struct {
@@ -216,89 +284,23 @@ type IdPath struct {
 	Id int64 `path:"id"`
 }
 
-type ImageCreation struct {
-	Id            int64    `json:"id"`
-	Kind          string   `json:"kind"`
-	Content       string   `json:"content"`
-	MaterialUrls  []string `json:"material_urls"`
-	TemplateId    int64    `json:"template_id"`
-	TemplateUrl   string   `json:"template_url"`
-	PosterType    string   `json:"poster_type"`
-	PosterStyle   string   `json:"poster_style"`
-	Size          string   `json:"size"`
-	ImageCount    int32    `json:"image_count"`
-	ImageUrls     []string `json:"image_urls"`
-	InputImageUrl string   `json:"input_image_url"`
-	InputVideoUrl string   `json:"input_video_url"`
-	Model         string   `json:"model"`
-	InputBgUrl    string   `json:"input_bg_url"` // 数字人口播的背景图；空=AI智能匹配
-	Duration      int32    `json:"duration"`     // 数字人口播的视频时长（秒）
-	Status        int32    `json:"status"`
-	FailReason    string   `json:"fail_reason"`
-	CreateTime    int64    `json:"create_time"`
-}
-
-type ImageGenListResp struct {
-	List  []ImageCreation `json:"list"`
-	Total int64           `json:"total"`
-}
-
-type ImageGenOption struct {
-	Code  string `json:"code"`
-	Label string `json:"label"`
-}
-
-type ImageGenOptionsReq struct {
-	Kind string `form:"kind,options=poster|longImage|actionTransfer|voiceover"`
-}
-
-type ImageGenOptionsResp struct {
-	PosterTypes      []ImageGenOption `json:"poster_types"`
-	PosterStyles     []ImageGenOption `json:"poster_styles"`
-	Sizes            []ImageGenOption `json:"sizes"`
-	DefaultSize      string           `json:"default_size"`
-	MaxImages        int32            `json:"max_images"`
-	MaxMaterials     int32            `json:"max_materials"`
-	MaxContentLen    int32            `json:"max_content_len"` // 0 = 不限（数字人口播）
-	TemplateRequired bool             `json:"template_required"`
-	Models           []ImageGenOption `json:"models"`           // 动作迁移、数字人口播的模型选择
-	DefaultModel     string           `json:"default_model"`    // 数字人口播默认模型
-	Durations        []int32          `json:"durations"`        // 数字人口播的视频时长（秒）
-	DefaultDuration  int32            `json:"default_duration"` // 数字人口播默认时长
-}
-
-type ImageGenTemplate struct {
-	Id    int64  `json:"id"`
-	Title string `json:"title"`
-	Url   string `json:"url"`
-}
-
-type ImageGenTemplatesReq struct {
-	Kind       string `form:"kind,options=poster|longImage|voiceover"` // voiceover：预设背景
-	PosterType string `form:"poster_type,optional"`
-}
-
-type ImageGenTemplatesResp struct {
-	List []ImageGenTemplate `json:"list"`
-}
-
 type ImportActionVideoReq struct {
 	Url      string `json:"url"`
 	CoverUrl string `json:"cover_url,optional"`
 	Name     string `json:"name,optional"`
 }
 
-type ListDigitalHumansReq struct {
-	Status   int32 `form:"status,optional,default=-1"`
-	Page     int64 `form:"page,optional,default=1"`
-	PageSize int64 `form:"page_size,optional,default=20"`
-}
-
-type ListImageGenReq struct {
+type ListCreationReq struct {
 	Kind     string `form:"kind,optional,options=|poster|longImage|actionTransfer|voiceover"`
 	Status   int32  `form:"status,optional,default=-1"`
 	Page     int64  `form:"page,optional,default=1"`
 	PageSize int64  `form:"page_size,optional,default=20"`
+}
+
+type ListDigitalHumansReq struct {
+	Status   int32 `form:"status,optional,default=-1"`
+	Page     int64 `form:"page,optional,default=1"`
+	PageSize int64 `form:"page_size,optional,default=20"`
 }
 
 type ListNotesReq struct {
@@ -332,26 +334,24 @@ type ListVoicesReq struct {
 }
 
 type LoginReq struct {
-	Token         string `json:"token,optional"`           // Java 口径：联盟的临时 token（与 AIGC 的 /api/v1/auth/union-token-login 同名）
+	Token         string `json:"token,optional"`           // Java 口径：联盟的临时 token（同 AIGC 的 /api/v1/auth/union-token-login）
 	TempToken     string `json:"temp_token,optional"`      // 旧字段，仍接受：同一个临时 token
 	Authorization string `header:"Authorization,optional"` // 也可以放在这里：Bearer <临时token>
 }
 
-// LoginResp 旧字段（snake_case、毫秒）保留给已有客户端；与 Java 的 LoginRespVO 字段（camelCase、秒）并存，值一致。
 type LoginResp struct {
 	Token            string    `json:"token"`      // 之后所有接口带 Authorization: Bearer <token>
 	ExpiresAt        int64     `json:"expires_at"` // 过期时间（unix 毫秒）
 	RefreshToken     string    `json:"refresh_token,optional"`
 	RefreshExpiresAt int64     `json:"refresh_expires_at,optional"`
 	User             LoginUser `json:"user"`
-
-	AccessToken      string `json:"accessToken,optional"`      // Java：访问令牌（同 token）
-	ExpiresIn        int64  `json:"expiresIn,optional"`        // Java：access_token 有效期（秒）
-	RefreshTokenJava string `json:"refreshToken,optional"`     // Java：刷新令牌（同 refresh_token）
-	RefreshExpiresIn int64  `json:"refreshExpiresIn,optional"` // Java：refresh_token 剩余有效期（秒）
-	UserId           int64  `json:"userId,optional"`           // Java：用户ID（同 user.id）
-	Username         string `json:"username,optional"`         // Java：用户名
-	Nickname         string `json:"nickname,optional"`         // Java：昵称
+	AccessToken      string    `json:"accessToken,optional"`
+	ExpiresIn        int64     `json:"expiresIn,optional"`
+	RefreshTokenJava string    `json:"refreshToken,optional"`
+	RefreshExpiresIn int64     `json:"refreshExpiresIn,optional"`
+	UserId           int64     `json:"userId,optional"`
+	Username         string    `json:"username,optional"`
+	Nickname         string    `json:"nickname,optional"`
 }
 
 type LoginUser struct {
@@ -592,11 +592,11 @@ type VideoOptionsReq struct {
 }
 
 type VideoOptionsResp struct {
-	Models              []ImageGenOption `json:"models"`
+	Models              []CreationOption `json:"models"`
 	DefaultModel        string           `json:"default_model"`
 	Durations           []int32          `json:"durations"`
 	DefaultDuration     int32            `json:"default_duration"`
-	Sizes               []ImageGenOption `json:"sizes"`
+	Sizes               []CreationOption `json:"sizes"`
 	DefaultSize         string           `json:"default_size"`
 	MaxUserTextLen      int32            `json:"max_user_text_len"`
 	MaxSellingPointsLen int32            `json:"max_selling_points_len"`

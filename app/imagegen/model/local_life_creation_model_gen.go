@@ -17,27 +17,27 @@ import (
 )
 
 var (
-	afvImageCreationFieldNames          = builder.RawFieldNames(&AfvImageCreation{})
-	afvImageCreationRows                = strings.Join(afvImageCreationFieldNames, ",")
-	afvImageCreationRowsExpectAutoSet   = strings.Join(stringx.Remove(afvImageCreationFieldNames, "`id`", "`create_at`", "`create_time`", "`created_at`", "`update_at`", "`update_time`", "`updated_at`"), ",")
-	afvImageCreationRowsWithPlaceHolder = strings.Join(stringx.Remove(afvImageCreationFieldNames, "`id`", "`create_at`", "`create_time`", "`created_at`", "`update_at`", "`update_time`", "`updated_at`"), "=?,") + "=?"
+	localLifeCreationFieldNames          = builder.RawFieldNames(&LocalLifeCreation{})
+	localLifeCreationRows                = strings.Join(localLifeCreationFieldNames, ",")
+	localLifeCreationRowsExpectAutoSet   = strings.Join(stringx.Remove(localLifeCreationFieldNames, "`id`", "`create_at`", "`create_time`", "`created_at`", "`update_at`", "`update_time`", "`updated_at`"), ",")
+	localLifeCreationRowsWithPlaceHolder = strings.Join(stringx.Remove(localLifeCreationFieldNames, "`id`", "`create_at`", "`create_time`", "`created_at`", "`update_at`", "`update_time`", "`updated_at`"), "=?,") + "=?"
 )
 
 type (
-	afvImageCreationModel interface {
-		Insert(ctx context.Context, data *AfvImageCreation) (sql.Result, error)
-		FindOne(ctx context.Context, id int64) (*AfvImageCreation, error)
-		FindOneByUserIdRequestId(ctx context.Context, userId int64, requestId sql.NullString) (*AfvImageCreation, error)
-		Update(ctx context.Context, data *AfvImageCreation) error
+	localLifeCreationModel interface {
+		Insert(ctx context.Context, data *LocalLifeCreation) (sql.Result, error)
+		FindOne(ctx context.Context, id int64) (*LocalLifeCreation, error)
+		FindOneByUserIdRequestId(ctx context.Context, userId int64, requestId sql.NullString) (*LocalLifeCreation, error)
+		Update(ctx context.Context, data *LocalLifeCreation) error
 		Delete(ctx context.Context, id int64) error
 	}
 
-	defaultAfvImageCreationModel struct {
+	defaultLocalLifeCreationModel struct {
 		conn  sqlx.SqlConn
 		table string
 	}
 
-	AfvImageCreation struct {
+	LocalLifeCreation struct {
 		Id              int64          `db:"id"`                // 主键ID
 		UserId          int64          `db:"user_id"`           // 创建用户ID
 		Kind            string         `db:"kind"`              // 类型：poster-海报（执行面78） longImage-长图（执行面76）
@@ -66,22 +66,22 @@ type (
 	}
 )
 
-func newAfvImageCreationModel(conn sqlx.SqlConn) *defaultAfvImageCreationModel {
-	return &defaultAfvImageCreationModel{
+func newLocalLifeCreationModel(conn sqlx.SqlConn) *defaultLocalLifeCreationModel {
+	return &defaultLocalLifeCreationModel{
 		conn:  conn,
-		table: "`afv_image_creation`",
+		table: "`afv_local_life_creation`",
 	}
 }
 
-func (m *defaultAfvImageCreationModel) Delete(ctx context.Context, id int64) error {
+func (m *defaultLocalLifeCreationModel) Delete(ctx context.Context, id int64) error {
 	query := fmt.Sprintf("delete from %s where `id` = ?", m.table)
 	_, err := m.conn.ExecCtx(ctx, query, id)
 	return err
 }
 
-func (m *defaultAfvImageCreationModel) FindOne(ctx context.Context, id int64) (*AfvImageCreation, error) {
-	query := fmt.Sprintf("select %s from %s where `id` = ? limit 1", afvImageCreationRows, m.table)
-	var resp AfvImageCreation
+func (m *defaultLocalLifeCreationModel) FindOne(ctx context.Context, id int64) (*LocalLifeCreation, error) {
+	query := fmt.Sprintf("select %s from %s where `id` = ? limit 1", localLifeCreationRows, m.table)
+	var resp LocalLifeCreation
 	err := m.conn.QueryRowCtx(ctx, &resp, query, id)
 	switch err {
 	case nil:
@@ -93,9 +93,9 @@ func (m *defaultAfvImageCreationModel) FindOne(ctx context.Context, id int64) (*
 	}
 }
 
-func (m *defaultAfvImageCreationModel) FindOneByUserIdRequestId(ctx context.Context, userId int64, requestId sql.NullString) (*AfvImageCreation, error) {
-	var resp AfvImageCreation
-	query := fmt.Sprintf("select %s from %s where `user_id` = ? and `request_id` = ? limit 1", afvImageCreationRows, m.table)
+func (m *defaultLocalLifeCreationModel) FindOneByUserIdRequestId(ctx context.Context, userId int64, requestId sql.NullString) (*LocalLifeCreation, error) {
+	var resp LocalLifeCreation
+	query := fmt.Sprintf("select %s from %s where `user_id` = ? and `request_id` = ? limit 1", localLifeCreationRows, m.table)
 	err := m.conn.QueryRowCtx(ctx, &resp, query, userId, requestId)
 	switch err {
 	case nil:
@@ -107,18 +107,18 @@ func (m *defaultAfvImageCreationModel) FindOneByUserIdRequestId(ctx context.Cont
 	}
 }
 
-func (m *defaultAfvImageCreationModel) Insert(ctx context.Context, data *AfvImageCreation) (sql.Result, error) {
-	query := fmt.Sprintf("insert into %s (%s) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", m.table, afvImageCreationRowsExpectAutoSet)
+func (m *defaultLocalLifeCreationModel) Insert(ctx context.Context, data *LocalLifeCreation) (sql.Result, error) {
+	query := fmt.Sprintf("insert into %s (%s) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", m.table, localLifeCreationRowsExpectAutoSet)
 	ret, err := m.conn.ExecCtx(ctx, query, data.UserId, data.Kind, data.Content, data.CopywritingId, data.MaterialUrls, data.TemplateAssetId, data.TemplateUrl, data.InputImageUrl, data.InputVideoUrl, data.InputBgUrl, data.PosterType, data.PosterStyle, data.Size, data.Duration, data.Model, data.ImageCount, data.Tasks, data.ImageUrls, data.RequestId, data.Status, data.FailReason, data.Deleted)
 	return ret, err
 }
 
-func (m *defaultAfvImageCreationModel) Update(ctx context.Context, newData *AfvImageCreation) error {
-	query := fmt.Sprintf("update %s set %s where `id` = ?", m.table, afvImageCreationRowsWithPlaceHolder)
+func (m *defaultLocalLifeCreationModel) Update(ctx context.Context, newData *LocalLifeCreation) error {
+	query := fmt.Sprintf("update %s set %s where `id` = ?", m.table, localLifeCreationRowsWithPlaceHolder)
 	_, err := m.conn.ExecCtx(ctx, query, newData.UserId, newData.Kind, newData.Content, newData.CopywritingId, newData.MaterialUrls, newData.TemplateAssetId, newData.TemplateUrl, newData.InputImageUrl, newData.InputVideoUrl, newData.InputBgUrl, newData.PosterType, newData.PosterStyle, newData.Size, newData.Duration, newData.Model, newData.ImageCount, newData.Tasks, newData.ImageUrls, newData.RequestId, newData.Status, newData.FailReason, newData.Deleted, newData.Id)
 	return err
 }
 
-func (m *defaultAfvImageCreationModel) tableName() string {
+func (m *defaultLocalLifeCreationModel) tableName() string {
 	return m.table
 }

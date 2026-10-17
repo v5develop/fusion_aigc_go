@@ -11,9 +11,9 @@ service ImageGen {
   // 模板列表（复用现有模板素材表，运营在现有后台维护）
   rpc ListTemplates(ListTemplatesReq) returns (TemplateList);
   // 提交生成（异步，轮询 Get）。一张图一个执行面任务。
-  rpc Create(CreateReq) returns (ImageInfo);
-  rpc Get(IdUserReq) returns (ImageInfo);
-  rpc List(ListReq) returns (ImageList);
+  rpc Create(CreateReq) returns (CreationInfo);
+  rpc Get(IdUserReq) returns (CreationInfo);
+  rpc List(ListReq) returns (CreationList);
   rpc Delete(IdUserReq) returns (Empty);
   // ---- 动作迁移：动作视频（预置来自模板素材表，我的来自用户导入）----
   rpc ListActionVideos(IdUserReq) returns (ActionVideoList);
@@ -33,7 +33,7 @@ service ImageGen {
   rpc DeleteVideo(IdUserReq) returns (Empty);
 
   // ---- 运营后台 ----
-  rpc AdminList(ListReq) returns (ImageList);
+  rpc AdminList(ListReq) returns (CreationList);
   rpc AdminListVideos(VideoListReq) returns (VideoList);
 
   // 生成选项（模型 / 比例 / 时长）的运营配置：只能改启用、名称、排序、默认
@@ -171,7 +171,7 @@ message CreateReq {
   int64 copywriting_id = 23;  // 选填：内容来自哪条 AI文案（文案的生成历史用）
 }
 
-message ImageInfo {
+message CreationInfo {
   int64 id = 1;
   int64 user_id = 2;
   string kind = 3;
@@ -192,6 +192,7 @@ message ImageInfo {
   int32 status = 13;            // 0-生成中 1-已完成（含部分成功） 2-失败
   string fail_reason = 14;
   int64 create_time = 15;
+  string media = 21;            // 成品媒体类型 image / video，由 kind 决定
 }
 
 message ListReq {
@@ -200,10 +201,11 @@ message ListReq {
   int32 status = 3;             // -1 表示全部
   int64 page = 4;
   int64 page_size = 5;
+  string media = 6;             // image / video，空=不限；图片表里视频与图片混存，按 kind 归属
 }
 
-message ImageList {
-  repeated ImageInfo list = 1;
+message CreationList {
+  repeated CreationInfo list = 1;
   int64 total = 2;
 }
 

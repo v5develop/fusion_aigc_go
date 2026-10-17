@@ -50,6 +50,10 @@ func NewServiceContext(c config.Config) *ServiceContext {
 			Table: "afv_digital_human", Prefix: "dh", EntryCode: entry, Type: "video",
 			Status: "CASE status WHEN 2 THEN 2 WHEN 3 THEN 3 ELSE 1 END",
 			Result: "video_url", Cover: "image_url", Fail: "fail_reason", Prompt: "script",
+			RequestPairs: "'prompt', script, 'portraitSource', portrait_source, 'portraitRefId', portrait_ref_id, 'imageUrl', image_url, " +
+				"'voiceId', voice_id, 'copywritingId', copywriting_id, 'duration', duration, 'model', model",
+			ExecTaskID: "video_task_id",
+			ExecParams: "JSON_OBJECT('model', model, 'ttsTaskId', tts_task_id)",
 		}),
 		Config:     c,
 		Billing:    billing.New(c.Billing, conn),

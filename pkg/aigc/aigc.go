@@ -91,18 +91,23 @@ func NewLifeTaskID(prefix, ref, stage string) string {
 	return prefix + "_" + ref + "_" + stage + "_" + hex.EncodeToString(b)
 }
 
-// ExactTaskID 提交给执行面的 task_id 直接等于任务中心的编号（ref，如 AiCreation_life_vid_28），两边完全一致。
+// ExactTaskID 提交给执行面的 task_id：服务前缀 + "_" + 任务中心编号（ref，如 AiCreation_LF_<md5>）。
+//
+// 前缀必须是服务自己的 prefix（执行面按第一段路由，与 NewLifeTaskID 同一条规则）：不能直接用任务中心编号，
+// 否则第一段是 AiCreation，与 Java 外发前缀相同，路由会串到 Java 那边。
+// 整段保留 ref，拿任务中心编号搜执行面日志仍能命中。
 //
 // 只适合一条记录里「只有这一个执行面任务」的步骤（出片、单张图等）。
 // again=true 表示这条记录这个步骤之前提交过（失败后重新生成）：执行面的结果会保留两天，
-// 同一个 task_id 再提交可能读到上一次的旧结果，所以重做时在末尾加 4 位随机码，仍以 ref 开头。
-func ExactTaskID(ref string, again bool) string {
+// 同一个 task_id 再提交可能读到上一次的旧结果，所以重做时在末尾加 4 位随机码，仍以 prefix_ref 开头。
+func ExactTaskID(prefix, ref string, again bool) string {
+	id := prefix + "_" + ref
 	if !again {
-		return ref
+		return id
 	}
 	b := make([]byte, 2)
 	_, _ = rand.Read(b)
-	return ref + "_" + hex.EncodeToString(b)
+	return id + "_" + hex.EncodeToString(b)
 }
 
 // SubmitResult 提交成功的返回。TaskType 是路由后的类型，可能与请求不同（85+lite→45、9 缺省→86、92+lite→91）。
@@ -167,6 +172,19 @@ type Result struct {
 	Traceback  string `json:"traceback"`
 	RetryCount int    `json:"retry_count"`
 	Timestamp  string `json:"timestamp"`
+}
+
+// tracebackLogLimit 排障日志里 traceback 的最大字符数：完整栈只在执行面留存，日志里留头部即可。
+const tracebackLogLimit = 400
+
+// Describe 排障判据：状态、执行面错误码、上游原因、消息、截断的 traceback。只进日志，不进用户可见的 fail_reason
+// （与 Java 的规则一致：网关与供应商原文永不进用户侧的错误文案）。
+func (r *Result) Describe() string {
+	tb := []rune(r.Traceback)
+	if len(tb) > tracebackLogLimit {
+		tb = append(tb[:tracebackLogLimit], []rune("…")...)
+	}
+	return fmt.Sprintf("status=%s error_code=%v upstream=%v msg=%q traceback=%q", r.Status, r.ErrorCode, r.Upstream, r.ErrorMsg, string(tb))
 }
 
 // Done 是否已到终态（success / failed / not_found）。

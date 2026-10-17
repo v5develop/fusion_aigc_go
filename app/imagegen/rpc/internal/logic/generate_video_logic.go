@@ -63,7 +63,7 @@ func (l *GenerateVideoLogic) GenerateVideo(in *pb.GenerateVideoReq) (*pb.VideoIn
 			return nil, err
 		}
 	}
-	taskID := aigc.ExactTaskID(taskcenter.Ref("vid", c.Id), c.GenTaskId.Valid) // 出片只有这一个执行面任务，和任务中心编号一致；失败重做才加随机码
+	taskID := aigc.ExactTaskID(l.svcCtx.Config.TaskIDPrefix, taskcenter.Ref("vid", c.Id), c.GenTaskId.Valid) // 出片只有这一个执行面任务，和任务中心编号一致；失败重做才加随机码
 	// 冻结点数（点数不够就到此为止，状态不动）。出片只提交这一次，用 task_id 当请求号，失败重做的 task_id 不同
 	if _, err := l.svcCtx.Billing.Hold(l.ctx, videoCharge(c, taskID)); err != nil {
 		return nil, err
@@ -77,7 +77,7 @@ func (l *GenerateVideoLogic) GenerateVideo(in *pb.GenerateVideoReq) (*pb.VideoIn
 		return nil, xerr.New(xerr.Conflict, "当前状态不能生成")
 	}
 	if _, err := l.svcCtx.Aigc.Submit(l.ctx, taskID, task); err != nil {
-		l.Errorf("submit %s video %d: %v", c.Kind, c.Id, err)
+		aigc.LogSubmitFailed(l.ctx, aigc.Trace{Service: "imagegen", Kind: c.Kind, Stage: "generate", RecordID: c.Id, UserID: c.UserId, TaskCenterID: taskcenter.Ref("vid", c.Id), ExecTaskID: taskID}, err)
 		failVideo(l.ctx, l.svcCtx, c.Id, model.VideoGenerating, "提交生成失败，请重试")
 		return nil, xerr.New(xerr.ServerError, "提交生成失败，请重试")
 	}

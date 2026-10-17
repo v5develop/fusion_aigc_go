@@ -22,7 +22,7 @@ import (
 type ServiceContext struct {
 	Billing     *billing.Service
 	Config      config.Config
-	Creation    model.AfvImageCreationModel
+	Creation    model.LocalLifeCreationModel
 	ActionVideo model.AfvActionVideoModel
 	// DigitalHumanRpc 解析动作迁移的人物图来源
 	DigitalHumanRpc digitalhuman.DigitalHuman
@@ -45,7 +45,7 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		TaskCenter:      taskcenter.New(conn, 10*time.Minute, taskSources(c)...),
 		Config:          c,
 		Billing:         billing.New(c.Billing, conn),
-		Creation:        model.NewAfvImageCreationModel(conn),
+		Creation:        model.NewLocalLifeCreationModel(conn),
 		ActionVideo:     model.NewAfvActionVideoModel(conn),
 		DigitalHumanRpc: digitalhuman.NewDigitalHuman(zrpc.MustNewClient(c.DigitalHumanRpc)),
 		CopywritingRpc:  copywriting.NewCopywriting(zrpc.MustNewClient(c.CopywritingRpc)),
@@ -77,9 +77,16 @@ func taskSources(c config.Config) []taskcenter.Source {
 	image := func(kind string, k config.KindConf, def string) taskcenter.Source {
 		t := typ(k.AssetType, def)
 		s := taskcenter.Source{
-			Table: "afv_image_creation", Prefix: "img", Kind: kind, EntryCode: code(k.AssetEntryCode, kind), Type: t,
+			Table: "afv_local_life_creation", Prefix: "img", Kind: kind, EntryCode: code(k.AssetEntryCode, kind), Type: t,
 			Status: "CASE status WHEN 0 THEN 1 WHEN 1 THEN 2 ELSE 3 END",
 			Result: "JSON_UNQUOTE(JSON_EXTRACT(image_urls, '$[0]'))", Fail: "fail_reason", Prompt: "content",
+			RequestPairs: "'prompt', content, 'kind', kind, 'size', size, 'model', model, 'duration', duration, 'imageCount', image_count, " +
+				"'posterType', poster_type, 'posterStyle', poster_style, 'templateAssetId', template_asset_id, 'templateUrl', template_url, " +
+				"'materials', material_urls, 'inputImageUrl', input_image_url, 'inputVideoUrl', input_video_url, 'inputBgUrl', input_bg_url, " +
+				"'copywritingId', copywriting_id",
+			// 第一个执行面任务（多张图的其余任务在 tasks 明细里）
+			ExecTaskID: "JSON_UNQUOTE(JSON_EXTRACT(tasks, '$[0].task_id'))",
+			ExecParams: "JSON_OBJECT('model', model, 'size', size, 'duration', duration, 'imageCount', image_count)",
 		}
 		if t == "video" {
 			s.Cover = "input_image_url" // 成品是视频：人物图当封面
@@ -96,6 +103,12 @@ func taskSources(c config.Config) []taskcenter.Source {
 			Status:  "CASE status WHEN 2 THEN 1 WHEN 3 THEN 2 ELSE 3 END",
 			Result:  "video_url", Cover: "COALESCE(char_url, cover_url, video_url)", Fail: "fail_reason",
 			Prompt: "COALESCE(user_text, title)",
+			RequestPairs: "'prompt', COALESCE(user_text, title), 'kind', kind, 'sourceUrl', source_url, 'sourceVideoUrl', source_video_url, " +
+				"'title', title, 'userText', user_text, 'sellingPoints', selling_points, 'shopProfileId', shop_profile_id, " +
+				"'copywritingId', copywriting_id, 'charUrl', char_url, 'env1Url', env1_url, 'env2Url', env2_url, 'propUrl', prop_url, " +
+				"'duration', duration, 'size', size, 'model', model",
+			ExecTaskID: "COALESCE(gen_task_id, plan_task_id)",
+			ExecParams: "JSON_OBJECT('model', model, 'size', size, 'duration', duration)",
 		}
 	}
 	return []taskcenter.Source{

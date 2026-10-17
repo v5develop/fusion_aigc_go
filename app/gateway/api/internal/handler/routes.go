@@ -23,7 +23,7 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 	server.AddRoutes(
 		[]rest.Route{
 			{
-				// 用联盟的临时 token 换本服务的令牌：没有的用户会自动建档
+				// 【已弃用，仅供旧版本使用】用联盟的临时 token 换令牌。新版本请直接调用 AIGC 的 POST /api/v1/auth/union-token-login（同一个临时 token，同一套响应与错误码）。本接口在下线日期前保留，行为与之一致。
 				Method:  http.MethodPost,
 				Path:    "/auth/login",
 				Handler: auth.LoginHandler(serverCtx),
@@ -255,37 +255,37 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				{
 					// 提交生成（一次可出多张，异步）
 					Method:  http.MethodPost,
-					Path:    "/image-creations",
+					Path:    "/creations",
 					Handler: imagegen.CreateHandler(serverCtx),
 				},
 				{
 					// 列表
 					Method:  http.MethodGet,
-					Path:    "/image-creations",
+					Path:    "/creations",
 					Handler: imagegen.ListHandler(serverCtx),
 				},
 				{
 					// 详情（生成中轮询此接口）
 					Method:  http.MethodGet,
-					Path:    "/image-creations/:id",
+					Path:    "/creations/:id",
 					Handler: imagegen.GetHandler(serverCtx),
 				},
 				{
 					// 删除
 					Method:  http.MethodDelete,
-					Path:    "/image-creations/:id",
+					Path:    "/creations/:id",
 					Handler: imagegen.RemoveHandler(serverCtx),
 				},
 				{
 					// 表单配置（海报/长图/动作迁移/数字人口播）
 					Method:  http.MethodGet,
-					Path:    "/image-creations/options",
+					Path:    "/creations/options",
 					Handler: imagegen.OptionsHandler(serverCtx),
 				},
 				{
 					// 模板列表（海报可按类型筛；数字人口播为预设背景）
 					Method:  http.MethodGet,
-					Path:    "/image-creations/templates",
+					Path:    "/creations/templates",
 					Handler: imagegen.TemplatesHandler(serverCtx),
 				},
 			}...,

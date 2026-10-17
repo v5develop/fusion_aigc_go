@@ -15,7 +15,7 @@ import (
 // 海报/长图表单配置
 func OptionsHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var req types.ImageGenOptionsReq
+		var req types.CreationOptionsReq
 		if err := httpx.Parse(r, &req); err != nil {
 			httpx.ErrorCtx(r.Context(), w, err)
 			return

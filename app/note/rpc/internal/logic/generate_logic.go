@@ -75,7 +75,7 @@ func (l *GenerateLogic) Generate(in *pb.GenerateReq) (*pb.NoteInfo, error) {
 		return nil, xerr.New(xerr.Conflict, "构思结果异常，请重新构思")
 	}
 
-	taskID := aigc.ExactTaskID(taskcenter.Ref("note", n.Id), n.GenTaskId.Valid) // 出图只有这一个执行面任务，和任务中心编号一致；失败重做才加随机码
+	taskID := aigc.ExactTaskID(l.svcCtx.Config.TaskIDPrefix, taskcenter.Ref("note", n.Id), n.GenTaskId.Valid) // 出图只有这一个执行面任务，和任务中心编号一致；失败重做才加随机码
 	// 冻结点数（点数不够就到此为止，状态不动）
 	if _, err := l.svcCtx.Billing.Hold(l.ctx, noteCharge(n.UserId, taskID, count)); err != nil {
 		return nil, err

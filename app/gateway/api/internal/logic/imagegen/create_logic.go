@@ -29,7 +29,7 @@ func NewCreateLogic(ctx context.Context, svcCtx *svc.ServiceContext) *CreateLogi
 	}
 }
 
-func (l *CreateLogic) Create(req *types.CreateImageGenReq) (resp *types.ImageCreation, err error) {
+func (l *CreateLogic) Create(req *types.CreateCreationReq) (resp *types.Creation, err error) {
 	out, err := l.svcCtx.ImageGenRpc.Create(l.ctx, &imagegen.CreateReq{
 		CopywritingId: req.CopywritingId,
 		UserId:        ctxdata.UserID(l.ctx), Kind: req.Kind, Content: req.Content, MaterialUrls: req.MaterialUrls, TemplateId: req.TemplateId,
@@ -42,5 +42,5 @@ func (l *CreateLogic) Create(req *types.CreateImageGenReq) (resp *types.ImageCre
 	if err != nil {
 		return nil, err
 	}
-	return toImageCreation(out), nil
+	return toCreation(out), nil
 }

@@ -205,7 +205,7 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				{
 					// 用户海报/长图列表（只读，排查用）
 					Method:  http.MethodGet,
-					Path:    "/image-creations",
+					Path:    "/creations",
 					Handler: imagegen.ListHandler(serverCtx),
 				},
 				{
