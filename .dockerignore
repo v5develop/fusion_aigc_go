@@ -3,7 +3,12 @@ docs
 bin
 dist
 data
-deploy/docker/etc
+logs
+tests
+*.md
 .env
 app.env
-*.md
+deploy/docker/.env
+deploy/docker/etc
+deploy/docker/nginx
+deploy/docker/backup

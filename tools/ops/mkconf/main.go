@@ -69,6 +69,7 @@ func main() {
 	accessHours := flag.Int("token-access-hours", 2, "App 令牌有效小时，必须与 Java 的 TOKEN_ACCESS_HOURS 一致")
 	refreshDays := flag.Int("token-refresh-days", 7, "刷新令牌天数，必须与 Java 的 TOKEN_REFRESH_DAYS 一致")
 	sessionMax := flag.Int("session-max", 0, "每用户并发会话上限，0 = 不限，必须与 Java 的 max-concurrent-sessions 一致")
+	logConsole := flag.Bool("log-console", false, "日志输出到标准输出（容器部署用，由 Docker 负责轮转）；默认写文件")
 	swagger := flag.Bool("swagger", false, "网关与后台是否开放 /swagger 接口文档（正式环境必须关）")
 	billingMode := flag.String("billing-mode", "", "计费档位 off / shadow / on（写进笔记、数字人、图片视频三个服务的 Billing.Mode），留空保持开发配置")
 	flag.Parse()
@@ -106,7 +107,7 @@ func main() {
 			log.Fatalf("%s: %v", file, err)
 		}
 		root := doc.Content[0]
-		e := editor{name: name, ports: portOf, dsn: *dsn, aigc: *aigc, logDir: filepath.Join(*logs, name), keepDays: *keepDays,
+		e := editor{name: name, ports: portOf, dsn: *dsn, aigc: *aigc, logDir: filepath.Join(*logs, name), keepDays: *keepDays, logConsole: *logConsole,
 			jwtSecret: *jwtSecret, adminJwtSecret: *adminJwtSecret, authMode: *authMode, union: *union,
 			linkParse: *linkParse, unionRedis: *unionRedis, unionRedisPass: *unionRedisPass, unionRedisDB: *unionRedisDB,
 			unionDSN: *unionDSN, unionTable: *unionTable, unionPhoneKey: *unionPhoneKey, sessionRedis: *sessionRedis, sessionRedisPass: *sessionRedisPass,
@@ -175,6 +176,7 @@ type editor struct {
 	aigc             string
 	logDir           string
 	keepDays         int
+	logConsole       bool
 }
 
 func (e editor) apply(root *yaml.Node) error {
@@ -186,10 +188,14 @@ func (e editor) apply(root *yaml.Node) error {
 		set(root, "Swagger", scalar(strconv.FormatBool(e.swagger)))
 		set(root, "Host", scalar(e.listenHost)) // 只绑回环，公网只经 nginx
 	}
-	set(root, "Log", mapping(
-		"Mode", scalar("file"), "Path", scalar(e.logDir), "KeepDays", scalar(strconv.Itoa(e.keepDays)),
-		"Encoding", scalar("plain"), "Rotation", scalar("daily"),
-	))
+	if e.logConsole { // 容器：写标准输出，JSON 便于日志采集，轮转交给 Docker 的日志驱动
+		set(root, "Log", mapping("Mode", scalar("console"), "Encoding", scalar("json")))
+	} else {
+		set(root, "Log", mapping(
+			"Mode", scalar("file"), "Path", scalar(e.logDir), "KeepDays", scalar(strconv.Itoa(e.keepDays)),
+			"Encoding", scalar("plain"), "Rotation", scalar("daily"),
+		))
+	}
 	port := strconv.Itoa(e.ports[e.name])
 	if get(root, "ListenOn") != nil { // rpc 服务端：只在本机监听，不注册 etcd
 		set(root, "ListenOn", scalar("127.0.0.1:"+port))

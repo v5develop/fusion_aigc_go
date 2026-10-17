@@ -10,6 +10,7 @@
 #   bash install.sh check-billing   计费配置检查（缺场景/步骤/单价、档位配错会报出来）
 #   bash install.sh seed-templates  造联调用的公共素材（公共数字人 / 模板 / 口播背景 / 动作视频）
 #   bash install.sh uninstall  停止并注销服务（不删数据库、不删安装目录）
+#   bash install.sh prepare    容器部署专用（docker compose 的 prepare 服务调用）：检查数据库 → 迁移 → 生成配置 → 渲染 nginx → 计费自检
 #
 # 不影响服务器上已有的项目：只新建 aigc-life-* 服务，端口不与已占用的冲突（冲突会停下来提示），
 # 数据库只新建本项目的 afv_* 新表 / 插配置数据，不改现有表结构。
@@ -28,7 +29,9 @@ die()    { red "✗ $*"; exit 1; }
 # ---------- 配置 ----------
 load_env() {
   local f="" installed=${INSTALL_DIR:-/opt/aigc-life}/deploy.env
-  if [[ -f $PKG/deploy.env ]]; then
+  if [[ ${AIGC_CONTAINER:-0} == 1 ]]; then
+    : # 容器部署：配置全部来自环境变量（compose 的 env_file），不读写 deploy.env
+  elif [[ -f $PKG/deploy.env ]]; then
     f=$PKG/deploy.env
     # 两份都存在且内容不一样：十有八九是改错了文件（改了装好的那份，而这里读的是包里这份，
     # 装完还会把它覆盖掉，改动就"凭空消失"）。踩过一次，所以这里拦一下。
@@ -46,10 +49,12 @@ load_env() {
     exit 1
   fi
   # shellcheck disable=SC1090
-  source "$f"
+  if [[ -n $f ]]; then source "$f"; fi
   ENV_FILE=$f
   INSTALL_DIR=${INSTALL_DIR:-/opt/aigc-life}
   DB_HOST=${DB_HOST:-127.0.0.1}; DB_PORT=${DB_PORT:-3306}; DB_NAME=${DB_NAME:-fusion_aigc}; DB_USER=${DB_USER:-root}
+  # mysql / mysqldump 的额外连接参数（如 --ssl）：MySQL 8 的 caching_sha2_password 账号在不走 TLS 时可能需要
+  MYSQL_OPTS=${MYSQL_OPTS:-}; read -r -a MYSQL_OPT_ARR <<< "$MYSQL_OPTS"
   GATEWAY_PORT=${GATEWAY_PORT:-18888}; ADMIN_PORT=${ADMIN_PORT:-18889}
   COPYWRITING_PORT=${COPYWRITING_PORT:-19201}; DIGITALHUMAN_PORT=${DIGITALHUMAN_PORT:-19202}
   NOTE_PORT=${NOTE_PORT:-19203}; IMAGEGEN_PORT=${IMAGEGEN_PORT:-19204}
@@ -70,9 +75,6 @@ load_env() {
   }
   AIGC_ENDPOINT=${AIGC_ENDPOINT:-$(java_env AIGC_BASE_URL)}
   BILLING_MODE=${BILLING_MODE:-on}
-  case $BILLING_MODE in off|shadow|on) ;; *) die "BILLING_MODE 只能是 off / shadow / on，现在是：$BILLING_MODE" ;; esac
-  # 正式版不允许免费：只接受 on（off / shadow 都不扣点）
-  if [[ $BILLING_MODE != on ]]; then die "正式版只允许 BILLING_MODE=on（当前 $BILLING_MODE，线上不允许免费）"; fi
   SESSION_REDIS_ADDR=${SESSION_REDIS_ADDR:-}; SESSION_REDIS_PASS=${SESSION_REDIS_PASS:-}
   SESSION_REDIS_DB=${SESSION_REDIS_DB:-10}
   # 会话与 Java 共用：下面三项必须与 Java 生产环境的 max-concurrent-sessions / TOKEN_ACCESS_HOURS / TOKEN_REFRESH_DAYS 一致
@@ -81,15 +83,27 @@ load_env() {
   TOKEN_REFRESH_DAYS=${TOKEN_REFRESH_DAYS:-$(java_env TOKEN_REFRESH_DAYS)}; TOKEN_REFRESH_DAYS=${TOKEN_REFRESH_DAYS:-7}
   # 公网域名与 Java 的地址：nginx 把 App 接口和刷新令牌分别转到网关与 Java
   PUBLIC_DOMAIN=${PUBLIC_DOMAIN:-}; JAVA_UPSTREAM=${JAVA_UPSTREAM:-127.0.0.1:18080}
-  [[ -n $PUBLIC_DOMAIN ]] || die "PUBLIC_DOMAIN 必填：前端访问的域名（nginx 的 server_name）"
   FUSION_BASE_URL=${FUSION_BASE_URL:-}; FUSION_APP_KEY=${FUSION_APP_KEY:-}
   FUSION_APP_SECRET=${FUSION_APP_SECRET:-}; FUSION_KEY_VERSION=${FUSION_KEY_VERSION:-}
+  SERVICES=("${RPCS[@]}" "${APIS[@]}")
+  if command -v systemctl >/dev/null 2>&1 && [[ -d /run/systemd/system ]]; then USE_SYSTEMD=1; else USE_SYSTEMD=0; fi
+}
+
+# validate_release 正式版的硬规则。只在 install / prepare 时检查，
+# 这样老安装缺新配置项时，status / logs / stop / uninstall 仍然能用。
+validate_release() {
+  # JAVA_ENV_FILE 指向不存在的宿主机路径时，Docker 会把它挂成空目录，后面只会报「缺 AIGC_ENDPOINT」，很难查
+  if [[ -n ${JAVA_ENV_FILE:-} && -d $JAVA_ENV_FILE ]]; then die "JAVA_ENV_FILE 指向的是目录而不是文件（容器部署时多半是宿主机上这个路径不存在）：检查 .env 里的 JAVA_ENV_FILE"; fi
+  case $BILLING_MODE in off|shadow|on) ;; *) die "BILLING_MODE 只能是 off / shadow / on，现在是：$BILLING_MODE" ;; esac
+  # 正式版不允许免费：只接受 on（off / shadow 都不扣点）
+  if [[ $BILLING_MODE != on ]]; then die "正式版只允许 BILLING_MODE=on（当前 ${BILLING_MODE}，线上不允许免费）"; fi
+  # 正式版必须与 Java 共用会话：nginx 把登录、点数、素材等 /api/v1/ 接口转给 Java，令牌必须两边都认
+  [[ -n $SESSION_REDIS_ADDR ]] || die "SESSION_REDIS_ADDR 必填：填 Java 会话所在的 Redis（库号 SESSION_REDIS_DB 与 Java 的 REDIS_DB 一致），否则 App 令牌在 Java 接口上无效"
+  [[ -n $PUBLIC_DOMAIN ]] || die "PUBLIC_DOMAIN 必填：前端访问的域名（nginx 的 server_name）"
   [[ -n ${AIGC_ENDPOINT:-} ]] || die "必须填 AIGC_ENDPOINT（或在 deploy.env 设 JAVA_ENV_FILE，从 Java 的 .env 读取 AIGC_BASE_URL）"
   [[ $TASK_ID_PREFIX =~ ^[A-Za-z0-9]+$ ]] || die "TASK_ID_PREFIX 只能是字母数字（不含下划线），当前：$TASK_ID_PREFIX"
   # 正式版只支持 token：dev 会信任请求头 X-User-Id / X-Admin-Id，任何人可冒充用户或管理员
-  if [[ $AUTH_MODE != token ]]; then die "正式版只支持 AUTH_MODE=token（当前 $AUTH_MODE）"; fi
-  SERVICES=("${RPCS[@]}" "${APIS[@]}")
-  if command -v systemctl >/dev/null 2>&1 && [[ -d /run/systemd/system ]]; then USE_SYSTEMD=1; else USE_SYSTEMD=0; fi
+  if [[ $AUTH_MODE != token ]]; then die "正式版只支持 AUTH_MODE=token（当前 ${AUTH_MODE}）"; fi
 }
 
 port_of() {
@@ -110,10 +124,10 @@ find_mysql() {
 }
 
 # q "SQL" → 查询结果（无表头）
-q() { MYSQL_PWD="$DB_PASS" "$MYSQL_BIN" -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" --default-character-set=utf8mb4 -N -B "$DB_NAME" -e "$1"; }
+q() { MYSQL_PWD="$DB_PASS" "$MYSQL_BIN" -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" ${MYSQL_OPT_ARR[@]+"${MYSQL_OPT_ARR[@]}"} --default-character-set=utf8mb4 -N -B "$DB_NAME" -e "$1"; }
 
-run_sql_file() { MYSQL_PWD="$DB_PASS" "$MYSQL_BIN" -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" --default-character-set=utf8mb4 "$DB_NAME" < "$1"; }
-db_exec() { MYSQL_PWD="$DB_PASS" "$MYSQL_BIN" -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" --default-character-set=utf8mb4 "$DB_NAME" -e "$1"; }
+run_sql_file() { MYSQL_PWD="$DB_PASS" "$MYSQL_BIN" -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" ${MYSQL_OPT_ARR[@]+"${MYSQL_OPT_ARR[@]}"} --default-character-set=utf8mb4 "$DB_NAME" < "$1"; }
+db_exec() { MYSQL_PWD="$DB_PASS" "$MYSQL_BIN" -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" ${MYSQL_OPT_ARR[@]+"${MYSQL_OPT_ARR[@]}"} --default-character-set=utf8mb4 "$DB_NAME" -e "$1"; }
 
 has_table()  { [[ $(q "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$DB_NAME' AND table_name='$1'") != 0 ]]; }
 has_column() { [[ $(q "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='$DB_NAME' AND table_name='$1' AND column_name='$2'") != 0 ]]; }
@@ -131,7 +145,7 @@ backup_db() {
   [[ -n ${dump:-} && -x $dump ]] || die "BACKUP_BEFORE_MIGRATE=1 但找不到 mysqldump"
   out="${INSTALL_DIR:-/opt/aigc-life}/backup/${DB_NAME}-$(date +%Y%m%d-%H%M%S).sql.gz"
   mkdir -p "$(dirname "$out")"
-  MYSQL_PWD="$DB_PASS" "$dump" -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" --single-transaction --quick --no-tablespaces "$DB_NAME" | gzip > "$out" \
+  MYSQL_PWD="$DB_PASS" "$dump" -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" ${MYSQL_OPT_ARR[@]+"${MYSQL_OPT_ARR[@]}"} --single-transaction --quick --no-tablespaces "$DB_NAME" | gzip > "$out" \
     || die "迁移前备份失败：$out"
   green "  ✓ 迁移前备份：$out"
 }
@@ -249,6 +263,8 @@ ensure_secret() {
   local var=$1 val
   eval "val=\${$var:-}"
   [[ -n $val ]] && return
+  # 容器部署没有可写回的 deploy.env：自动生成会让每次重建都换密钥，已登录用户的令牌全部失效
+  [[ ${AIGC_CONTAINER:-0} == 1 ]] && die "${var} 必填（容器部署不自动生成；用 openssl rand -hex 32 生成后写进 .env，之后不要再变）"
   val=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')
   eval "$var=\$val"
   if grep -q "^$var=" "$ENV_FILE"; then
@@ -257,6 +273,35 @@ ensure_secret() {
     printf '\n%s=%s\n' "$var" "$val" >> "$ENV_FILE"
   fi
   green "  ✓ 已生成 ${var}，写回 ${ENV_FILE}"
+}
+
+# gen_conf <mkconf 路径> <输出目录> [mkconf 的额外参数…]：由开发配置生成正式配置。一键安装与容器部署共用这一份。
+gen_conf() {
+  local bin=$1 out=$2; shift 2
+  local dsn="$DB_USER:$DB_PASS@tcp($DB_HOST:$DB_PORT)/$DB_NAME?charset=utf8mb4&parseTime=true&loc=Asia%2FShanghai&time_zone=%27%2B08%3A00%27"
+  "$bin" -src "$PKG/etc-dev" -out "$out" -logs "$INSTALL_DIR/logs" \
+    -dsn "$dsn" -aigc "$AIGC_ENDPOINT" -keep-days "$LOG_KEEP_DAYS" \
+    -jwt-secret "$JWT_SECRET" -admin-jwt-secret "$ADMIN_JWT_SECRET" \
+    -auth-mode "$AUTH_MODE" -union "$UNION_BASE_URL" -swagger=$([[ $SWAGGER_ENABLED == 1 ]] && echo true || echo false) -task-id-prefix "$TASK_ID_PREFIX" \
+    -link-parse "$LINK_PARSE_URL" \
+    -union-redis "$UNION_REDIS_ADDR" -union-redis-pass "$UNION_REDIS_PASS" \
+    -union-redis-db "$UNION_REDIS_DB" \
+    -union-db-dsn "$UNION_DB_DSN" -union-user-table "$UNION_USER_TABLE" \
+    -union-phone-key "$UNION_PHONE_AES_KEY" \
+    -session-redis "$SESSION_REDIS_ADDR" -session-redis-pass "$SESSION_REDIS_PASS" \
+    -session-redis-db "$SESSION_REDIS_DB" -session-max "$SESSION_MAX_CONCURRENT" \
+    -token-access-hours "$TOKEN_ACCESS_HOURS" -token-refresh-days "$TOKEN_REFRESH_DAYS" \
+    -fusion-url "$FUSION_BASE_URL" -fusion-key "$FUSION_APP_KEY" -fusion-secret "$FUSION_APP_SECRET" \
+    -fusion-key-version "$FUSION_KEY_VERSION" -billing-mode "$BILLING_MODE" \
+    -ports "copywriting=$COPYWRITING_PORT,digitalhuman=$DIGITALHUMAN_PORT,note=$NOTE_PORT,imagegen=$IMAGEGEN_PORT,gateway=$GATEWAY_PORT,admin=$ADMIN_PORT" "$@"
+  chmod 600 "$out"/*.yaml   # 配置里有数据库口令、JWT 密钥、会话 Redis 口令
+}
+
+# render_nginx：渲染 nginx 站点配置到 $INSTALL_DIR/nginx/aigc-life.conf（宿主机 nginx 加载它）
+render_nginx() {
+  mkdir -p "$INSTALL_DIR/nginx"
+  sed -e "s|__SERVER_NAME__|$PUBLIC_DOMAIN|g" -e "s|__GATEWAY_PORT__|$GATEWAY_PORT|g" -e "s|__JAVA_UPSTREAM__|$JAVA_UPSTREAM|g" \
+    "$PKG/nginx/aigc-life.conf.tmpl" > "$INSTALL_DIR/nginx/aigc-life.conf"
 }
 
 # ---------- 服务 ----------
@@ -366,6 +411,7 @@ self_check() {
 
 # ---------- 命令 ----------
 cmd_install() {
+  validate_release
   step "1/6 检查环境"
   [[ $(id -u) == 0 ]] || die "请用 root 执行（宝塔终端默认就是 root）"
   [[ $(uname -s) == Linux && $(uname -m) == x86_64 ]] || die "只支持 Linux x86_64，当前 $(uname -s) $(uname -m)"
@@ -382,7 +428,7 @@ cmd_install() {
   check_external_tables
   check_db_config
 
-  step "3/6 建表（只新建本项目的表，已存在的自动跳过）"
+  step "3/6 数据库迁移（Go_V*.sql，记录在 go_schema_history，已执行的跳过）"
   migrate_go
 
   step "4/6 安装程序与配置 → $INSTALL_DIR"
@@ -400,29 +446,11 @@ cmd_install() {
     yellow "  ! 计费配置有问题（见上）。当前 BILLING_MODE=${BILLING_MODE:-off}，不影响安装；开计费前必须全部修好"
   fi
   chmod +x "$INSTALL_DIR"/bin/*
-  mkdir -p "$INSTALL_DIR/nginx"
-  sed -e "s|__SERVER_NAME__|$PUBLIC_DOMAIN|g" -e "s|__GATEWAY_PORT__|$GATEWAY_PORT|g" -e "s|__JAVA_UPSTREAM__|$JAVA_UPSTREAM|g" \
-    "$PKG/nginx/aigc-life.conf.tmpl" > "$INSTALL_DIR/nginx/aigc-life.conf"
+  render_nginx
   [[ $ENV_FILE == "$INSTALL_DIR/deploy.env" ]] || cp -f "$ENV_FILE" "$INSTALL_DIR/deploy.env"
   chmod 600 "$INSTALL_DIR/deploy.env"
   cp -rf "$PKG"/sql "$PKG"/scripts "$PKG"/docs "$PKG"/install.sh "$PKG"/deploy.env.example "$PKG"/VERSION "$INSTALL_DIR/" 2>/dev/null || true
-  local dsn="$DB_USER:$DB_PASS@tcp($DB_HOST:$DB_PORT)/$DB_NAME?charset=utf8mb4&parseTime=true&loc=Asia%2FShanghai&time_zone=%27%2B08%3A00%27"
-  "$INSTALL_DIR/bin/mkconf" -src "$PKG/etc-dev" -out "$INSTALL_DIR/etc" -logs "$INSTALL_DIR/logs" \
-    -dsn "$dsn" -aigc "$AIGC_ENDPOINT" -keep-days "$LOG_KEEP_DAYS" \
-    -jwt-secret "$JWT_SECRET" -admin-jwt-secret "$ADMIN_JWT_SECRET" \
-    -auth-mode "$AUTH_MODE" -union "$UNION_BASE_URL" -swagger=$([[ $SWAGGER_ENABLED == 1 ]] && echo true || echo false) -task-id-prefix "$TASK_ID_PREFIX" \
-    -link-parse "$LINK_PARSE_URL" \
-    -union-redis "$UNION_REDIS_ADDR" -union-redis-pass "$UNION_REDIS_PASS" \
-    -union-redis-db "$UNION_REDIS_DB" \
-    -union-db-dsn "$UNION_DB_DSN" -union-user-table "$UNION_USER_TABLE" \
-    -union-phone-key "$UNION_PHONE_AES_KEY" \
-    -session-redis "$SESSION_REDIS_ADDR" -session-redis-pass "$SESSION_REDIS_PASS" \
-    -session-redis-db "$SESSION_REDIS_DB" -session-max "$SESSION_MAX_CONCURRENT" \
-    -token-access-hours "$TOKEN_ACCESS_HOURS" -token-refresh-days "$TOKEN_REFRESH_DAYS" \
-    -fusion-url "$FUSION_BASE_URL" -fusion-key "$FUSION_APP_KEY" -fusion-secret "$FUSION_APP_SECRET" \
-    -fusion-key-version "$FUSION_KEY_VERSION" -billing-mode "$BILLING_MODE" \
-    -ports "copywriting=$COPYWRITING_PORT,digitalhuman=$DIGITALHUMAN_PORT,note=$NOTE_PORT,imagegen=$IMAGEGEN_PORT,gateway=$GATEWAY_PORT,admin=$ADMIN_PORT"
-  chmod 600 "$INSTALL_DIR"/etc/*.yaml   # 配置里有数据库口令、JWT 密钥、会话 Redis 口令
+  gen_conf "$INSTALL_DIR/bin/mkconf" "$INSTALL_DIR/etc"
 
   step "5/6 启动服务"
   local s
@@ -461,6 +489,39 @@ cmd_install() {
   首次部署：bash $INSTALL_DIR/install.sh voices          生成系统音色试听
             bash $INSTALL_DIR/install.sh seed-templates  造公共数字人 / 模板 / 口播背景 / 动作视频（联调用）
 EOF
+}
+
+# cmd_prepare 容器部署的一次性准备：服务容器在它成功退出后才启动。规则与一键安装完全一致。
+cmd_prepare() {
+  [[ ${AIGC_CONTAINER:-0} == 1 ]] || die "prepare 只用于容器部署（由 docker compose 的 prepare 服务调用）"
+  validate_release
+  echo "版本 $(cat "$PKG/VERSION" 2>/dev/null || echo '?')，执行面 ${AIGC_ENDPOINT}"
+
+  step "1/5 检查数据库"
+  find_mysql
+  q "SELECT 1" >/dev/null || die "连不上数据库 $DB_USER@$DB_HOST:$DB_PORT/${DB_NAME}，检查 .env 里的 DB_* 与 MYSQL_OPTS"
+  green "  ✓ 已连接 $DB_HOST:$DB_PORT/$DB_NAME"
+  check_external_tables
+  check_db_config
+
+  step "2/5 数据库迁移（Go_V*.sql，记录在 go_schema_history，已执行的跳过）"
+  migrate_go
+
+  step "3/5 生成配置 → $INSTALL_DIR/etc"
+  ensure_secret JWT_SECRET
+  ensure_secret ADMIN_JWT_SECRET
+  mkdir -p "$INSTALL_DIR/etc"
+  gen_conf "$PKG/bin/mkconf" "$INSTALL_DIR/etc" -log-console
+  # 服务容器以非 root 用户运行：配置交给它，同时只有它能读（含数据库口令、令牌密钥）
+  chown -R "${RUN_UID:-10001}:${RUN_UID:-10001}" "$INSTALL_DIR/etc"
+  chmod 700 "$INSTALL_DIR/etc"
+
+  step "4/5 渲染 nginx → $INSTALL_DIR/nginx/aigc-life.conf"
+  render_nginx
+
+  step "5/5 计费配置检查"
+  cmd_check_billing || die "计费配置有问题（见上）：补齐后重新部署。正式环境不允许带着计费缺口启动"
+  green "准备完成"
 }
 
 cmd_status() {
@@ -527,5 +588,6 @@ case ${1:-install} in
   check-billing) cmd_check_billing ;;
   seed-templates) cmd_seed_templates ;;
   uninstall) cmd_uninstall ;;
+  prepare)   cmd_prepare ;;
   *) sed -n '2,11p' "$0"; exit 1 ;;
 esac

@@ -4,15 +4,16 @@ data/
 .DS_Store
 dist/
 
-# 本地/单机 compose：变量与渲染出的容器配置（含口令）不入库
 .env
-deploy/docker/etc/
-deploy/docker/etc-prod/
-.env.prod
-
-# 本地/单机 compose：环境文件与渲染出的容器配置（含口令）不入库（都在 deploy/ 下）
-deploy/.env
-deploy/.env.prod
 
 # 接口文档静态资源：版本固定，需要纳入版本控制（见该目录 README.md）
 !pkg/swaggerui/dist/
+
+# 容器部署：环境文件与运行时生成的配置、nginx、备份（含口令）不入库
+deploy/docker/.env
+deploy/docker/etc/
+deploy/docker/nginx/
+deploy/docker/backup/
+
+# 一键脚本的部署配置（含数据库口令、自动生成的令牌密钥）不入库
+deploy/server/deploy.env

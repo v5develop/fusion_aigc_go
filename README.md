@@ -49,7 +49,7 @@ ADMIN=http://<host>:8889/admin/v1 deploy/scripts/gen-voice-previews.sh
 ## 本地运行
 
 ```bash
-docker compose -f deploy/docker-compose.yml up -d etcd   # 依赖 etcd；mysql 用现有容器
+docker compose -f deploy/docker/docker-compose.etcd.yml up -d   # 本地开发依赖 etcd；mysql 用现有容器
 make db          # 建新表 + 种子数据
 make run-all     # 编译并后台启动（含 mock-aigc），日志在 logs/
 tests/e2e/e2e.sh               # AI文案端到端测试（49 项，真实调用模型）

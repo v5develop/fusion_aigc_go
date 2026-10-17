@@ -1,0 +1,33 @@
+# 本地 / 联调：叠加在 docker-compose.yml 上，本地构建镜像（含 mock），并起 mock 执行面、联盟、链接解析。
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+#
+# .env 里设 AIGC_IMAGE=aigc-life:dev，执行面等地址指向本机 mock：
+#   AIGC_ENDPOINT=http://127.0.0.1:5055  UNION_BASE_URL=http://127.0.0.1:5056  LINK_PARSE_URL=http://127.0.0.1:5058
+# 正式环境的校验规则（token 鉴权、计费开启、会话共享……）在这里同样生效。
+services:
+  prepare:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+      args:
+        INCLUDE_MOCKS: "1"
+        VERSION: dev
+
+  mock-aigc:
+    image: ${AIGC_IMAGE:?设置 AIGC_IMAGE}
+    network_mode: host
+    restart: unless-stopped
+    command: ["/app/pkg/bin/mock-aigc", "-addr", "127.0.0.1:5055"]
+
+  mock-union:
+    image: ${AIGC_IMAGE:?设置 AIGC_IMAGE}
+    network_mode: host
+    restart: unless-stopped
+    command: ["/app/pkg/bin/mock-union", "-addr", "127.0.0.1:5056"]
+
+  mock-linkparse:
+    image: ${AIGC_IMAGE:?设置 AIGC_IMAGE}
+    network_mode: host
+    restart: unless-stopped
+    command: ["/app/pkg/bin/mock-linkparse", "-addr", "127.0.0.1:5058"]

@@ -4,7 +4,7 @@ RPCS := copywriting digitalhuman note imagegen
 # 使用 goctl 内置默认模板，避免受本机 ~/.goctl 自定义模板影响
 GOCTL_HOME := $(CURDIR)/deploy/goctl
 
-.PHONY: gen gen-rpc gen-api gen-model db build test test-migrate run-all stop-all release package
+.PHONY: gen gen-rpc gen-api gen-model db build test test-migrate run-all stop-all release package image
 
 gen: gen-rpc gen-api gen-model
 
@@ -66,6 +66,14 @@ release:
 		GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -tags timetzdata -trimpath -ldflags '-s -w' -o bin/linux/$$name ./app/$$s || exit 1; \
 	done
 	@ls -lh bin/linux
+
+# 正式镜像（容器部署用）：linux/amd64（线上是 x86_64），不含 mock。
+#   make image IMAGE=<仓库>/aigc-life VERSION=v1.0.0           # 构建到本机
+#   make image IMAGE=<仓库>/aigc-life VERSION=v1.0.0 PUSH=1    # 直接推送；部署时 .env 的 AIGC_IMAGE 填推送后的 digest
+IMAGE ?= aigc-life
+image:
+	docker buildx build --platform linux/amd64 -f deploy/docker/Dockerfile \
+		--build-arg VERSION=$(VERSION) -t $(IMAGE):$(VERSION) $(if $(filter 1,$(PUSH)),--push,--load) .
 
 # 服务器部署包：dist/aigc-life-<版本>.tar.gz，上传到服务器解压后 bash install.sh（见 deploy/server/README.md）
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)

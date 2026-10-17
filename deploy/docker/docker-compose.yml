@@ -1,0 +1,123 @@
+# aigc-life 正式部署（docker compose）
+#
+# 在本目录执行：
+#   cp .env.example .env && chmod 600 .env      # 填写，见 .env.example
+#   docker compose pull                          # 拉取 AIGC_IMAGE 指定的镜像（不在服务器上构建）
+#   docker compose up -d                         # prepare 先跑完，6 个服务才启动
+#   docker compose logs -f prepare               # 看准备过程（迁移、配置、计费自检）
+#
+# 网络：全部 host 网络，与一键脚本部署的拓扑一致——
+#   · 服务只监听 127.0.0.1（网关 18888、后台 18889、rpc 19201–19204），公网只经宿主机 nginx；
+#   · Redis 在宿主机（127.0.0.1:6379），MySQL 是阿里云 RDS（按内网地址连），Java 在 127.0.0.1:18080。
+#
+# 本文件不含 mock。本地联调叠加 docker-compose.dev.yml。
+name: ${COMPOSE_PROJECT_NAME:-aigc-life}
+
+x-svc: &svc
+  image: ${AIGC_IMAGE:?设置 AIGC_IMAGE：镜像仓库地址与版本，建议带 @sha256 digest}
+  network_mode: host
+  restart: unless-stopped
+  init: true
+  environment:
+    TZ: Asia/Shanghai
+  volumes:
+    - ./etc:/app/etc:ro
+  depends_on:
+    prepare:
+      condition: service_completed_successfully
+  logging:
+    driver: json-file
+    options:
+      max-size: "50m"
+      max-file: "5"
+  stop_grace_period: 30s
+  deploy:
+    resources:
+      limits:
+        memory: ${AIGC_MEM_LIMIT:-1g}
+
+x-rpc-health: &rpc-health
+  interval: 10s
+  timeout: 3s
+  retries: 6
+  start_period: 20s
+
+services:
+  # 一次性准备：检查数据库 → 迁移（go_schema_history）→ 生成配置 → 渲染 nginx → 计费自检。
+  # 任何一步失败都退出非 0，服务容器不会启动。逻辑与一键脚本 install.sh 完全一致。
+  prepare:
+    image: ${AIGC_IMAGE:?设置 AIGC_IMAGE}
+    network_mode: host
+    user: "0:0" # 需要把生成的配置交给服务用户（10001），并写备份
+    restart: "no"
+    env_file: [.env]
+    environment:
+      AIGC_CONTAINER: "1"
+      INSTALL_DIR: /app
+      JAVA_ENV_FILE: /run/java.env # 宿主机上 Java 的 .env 挂载到这里（.env 里的 JAVA_ENV_FILE 填宿主机路径）
+    command: ["bash", "/app/pkg/install.sh", "prepare"]
+    volumes:
+      - ./etc:/app/etc
+      - ./nginx:/app/nginx
+      - ./backup:/app/backup
+      - ${JAVA_ENV_FILE:-/dev/null}:/run/java.env:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  copywriting-rpc:
+    <<: *svc
+    command: ["/app/pkg/bin/copywriting-rpc", "-f", "/app/etc/copywriting-rpc.yaml"]
+    healthcheck:
+      <<: *rpc-health
+      test: ["CMD", "bash", "-c", "</dev/tcp/127.0.0.1/${COPYWRITING_PORT:-19201}"]
+
+  digitalhuman-rpc:
+    <<: *svc
+    command: ["/app/pkg/bin/digitalhuman-rpc", "-f", "/app/etc/digitalhuman-rpc.yaml"]
+    healthcheck:
+      <<: *rpc-health
+      test: ["CMD", "bash", "-c", "</dev/tcp/127.0.0.1/${DIGITALHUMAN_PORT:-19202}"]
+
+  note-rpc:
+    <<: *svc
+    command: ["/app/pkg/bin/note-rpc", "-f", "/app/etc/note-rpc.yaml"]
+    healthcheck:
+      <<: *rpc-health
+      test: ["CMD", "bash", "-c", "</dev/tcp/127.0.0.1/${NOTE_PORT:-19203}"]
+
+  imagegen-rpc:
+    <<: *svc
+    command: ["/app/pkg/bin/imagegen-rpc", "-f", "/app/etc/imagegen-rpc.yaml"]
+    healthcheck:
+      <<: *rpc-health
+      test: ["CMD", "bash", "-c", "</dev/tcp/127.0.0.1/${IMAGEGEN_PORT:-19204}"]
+
+  # 网关与后台：未带令牌的请求返回 401 属正常，健康检查只要求进程能应答（1xx–4xx）
+  gateway-api:
+    <<: *svc
+    command: ["/app/pkg/bin/gateway-api", "-f", "/app/etc/gateway-api.yaml"]
+    depends_on:
+      prepare: { condition: service_completed_successfully }
+      copywriting-rpc: { condition: service_healthy }
+      digitalhuman-rpc: { condition: service_healthy }
+      note-rpc: { condition: service_healthy }
+      imagegen-rpc: { condition: service_healthy }
+    healthcheck:
+      <<: *rpc-health
+      test: ["CMD-SHELL", "case $$(curl -s -o /dev/null -m 3 -w '%{http_code}' http://127.0.0.1:${GATEWAY_PORT:-18888}/api/v1/local-life/copywriting/options) in [1-4]??) exit 0;; *) exit 1;; esac"]
+
+  admin-api:
+    <<: *svc
+    command: ["/app/pkg/bin/admin-api", "-f", "/app/etc/admin-api.yaml"]
+    depends_on:
+      prepare: { condition: service_completed_successfully }
+      copywriting-rpc: { condition: service_healthy }
+      digitalhuman-rpc: { condition: service_healthy }
+      note-rpc: { condition: service_healthy }
+      imagegen-rpc: { condition: service_healthy }
+    healthcheck:
+      <<: *rpc-health
+      test: ["CMD-SHELL", "case $$(curl -s -o /dev/null -m 3 -w '%{http_code}' http://127.0.0.1:${ADMIN_PORT:-18889}/admin/v1/copywriting/model) in [1-4]??) exit 0;; *) exit 1;; esac"]

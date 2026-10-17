@@ -59,11 +59,31 @@ record_migration() {
     || die "登记迁移 $name 失败（脚本可能已执行，请人工核对后重跑）"
 }
 
+# sorted_migrations <目录>：按版本号逐段数字排序列出 Go_V*.sql。
+# 不能用通配符的字典序：那样 Go_V1.0.10 会排在 Go_V1.0.2 前面，跑到建表之前去。
+sorted_migrations() {
+  local f name v
+  for f in "$1"/Go_V*.sql; do
+    [[ -e $f ]] || continue
+    name=$(basename "$f"); v=${name#Go_V}; v=${v%%__*}
+    printf '%s %s\n' "$(printf '%s' "$v" | awk -F. '{for(i=1;i<=6;i++) printf "%08d.", ($i==""?0:$i)}')" "$f"
+  done | sort | cut -d' ' -f2-
+}
+
 migrate_go() {
-  backup_db
   db_exec "$GO_SCHEMA_HISTORY_DDL" || die "创建 go_schema_history 失败"
-  local f name version sum recorded t0 t1
-  for f in "$PKG"/sql/Go_V*.sql; do
+  local f name version sum recorded t0 t1 pending=0
+  local files=() line
+  while IFS= read -r line; do files+=("$line"); done < <(sorted_migrations "$PKG/sql")
+  (( ${#files[@]} )) || die "没有找到迁移脚本：$PKG/sql/Go_V*.sql"
+  # 只有确实要执行迁移时才备份：容器部署每次 up 都会跑 prepare，无事可做时不该每次整库 dump
+  for f in "${files[@]}"; do
+    name=$(basename "$f"); version=$(printf '%s' "$name" | sed -E 's/^Go_V([0-9.]+)__.*/\1/')
+    recorded=$(q "SELECT checksum FROM go_schema_history WHERE version='$version' AND success=1 LIMIT 1")
+    if [[ -z $recorded ]] && ! guard_done "$name"; then pending=1; break; fi
+  done
+  if (( pending )); then backup_db; else echo "  - 没有待执行的迁移，跳过备份"; fi
+  for f in "${files[@]}"; do
     name=$(basename "$f")
     version=$(printf '%s' "$name" | sed -E 's/^Go_V([0-9.]+)__.*/\1/')
     [[ $version != "$name" && -n $version ]] || die "迁移文件名不合规（应为 Go_V<版本>__<描述>.sql）：$name"
