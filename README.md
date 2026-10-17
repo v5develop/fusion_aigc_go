@@ -189,7 +189,7 @@ App 带着联盟（xxlm）的 token 调 `POST /api/v1/auth/login`，网关做三
 这样同一个人在现有系统和本服务里是**同一行**。每次登录会把昵称、头像、手机号同步过来（联盟是权威源）。
 
 - 中间件优先认 `Authorization: Bearer <我们的令牌>`；`Auth.Mode=dev` 时没带令牌才退回 `X-User-Id`，**线上设成 `token`**。
-- 令牌密钥 `Auth.Jwt.Secret` 由部署脚本按环境生成写进配置（`deploy.env` 的 `JWT_SECRET`，留空自动生成）。
+- 正式环境不用 JWT：令牌是和 Java 共用的 Redis 会话（`Auth.Session`），`Auth.Jwt.Secret` 由 mkconf 清空，网关在会话开启后不解析 JWT。
 - 不做 refresh token：联盟 token 在 App 手里，过期后再登录一次即可。
 - 本地联调有 `tools/mocks/mock-union`（:5056）模拟联盟这两个接口，`make run-all` 会启动。
 

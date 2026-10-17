@@ -24,37 +24,29 @@ type Conf struct {
 	// BaseURL 联盟用户服务地址，如 https://agent.pengqiwl.com
 	BaseURL        string `json:",optional"`
 	TimeoutSeconds int    `json:",default=10"`
-	// Direct 配了就不调上面那个接口，自己按联盟的方式验临时 token（读它的 Redis + 用户表）。
-	// 服务器访问不到联盟域名时用这条，见 direct.go 里的说明与代价。
-	Direct DirectConf
 }
 
 // ErrUnauthorized 联盟 token 无效或已过期（对方返回非成功码），调用方应让用户重新登录。
 var ErrUnauthorized = errors.New("unionauth: 联盟登录已失效")
 
 type Client struct {
-	conf   Conf
-	hc     *http.Client
-	direct *direct // 配了就优先走它
+	conf Conf
+	hc   *http.Client
 }
 
-// New 建客户端。fallbackDSN 是本服务的 DataSource：自己验那条路没单独配库时复用它
-// （联盟的用户库和我们的库常在同一个 MySQL 实例）。
-func New(c Conf, fallbackDSN string) *Client {
+// New 建客户端。只走联盟的 HTTP 接口，与 Java 的 UnionTokenAuthService 相同：不直连联盟库，也不读联盟 Redis。
+func New(c Conf) *Client {
 	timeout := time.Duration(c.TimeoutSeconds) * time.Second
 	if timeout <= 0 {
 		timeout = 10 * time.Second
 	}
-	return &Client{conf: c, hc: &http.Client{Timeout: timeout}, direct: newDirect(c.Direct, fallbackDSN)}
+	return &Client{conf: c, hc: &http.Client{Timeout: timeout}}
 }
 
-// Enabled 两条路都没配就等于登录不可用，接口直接拒绝而不是去打空地址。
+// Enabled 没配 BaseURL 就等于登录不可用，接口直接拒绝而不是去打空地址。
 func (c *Client) Enabled() bool {
-	return c != nil && (c.direct != nil || strings.TrimSpace(c.conf.BaseURL) != "")
+	return c != nil && strings.TrimSpace(c.conf.BaseURL) != ""
 }
-
-// Direct 是否在自己验（排查时用得上：日志里能看出走的哪条路）。
-func (c *Client) Direct() bool { return c != nil && c.direct != nil }
 
 // User 联盟返回的用户信息。Phone 是脱敏的（如 130****7881），拿不到真实号码。
 //
@@ -82,9 +74,6 @@ type User struct {
 // 传给我们的就是它。它 5 分钟有效、**用一次就失效**，所以只能用在登录这一下，
 // 不能拿来当每次请求的凭证——登录成功后用我们签发的令牌。
 func (c *Client) Login(ctx context.Context, tempToken string) (*User, error) {
-	if c.direct != nil {
-		return c.direct.login(ctx, tempToken)
-	}
 	var u User
 	// 临时 token 在路径里；用一次即失效
 	if err := c.get(ctx, "/api/v1/auth/"+url.PathEscape(tempToken)+"/user", "", &u); err != nil {

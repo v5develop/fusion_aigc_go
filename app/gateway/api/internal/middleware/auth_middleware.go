@@ -71,6 +71,10 @@ func (m *AuthMiddleware) resolve(r *http.Request, raw string) (uid int64, code i
 		}
 		return c.UserID, 0, ""
 	}
+	// 会话开启（正式环境）：令牌只认共用会话，不再解析 JWT，免得一个不该存在的签名路径留着
+	if m.sess.Enabled() {
+		return 0, xerr.Unauthorized, "未登录"
+	}
 	claims, err := token.Parse(m.jwt, raw)
 	switch {
 	case errors.Is(err, token.ErrExpired):

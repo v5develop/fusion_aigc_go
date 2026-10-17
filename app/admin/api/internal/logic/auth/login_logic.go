@@ -33,6 +33,10 @@ func NewLoginLogic(ctx context.Context, svcCtx *svc.ServiceContext) *LoginLogic 
 }
 
 func (l *LoginLogic) Login(req *types.AdminLoginReq) (resp *types.AdminLoginResp, err error) {
+	// 共享模式：后台账号只在 Java 后台登录，令牌写入共用的会话 Redis，这里不再签发
+	if l.svcCtx.Session.Enabled() {
+		return nil, xerr.New(xerr.NotReady, "请用后台统一登录入口（与 Java 后台共用账号）")
+	}
 	username := strings.TrimSpace(req.Username)
 	if username == "" || req.Password == "" {
 		return nil, xerr.New(xerr.ParamError, "请输入用户名和密码")

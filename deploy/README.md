@@ -16,7 +16,7 @@
 | 进程 | 端口 | 说明 |
 |---|---|---|
 | `gateway-api` | 18888 | App 接口 `/api/v1/local-life/*`，nginx 转发 |
-| `admin-api` | 18889 | 运营后台 `/api/v1/local-life/admin/*`，不对公网，ssh 隧道访问 |
+| `admin-api` | 18889 | 运营后台 `/api/v1/local-life/admin/*`，经 nginx 对外，与 Java 后台共用登录令牌，按 RBAC 校验权限 |
 | `copywriting-rpc` | 19201 | AI 文案、店铺档案 |
 | `digitalhuman-rpc` | 19202 | AI 数字人 |
 | `note-rpc` | 19203 | AI 图文笔记 |
@@ -28,7 +28,7 @@
 
 - **共用数据库** `fusion_aigc`：本项目只新建自己的表、给自己的表加列、写入自己的分类与计费配置；迁移记录在 `go_schema_history`，与 Java 的 `flyway_schema_history` 分开。
 - **共用登录会话**：Go 签发的令牌写在 Java 的会话 Redis（库号 10）里，一个令牌两边都认；令牌刷新走 Java 的 `/api/v1/auth/refresh`。
-- **nginx 分流**：`/api/v1/local-life` → Go，其余 `/api/v1/` → Java；`/api/v1/admin`、Swagger、actuator 不对公网。
+- **nginx 分流**：`/api/v1/local-life` 与 `/api/v1/local-life/admin` → Go，其余 `/api/v1/` → Java；Java 的 `/api/v1/admin`、Swagger、actuator 不对公网。
 - **共用执行面**：`AIGC_ENDPOINT` 与 Java 的 `AIGC_BASE_URL` 相同，任务号前缀区分来源（Go 为 `AiCreationLife_`）。
 - **共用计费表**：点数账户、预留单、计费方案都在 Java 的计费表里，Go 按同一套规则冻结 / 确认 / 退回。
 

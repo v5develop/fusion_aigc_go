@@ -29,19 +29,14 @@ server {
     # 文案、生成类接口有同步等待，别让 nginx 先断
     proxy_read_timeout 300s;
 
-    # Go 运营后台（127.0.0.1:18889）不对公网：运营用 ssh 隧道或内网访问。
-    # 后台接口在 /api/v1/local-life/admin 下，必须显式拦掉，否则会落到下面的网关 location。
-    # 确需公网访问时删掉这一段，并把 proxy_pass 指向 aigc_admin。
+    # 本地生活后台（Go，/api/v1/local-life/admin）：与 Java 后台共用登录令牌（同一个 Redis 会话），
+    # 权限按 Java 的 RBAC 逐个接口校验（local_life:view / local_life:update）。前端不需要换地址。
+    # 必须放在 /api/v1/local-life 网关 location 之前（这里是更长的前缀，优先匹配）。
     location ^~ /api/v1/local-life/admin {
-        return 404;
+        proxy_pass http://aigc_admin;
     }
 
-    # App 本地生活接口（Go 网关）
-    location /api/v1/local-life {
-        proxy_pass http://aigc_gateway;
-    }
-
-    # Java 的运营后台接口不走公网：运营用内网或 VPN 访问。确需公网访问时删掉这一段。
+    # Java 的其它后台接口（/api/v1/admin/...）不走公网：运营用内网或 VPN 访问。
     location ^~ /api/v1/admin {
         return 404;
     }

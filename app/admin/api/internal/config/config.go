@@ -1,6 +1,7 @@
 package config
 
 import (
+	"aigc-local-life/pkg/session"
 	"aigc-local-life/pkg/token"
 
 	"github.com/zeromicro/go-zero/rest"
@@ -17,8 +18,10 @@ type Config struct {
 		// Mode token：只认登录接口签发的令牌（线上用）；
 		// dev：没带令牌时退回信任请求头 X-Admin-Id，**仅联调环境**
 		Mode string `json:",default=dev,options=dev|token"`
-		// Jwt 后台令牌，密钥与 App 那套分开
+		// Jwt 独立模式（无会话 Redis，仅开发）的后台令牌；共享模式不用
 		Jwt token.Conf
+		// Session 与 Java 后台共用的会话 Redis（同 gateway）。配了就只认 Java 同款令牌，按 RBAC 查权限
+		Session session.Conf
 	}
 	// DataSource 后台登录要读 afv_admin_user；不配则登录接口返回「暂未开放」
 	DataSource      string `json:",optional"`

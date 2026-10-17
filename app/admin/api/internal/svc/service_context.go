@@ -8,6 +8,7 @@ import (
 	"aigc-local-life/app/imagegen/rpc/imagegen"
 	"aigc-local-life/app/note/rpc/note"
 	"aigc-local-life/pkg/adminuser"
+	"aigc-local-life/pkg/session"
 
 	"github.com/zeromicro/go-zero/core/stores/sqlx"
 
@@ -23,6 +24,7 @@ type ServiceContext struct {
 	NoteRpc         note.Note
 	ImageGenRpc     imagegen.ImageGen
 	AdminUser       *adminuser.Model
+	Session         *session.Store
 }
 
 func NewServiceContext(c config.Config) *ServiceContext {
@@ -32,11 +34,12 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	}
 	return &ServiceContext{
 		Config:          c,
-		AdminAuth:       middleware.NewAdminAuthMiddleware(c.Auth.Mode, c.Auth.Jwt).Handle,
+		AdminAuth:       middleware.NewAdminAuthMiddleware(c.Auth.Mode, c.Auth.Jwt, session.New(c.Auth.Session), conn).Handle,
 		CopywritingRpc:  copywriting.NewCopywriting(zrpc.MustNewClient(c.CopywritingRpc)),
 		DigitalHumanRpc: digitalhuman.NewDigitalHuman(zrpc.MustNewClient(c.DigitalHumanRpc)),
 		NoteRpc:         note.NewNote(zrpc.MustNewClient(c.NoteRpc)),
 		ImageGenRpc:     imagegen.NewImageGen(zrpc.MustNewClient(c.ImageGenRpc)),
 		AdminUser:       adminuser.New(conn),
+		Session:         session.New(c.Auth.Session),
 	}
 }

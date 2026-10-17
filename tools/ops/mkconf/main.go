@@ -51,12 +51,6 @@ func main() {
 	authMode := flag.String("auth-mode", "", "网关鉴权模式：dev / token")
 	union := flag.String("union", "", "联盟用户服务地址（登录用）")
 	linkParse := flag.String("link-parse", "", "分享链接解析服务地址（爆款视频复刻的链接入口）")
-	unionRedis := flag.String("union-redis", "", "联盟的 Redis 地址：配了就自己验临时 token，不调联盟接口")
-	unionRedisPass := flag.String("union-redis-pass", "", "联盟 Redis 密码")
-	unionDSN := flag.String("union-db-dsn", "", "联盟用户库的连接串；留空则复用本服务的数据库账号")
-	unionTable := flag.String("union-user-table", "", "联盟用户表（带库名），留空用默认值")
-	unionPhoneKey := flag.String("union-phone-key", "", "联盟手机号的 AES 密钥；不配则手机号留空")
-	unionRedisDB := flag.Int("union-redis-db", 0, "联盟 Redis 的库号（它用 go-zero 封装，是 0 号库）")
 	sessionRedis := flag.String("session-redis", "", "AIGC(Java) 服务的 Redis：配了就发和它同一套的令牌")
 	sessionRedisPass := flag.String("session-redis-pass", "", "该 Redis 的密码")
 	sessionRedisDB := flag.Int("session-redis-db", 10, "该 Redis 的库号，必须和 AIGC 服务一致（它是 10）")
@@ -109,8 +103,8 @@ func main() {
 		root := doc.Content[0]
 		e := editor{name: name, ports: portOf, dsn: *dsn, aigc: *aigc, logDir: filepath.Join(*logs, name), keepDays: *keepDays, logConsole: *logConsole,
 			jwtSecret: *jwtSecret, adminJwtSecret: *adminJwtSecret, authMode: *authMode, union: *union,
-			linkParse: *linkParse, unionRedis: *unionRedis, unionRedisPass: *unionRedisPass, unionRedisDB: *unionRedisDB,
-			unionDSN: *unionDSN, unionTable: *unionTable, unionPhoneKey: *unionPhoneKey, sessionRedis: *sessionRedis, sessionRedisPass: *sessionRedisPass,
+			linkParse:    *linkParse,
+			sessionRedis: *sessionRedis, sessionRedisPass: *sessionRedisPass,
 			sessionRedisDB: *sessionRedisDB,
 			fusionURL:      *fusionURL, fusionKey: *fusionKey, fusionSecret: *fusionSecret, fusionKeyVer: *fusionKeyVer, billingMode: *billingMode, swagger: *swagger, taskIDPrefix: *taskIDPrefix,
 			listenHost: *listenHost, accessHours: *accessHours, refreshDays: *refreshDays, sessionMax: *sessionMax}
@@ -149,12 +143,6 @@ type editor struct {
 	adminJwtSecret   string
 	authMode         string
 	union            string
-	unionRedis       string
-	unionRedisPass   string
-	unionDSN         string
-	unionTable       string
-	unionRedisDB     int
-	unionPhoneKey    string
 	sessionRedis     string
 	sessionRedisPass string
 	sessionRedisDB   int
@@ -220,11 +208,13 @@ func (e editor) apply(root *yaml.Node) error {
 		if e.name == "admin" {
 			secret = e.adminJwtSecret
 		}
-		if secret != "" && get(a, "Jwt") != nil {
-			set(get(a, "Jwt"), "Secret", scalar(secret))
+		// 没给密钥就清空：正式环境不用 JWT（令牌走共用会话）。绝不能留开发配置里的占位符，
+		// 空密钥时 token 包会拒绝签发与解析（ErrNoSecret），不会出现空密钥伪造。
+		if get(a, "Jwt") != nil {
+			set(get(a, "Jwt"), "Secret", quoted(secret))
 		}
 		// 和 AIGC 服务共用的会话：只对网关有意义（后台用自己的 JWT）
-		if e.name == "gateway" {
+		if e.name == "gateway" || e.name == "admin" { // 后台与 App 共用同一份会话（Java 的后台令牌也在这里）
 			if e.sessionRedis != "" {
 				sn := mapping("RedisAddr", quoted(e.sessionRedis))
 				if e.sessionRedisPass != "" {
@@ -244,28 +234,8 @@ func (e editor) apply(root *yaml.Node) error {
 	// 否则会留着 127.0.0.1 的 mock 地址，表现成「接口在但一直失败」，比直接说「未开放」难查得多。
 	if u := get(root, "Union"); u != nil {
 		set(u, "BaseURL", scalar(e.union))
-		// 配了 Redis 就自己验临时 token（服务器访问不到联盟域名时用），没配则删掉这段走 HTTP
-		if e.unionRedis != "" {
-			d := mapping("RedisAddr", quoted(e.unionRedis), "RedisDB", scalar(strconv.Itoa(e.unionRedisDB)))
-			if e.unionRedisPass != "" {
-				set(d, "RedisPass", quoted(e.unionRedisPass))
-			}
-			// 联盟用户库：留空则复用本服务的数据库账号（要求它对联盟库有读权限）。
-			// 各环境的库名不一定一样（测试环境是 unionec，不是默认的 unionec_app），
-			// 所以表名也放出来配。
-			if e.unionDSN != "" {
-				set(d, "UserDSN", quoted(e.unionDSN))
-			}
-			if e.unionTable != "" {
-				set(d, "UserTable", quoted(e.unionTable))
-			}
-			if e.unionPhoneKey != "" {
-				set(d, "PhoneAesKey", quoted(e.unionPhoneKey))
-			}
-			set(u, "Direct", d)
-		} else {
-			del(u, "Direct")
-		}
+		// 联盟只走 HTTP（同 Java）：不写 Direct，不连联盟库 / 联盟 Redis
+		del(u, "Direct")
 	}
 	// 建档交给现有 Java 服务；三样齐了才写，缺一样就走我们自己写表那条路
 	if get(root, "Union") != nil && e.fusionURL != "" && e.fusionKey != "" && e.fusionSecret != "" {

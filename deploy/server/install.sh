@@ -59,12 +59,7 @@ load_env() {
   COPYWRITING_PORT=${COPYWRITING_PORT:-19201}; DIGITALHUMAN_PORT=${DIGITALHUMAN_PORT:-19202}
   NOTE_PORT=${NOTE_PORT:-19203}; IMAGEGEN_PORT=${IMAGEGEN_PORT:-19204}
   LOG_KEEP_DAYS=${LOG_KEEP_DAYS:-7}
-  UNION_BASE_URL=${UNION_BASE_URL:-}; AUTH_MODE=${AUTH_MODE:-token}; SWAGGER_ENABLED=${SWAGGER_ENABLED:-0}; TASK_ID_PREFIX=${TASK_ID_PREFIX:-AiCreationLife}; JWT_SECRET=${JWT_SECRET:-}
-  ADMIN_JWT_SECRET=${ADMIN_JWT_SECRET:-}; LINK_PARSE_URL=${LINK_PARSE_URL:-}
-  UNION_REDIS_ADDR=${UNION_REDIS_ADDR:-}; UNION_REDIS_PASS=${UNION_REDIS_PASS:-}
-  UNION_REDIS_DB=${UNION_REDIS_DB:-0}
-  UNION_PHONE_AES_KEY=${UNION_PHONE_AES_KEY:-}
-  UNION_DB_DSN=${UNION_DB_DSN:-}; UNION_USER_TABLE=${UNION_USER_TABLE:-}
+  UNION_BASE_URL=${UNION_BASE_URL:-}; AUTH_MODE=${AUTH_MODE:-token}; SWAGGER_ENABLED=${SWAGGER_ENABLED:-0}; TASK_ID_PREFIX=${TASK_ID_PREFIX:-AiCreationLife}; LINK_PARSE_URL=${LINK_PARSE_URL:-}
   # Java 的 .env 路径：AIGC 地址与会话参数从它读，保证两边同一个值（显式写在 deploy.env 的优先）
   JAVA_ENV_FILE=${JAVA_ENV_FILE:-}
   java_env() { # 读不到（没配文件 / 没这个键）返回空串，且退出码恒为 0：set -e 下赋值不能因此中断安装
@@ -281,13 +276,8 @@ gen_conf() {
   local dsn="$DB_USER:$DB_PASS@tcp($DB_HOST:$DB_PORT)/$DB_NAME?charset=utf8mb4&parseTime=true&loc=Asia%2FShanghai&time_zone=%27%2B08%3A00%27"
   "$bin" -src "$PKG/etc-dev" -out "$out" -logs "$INSTALL_DIR/logs" \
     -dsn "$dsn" -aigc "$AIGC_ENDPOINT" -keep-days "$LOG_KEEP_DAYS" \
-    -jwt-secret "$JWT_SECRET" -admin-jwt-secret "$ADMIN_JWT_SECRET" \
     -auth-mode "$AUTH_MODE" -union "$UNION_BASE_URL" -swagger=$([[ $SWAGGER_ENABLED == 1 ]] && echo true || echo false) -task-id-prefix "$TASK_ID_PREFIX" \
     -link-parse "$LINK_PARSE_URL" \
-    -union-redis "$UNION_REDIS_ADDR" -union-redis-pass "$UNION_REDIS_PASS" \
-    -union-redis-db "$UNION_REDIS_DB" \
-    -union-db-dsn "$UNION_DB_DSN" -union-user-table "$UNION_USER_TABLE" \
-    -union-phone-key "$UNION_PHONE_AES_KEY" \
     -session-redis "$SESSION_REDIS_ADDR" -session-redis-pass "$SESSION_REDIS_PASS" \
     -session-redis-db "$SESSION_REDIS_DB" -session-max "$SESSION_MAX_CONCURRENT" \
     -token-access-hours "$TOKEN_ACCESS_HOURS" -token-refresh-days "$TOKEN_REFRESH_DAYS" \
@@ -433,8 +423,6 @@ cmd_install() {
   migrate_go
 
   step "4/6 安装程序与配置 → $INSTALL_DIR"
-  ensure_secret JWT_SECRET
-  ensure_secret ADMIN_JWT_SECRET
   mkdir -p "$INSTALL_DIR"/{bin,etc,logs,run}
   all_stop # 升级：先停旧进程
   cp -f "$PKG"/bin/* "$INSTALL_DIR/bin/"
@@ -479,7 +467,7 @@ cmd_install() {
   cat <<EOF
 
   App 接口：  https://$PUBLIC_DOMAIN/api/v1/local-life     （经 nginx；网关只监听本机 127.0.0.1:${GATEWAY_PORT}）
-  运营后台：  仅本机 http://127.0.0.1:$ADMIN_PORT/api/v1/local-life/admin（不走公网，用 ssh 隧道访问）
+  运营后台：  https://$PUBLIC_DOMAIN/api/v1/local-life/admin（与 Java 后台共用登录）
   接口文档：  $SWAGGER_HINT
   执行面：    $AIGC_ENDPOINT
 
@@ -509,8 +497,6 @@ cmd_prepare() {
   migrate_go
 
   step "3/5 生成配置 → $INSTALL_DIR/etc"
-  ensure_secret JWT_SECRET
-  ensure_secret ADMIN_JWT_SECRET
   mkdir -p "$INSTALL_DIR/etc"
   gen_conf "$PKG/bin/mkconf" "$INSTALL_DIR/etc" -log-console
   # 服务容器以非 root 用户运行：配置交给它，同时只有它能读（含数据库口令、令牌密钥）

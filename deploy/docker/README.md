@@ -68,8 +68,7 @@ cp .env.example .env && chmod 600 .env
 | `AIGC_ENDPOINT` | 不填 `JAVA_ENV_FILE` 时必填，与 Java 的 `AIGC_BASE_URL` 相同 |
 | `SESSION_REDIS_ADDR` `SESSION_REDIS_PASS` | 宿主机 Redis：`127.0.0.1:6379` 与它的口令 |
 | `SESSION_REDIS_DB` | 与 Java 的 `REDIS_DB` 一致（线上 10）。**这一项不会从 `JAVA_ENV_FILE` 读，需手工对齐** |
-| `JWT_SECRET` `ADMIN_JWT_SECRET` | 各用 `openssl rand -hex 32` 生成一次，**之后不要再变**（变了已登录用户全部失效） |
-| `UNION_BASE_URL`（或 `UNION_REDIS_*`） | 联盟用户服务，登录用 |
+| `UNION_BASE_URL` | 联盟用户服务地址，登录用（与 Java 相同，只走 HTTP；不直连联盟库或联盟 Redis） |
 
 与 Java 保持一致的会话参数（`SESSION_MAX_CONCURRENT`、`TOKEN_ACCESS_HOURS`、`TOKEN_REFRESH_DAYS`）留空时从 `JAVA_ENV_FILE` 读，读不到用 Java 的默认值 0 / 2 / 7。其余可选项见 `.env.example` 里的注释。
 
@@ -91,7 +90,7 @@ docker compose ps                   # prepare 为 Exited (0)，6 个服务为 he
 | 路径 | 去向 |
 |---|---|
 | `/api/v1/local-life` | Go 网关 `127.0.0.1:18888` |
-| `/api/v1/local-life/admin` | 404（Go 运营后台不走公网，ssh 隧道访问 `127.0.0.1:18889`；确需公网访问时删掉模板里这一段） |
+| `/api/v1/local-life/admin` | Go 后台（与 Java 后台共用登录令牌，按 RBAC 校验权限） |
 | `/api/v1/admin` | 404（Java 运营后台不走公网；确需公网访问时删掉模板里这一段） |
 | `/api/v1/`（其余） | Java `JAVA_UPSTREAM` |
 | `/swagger-ui`、`/v3/api-docs`、`/actuator`、其它 | 404 |
@@ -114,7 +113,7 @@ curl -s -H "Authorization: Bearer $TOKEN" https://<PUBLIC_DOMAIN>/api/v1/local-l
 curl -s -H "Authorization: Bearer $TOKEN" https://<PUBLIC_DOMAIN>/api/v1/points/balance | head -c 200   # 走 Java，验证令牌两边通用
 ```
 
-外网访问 `/api/v1/admin/...`、`/swagger-ui/...`、`/api/v1/local-life/admin/...` 都应返回 404。运营后台（Go）用 ssh 隧道：`ssh -L 18889:127.0.0.1:18889 root@<服务器>`。
+外网访问 `/api/v1/admin/...`（Java 后台）、`/swagger-ui/...` 都应返回 404；`/api/v1/local-life/admin/...` 用后台账号的令牌访问，无令牌返回 401。
 
 ## 四、数据库迁移
 
@@ -167,7 +166,7 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
 |---|---|
 | `prepare` 退出非 0 | `docker compose logs prepare`，按 ✗ 那一行的原因修正后重新 `up -d` |
 | `连不上数据库` | RDS 白名单是否包含服务器 IP、`DB_*` 是否是内网地址；认证报错时试 `MYSQL_OPTS=--ssl` |
-| `SESSION_REDIS_ADDR 必填` / `JWT_SECRET 必填` | 按 `.env.example` 填写；密钥一旦上线不要再改 |
+| `SESSION_REDIS_ADDR 必填` | 按 `.env.example` 填写 |
 | `计费配置有问题` | 补齐计费配置；`check-billing` 全部通过后再 `up -d` |
 | 口令里有 `$`，连不上数据库 / Redis | `.env` 里用单引号包住该值（compose 会替换 `$xxx`） |
 | `JAVA_ENV_FILE 指向的是目录而不是文件` | `.env` 里的路径在宿主机上不存在，Docker 挂载时建成了空目录；改成正确的绝对路径，并删掉那个空目录 |

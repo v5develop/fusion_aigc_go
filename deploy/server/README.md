@@ -70,7 +70,7 @@ bash install.sh
 | `JAVA_ENV_FILE` | Java 服务的 `.env` 路径（推荐）。执行面地址与会话参数从这里读，保证和 Java 一致 |
 | `AIGC_ENDPOINT` | 不填 `JAVA_ENV_FILE` 时必填，与 Java 的 `AIGC_BASE_URL` 相同 |
 | `SESSION_REDIS_ADDR` `SESSION_REDIS_PASS` | Java 会话所在的 Redis。**正式环境必须配**：App 的登录令牌要在 Go 和 Java 两边通用 |
-| `UNION_BASE_URL`（或 `UNION_REDIS_*`） | 联盟用户服务，登录用；不配则登录接口返回「暂未开放」 |
+| `UNION_BASE_URL` | 联盟用户服务地址，登录用（与 Java 相同，只走 HTTP）；不配则登录接口返回「暂未开放」 |
 
 与 Java 保持一致的项：
 
@@ -93,7 +93,6 @@ bash install.sh
 | `SWAGGER_ENABLED=1` | 打开接口文档页（仅本机可访问）；正式环境保持 `0` |
 | `LINK_PARSE_URL` | 分享链接解析服务；留空则「爆款视频复刻」只能上传视频 |
 | `FUSION_*` | 新用户建档交给 Java 的 `/api/v1/union/user-register`；留空由本服务自己写表 |
-| `JWT_SECRET` `ADMIN_JWT_SECRET` | 留空时首次安装自动生成随机值并写回 `deploy.env` |
 
 **4. 正式安装**
 
@@ -131,7 +130,7 @@ bash /opt/aigc-local-life/install.sh voices   # 正式环境是 token 鉴权，�
 | 路径 | 去向 | 说明 |
 |---|---|---|
 | `/api/v1/local-life` | Go 网关 | 本地生活全部 App 接口 |
-| `/api/v1/local-life/admin` | 404 | Go 运营后台不走公网，运营用 ssh 隧道访问 `127.0.0.1:18889`；确需公网访问时删掉模板里这一段 |
+| `/api/v1/local-life/admin` | Go 后台（与 Java 后台共用登录令牌，按 RBAC 校验权限） |
 | `/api/v1/admin` | 404 | Java 的运营后台接口不走公网（运营走内网 / VPN）；确需公网访问时删掉模板里这一段 |
 | `/api/v1/`（其余） | Java | 登录、用户信息、点数、素材库、刷新令牌等 |
 | `/swagger-ui`、`/v3/api-docs`、`/actuator` | 404 | Java 的接口文档与监控不对公网 |
@@ -144,12 +143,7 @@ bash /opt/aigc-local-life/install.sh voices   # 正式环境是 token 鉴权，�
 
 前端地址：`https://<PUBLIC_DOMAIN>/api/v1/...`。
 
-**运营后台（Go）只在本机**，需要时用 ssh 隧道：
-
-```bash
-ssh -L 18889:127.0.0.1:18889 root@<服务器>
-# 然后本机浏览器访问 http://127.0.0.1:18889/api/v1/local-life/admin/...
-```
+**运营后台（Go）经 nginx 对外**，路径 `/api/v1/local-life/admin`，与 Java 后台共用登录令牌，无需 ssh 隧道。
 
 ## 四、数据库迁移
 
