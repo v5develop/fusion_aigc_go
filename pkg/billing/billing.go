@@ -74,7 +74,7 @@ const (
 )
 
 var (
-	// ErrNotEnough 余额不够。调用方应转成 1008 并带上还差多少。
+	// ErrNotEnough 余额不够。调用方应转成 xerr.InsufficientPoints（3003）并带上还差多少。
 	ErrNotEnough = errors.New("billing: 点数余额不足")
 	// ErrNoOffer 这个入口码还没在 afv_billing_offer 里配。
 	ErrNoOffer = errors.New("billing: 入口码没有配置计费方案")

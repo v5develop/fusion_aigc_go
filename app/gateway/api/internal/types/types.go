@@ -53,7 +53,7 @@ type Copywriting struct {
 }
 
 type CreateDigitalHumanReq struct {
-	RequestId      string `header:"X-Request-Id"`
+	RequestId      string `header:"Idempotency-Key"`
 	CopywritingId  int64  `json:"copywriting_id,optional"` // 选填：配音内容来自哪条 AI文案（用于文案的生成历史）
 	Name           string `json:"name,optional"`
 	PortraitSource string `json:"portrait_source,options=UPLOAD|PUBLIC|AI"`
@@ -67,7 +67,7 @@ type CreateDigitalHumanReq struct {
 }
 
 type CreateImageGenReq struct {
-	RequestId        string   `header:"X-Request-Id"`
+	RequestId        string   `header:"Idempotency-Key"`
 	CopywritingId    int64    `json:"copywriting_id,optional"` // 选填：内容来自哪条 AI文案（用于文案的生成历史）
 	Kind             string   `json:"kind,options=poster|longImage|actionTransfer|voiceover"`
 	Content          string   `json:"content,optional"` // 海报信息 / 长图内容 / 口播文案
@@ -92,7 +92,7 @@ type CreateImageGenReq struct {
 }
 
 type CreatePortraitReq struct {
-	RequestId   string `header:"X-Request-Id"`
+	RequestId   string `header:"Idempotency-Key"`
 	Gender      string `json:"gender,options=female|male"`
 	Age         string `json:"age"`
 	SkinTone    string `json:"skin_tone"`
@@ -106,7 +106,7 @@ type CreateReq struct {
 }
 
 type CreateVideoReq struct {
-	RequestId      string `header:"X-Request-Id"`
+	RequestId      string `header:"Idempotency-Key"`
 	CopywritingId  int64  `json:"copywriting_id,optional"` // 选填：文案来自哪条 AI文案（用于文案的生成历史）
 	Kind           string `json:"kind,options=exploreShop|shortDrama|videoRemake"`
 	UserText       string `json:"user_text,optional"`       // 探店：视频文案；短剧：短剧主题；视频复刻不用
@@ -194,7 +194,7 @@ type GenerateNoteReq struct {
 }
 
 type GenerateReq struct {
-	RequestId     string `header:"X-Request-Id"`
+	RequestId     string `header:"Idempotency-Key"`
 	Source        string `json:"source,options=AI_WRITE|IMITATE"`
 	ContentType   string `json:"content_type,optional"`
 	Style         string `json:"style,optional"`
@@ -332,16 +332,26 @@ type ListVoicesReq struct {
 }
 
 type LoginReq struct {
-	TempToken     string `json:"temp_token,optional"`      // 联盟的临时 token：前端调联盟 GET /api/v1/user/auth/token 拿到；5 分钟内有效、只能用一次
+	Token         string `json:"token,optional"`           // Java 口径：联盟的临时 token（与 AIGC 的 /api/v1/auth/union-token-login 同名）
+	TempToken     string `json:"temp_token,optional"`      // 旧字段，仍接受：同一个临时 token
 	Authorization string `header:"Authorization,optional"` // 也可以放在这里：Bearer <临时token>
 }
 
+// LoginResp 旧字段（snake_case、毫秒）保留给已有客户端；与 Java 的 LoginRespVO 字段（camelCase、秒）并存，值一致。
 type LoginResp struct {
 	Token            string    `json:"token"`      // 之后所有接口带 Authorization: Bearer <token>
 	ExpiresAt        int64     `json:"expires_at"` // 过期时间（unix 毫秒）
 	RefreshToken     string    `json:"refresh_token,optional"`
 	RefreshExpiresAt int64     `json:"refresh_expires_at,optional"`
 	User             LoginUser `json:"user"`
+
+	AccessToken      string `json:"accessToken,optional"`      // Java：访问令牌（同 token）
+	ExpiresIn        int64  `json:"expiresIn,optional"`        // Java：access_token 有效期（秒）
+	RefreshTokenJava string `json:"refreshToken,optional"`     // Java：刷新令牌（同 refresh_token）
+	RefreshExpiresIn int64  `json:"refreshExpiresIn,optional"` // Java：refresh_token 剩余有效期（秒）
+	UserId           int64  `json:"userId,optional"`           // Java：用户ID（同 user.id）
+	Username         string `json:"username,optional"`         // Java：用户名
+	Nickname         string `json:"nickname,optional"`         // Java：昵称
 }
 
 type LoginUser struct {
@@ -411,7 +421,7 @@ type OptionsResp struct {
 }
 
 type PlanNoteReq struct {
-	RequestId      string   `header:"X-Request-Id"`
+	RequestId      string   `header:"Idempotency-Key"`
 	CopywritingId  int64    `json:"copywriting_id,optional"` // 选填：正文来自哪条 AI文案（用于文案的生成历史）
 	NoteType       string   `json:"note_type,options=explore|seeding|emotion|knowledge"`
 	ShopProfileId  int64    `json:"shop_profile_id,optional"` // 选填：关联店铺档案
@@ -459,7 +469,7 @@ type PublicListResp struct {
 }
 
 type RegenerateReq struct {
-	RequestId string `header:"X-Request-Id"`
+	RequestId string `header:"Idempotency-Key"`
 	Id        int64  `path:"id"`
 }
 

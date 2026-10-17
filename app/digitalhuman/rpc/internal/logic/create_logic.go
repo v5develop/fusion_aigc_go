@@ -32,7 +32,7 @@ func NewCreateLogic(ctx context.Context, svcCtx *svc.ServiceContext) *CreateLogi
 // 开始生成：配音（百炼 TTS）→ 口播视频（执行面 85），轮询 Get
 func (l *CreateLogic) Create(in *pb.CreateReq) (*pb.DigitalHumanInfo, error) {
 	if in.RequestId == "" {
-		return nil, xerr.Param("缺少 X-Request-Id")
+		return nil, xerr.New(xerr.ParamMissing, "缺少幂等键（Idempotency-Key）")
 	}
 	if old, err := l.svcCtx.Human.FindByRequestID(l.ctx, in.UserId, in.RequestId); err == nil {
 		return toInfo(old, voiceNames(l.ctx, l.svcCtx, []*model.AfvDigitalHuman{old})), nil
@@ -94,7 +94,7 @@ func (l *CreateLogic) Create(in *pb.CreateReq) (*pb.DigitalHumanInfo, error) {
 
 	row := &model.AfvDigitalHuman{
 		CopywritingId: nullInt(in.CopywritingId),
-		UserId: in.UserId, Name: name, PortraitSource: in.PortraitSource, PortraitRefId: nullInt(src.RefID),
+		UserId:        in.UserId, Name: name, PortraitSource: in.PortraitSource, PortraitRefId: nullInt(src.RefID),
 		ImageUrl: src.ImageURL, VoiceId: v.Id, Script: script, Model: mdl, TtsTaskId: nullStr(newTaskID(l.svcCtx)),
 		RequestId: nullStr(in.RequestId), Status: model.DhStatusDubbing,
 	}

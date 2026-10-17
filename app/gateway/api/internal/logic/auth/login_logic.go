@@ -35,25 +35,36 @@ func NewLoginLogic(ctx context.Context, svcCtx *svc.ServiceContext) *LoginLogic 
 	}
 }
 
-// 用联盟的临时 token 换本服务的令牌：没有的用户会自动建档
+// 用联盟的临时 token 换本服务的令牌：没有的用户会自动建档。
+// 与 Java 的 /api/v1/auth/union-token-login 行为一致：同一套错误码（见下方注释）、同一张 afv_app_user 表。
 func (l *LoginLogic) Login(req *types.LoginReq) (resp *types.LoginResp, err error) {
 	if !l.svcCtx.Union.Enabled() {
 		return nil, xerr.New(xerr.NotReady, "登录服务暂未开放")
 	}
-	// 临时 token 前端自己向联盟换（GET /api/v1/user/auth/token），放 body 或 Authorization 都行
-	tempToken := strings.TrimSpace(req.TempToken)
+	// 临时 token：Java 字段名 token 优先，其次旧字段 temp_token，最后 Authorization: Bearer
+	tempToken := strings.TrimSpace(req.Token)
+	if tempToken == "" {
+		tempToken = strings.TrimSpace(req.TempToken)
+	}
 	if tempToken == "" {
 		tempToken = strings.TrimSpace(strings.TrimPrefix(req.Authorization, "Bearer "))
 	}
+	// Java 是 @NotBlank 校验，码为 PARAM_INVALID（1003），文案同 Java
 	if tempToken == "" {
-		return nil, xerr.New(xerr.Unauthorized, "缺少登录凭证")
+		return nil, xerr.Param("临时Token不能为空")
 	}
 	// 拿临时 token 去换用户信息（用一次就失效，所以只在这里用）
 	u, err := l.svcCtx.Union.Login(l.ctx, tempToken)
 	if err != nil {
-		if errors.Is(err, unionauth.ErrUnauthorized) {
+		var rej *unionauth.RejectedError
+		if errors.As(err, &rej) {
+			// 联盟明确拒绝：PARAM_INVALID，文案取联盟返回的 message（与 Java 一致）
 			l.Infof("union login rejected: %v", err)
-			return nil, xerr.New(xerr.Unauthorized, "登录已失效，请重新登录")
+			return nil, xerr.Param(rej.Message)
+		}
+		if errors.Is(err, unionauth.ErrUnavailable) {
+			l.Errorf("union login unavailable: %v", err)
+			return nil, xerr.New(xerr.ThirdPartyError, "联盟服务暂不可用，请稍后重试")
 		}
 		l.Errorf("union login: %v", err)
 		return nil, xerr.New(xerr.ServerError, "登录失败，请稍后重试")
@@ -68,11 +79,13 @@ func (l *LoginLogic) Login(req *types.LoginReq) (resp *types.LoginResp, err erro
 		l.Errorf("upsert app user %s: %v", u.UserID, err)
 		return nil, xerr.New(xerr.ServerError, "登录失败，请稍后重试")
 	}
+	// Java：状态不是 1 即 ACCOUNT_DISABLED（2007）
 	if user.Status != appuser.StatusEnabled {
-		return nil, xerr.New(xerr.Forbidden, "账号已被禁用")
+		return nil, xerr.New(xerr.AccountDisabled, "用户已被禁用")
 	}
 	resp = &types.LoginResp{
-		User: types.LoginUser{Id: user.Id, Nickname: user.Nickname.String, Avatar: user.Avatar.String, Phone: user.Phone.String},
+		User:   types.LoginUser{Id: user.Id, Nickname: user.Nickname.String, Avatar: user.Avatar.String, Phone: user.Phone.String},
+		UserId: user.Id, Username: user.Username, Nickname: user.Nickname.String,
 	}
 	if err := l.issue(resp, user); err != nil {
 		return nil, err
@@ -91,6 +104,7 @@ func (l *LoginLogic) issue(resp *types.LoginResp, user *appuser.User) error {
 			return xerr.New(xerr.ServerError, "登录失败，请稍后重试")
 		}
 		resp.Token, resp.ExpiresAt = t, exp.UnixMilli()
+		resp.AccessToken, resp.ExpiresIn = t, int64(time.Until(exp).Seconds())
 		return nil
 	}
 	// 会话里要带 currentTeamId，取法和 Java 一致（建档时已经建好团队）
@@ -111,5 +125,10 @@ func (l *LoginLogic) issue(resp *types.LoginResp, user *appuser.User) error {
 	resp.ExpiresAt = now.Add(time.Duration(t.ExpiresIn) * time.Second).UnixMilli()
 	resp.RefreshToken = t.RefreshToken
 	resp.RefreshExpiresAt = now.Add(time.Duration(t.RefreshExpiresIn) * time.Second).UnixMilli()
+	// Java 字段（秒数，camelCase）
+	resp.AccessToken = t.AccessToken
+	resp.ExpiresIn = int64(t.ExpiresIn)
+	resp.RefreshTokenJava = t.RefreshToken
+	resp.RefreshExpiresIn = int64(t.RefreshExpiresIn)
 	return nil
 }

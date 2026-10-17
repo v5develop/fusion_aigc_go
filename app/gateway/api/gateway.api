@@ -3,7 +3,7 @@ syntax = "v1"
 info (
 	title:                       "AIGC 本地生活 App 接口"
 	version:                     "v1"
-	description:                 "HTTP 状态码一律 200，用响应里的 code 判断，业务数据在 data 里。提交生成类接口必须带 X-Request-Id（UUID，重试沿用同一个）。完整说明见安装目录 docs/ 下的接口文档。"
+	description:                 "HTTP 状态码一律 200，用响应里的 code 判断，业务数据在 data 里。提交生成类接口必须带 Idempotency-Key（UUID，重试沿用同一个）。旧版本只带 X-Request-Id 时仍可用；两者同时带时以 Idempotency-Key 为准，X-Request-Id 用于链路追踪。完整说明见安装目录 docs/ 下的接口文档。"
 	schemes:                     "http,https"
 	consumes:                    "application/json"
 	produces:                    "application/json"
@@ -63,7 +63,7 @@ type (
 		CreateTime       int64  `json:"create_time"`
 	}
 	GenerateReq {
-		RequestId     string `header:"X-Request-Id"`
+		RequestId     string `header:"Idempotency-Key"`
 		Source        string `json:"source,options=AI_WRITE|IMITATE"`
 		ContentType   string `json:"content_type,optional"`
 		Style         string `json:"style,optional"`
@@ -74,7 +74,7 @@ type (
 		ShopProfileId int64  `json:"shop_profile_id,optional"`
 	}
 	RegenerateReq {
-		RequestId string `header:"X-Request-Id"`
+		RequestId string `header:"Idempotency-Key"`
 		Id        int64  `path:"id"`
 	}
 	CreateReq {
@@ -223,7 +223,7 @@ type (
 		MaxScriptLen      int32    `json:"max_script_len"`
 	}
 	CreatePortraitReq {
-		RequestId   string `header:"X-Request-Id"`
+		RequestId   string `header:"Idempotency-Key"`
 		Gender      string `json:"gender,options=female|male"`
 		Age         string `json:"age"`
 		SkinTone    string `json:"skin_tone"`
@@ -260,7 +260,7 @@ type (
 		List []Voice `json:"list"`
 	}
 	CreateDigitalHumanReq {
-		RequestId      string `header:"X-Request-Id"`
+		RequestId      string `header:"Idempotency-Key"`
 		CopywritingId  int64  `json:"copywriting_id,optional"` // 选填：配音内容来自哪条 AI文案（用于文案的生成历史）
 		Name           string `json:"name,optional"`
 		PortraitSource string `json:"portrait_source,options=UPLOAD|PUBLIC|AI"`
@@ -397,7 +397,7 @@ type (
 		MaxTopicLen   int32      `json:"max_topic_len"`
 	}
 	PlanNoteReq {
-		RequestId      string   `header:"X-Request-Id"`
+		RequestId      string   `header:"Idempotency-Key"`
 		CopywritingId  int64    `json:"copywriting_id,optional"` // 选填：正文来自哪条 AI文案（用于文案的生成历史）
 		NoteType       string   `json:"note_type,options=explore|seeding|emotion|knowledge"`
 		ShopProfileId  int64    `json:"shop_profile_id,optional"` // 选填：关联店铺档案
@@ -529,7 +529,7 @@ type (
 		List []ImageGenTemplate `json:"list"`
 	}
 	CreateImageGenReq {
-		RequestId     string   `header:"X-Request-Id"`
+		RequestId     string   `header:"Idempotency-Key"`
 		CopywritingId int64    `json:"copywriting_id,optional"` // 选填：内容来自哪条 AI文案（用于文案的生成历史）
 		Kind          string   `json:"kind,options=poster|longImage|actionTransfer|voiceover"`
 		Content       string   `json:"content,optional"` // 海报信息 / 长图内容 / 口播文案
@@ -748,7 +748,7 @@ type (
 		LinkEnabled         bool             `json:"link_enabled"` // 视频复刻：「链接查视频」是否可用
 	}
 	CreateVideoReq {
-		RequestId     string `header:"X-Request-Id"`
+		RequestId     string `header:"Idempotency-Key"`
 		CopywritingId int64  `json:"copywriting_id,optional"` // 选填：文案来自哪条 AI文案（用于文案的生成历史）
 		Kind          string `json:"kind,options=exploreShop|shortDrama|videoRemake"`
 		UserText      string `json:"user_text,optional"` // 探店：视频文案；短剧：短剧主题；视频复刻不用
@@ -848,7 +848,8 @@ service gateway-api {
 // ---------------- 登录（前端先向联盟换临时 token，再拿它来换我们的令牌）----------------
 type (
 	LoginReq {
-		TempToken     string `json:"temp_token,optional"` // 联盟的临时 token：前端调联盟 GET /api/v1/user/auth/token 拿到；5 分钟内有效、只能用一次
+		Token         string `json:"token,optional"`           // Java 口径：联盟的临时 token（同 AIGC 的 /api/v1/auth/union-token-login）
+		TempToken     string `json:"temp_token,optional"`      // 旧字段，仍接受：同一个临时 token
 		Authorization string `header:"Authorization,optional"` // 也可以放在这里：Bearer <临时token>
 	}
 	LoginUser {
@@ -865,6 +866,14 @@ type (
 		RefreshToken     string    `json:"refresh_token,optional"`
 		RefreshExpiresAt int64     `json:"refresh_expires_at,optional"`
 		User             LoginUser `json:"user"`
+		// 以下与 Java 的 LoginRespVO 字段一致（camelCase、秒），旧字段保留，值相同
+		AccessToken      string `json:"accessToken,optional"`
+		ExpiresIn        int64  `json:"expiresIn,optional"`
+		RefreshTokenJava string `json:"refreshToken,optional"`
+		RefreshExpiresIn int64  `json:"refreshExpiresIn,optional"`
+		UserId           int64  `json:"userId,optional"`
+		Username         string `json:"username,optional"`
+		Nickname         string `json:"nickname,optional"`
 	}
 )
 
@@ -874,7 +883,7 @@ type (
 	tags:   "登录"
 )
 service gateway-api {
-	@doc "用联盟的临时 token 换本服务的令牌：没有的用户会自动建档"
+	@doc "【已弃用，仅供旧版本使用】用联盟的临时 token 换令牌。新版本请直接调用 AIGC 的 POST /api/v1/auth/union-token-login（同一个临时 token，同一套响应与错误码）。本接口在下线日期前保留，行为与之一致。"
 	@handler login
 	post /auth/login (LoginReq) returns (LoginResp)
 }

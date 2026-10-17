@@ -26,8 +26,21 @@ type Conf struct {
 	TimeoutSeconds int    `json:",default=10"`
 }
 
-// ErrUnauthorized 联盟 token 无效或已过期（对方返回非成功码），调用方应让用户重新登录。
-var ErrUnauthorized = errors.New("unionauth: 联盟登录已失效")
+// ErrRejected 联盟明确拒绝：HTTP 正常，但业务码不成功（token 无效 / 已过期），或用户信息缺 userId。
+// 对应 Java 的 PARAM_INVALID（1003），文案取联盟返回的 message。
+var ErrRejected = errors.New("unionauth: 联盟拒绝")
+
+// ErrUnavailable 联盟不可用：传输失败、HTTP 非 2xx（含 401/403）、响应解析失败、没有 data。
+// 对应 Java 的 THIRD_PARTY_ERROR（6001）。Java 的 RestTemplate 对 4xx/5xx 也是抛异常，口径一致。
+var ErrUnavailable = errors.New("unionauth: 联盟服务不可用")
+
+// RejectedError 带上联盟给的 message，供登录接口原样返回。
+type RejectedError struct{ Message string }
+
+func (e *RejectedError) Error() string { return "unionauth: 联盟拒绝: " + e.Message }
+
+// Is 让 errors.Is(err, ErrRejected) 成立。
+func (e *RejectedError) Is(target error) bool { return target == ErrRejected }
 
 type Client struct {
 	conf Conf
@@ -80,7 +93,7 @@ func (c *Client) Login(ctx context.Context, tempToken string) (*User, error) {
 		return nil, err
 	}
 	if u.UserID.String() == "" || u.UserID.String() == "0" {
-		return nil, fmt.Errorf("unionauth: 用户信息里没有 userId")
+		return nil, &RejectedError{Message: "联盟用户ID无效"}
 	}
 	return &u, nil
 }
@@ -97,15 +110,16 @@ func (c *Client) get(ctx context.Context, path, bearer string, data any) error {
 	req.Header.Set("Accept-Language", "zh-CN")
 	resp, err := c.hc.Do(req)
 	if err != nil {
-		return fmt.Errorf("unionauth: 请求 %s 失败: %w", path, err)
+		return fmt.Errorf("%w: 请求 %s 失败: %v", ErrUnavailable, path, err)
 	}
 	defer resp.Body.Close()
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: 读取 %s 响应失败: %v", ErrUnavailable, path, err)
 	}
-	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-		return ErrUnauthorized
+	// 非 2xx（含 401/403）一律按「联盟不可用」，与 Java 的 RestTemplate 抛异常一致
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return fmt.Errorf("%w: %s 返回 HTTP %d", ErrUnavailable, path, resp.StatusCode)
 	}
 	var body struct {
 		Code    int             `json:"code"`
@@ -113,16 +127,22 @@ func (c *Client) get(ctx context.Context, path, bearer string, data any) error {
 		Data    json.RawMessage `json:"data"`
 	}
 	if err := json.Unmarshal(raw, &body); err != nil {
-		return fmt.Errorf("unionauth: %s 返回解析失败(HTTP %d): %s", path, resp.StatusCode, truncate(string(raw), 200))
+		return fmt.Errorf("%w: %s 响应格式异常: %s", ErrUnavailable, path, truncate(string(raw), 200))
 	}
 	if body.Code != okCode {
-		// 对方的业务错误基本都是 token 失效 / 用户不存在，统一当登录失效处理
-		return fmt.Errorf("%w（%s: %s）", ErrUnauthorized, path, body.Message)
+		msg := body.Message
+		if msg == "" {
+			msg = "Token无效或已过期"
+		}
+		return &RejectedError{Message: msg}
 	}
 	if len(body.Data) == 0 {
-		return fmt.Errorf("unionauth: %s 没有返回 data", path)
+		return fmt.Errorf("%w: %s 没有返回 data", ErrUnavailable, path)
 	}
-	return json.Unmarshal(body.Data, data)
+	if err := json.Unmarshal(body.Data, data); err != nil {
+		return fmt.Errorf("%w: %s data 解析失败: %v", ErrUnavailable, path, err)
+	}
+	return nil
 }
 
 // okCode 联盟接口的成功码是 1（不是 0）

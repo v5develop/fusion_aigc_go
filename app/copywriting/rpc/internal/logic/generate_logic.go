@@ -42,7 +42,7 @@ func (l *GenerateLogic) Generate(in *pb.GenerateReq) (*pb.CopywritingInfo, error
 		return nil, xerr.Param("请粘贴要仿写的爆款文案")
 	}
 	if in.RequestId == "" {
-		return nil, xerr.Param("缺少 X-Request-Id")
+		return nil, xerr.New(xerr.ParamMissing, "缺少幂等键（Idempotency-Key）")
 	}
 	// 幂等：同一用户同一 request_id 只生成一次（网络重试、连点都只落一条）
 	if old, err := l.svcCtx.Copywriting.FindByRequestID(l.ctx, in.UserId, in.RequestId); err == nil {

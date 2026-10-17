@@ -7,6 +7,7 @@
 # 正式环境的校验规则（token 鉴权、计费开启、会话共享……）在这里同样生效。
 services:
   prepare:
+    platform: linux/amd64   # 运行时镜像只支持 amd64（MySQL 官方客户端），Mac 上靠 Rosetta / 模拟构建
     build:
       context: ../..
       dockerfile: deploy/docker/Dockerfile

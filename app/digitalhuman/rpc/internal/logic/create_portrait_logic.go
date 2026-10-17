@@ -31,7 +31,7 @@ func NewCreatePortraitLogic(ctx context.Context, svcCtx *svc.ServiceContext) *Cr
 // AI 定制形象：异步出 4 张 9:16 图（执行面 75），轮询 GetPortrait
 func (l *CreatePortraitLogic) CreatePortrait(in *pb.CreatePortraitReq) (*pb.PortraitInfo, error) {
 	if in.RequestId == "" {
-		return nil, xerr.Param("缺少 X-Request-Id")
+		return nil, xerr.New(xerr.ParamMissing, "缺少幂等键（Idempotency-Key）")
 	}
 	// 幂等：同一用户同一 request_id 只生成一次
 	if old, err := l.svcCtx.Portrait.FindByRequestID(l.ctx, in.UserId, in.RequestId); err == nil {

@@ -33,7 +33,7 @@ func NewPlanLogic(ctx context.Context, svcCtx *svc.ServiceContext) *PlanLogic {
 // 开始构思（异步，轮询 Get；完成后进入规划页）
 func (l *PlanLogic) Plan(in *pb.PlanReq) (*pb.NoteInfo, error) {
 	if in.RequestId == "" {
-		return nil, xerr.Param("缺少 X-Request-Id")
+		return nil, xerr.New(xerr.ParamMissing, "缺少幂等键（Idempotency-Key）")
 	}
 	// 幂等：同一用户同一 request_id 只构思一次
 	if old, err := l.svcCtx.Note.FindByRequestID(l.ctx, in.UserId, in.RequestId); err == nil {
