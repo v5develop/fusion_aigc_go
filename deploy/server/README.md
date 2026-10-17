@@ -126,15 +126,16 @@ bash /opt/aigc-local-life/install.sh voices   # 正式环境是 token 鉴权，�
 
 公网只开 80 / 443。网关、后台、各 rpc **都只监听 127.0.0.1**，不要在云安全组或宝塔「安全」里放行 18888、18889、19201–19204。
 
-安装后 `/opt/aigc-local-life/nginx/aigc-local-life.conf` 已按 `PUBLIC_DOMAIN`、`GATEWAY_PORT`、`JAVA_UPSTREAM` 渲染好，路由如下：
+安装后 `/opt/aigc-local-life/nginx/aigc-local-life.conf` 已按 `PUBLIC_DOMAIN`、`GATEWAY_PORT`、`ADMIN_PORT`、`JAVA_UPSTREAM` 渲染好，路由如下：
 
 | 路径 | 去向 | 说明 |
 |---|---|---|
 | `/api/v1/local-life` | Go 网关 | 本地生活全部 App 接口 |
+| `/api/v1/local-life/admin` | 404 | Go 运营后台不走公网，运营用 ssh 隧道访问 `127.0.0.1:18889`；确需公网访问时删掉模板里这一段 |
 | `/api/v1/admin` | 404 | Java 的运营后台接口不走公网（运营走内网 / VPN）；确需公网访问时删掉模板里这一段 |
 | `/api/v1/`（其余） | Java | 登录、用户信息、点数、素材库、刷新令牌等 |
 | `/swagger-ui`、`/v3/api-docs`、`/actuator` | 404 | Java 的接口文档与监控不对公网 |
-| 其它 | 404 | Go 后台 `/admin/v1`、Go 接口文档 `/swagger` 都只在本机 |
+| 其它 | 404 | Go 接口文档 `/swagger` 只在本机 |
 
 宝塔操作：
 1. 「网站」→ 添加站点 `PUBLIC_DOMAIN`（纯静态即可）→「SSL」申请证书；
@@ -147,7 +148,7 @@ bash /opt/aigc-local-life/install.sh voices   # 正式环境是 token 鉴权，�
 
 ```bash
 ssh -L 18889:127.0.0.1:18889 root@<服务器>
-# 然后本机浏览器访问 http://127.0.0.1:18889/admin/v1/...
+# 然后本机浏览器访问 http://127.0.0.1:18889/api/v1/local-life/admin/...
 ```
 
 ## 四、数据库迁移
@@ -179,7 +180,7 @@ curl -s -H "Authorization: Bearer $TOKEN" https://<PUBLIC_DOMAIN>/api/v1/points/
 
 都返回 `{"code":0,...}` 即正常。第二条不通，多半是会话 Redis 的地址、口令或库号与 Java 不一致。
 
-**入口路由**（从外网执行）：`/api/v1/admin/...`、`/swagger-ui/...`、`/admin/v1/...` 都应返回 404。
+**入口路由**（从外网执行）：`/api/v1/admin/...`、`/swagger-ui/...`、`/api/v1/local-life/admin/...` 都应返回 404。
 
 **接口文档（Swagger）**：默认关闭。联调需要时在 `deploy.env` 设 `SWAGGER_ENABLED=1` 后重装，经 ssh 隧道在本机访问 `http://127.0.0.1:18888/swagger`、`http://127.0.0.1:18889/swagger`。前端对接说明在安装目录 `docs/api/` 下（`api-app.md`、`api-voiceover.md`）。
 
@@ -257,6 +258,6 @@ cd /root/aigc-local-life && bash install.sh
 - [ ] 会话参数与 Java 生产一致（上限、令牌时长、Redis 库号）
 - [ ] 首次上线已设 `BACKUP_BEFORE_MIGRATE=1`，并确认备份盘空间
 - [ ] `install.sh check-billing` 全部通过
-- [ ] nginx 已加载、证书已配；外网访问 `/api/v1/admin`、`/swagger-ui`、`/admin/v1` 都是 404
+- [ ] nginx 已加载、证书已配；外网访问 `/api/v1/admin`、`/swagger-ui`、`/api/v1/local-life/admin` 都是 404
 - [ ] 安全组只放行 80 / 443
 - [ ] 运营数据（数字人、模板、动作视频、口播背景）已用真实素材配置，音色试听已生成

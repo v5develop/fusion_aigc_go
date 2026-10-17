@@ -16,7 +16,7 @@
 | 进程 | 端口 | 说明 |
 |---|---|---|
 | `gateway-api` | 18888 | App 接口 `/api/v1/local-life/*`，nginx 转发 |
-| `admin-api` | 18889 | 运营后台 `/admin/v1/*`，不对公网，ssh 隧道访问 |
+| `admin-api` | 18889 | 运营后台 `/api/v1/local-life/admin/*`，不对公网，ssh 隧道访问 |
 | `copywriting-rpc` | 19201 | AI 文案、店铺档案 |
 | `digitalhuman-rpc` | 19202 | AI 数字人 |
 | `note-rpc` | 19203 | AI 图文笔记 |

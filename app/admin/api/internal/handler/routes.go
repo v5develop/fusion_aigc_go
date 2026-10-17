@@ -26,7 +26,7 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Handler: auth.LoginHandler(serverCtx),
 			},
 		},
-		rest.WithPrefix("/admin/v1"),
+		rest.WithPrefix("/api/v1/local-life/admin"),
 	)
 
 	server.AddRoutes(
@@ -41,7 +41,7 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				},
 			}...,
 		),
-		rest.WithPrefix("/admin/v1"),
+		rest.WithPrefix("/api/v1/local-life/admin"),
 	)
 
 	server.AddRoutes(
@@ -92,7 +92,7 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				},
 			}...,
 		),
-		rest.WithPrefix("/admin/v1"),
+		rest.WithPrefix("/api/v1/local-life/admin"),
 	)
 
 	server.AddRoutes(
@@ -167,7 +167,7 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				},
 			}...,
 		),
-		rest.WithPrefix("/admin/v1"),
+		rest.WithPrefix("/api/v1/local-life/admin"),
 	)
 
 	server.AddRoutes(
@@ -188,7 +188,7 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				},
 			}...,
 		),
-		rest.WithPrefix("/admin/v1"),
+		rest.WithPrefix("/api/v1/local-life/admin"),
 	)
 
 	server.AddRoutes(
@@ -203,6 +203,6 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				},
 			}...,
 		),
-		rest.WithPrefix("/admin/v1"),
+		rest.WithPrefix("/api/v1/local-life/admin"),
 	)
 }

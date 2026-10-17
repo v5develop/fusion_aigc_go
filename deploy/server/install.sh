@@ -300,7 +300,8 @@ gen_conf() {
 # render_nginx：渲染 nginx 站点配置到 $INSTALL_DIR/nginx/aigc-local-life.conf（宿主机 nginx 加载它）
 render_nginx() {
   mkdir -p "$INSTALL_DIR/nginx"
-  sed -e "s|__SERVER_NAME__|$PUBLIC_DOMAIN|g" -e "s|__GATEWAY_PORT__|$GATEWAY_PORT|g" -e "s|__JAVA_UPSTREAM__|$JAVA_UPSTREAM|g" \
+  sed -e "s|__SERVER_NAME__|$PUBLIC_DOMAIN|g" -e "s|__GATEWAY_PORT__|$GATEWAY_PORT|g" \
+    -e "s|__ADMIN_PORT__|$ADMIN_PORT|g" -e "s|__JAVA_UPSTREAM__|$JAVA_UPSTREAM|g" \
     "$PKG/nginx/aigc-local-life.conf.tmpl" > "$INSTALL_DIR/nginx/aigc-local-life.conf"
 }
 
@@ -402,7 +403,7 @@ self_check() {
   wait_check "App 网关 → 海报/口播服务" "http://127.0.0.1:$GATEWAY_PORT/api/v1/local-life/image-creations/options?kind=voiceover" "X-User-Id: 1" || ok=1
   wait_check "App 网关 → 数字人服务" "http://127.0.0.1:$GATEWAY_PORT/api/v1/local-life/voices/categories" "X-User-Id: 1" || ok=1
   wait_check "OSS 直传凭证（STS）" "http://127.0.0.1:$GATEWAY_PORT/api/v1/local-life/upload/credentials?kind=image" "X-User-Id: 1" || ok=1
-  wait_check "运营后台" "http://127.0.0.1:$ADMIN_PORT/admin/v1/copywriting/model" "X-Admin-Id: 1" || ok=1
+  wait_check "运营后台" "http://127.0.0.1:$ADMIN_PORT/api/v1/local-life/admin/copywriting/model" "X-Admin-Id: 1" || ok=1
   if [[ $ok != 0 ]]; then
     red "有检查没通过，看日志：bash install.sh logs <服务名>（日志目录 $INSTALL_DIR/logs）"
     return 1
@@ -478,7 +479,7 @@ cmd_install() {
   cat <<EOF
 
   App 接口：  https://$PUBLIC_DOMAIN/api/v1/local-life     （经 nginx；网关只监听本机 127.0.0.1:${GATEWAY_PORT}）
-  运营后台：  仅本机 http://127.0.0.1:$ADMIN_PORT/admin/v1（不走公网，用 ssh 隧道访问）
+  运营后台：  仅本机 http://127.0.0.1:$ADMIN_PORT/api/v1/local-life/admin（不走公网，用 ssh 隧道访问）
   接口文档：  $SWAGGER_HINT
   执行面：    $AIGC_ENDPOINT
 
@@ -561,7 +562,7 @@ cmd_check_billing() {
 
 cmd_voices() {
   command -v jq >/dev/null 2>&1 || die "需要 jq：CentOS 执行 yum install -y jq，Ubuntu/Debian 执行 apt install -y jq"
-  ADMIN="http://127.0.0.1:$ADMIN_PORT/admin/v1" bash "$INSTALL_DIR/scripts/gen-voice-previews.sh"
+  ADMIN="http://127.0.0.1:$ADMIN_PORT/api/v1/local-life/admin" bash "$INSTALL_DIR/scripts/gen-voice-previews.sh"
 }
 
 cmd_uninstall() {

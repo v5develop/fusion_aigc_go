@@ -10,7 +10,7 @@
         宿主机 nginx（加载 ./nginx/aigc-local-life.conf）
         ├─ /api/v1/local-life ──► 127.0.0.1:18888  gateway-api ─┐
         ├─ /api/v1/（其余）  ──► 127.0.0.1:18080  Java          │  rpc 直连 127.0.0.1:19201–19204
-        └─ /api/v1/admin、Swagger、actuator、其它 ──► 404        │  copywriting / digitalhuman / note / imagegen
+        └─ /api/v1/admin、/api/v1/local-life/admin、Swagger、其它 ──► 404  │  copywriting / digitalhuman / note / imagegen
                                                                   │
    127.0.0.1:18889 admin-api（只在本机，ssh 隧道访问）            │
                                                                   ▼
@@ -91,6 +91,7 @@ docker compose ps                   # prepare 为 Exited (0)，6 个服务为 he
 | 路径 | 去向 |
 |---|---|
 | `/api/v1/local-life` | Go 网关 `127.0.0.1:18888` |
+| `/api/v1/local-life/admin` | 404（Go 运营后台不走公网，ssh 隧道访问 `127.0.0.1:18889`；确需公网访问时删掉模板里这一段） |
 | `/api/v1/admin` | 404（Java 运营后台不走公网；确需公网访问时删掉模板里这一段） |
 | `/api/v1/`（其余） | Java `JAVA_UPSTREAM` |
 | `/swagger-ui`、`/v3/api-docs`、`/actuator`、其它 | 404 |
@@ -99,7 +100,7 @@ docker compose ps                   # prepare 为 Exited (0)，6 个服务为 he
 
 ```bash
 read -rp '后台账号: ' ADMIN_USER; read -rsp '口令: ' ADMIN_PASS; echo; export ADMIN_USER ADMIN_PASS
-docker compose run --rm -e ADMIN=http://127.0.0.1:18889/admin/v1 -e ADMIN_USER -e ADMIN_PASS \
+docker compose run --rm -e ADMIN=http://127.0.0.1:18889/api/v1/local-life/admin -e ADMIN_USER -e ADMIN_PASS \
   prepare bash /app/pkg/scripts/gen-voice-previews.sh
 ```
 
@@ -113,7 +114,7 @@ curl -s -H "Authorization: Bearer $TOKEN" https://<PUBLIC_DOMAIN>/api/v1/local-l
 curl -s -H "Authorization: Bearer $TOKEN" https://<PUBLIC_DOMAIN>/api/v1/points/balance | head -c 200   # 走 Java，验证令牌两边通用
 ```
 
-外网访问 `/api/v1/admin/...`、`/swagger-ui/...`、`/admin/v1/...` 都应返回 404。运营后台（Go）用 ssh 隧道：`ssh -L 18889:127.0.0.1:18889 root@<服务器>`。
+外网访问 `/api/v1/admin/...`、`/swagger-ui/...`、`/api/v1/local-life/admin/...` 都应返回 404。运营后台（Go）用 ssh 隧道：`ssh -L 18889:127.0.0.1:18889 root@<服务器>`。
 
 ## 四、数据库迁移
 

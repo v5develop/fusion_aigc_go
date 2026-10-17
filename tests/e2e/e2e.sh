@@ -4,7 +4,7 @@
 set -euo pipefail
 
 GW=${GW:-http://127.0.0.1:8888/api/v1/local-life}
-ADMIN=${ADMIN:-http://127.0.0.1:8889/admin/v1}
+ADMIN=${ADMIN:-http://127.0.0.1:8889/api/v1/local-life/admin}
 # SKIP_MODEL=1 跳过真实调模型的段落（模型账号欠费/限流时仍能验证其余逻辑）
 SKIP_MODEL=${SKIP_MODEL:-0}
 USER_ID=${USER_ID:-$(( (RANDOM << 15 | RANDOM) + 100000 ))}

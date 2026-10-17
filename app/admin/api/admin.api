@@ -93,7 +93,7 @@ type (
 )
 
 @server (
-	prefix: /admin/v1
+	prefix: /api/v1/local-life/admin
 	group:  auth
 	tags:   "登录"
 )
@@ -104,7 +104,7 @@ service admin-api {
 }
 
 @server (
-	prefix:     /admin/v1
+	prefix:     /api/v1/local-life/admin
 	middleware: AdminAuth
 	group:      auth
 	tags:       "登录"
@@ -117,7 +117,7 @@ service admin-api {
 }
 
 @server (
-	prefix:     /admin/v1
+	prefix:     /api/v1/local-life/admin
 	middleware: AdminAuth
 	group:      copywriting
 	tags:       "AI文案"
@@ -223,7 +223,7 @@ type (
 )
 
 @server (
-	prefix:     /admin/v1
+	prefix:     /api/v1/local-life/admin
 	middleware: AdminAuth
 	group:      digitalhuman
 	tags:       "AI数字人"
@@ -304,7 +304,7 @@ type (
 )
 
 @server (
-	prefix:     /admin/v1
+	prefix:     /api/v1/local-life/admin
 	middleware: AdminAuth
 	group:      note
 	tags:       "AI图文笔记"
@@ -342,7 +342,7 @@ type (
 )
 
 @server (
-	prefix:     /admin/v1
+	prefix:     /api/v1/local-life/admin
 	middleware: AdminAuth
 	group:      imagegen
 	tags:       "海报 / 长图 / 动作迁移 / 数字人口播"

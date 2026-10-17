@@ -17,7 +17,7 @@
   },
   "basePath": "/",
   "paths": {
-    "/admin/v1/auth/login": {
+    "/api/v1/local-life/admin/auth/login": {
       "post": {
         "consumes": [
           "application/json"
@@ -122,7 +122,7 @@
         }
       }
     },
-    "/admin/v1/auth/me": {
+    "/api/v1/local-life/admin/auth/me": {
       "get": {
         "security": [
           {
@@ -183,7 +183,7 @@
         }
       }
     },
-    "/admin/v1/copywriting": {
+    "/api/v1/local-life/admin/copywriting": {
       "get": {
         "security": [
           {
@@ -311,7 +311,7 @@
         }
       }
     },
-    "/admin/v1/copywriting/model": {
+    "/api/v1/local-life/admin/copywriting/model": {
       "get": {
         "security": [
           {
@@ -368,7 +368,7 @@
         }
       }
     },
-    "/admin/v1/copywriting/options": {
+    "/api/v1/local-life/admin/copywriting/options": {
       "get": {
         "security": [
           {
@@ -587,7 +587,7 @@
         }
       }
     },
-    "/admin/v1/copywriting/options/{id}": {
+    "/api/v1/local-life/admin/copywriting/options/{id}": {
       "put": {
         "security": [
           {
@@ -761,7 +761,7 @@
         }
       }
     },
-    "/admin/v1/copywriting/{id}": {
+    "/api/v1/local-life/admin/copywriting/{id}": {
       "delete": {
         "security": [
           {
@@ -815,7 +815,7 @@
         }
       }
     },
-    "/admin/v1/digital-humans": {
+    "/api/v1/local-life/admin/digital-humans": {
       "get": {
         "security": [
           {
@@ -957,7 +957,7 @@
         }
       }
     },
-    "/admin/v1/digital-humans/options": {
+    "/api/v1/local-life/admin/digital-humans/options": {
       "get": {
         "security": [
           {
@@ -1174,7 +1174,7 @@
         }
       }
     },
-    "/admin/v1/digital-humans/options/{id}": {
+    "/api/v1/local-life/admin/digital-humans/options/{id}": {
       "put": {
         "security": [
           {
@@ -1347,7 +1347,7 @@
         }
       }
     },
-    "/admin/v1/digital-humans/tts-model": {
+    "/api/v1/local-life/admin/digital-humans/tts-model": {
       "get": {
         "security": [
           {
@@ -1404,7 +1404,7 @@
         }
       }
     },
-    "/admin/v1/digital-humans/voices": {
+    "/api/v1/local-life/admin/digital-humans/voices": {
       "get": {
         "security": [
           {
@@ -1640,7 +1640,7 @@
         }
       }
     },
-    "/admin/v1/digital-humans/voices/{id}": {
+    "/api/v1/local-life/admin/digital-humans/voices/{id}": {
       "put": {
         "security": [
           {
@@ -1828,7 +1828,7 @@
         }
       }
     },
-    "/admin/v1/digital-humans/voices/{id}/preview": {
+    "/api/v1/local-life/admin/digital-humans/voices/{id}/preview": {
       "post": {
         "security": [
           {
@@ -1914,7 +1914,7 @@
         }
       }
     },
-    "/admin/v1/image-creations": {
+    "/api/v1/local-life/admin/image-creations": {
       "get": {
         "security": [
           {
@@ -2050,7 +2050,7 @@
         }
       }
     },
-    "/admin/v1/notes": {
+    "/api/v1/local-life/admin/notes": {
       "get": {
         "security": [
           {
@@ -2194,7 +2194,7 @@
         }
       }
     },
-    "/admin/v1/video-creations": {
+    "/api/v1/local-life/admin/video-creations": {
       "get": {
         "security": [
           {

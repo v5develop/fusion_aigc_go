@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # 批量生成系统音色试听（会真实调用百炼合成并写入公有桶/本地存储）
-# 用法：ADMIN=http://127.0.0.1:18889/admin/v1 ADMIN_USER=<后台账号> ADMIN_PASS=<密码> gen-voice-previews.sh [--force]
+# 用法：ADMIN=http://127.0.0.1:18889/api/v1/local-life/admin ADMIN_USER=<后台账号> ADMIN_PASS=<密码> gen-voice-previews.sh [--force]
 #   鉴权（正式环境是 token 模式）：给 ADMIN_TOKEN，或给 ADMIN_USER / ADMIN_PASS 由脚本登录换令牌；
 #   都不给时退回 X-Admin-Id，只在开发环境（dev 鉴权）可用。
 #   默认只处理还没有试听的音色；--force 则全部重新生成。
 set -euo pipefail
 
-ADMIN=${ADMIN:-http://127.0.0.1:8889/admin/v1}
+ADMIN=${ADMIN:-http://127.0.0.1:8889/api/v1/local-life/admin}
 ADMIN_ID=${ADMIN_ID:-1}
 FORCE=${1:-}
 

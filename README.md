@@ -21,7 +21,7 @@ Go + go-zero，数据落在现有系统的 `fusion_aigc` 库，新表 `afv_` 前
 | `note-rpc` | 9203 | 图文笔记：构思（执行面 74）→ 规划 → 出图（75）、编辑；内置结果轮询器 |
 | `imagegen-rpc` | 9204 | 海报（78）、长图（76）、动作迁移（9/86）、数字人口播（92/91）、探店视频（72→73/81）、带货短剧（87→88/89）：模板与动作视频、提交、轮询；内置结果轮询器 |
 | `gateway-api` | 8888 | App 接口 `/api/v1/local-life/*`，直传凭证；本地存储模式下提供 `/files` 与代传上传 |
-| `admin-api` | 8889 | 运营后台 `/admin/v1/*` |
+| `admin-api` | 8889 | 运营后台 `/api/v1/local-life/admin/*` |
 | `mock-union` | 5056 | **仅本地**：模拟联盟用户服务的两个接口，登录联调用 |
 | `mock-aigc` | 5055 | **仅本地**：模拟 AIGC 执行面（9/70/71/72/73/74/75/76/78/85/87/88/92），正式地址提供前用它联调 |
 
@@ -38,7 +38,7 @@ Go + go-zero，数据落在现有系统的 `fusion_aigc` 库，新表 `afv_` 前
 # 批量导入运营数据（公共数字人 / 海报模板 / 长图模板 / 预置动作视频），按 url 去重、可重复执行
 go run ./tools/ops/seed -dsn '<mysql dsn>' -kind posterTemplate -csv poster.csv -dry
 # 批量生成系统音色试听（默认只补没有试听的；--force 全部重来）
-ADMIN=http://<host>:8889/admin/v1 deploy/scripts/gen-voice-previews.sh
+ADMIN=http://<host>:8889/api/v1/local-life/admin deploy/scripts/gen-voice-previews.sh
 ```
 
 ## 文档

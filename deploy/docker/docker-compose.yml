@@ -120,4 +120,4 @@ services:
       imagegen-rpc: { condition: service_healthy }
     healthcheck:
       <<: *rpc-health
-      test: ["CMD-SHELL", "case $$(curl -s -o /dev/null -m 3 -w '%{http_code}' http://127.0.0.1:${ADMIN_PORT:-18889}/admin/v1/copywriting/model) in [1-4]??) exit 0;; *) exit 1;; esac"]
+      test: ["CMD-SHELL", "case $$(curl -s -o /dev/null -m 3 -w '%{http_code}' http://127.0.0.1:${ADMIN_PORT:-18889}/api/v1/local-life/admin/copywriting/model) in [1-4]??) exit 0;; *) exit 1;; esac"]

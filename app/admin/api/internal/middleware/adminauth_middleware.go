@@ -14,7 +14,7 @@ import (
 
 // AdminAuthMiddleware 解析当前管理员。
 //
-// 正常路径：Authorization: Bearer <令牌>，由 /admin/v1/auth/login 用现有后台账号
+// 正常路径：Authorization: Bearer <令牌>，由 /api/v1/local-life/admin/auth/login 用现有后台账号
 // （afv_admin_user，密码是 BCrypt）换来。令牌密钥与 App 那套分开，两边不通用。
 //
 // Mode=dev 时，没带令牌还允许用请求头 X-Admin-Id 顶替，方便联调；线上必须设成 token。

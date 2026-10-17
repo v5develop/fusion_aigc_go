@@ -5,7 +5,7 @@
 # 跑完删掉；**不碰真实账号**，也不会去动它们的 login_fail_count。
 set -euo pipefail
 
-ADMIN=${ADMIN:-http://127.0.0.1:8889/admin/v1}
+ADMIN=${ADMIN:-http://127.0.0.1:8889/api/v1/local-life/admin}
 GW=${GW:-http://127.0.0.1:8888/api/v1/local-life}
 MOCKUNION=${MOCKUNION:-http://127.0.0.1:5056}
 USER=e2e_admin

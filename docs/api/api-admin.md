@@ -1,6 +1,6 @@
 # 运营后台接口：登录
 
-后台地址：`http://<host>:8889`（服务器部署默认 18889），所有接口前缀 `/admin/v1`。
+后台地址：`http://<host>:8889`（服务器部署默认 18889），所有接口前缀 `/api/v1/local-life/admin`。
 
 **在线文档（Swagger，可调试）**：`http://<host>:<端口>/swagger`，先点「Authorize」填登录接口返回的 token。
 
