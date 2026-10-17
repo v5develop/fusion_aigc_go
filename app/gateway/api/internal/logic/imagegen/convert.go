@@ -1,8 +1,8 @@
 package imagegen
 
 import (
-	"aigc-life/app/gateway/api/internal/types"
-	"aigc-life/app/imagegen/rpc/imagegen"
+	"aigc-local-life/app/gateway/api/internal/types"
+	"aigc-local-life/app/imagegen/rpc/imagegen"
 )
 
 func toOptions(list []*imagegen.Option) []types.ImageGenOption {

@@ -7,9 +7,9 @@ package server
 import (
 	"context"
 
-	"aigc-life/app/copywriting/rpc/internal/logic"
-	"aigc-life/app/copywriting/rpc/internal/svc"
-	"aigc-life/app/copywriting/rpc/pb"
+	"aigc-local-life/app/copywriting/rpc/internal/logic"
+	"aigc-local-life/app/copywriting/rpc/internal/svc"
+	"aigc-local-life/app/copywriting/rpc/pb"
 )
 
 type CopywritingServer struct {

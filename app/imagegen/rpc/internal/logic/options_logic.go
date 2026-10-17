@@ -3,9 +3,9 @@ package logic
 import (
 	"context"
 
-	"aigc-life/app/imagegen/model"
-	"aigc-life/app/imagegen/rpc/internal/svc"
-	"aigc-life/app/imagegen/rpc/pb"
+	"aigc-local-life/app/imagegen/model"
+	"aigc-local-life/app/imagegen/rpc/internal/svc"
+	"aigc-local-life/app/imagegen/rpc/pb"
 
 	"github.com/zeromicro/go-zero/core/logx"
 )

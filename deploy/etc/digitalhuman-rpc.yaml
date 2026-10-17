@@ -19,7 +19,7 @@ Aigc:
   TimeoutSeconds: 10
 Storage:
   Mode: local           # local 仅开发用（执行面访问不到）；oss 写现有公有桶 xx-shop-img
-  Prefix: aigc-life
+  Prefix: aigc-local-life
   LocalDir: data/files
   LocalBaseUrl: http://127.0.0.1:8888/files
 TaskIDPrefix: AiCreationLife

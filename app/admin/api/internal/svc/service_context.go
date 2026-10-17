@@ -1,13 +1,13 @@
 package svc
 
 import (
-	"aigc-life/app/admin/api/internal/config"
-	"aigc-life/app/admin/api/internal/middleware"
-	"aigc-life/app/copywriting/rpc/copywriting"
-	"aigc-life/app/digitalhuman/rpc/digitalhuman"
-	"aigc-life/app/imagegen/rpc/imagegen"
-	"aigc-life/app/note/rpc/note"
-	"aigc-life/pkg/adminuser"
+	"aigc-local-life/app/admin/api/internal/config"
+	"aigc-local-life/app/admin/api/internal/middleware"
+	"aigc-local-life/app/copywriting/rpc/copywriting"
+	"aigc-local-life/app/digitalhuman/rpc/digitalhuman"
+	"aigc-local-life/app/imagegen/rpc/imagegen"
+	"aigc-local-life/app/note/rpc/note"
+	"aigc-local-life/pkg/adminuser"
 
 	"github.com/zeromicro/go-zero/core/stores/sqlx"
 

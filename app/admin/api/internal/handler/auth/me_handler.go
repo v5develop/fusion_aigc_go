@@ -6,8 +6,8 @@ package auth
 import (
 	"net/http"
 
-	"aigc-life/app/admin/api/internal/logic/auth"
-	"aigc-life/app/admin/api/internal/svc"
+	"aigc-local-life/app/admin/api/internal/logic/auth"
+	"aigc-local-life/app/admin/api/internal/svc"
 	"github.com/zeromicro/go-zero/rest/httpx"
 )
 

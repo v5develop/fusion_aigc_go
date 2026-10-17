@@ -7,9 +7,9 @@ package server
 import (
 	"context"
 
-	"aigc-life/app/digitalhuman/rpc/internal/logic"
-	"aigc-life/app/digitalhuman/rpc/internal/svc"
-	"aigc-life/app/digitalhuman/rpc/pb"
+	"aigc-local-life/app/digitalhuman/rpc/internal/logic"
+	"aigc-local-life/app/digitalhuman/rpc/internal/svc"
+	"aigc-local-life/app/digitalhuman/rpc/pb"
 )
 
 type DigitalHumanServer struct {

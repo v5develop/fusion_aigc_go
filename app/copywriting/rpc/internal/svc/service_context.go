@@ -3,12 +3,12 @@ package svc
 import (
 	"context"
 
-	"aigc-life/app/copywriting/model"
-	"aigc-life/app/copywriting/rpc/internal/config"
-	"aigc-life/pkg/billing"
-	"aigc-life/pkg/llm"
-	"aigc-life/pkg/moderation"
-	"aigc-life/pkg/semaphore"
+	"aigc-local-life/app/copywriting/model"
+	"aigc-local-life/app/copywriting/rpc/internal/config"
+	"aigc-local-life/pkg/billing"
+	"aigc-local-life/pkg/llm"
+	"aigc-local-life/pkg/moderation"
+	"aigc-local-life/pkg/semaphore"
 
 	"github.com/zeromicro/go-zero/core/stores/sqlx"
 )

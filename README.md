@@ -94,7 +94,7 @@ make stop-all
   服务重启后接着查（已实测）。超时：出图 10 分钟、视频 30 分钟；「配音中」卡住（重启留下的）也会回收。
 - **wav 时长**：百炼返回的 wav 头里长度字段是占位值 `0x7FFFFFFF`，按实际字节数计算（`tts.WavDuration`）。
 - **上传：客户端直传 OSS**（与现有系统一致，已和前端确认）。
-  `GET /upload/credentials?kind=image|video` 返回 STS 临时凭证，策略限定只能写 `aigc-life/<kind>/<用户>/<日期>/` 下的对象，
+  `GET /upload/credentials?kind=image|video` 返回 STS 临时凭证，策略限定只能写 `aigc-local-life/<kind>/<用户>/<日期>/` 下的对象，
   前端直接 PUT 到 OSS，再把地址回传给业务接口。
   **文件大小与类型由前端控制，后端不管**；后端只校验地址属于本存储签发的目录（`storage.Owned`），
   防止把任意外链交给执行面。`POST /upload`（网关代传）保留给本地开发与 e2e，线上不用。

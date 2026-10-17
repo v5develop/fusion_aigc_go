@@ -6,10 +6,10 @@ package auth
 import (
 	"context"
 
-	"aigc-life/app/gateway/api/internal/svc"
-	"aigc-life/app/gateway/api/internal/types"
-	"aigc-life/pkg/ctxdata"
-	"aigc-life/pkg/xerr"
+	"aigc-local-life/app/gateway/api/internal/svc"
+	"aigc-local-life/app/gateway/api/internal/types"
+	"aigc-local-life/pkg/ctxdata"
+	"aigc-local-life/pkg/xerr"
 
 	"github.com/zeromicro/go-zero/core/logx"
 )

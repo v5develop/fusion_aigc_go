@@ -6,10 +6,10 @@ import (
 	"strings"
 	"time"
 
-	"aigc-life/app/imagegen/model"
-	"aigc-life/app/imagegen/rpc/internal/svc"
-	"aigc-life/pkg/aigc"
-	"aigc-life/pkg/asset"
+	"aigc-local-life/app/imagegen/model"
+	"aigc-local-life/app/imagegen/rpc/internal/svc"
+	"aigc-local-life/pkg/aigc"
+	"aigc-local-life/pkg/asset"
 
 	"github.com/zeromicro/go-zero/core/logx"
 )

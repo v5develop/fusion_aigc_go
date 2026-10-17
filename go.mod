@@ -1,4 +1,4 @@
-module aigc-life
+module aigc-local-life
 
 go 1.26.5
 

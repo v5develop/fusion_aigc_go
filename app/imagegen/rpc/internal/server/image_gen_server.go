@@ -7,9 +7,9 @@ package server
 import (
 	"context"
 
-	"aigc-life/app/imagegen/rpc/internal/logic"
-	"aigc-life/app/imagegen/rpc/internal/svc"
-	"aigc-life/app/imagegen/rpc/pb"
+	"aigc-local-life/app/imagegen/rpc/internal/logic"
+	"aigc-local-life/app/imagegen/rpc/internal/svc"
+	"aigc-local-life/app/imagegen/rpc/pb"
 )
 
 type ImageGenServer struct {

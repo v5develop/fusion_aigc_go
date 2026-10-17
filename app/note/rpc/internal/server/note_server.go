@@ -7,9 +7,9 @@ package server
 import (
 	"context"
 
-	"aigc-life/app/note/rpc/internal/logic"
-	"aigc-life/app/note/rpc/internal/svc"
-	"aigc-life/app/note/rpc/pb"
+	"aigc-local-life/app/note/rpc/internal/logic"
+	"aigc-local-life/app/note/rpc/internal/svc"
+	"aigc-local-life/app/note/rpc/pb"
 )
 
 type NoteServer struct {

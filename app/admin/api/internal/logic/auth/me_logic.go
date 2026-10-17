@@ -7,11 +7,11 @@ import (
 	"context"
 	"errors"
 
-	"aigc-life/app/admin/api/internal/svc"
-	"aigc-life/app/admin/api/internal/types"
-	"aigc-life/pkg/adminuser"
-	"aigc-life/pkg/ctxdata"
-	"aigc-life/pkg/xerr"
+	"aigc-local-life/app/admin/api/internal/svc"
+	"aigc-local-life/app/admin/api/internal/types"
+	"aigc-local-life/pkg/adminuser"
+	"aigc-local-life/pkg/ctxdata"
+	"aigc-local-life/pkg/xerr"
 
 	"github.com/zeromicro/go-zero/core/logx"
 )

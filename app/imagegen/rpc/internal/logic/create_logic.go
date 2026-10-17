@@ -5,13 +5,13 @@ import (
 	"errors"
 	"strings"
 
-	"aigc-life/app/digitalhuman/rpc/digitalhuman"
-	"aigc-life/app/imagegen/model"
-	"aigc-life/app/imagegen/rpc/internal/config"
-	"aigc-life/app/imagegen/rpc/internal/svc"
-	"aigc-life/app/imagegen/rpc/pb"
-	"aigc-life/pkg/storage"
-	"aigc-life/pkg/xerr"
+	"aigc-local-life/app/digitalhuman/rpc/digitalhuman"
+	"aigc-local-life/app/imagegen/model"
+	"aigc-local-life/app/imagegen/rpc/internal/config"
+	"aigc-local-life/app/imagegen/rpc/internal/svc"
+	"aigc-local-life/app/imagegen/rpc/pb"
+	"aigc-local-life/pkg/storage"
+	"aigc-local-life/pkg/xerr"
 
 	"github.com/zeromicro/go-zero/core/logx"
 )

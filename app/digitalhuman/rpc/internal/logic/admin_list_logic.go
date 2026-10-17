@@ -3,10 +3,10 @@ package logic
 import (
 	"context"
 
-	"aigc-life/app/digitalhuman/model"
-	"aigc-life/app/digitalhuman/rpc/internal/svc"
-	"aigc-life/app/digitalhuman/rpc/pb"
-	"aigc-life/pkg/pagex"
+	"aigc-local-life/app/digitalhuman/model"
+	"aigc-local-life/app/digitalhuman/rpc/internal/svc"
+	"aigc-local-life/app/digitalhuman/rpc/pb"
+	"aigc-local-life/pkg/pagex"
 
 	"github.com/zeromicro/go-zero/core/logx"
 )

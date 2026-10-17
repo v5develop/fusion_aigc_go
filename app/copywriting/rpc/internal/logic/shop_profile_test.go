@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"aigc-life/app/copywriting/model"
+	"aigc-local-life/app/copywriting/model"
 )
 
 // 字数按设计稿便签的口径：汉字算 2，其余算 1（店铺名称 20 字符 = 10 个汉字）。

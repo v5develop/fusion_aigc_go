@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"aigc-life/app/copywriting/model"
-	"aigc-life/app/copywriting/rpc/internal/svc"
+	"aigc-local-life/app/copywriting/model"
+	"aigc-local-life/app/copywriting/rpc/internal/svc"
 
 	"github.com/zeromicro/go-zero/core/logx"
 )

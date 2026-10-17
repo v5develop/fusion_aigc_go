@@ -7,7 +7,7 @@ package imagegen
 import (
 	"context"
 
-	"aigc-life/app/imagegen/rpc/pb"
+	"aigc-local-life/app/imagegen/rpc/pb"
 
 	"github.com/zeromicro/go-zero/zrpc"
 	"google.golang.org/grpc"

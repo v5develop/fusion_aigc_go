@@ -4,11 +4,11 @@ import (
 	"flag"
 	"fmt"
 
-	"aigc-life/app/copywriting/rpc/internal/config"
-	"aigc-life/app/copywriting/rpc/internal/logic"
-	"aigc-life/app/copywriting/rpc/internal/server"
-	"aigc-life/app/copywriting/rpc/internal/svc"
-	"aigc-life/app/copywriting/rpc/pb"
+	"aigc-local-life/app/copywriting/rpc/internal/config"
+	"aigc-local-life/app/copywriting/rpc/internal/logic"
+	"aigc-local-life/app/copywriting/rpc/internal/server"
+	"aigc-local-life/app/copywriting/rpc/internal/svc"
+	"aigc-local-life/app/copywriting/rpc/pb"
 
 	"github.com/zeromicro/go-zero/core/conf"
 	"github.com/zeromicro/go-zero/core/service"

@@ -6,9 +6,9 @@ package digitalhuman
 import (
 	"context"
 
-	"aigc-life/app/admin/api/internal/svc"
-	"aigc-life/app/admin/api/internal/types"
-	"aigc-life/app/digitalhuman/rpc/digitalhuman"
+	"aigc-local-life/app/admin/api/internal/svc"
+	"aigc-local-life/app/admin/api/internal/types"
+	"aigc-local-life/app/digitalhuman/rpc/digitalhuman"
 
 	"github.com/zeromicro/go-zero/core/logx"
 )

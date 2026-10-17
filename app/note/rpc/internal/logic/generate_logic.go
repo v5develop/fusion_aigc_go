@@ -1,15 +1,15 @@
 package logic
 
 import (
-	"aigc-life/pkg/aigc"
-	"aigc-life/pkg/taskcenter"
+	"aigc-local-life/pkg/aigc"
+	"aigc-local-life/pkg/taskcenter"
 	"context"
 	"strings"
 
-	"aigc-life/app/note/model"
-	"aigc-life/app/note/rpc/internal/svc"
-	"aigc-life/app/note/rpc/pb"
-	"aigc-life/pkg/xerr"
+	"aigc-local-life/app/note/model"
+	"aigc-local-life/app/note/rpc/internal/svc"
+	"aigc-local-life/app/note/rpc/pb"
+	"aigc-local-life/pkg/xerr"
 
 	"github.com/zeromicro/go-zero/core/logx"
 )

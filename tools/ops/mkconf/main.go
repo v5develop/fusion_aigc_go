@@ -10,7 +10,7 @@
 //
 //   - 日志写文件（按天切分，保留 KeepDays 天），Mode=pro
 //
-//     mkconf -src deploy/etc -out /opt/aigc-life/etc -logs /opt/aigc-life/logs \
+//     mkconf -src deploy/etc -out /opt/aigc-local-life/etc -logs /opt/aigc-local-life/logs \
 //     -dsn 'user:pass@tcp(127.0.0.1:3306)/fusion_aigc?...' -aigc http://127.0.0.1:15055 \
 //     -ports copywriting=19201,digitalhuman=19202,note=19203,imagegen=19204,gateway=18888,admin=18889
 package main

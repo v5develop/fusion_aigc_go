@@ -1,6 +1,6 @@
-# aigc-life 镜像：一个镜像包含全部服务与部署工具，各服务用不同的 command 启动。
+# aigc-local-life 镜像：一个镜像包含全部服务与部署工具，各服务用不同的 command 启动。
 #
-#   正式（不含 mock）：docker build -f deploy/docker/Dockerfile --build-arg VERSION=v1.0.0 -t <仓库>/aigc-life:v1.0.0 .
+#   正式（不含 mock）：docker build -f deploy/docker/Dockerfile --build-arg VERSION=v1.0.0 -t <仓库>/aigc-local-life:v1.0.0 .
 #   本地联调（含 mock）：由 docker-compose.dev.yml 构建，INCLUDE_MOCKS=1
 #
 # 构建上下文是仓库根目录。配置不打进镜像：由 prepare 服务在启动时生成到挂载的 etc/。

@@ -28,7 +28,7 @@ func TestTransferReal(t *testing.T) {
 	}
 	t.Logf("source: %s", src)
 
-	s := New(Conf{Mode: "oss", Prefix: "aigc-life"}, conn).(*ossStore)
+	s := New(Conf{Mode: "oss", Prefix: "aigc-local-life"}, conn).(*ossStore)
 	ctx := context.Background()
 
 	// 私有桶不对外可读，直接下载应当拿不到
@@ -49,7 +49,7 @@ func TestTransferReal(t *testing.T) {
 	cfg, _ := s.config(ctx)
 	defer deleteObject(t, s, cfg, objectKeyOf(dst))
 
-	if !strings.HasPrefix(dst, cfg.publicBase()+"/aigc-life/selftest/") {
+	if !strings.HasPrefix(dst, cfg.publicBase()+"/aigc-local-life/selftest/") {
 		t.Fatalf("转存后的地址不对: %s", dst)
 	}
 	size, ct, err := s.Stat(ctx, dst)
@@ -72,14 +72,14 @@ func TestTransferTempReal(t *testing.T) {
 	if os.Getenv("OSS_REAL") != "1" || dsn == "" || src == "" {
 		t.Skip("设置 OSS_REAL=1、OSS_DSN 与 OSS_TEMP_URL 后才会连真实账号")
 	}
-	s := New(Conf{Mode: "oss", Prefix: "aigc-life"}, sqlx.NewMysql(dsn)).(*ossStore)
+	s := New(Conf{Mode: "oss", Prefix: "aigc-local-life"}, sqlx.NewMysql(dsn)).(*ossStore)
 	ctx := context.Background()
 	got, err := s.Transfer(ctx, src, "note_ref", 1)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Logf("copied to: %s", got)
-	if got == src || !strings.Contains(got, "/aigc-life/note_ref/") {
+	if got == src || !strings.Contains(got, "/aigc-local-life/note_ref/") {
 		t.Fatalf("临时目录的图没有复制到我们的目录: %s", got)
 	}
 	resp, err := http.Get(got)
@@ -104,9 +104,9 @@ func TestPresignPutReal(t *testing.T) {
 	if os.Getenv("OSS_REAL") != "1" || dsn == "" {
 		t.Skip("设置 OSS_REAL=1 与 OSS_DSN 后才会连真实账号")
 	}
-	s := New(Conf{Mode: "oss", Prefix: "aigc-life"}, sqlx.NewMysql(dsn)).(*ossStore)
+	s := New(Conf{Mode: "oss", Prefix: "aigc-local-life"}, sqlx.NewMysql(dsn)).(*ossStore)
 	ctx := context.Background()
-	p, err := s.PresignPut(ctx, ObjectKey("aigc-life", "image", 1, "png"), "image/png", 5*time.Minute)
+	p, err := s.PresignPut(ctx, ObjectKey("aigc-local-life", "image", 1, "png"), "image/png", 5*time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}

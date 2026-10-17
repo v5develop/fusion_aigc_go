@@ -6,8 +6,8 @@ package note
 import (
 	"net/http"
 
-	"aigc-life/app/gateway/api/internal/logic/note"
-	"aigc-life/app/gateway/api/internal/svc"
+	"aigc-local-life/app/gateway/api/internal/logic/note"
+	"aigc-local-life/app/gateway/api/internal/svc"
 	"github.com/zeromicro/go-zero/rest/httpx"
 )
 

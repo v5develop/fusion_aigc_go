@@ -6,12 +6,12 @@ package handler
 import (
 	"net/http"
 
-	auth "aigc-life/app/admin/api/internal/handler/auth"
-	copywriting "aigc-life/app/admin/api/internal/handler/copywriting"
-	digitalhuman "aigc-life/app/admin/api/internal/handler/digitalhuman"
-	imagegen "aigc-life/app/admin/api/internal/handler/imagegen"
-	note "aigc-life/app/admin/api/internal/handler/note"
-	"aigc-life/app/admin/api/internal/svc"
+	auth "aigc-local-life/app/admin/api/internal/handler/auth"
+	copywriting "aigc-local-life/app/admin/api/internal/handler/copywriting"
+	digitalhuman "aigc-local-life/app/admin/api/internal/handler/digitalhuman"
+	imagegen "aigc-local-life/app/admin/api/internal/handler/imagegen"
+	note "aigc-local-life/app/admin/api/internal/handler/note"
+	"aigc-local-life/app/admin/api/internal/svc"
 
 	"github.com/zeromicro/go-zero/rest"
 )

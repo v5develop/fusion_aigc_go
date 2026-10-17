@@ -1,11 +1,11 @@
 package config
 
 import (
-	"aigc-life/pkg/fusion"
-	"aigc-life/pkg/session"
-	"aigc-life/pkg/storage"
-	"aigc-life/pkg/token"
-	"aigc-life/pkg/unionauth"
+	"aigc-local-life/pkg/fusion"
+	"aigc-local-life/pkg/session"
+	"aigc-local-life/pkg/storage"
+	"aigc-local-life/pkg/token"
+	"aigc-local-life/pkg/unionauth"
 
 	"github.com/zeromicro/go-zero/rest"
 	"github.com/zeromicro/go-zero/zrpc"

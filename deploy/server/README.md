@@ -1,11 +1,11 @@
-# aigc-life 服务器部署手册（宝塔 / 一键脚本，备选方式）
+# aigc-local-life 服务器部署手册（宝塔 / 一键脚本，备选方式）
 
 > **正式环境用 docker compose 部署**，见 [`../docker/README.md`](../docker/README.md)。本手册是没有 Docker 的服务器上的备选方式；两者的校验规则、迁移、配置生成是同一套代码。
 
 一个安装包 + 一条命令：`bash install.sh`。脚本会检查环境与数据库、执行数据库迁移、生成配置、注册系统服务并启动、最后自检，同时渲染好 nginx 站点配置。**可重复执行**，升级也是同一条命令。
 
-> **改配置改哪一份**：改**你运行 `install.sh` 的那个目录**里的 `deploy.env`（比如解压出来的 `/root/aigc-life/deploy.env`）。
-> 脚本优先读它，装完会覆盖到 `/opt/aigc-life/deploy.env`——直接改装好的那份会在下次安装时被覆盖。两份不一致时脚本会停下来提醒。
+> **改配置改哪一份**：改**你运行 `install.sh` 的那个目录**里的 `deploy.env`（比如解压出来的 `/root/aigc-local-life/deploy.env`）。
+> 脚本优先读它，装完会覆盖到 `/opt/aigc-local-life/deploy.env`——直接改装好的那份会在下次安装时被覆盖。两份不一致时脚本会停下来提醒。
 
 ## 正式版的几条硬规则
 
@@ -21,7 +21,7 @@
 | 安装包不含 mock | 正式包里没有 mock 执行面，打包时自检 |
 
 **对服务器上已有项目的影响**：
-- 只新建 `aigc-life-*` 这几个系统服务，装在单独目录（默认 `/opt/aigc-life`）。
+- 只新建 `aigc-local-life-*` 这几个系统服务，装在单独目录（默认 `/opt/aigc-local-life`）。
 - 所有进程只监听 `127.0.0.1`：网关 18888、后台 18889、rpc 19201–19204（**避开了宝塔面板的 8888**）。端口被占用时脚本停下来提示，不抢端口。
 - 数据库只新建本项目的表、给本项目的表加列、写入本项目的分类与计费配置；迁移记录写在独立的 `go_schema_history`，**不碰 Java 的 `flyway_schema_history`**。
 - 不需要装 etcd、Docker、Go，服务之间本机直连。
@@ -38,7 +38,7 @@
 | Java 服务 | 本机可达的地址（默认 `127.0.0.1:18080`），nginx 把非本地生活的 `/api/v1/` 转给它 |
 | nginx | 宝塔自带即可，需要能给 `PUBLIC_DOMAIN` 配证书 |
 | 出网 | 能访问阿里云百炼（文案、配音）、OSS 与 AIGC 执行面 |
-| 安装包 | `aigc-life-<版本>.tar.gz`（开发机 `make package VERSION=<版本>` 生成在 `dist/` 下） |
+| 安装包 | `aigc-local-life-<版本>.tar.gz`（开发机 `make package VERSION=<版本>` 生成在 `dist/` 下） |
 
 现有系统里必须已有的配置（安装时检查，缺了直接停）：`afv_system_config` 里的公有桶 `storage_public_*`（含 STS 角色）、私有桶 `storage_private_*`、文案模型 `ai_writing_model_id`。
 
@@ -46,13 +46,13 @@
 
 **1. 上传并解压**
 
-宝塔「文件」→ `/root` → 上传 `aigc-life-<版本>.tar.gz` → 右键「解压」，得到 `/root/aigc-life/`。
-（或命令行：`cd /root && tar xzf aigc-life-*.tar.gz`）
+宝塔「文件」→ `/root` → 上传 `aigc-local-life-<版本>.tar.gz` → 右键「解压」，得到 `/root/aigc-local-life/`。
+（或命令行：`cd /root && tar xzf aigc-local-life-*.tar.gz`）
 
 **2. 第一次运行，生成配置文件**
 
 ```bash
-cd /root/aigc-life
+cd /root/aigc-local-life
 bash install.sh
 ```
 
@@ -88,7 +88,7 @@ bash install.sh
 
 | 变量 | 说明 |
 |---|---|
-| `BACKUP_BEFORE_MIGRATE=1` | 有待执行的迁移时，先整库备份到 `/opt/aigc-life/backup/`。默认关闭；**首次上线建议打开**：迁移只能前进，备份是唯一的回滚手段 |
+| `BACKUP_BEFORE_MIGRATE=1` | 有待执行的迁移时，先整库备份到 `/opt/aigc-local-life/backup/`。默认关闭；**首次上线建议打开**：迁移只能前进，备份是唯一的回滚手段 |
 | `TASK_ID_PREFIX` | 提交执行面的任务号前缀，默认 `AiCreationLife`（生成 `AiCreationLife_<32位hex>`），只能字母数字 |
 | `SWAGGER_ENABLED=1` | 打开接口文档页（仅本机可访问）；正式环境保持 `0` |
 | `LINK_PARSE_URL` | 分享链接解析服务；留空则「爆款视频复刻」只能上传视频 |
@@ -119,14 +119,14 @@ bash install.sh
 ```bash
 yum install -y jq     # Ubuntu/Debian：apt install -y jq
 read -rp '后台账号: ' ADMIN_USER; read -rsp '口令: ' ADMIN_PASS; echo; export ADMIN_USER ADMIN_PASS
-bash /opt/aigc-life/install.sh voices   # 正式环境是 token 鉴权，用现有后台账号登录后生成
+bash /opt/aigc-local-life/install.sh voices   # 正式环境是 token 鉴权，用现有后台账号登录后生成
 ```
 
 ## 三、对外入口（只经 nginx）
 
 公网只开 80 / 443。网关、后台、各 rpc **都只监听 127.0.0.1**，不要在云安全组或宝塔「安全」里放行 18888、18889、19201–19204。
 
-安装后 `/opt/aigc-life/nginx/aigc-life.conf` 已按 `PUBLIC_DOMAIN`、`GATEWAY_PORT`、`JAVA_UPSTREAM` 渲染好，路由如下：
+安装后 `/opt/aigc-local-life/nginx/aigc-local-life.conf` 已按 `PUBLIC_DOMAIN`、`GATEWAY_PORT`、`JAVA_UPSTREAM` 渲染好，路由如下：
 
 | 路径 | 去向 | 说明 |
 |---|---|---|
@@ -138,7 +138,7 @@ bash /opt/aigc-life/install.sh voices   # 正式环境是 token 鉴权，用现�
 
 宝塔操作：
 1. 「网站」→ 添加站点 `PUBLIC_DOMAIN`（纯静态即可）→「SSL」申请证书；
-2. 站点「配置文件」里加入 `aigc-life.conf` 的 `upstream` 与 `server` 内容（或 `include` 进来）；
+2. 站点「配置文件」里加入 `aigc-local-life.conf` 的 `upstream` 与 `server` 内容（或 `include` 进来）；
 3. `nginx -t` 检查通过后重载。
 
 前端地址：`https://<PUBLIC_DOMAIN>/api/v1/...`。
@@ -166,7 +166,7 @@ ssh -L 18889:127.0.0.1:18889 root@<服务器>
 **计费配置**（安装时已自动跑过，可随时复查，只读）：
 
 ```bash
-bash /opt/aigc-life/install.sh check-billing
+bash /opt/aigc-local-life/install.sh check-billing
 ```
 
 **业务接口**：用 App 登录拿到的令牌（`Authorization: Bearer <令牌>`）：
@@ -186,44 +186,44 @@ curl -s -H "Authorization: Bearer $TOKEN" https://<PUBLIC_DOMAIN>/api/v1/points/
 ## 六、日常操作
 
 ```bash
-bash /opt/aigc-life/install.sh status            # 各服务状态
-bash /opt/aigc-life/install.sh restart           # 重启全部
-bash /opt/aigc-life/install.sh stop              # 停止全部
-bash /opt/aigc-life/install.sh logs gateway-api  # 看日志（Ctrl+C 退出）
-bash /opt/aigc-life/install.sh check-billing     # 计费配置检查（只读）
-bash /opt/aigc-life/install.sh uninstall         # 停止并注销服务（不删库、不删目录）
+bash /opt/aigc-local-life/install.sh status            # 各服务状态
+bash /opt/aigc-local-life/install.sh restart           # 重启全部
+bash /opt/aigc-local-life/install.sh stop              # 停止全部
+bash /opt/aigc-local-life/install.sh logs gateway-api  # 看日志（Ctrl+C 退出）
+bash /opt/aigc-local-life/install.sh check-billing     # 计费配置检查（只读）
+bash /opt/aigc-local-life/install.sh uninstall         # 停止并注销服务（不删库、不删目录）
 ```
 
 - 服务名：`gateway-api` `admin-api` `copywriting-rpc` `digitalhuman-rpc` `note-rpc` `imagegen-rpc`。
-- 已注册为系统服务：服务器重启后自动启动，进程挂了 3 秒后自动拉起（`systemctl status aigc-life-gateway-api` 也能看）。
-- 日志在 `/opt/aigc-life/logs/`：`<服务>.out` 是启动输出（如 `gateway-api.out`）；业务日志在去掉 `-api` / `-rpc` 后缀的目录下（如 `gateway/`、`copywriting/`），按天切分，保留 `LOG_KEEP_DAYS` 天（默认 7）。
-- 配置在 `/opt/aigc-life/etc/`，权限 600（含数据库口令、令牌密钥）。
+- 已注册为系统服务：服务器重启后自动启动，进程挂了 3 秒后自动拉起（`systemctl status aigc-local-life-gateway-api` 也能看）。
+- 日志在 `/opt/aigc-local-life/logs/`：`<服务>.out` 是启动输出（如 `gateway-api.out`）；业务日志在去掉 `-api` / `-rpc` 后缀的目录下（如 `gateway/`、`copywriting/`），按天切分，保留 `LOG_KEEP_DAYS` 天（默认 7）。
+- 配置在 `/opt/aigc-local-life/etc/`，权限 600（含数据库口令、令牌密钥）。
 - 重启不丢任务：生成中的记录都在库里，服务起来后会接着查结果；冻结超时的点数由回收任务自动退回。
 
 ## 七、升级与回滚
 
-**升级**：开发机 `make package VERSION=<新版本>` → 上传解压（可覆盖 `/root/aigc-life`）→
+**升级**：开发机 `make package VERSION=<新版本>` → 上传解压（可覆盖 `/root/aigc-local-life`）→
 
 ```bash
-cd /root/aigc-life && bash install.sh
+cd /root/aigc-local-life && bash install.sh
 ```
 
-- 配置自动沿用：新包里没有 `deploy.env` 时，用 `/opt/aigc-life/deploy.env`。
+- 配置自动沿用：新包里没有 `deploy.env` 时，用 `/opt/aigc-local-life/deploy.env`。
 - 新增的迁移自动执行，已登记的跳过；会先停旧进程再启新的，中间有几秒不可用。
 - 含迁移的版本建议设 `BACKUP_BEFORE_MIGRATE=1`。
 - 早期开发版遗留的 mock 服务会在安装时自动注销。
 
 **回滚**：
 - 只回滚程序：重新解压上一版安装包，`bash install.sh`。本项目的迁移只新增表 / 列 / 数据，旧程序可以在新表结构上运行。
-- 连数据库一起回滚：停服务 → 用迁移前的备份恢复（`gunzip < /opt/aigc-life/backup/<库名>-<时间>.sql.gz | mysql ...`）→ 装上一版。**没开备份就没有这条路**。
+- 连数据库一起回滚：停服务 → 用迁移前的备份恢复（`gunzip < /opt/aigc-local-life/backup/<库名>-<时间>.sql.gz | mysql ...`）→ 装上一版。**没开备份就没有这条路**。
 
 ## 八、运营数据（否则 App 里对应列表是空的）
 
 公共数字人、海报 / 长图模板、预置动作视频、数字人口播预设背景：在现有后台「模板」里维护，或用安装包里的 `seed` 工具按 CSV 批量导入：
 
 ```bash
-/opt/aigc-life/bin/seed -dsn 'root:密码@tcp(127.0.0.1:3306)/fusion_aigc' -kind voiceoverBackground -csv bg.csv -dry  # 先看要写什么
-/opt/aigc-life/bin/seed -dsn 'root:密码@tcp(127.0.0.1:3306)/fusion_aigc' -kind voiceoverBackground -csv bg.csv      # 真写
+/opt/aigc-local-life/bin/seed -dsn 'root:密码@tcp(127.0.0.1:3306)/fusion_aigc' -kind voiceoverBackground -csv bg.csv -dry  # 先看要写什么
+/opt/aigc-local-life/bin/seed -dsn 'root:密码@tcp(127.0.0.1:3306)/fusion_aigc' -kind voiceoverBackground -csv bg.csv      # 真写
 ```
 
 `-kind`：`publicModel` / `posterTemplate` / `longImageTemplate` / `actionVideo` / `voiceoverBackground`，CSV 列名见 `seed -h`。
@@ -248,7 +248,7 @@ cd /root/aigc-life && bash install.sh
 | `缺少配音模型配置`（黄色） | 只影响数字人配音和音色试听。在 `afv_ai_model` 加一行 `code=qwen-audio-3.1-tts-flash`、`model_type=4`、`ai_provider_id=百炼那条`，再装一次会自动补 `ai_tts_model_id` |
 | 自检某项 ✗ | `bash install.sh logs <服务名>` 看报错 |
 | App 登录后调 Java 接口 401 | 会话 Redis 地址 / 口令 / 库号与 Java 不一致 |
-| 外网访问不了 | 确认 nginx 已加载 `aigc-life.conf`、证书已配；网关端口不对外是正常的 |
+| 外网访问不了 | 确认 nginx 已加载 `aigc-local-life.conf`、证书已配；网关端口不对外是正常的 |
 
 ## 十、上线检查清单
 

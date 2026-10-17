@@ -1,7 +1,7 @@
 package config
 
 import (
-	"aigc-life/pkg/token"
+	"aigc-local-life/pkg/token"
 
 	"github.com/zeromicro/go-zero/rest"
 	"github.com/zeromicro/go-zero/zrpc"

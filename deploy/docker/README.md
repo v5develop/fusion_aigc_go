@@ -1,4 +1,4 @@
-# aigc-life 正式部署手册（docker compose）
+# aigc-local-life 正式部署手册（docker compose）
 
 **正式环境用这种方式部署。** 一键脚本（[`../server/README.md`](../server/README.md)）是没有 Docker 的服务器上的备选方式，两者的校验规则、迁移、配置生成完全是同一套代码（`install.sh` 的 `prepare` 子命令）。
 
@@ -7,7 +7,7 @@
 ```
             公网 80/443
                 │
-        宿主机 nginx（加载 ./nginx/aigc-life.conf）
+        宿主机 nginx（加载 ./nginx/aigc-local-life.conf）
         ├─ /api/v1/local-life ──► 127.0.0.1:18888  gateway-api ─┐
         ├─ /api/v1/（其余）  ──► 127.0.0.1:18080  Java          │  rpc 直连 127.0.0.1:19201–19204
         └─ /api/v1/admin、Swagger、actuator、其它 ──► 404        │  copywriting / digitalhuman / note / imagegen
@@ -19,13 +19,13 @@
 
 - 所有容器用 **host 网络**，服务只监听 `127.0.0.1`。公网只经宿主机 nginx，安全组只放行 80 / 443。
 - MySQL 是阿里云 RDS，按内网地址连接（服务器 IP 要在 RDS 白名单里）；Redis 在宿主机；Java 在 `127.0.0.1:18080`。
-- 一个镜像（`aigc-life`）包含 6 个服务和部署工具，正式镜像**不含 mock**。
+- 一个镜像（`aigc-local-life`）包含 6 个服务和部署工具，正式镜像**不含 mock**。
 
 ## 启动顺序
 
 `docker compose up -d` 时：
 
-1. **`prepare`**（一次性）：检查数据库 → 执行迁移（登记到 `go_schema_history`）→ 生成服务配置到 `./etc/`（只有服务用户可读）→ 渲染 `./nginx/aigc-life.conf` → 计费配置自检。**任何一步失败都以非 0 退出，服务不会启动。**
+1. **`prepare`**（一次性）：检查数据库 → 执行迁移（登记到 `go_schema_history`）→ 生成服务配置到 `./etc/`（只有服务用户可读）→ 渲染 `./nginx/aigc-local-life.conf` → 计费配置自检。**任何一步失败都以非 0 退出，服务不会启动。**
 2. 4 个 rpc：`prepare` 成功退出后启动，健康检查是端口可连。
 3. `gateway-api`、`admin-api`：4 个 rpc 都健康后启动，健康检查是 HTTP 能应答（未带令牌返回 401 属正常）。
 
@@ -36,21 +36,21 @@
 ## 一、构建与推送镜像（开发机 / CI）
 
 ```bash
-make image IMAGE=<镜像仓库>/aigc-life VERSION=v1.0.0 PUSH=1
+make image IMAGE=<镜像仓库>/aigc-local-life VERSION=v1.0.0 PUSH=1
 ```
 
 - 固定构建 `linux/amd64`（线上服务器是 x86_64；在 Apple 芯片的机器上构建也会产出 amd64）。
-- 推送后记下 digest，部署时 `AIGC_IMAGE` 填 `<镜像仓库>/aigc-life:v1.0.0@sha256:…`：版本不可变，回滚就是换回上一版的 digest。
+- 推送后记下 digest，部署时 `AIGC_IMAGE` 填 `<镜像仓库>/aigc-local-life:v1.0.0@sha256:…`：版本不可变，回滚就是换回上一版的 digest。
 - 服务器上**不构建镜像**，只拉取。
 
 ## 二、首次部署（服务器）
 
 **1. 放置部署文件**
 
-在服务器上建一个目录（如 `/opt/aigc-life`），放入本目录的 `docker-compose.yml` 和 `.env.example`（不需要源码）：
+在服务器上建一个目录（如 `/opt/aigc-local-life`），放入本目录的 `docker-compose.yml` 和 `.env.example`（不需要源码）：
 
 ```bash
-mkdir -p /opt/aigc-life && cd /opt/aigc-life
+mkdir -p /opt/aigc-local-life && cd /opt/aigc-local-life
 # 拷入 docker-compose.yml、.env.example
 cp .env.example .env && chmod 600 .env
 ```
@@ -86,7 +86,7 @@ docker compose ps                   # prepare 为 Exited (0)，6 个服务为 he
 
 **4. 配置宿主机 nginx**
 
-`prepare` 已把站点配置渲染到 `./nginx/aigc-life.conf`。在宝塔站点 `PUBLIC_DOMAIN` 的配置里加入它的 `upstream` 与 `server` 内容（或 `include`），配好证书，`nginx -t` 通过后重载。路由：
+`prepare` 已把站点配置渲染到 `./nginx/aigc-local-life.conf`。在宝塔站点 `PUBLIC_DOMAIN` 的配置里加入它的 `upstream` 与 `server` 内容（或 `include`），配好证书，`nginx -t` 通过后重载。路由：
 
 | 路径 | 去向 |
 |---|---|
@@ -151,7 +151,7 @@ docker compose up -d        # 镜像变了，全部容器重建：prepare 先执
 ## 七、本地联调（不用于正式环境）
 
 ```bash
-# .env 里：AIGC_IMAGE=aigc-life:dev，AIGC_ENDPOINT=http://127.0.0.1:5055，
+# .env 里：AIGC_IMAGE=aigc-local-life:dev，AIGC_ENDPOINT=http://127.0.0.1:5055，
 #          UNION_BASE_URL=http://127.0.0.1:5056，LINK_PARSE_URL=http://127.0.0.1:5058
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
 ```

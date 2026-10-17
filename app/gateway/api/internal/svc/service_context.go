@@ -1,17 +1,17 @@
 package svc
 
 import (
-	"aigc-life/app/copywriting/rpc/copywriting"
-	"aigc-life/app/digitalhuman/rpc/digitalhuman"
-	"aigc-life/app/gateway/api/internal/config"
-	"aigc-life/app/gateway/api/internal/middleware"
-	"aigc-life/app/imagegen/rpc/imagegen"
-	"aigc-life/app/note/rpc/note"
-	"aigc-life/pkg/appuser"
-	"aigc-life/pkg/fusion"
-	"aigc-life/pkg/session"
-	"aigc-life/pkg/storage"
-	"aigc-life/pkg/unionauth"
+	"aigc-local-life/app/copywriting/rpc/copywriting"
+	"aigc-local-life/app/digitalhuman/rpc/digitalhuman"
+	"aigc-local-life/app/gateway/api/internal/config"
+	"aigc-local-life/app/gateway/api/internal/middleware"
+	"aigc-local-life/app/imagegen/rpc/imagegen"
+	"aigc-local-life/app/note/rpc/note"
+	"aigc-local-life/pkg/appuser"
+	"aigc-local-life/pkg/fusion"
+	"aigc-local-life/pkg/session"
+	"aigc-local-life/pkg/storage"
+	"aigc-local-life/pkg/unionauth"
 
 	"github.com/zeromicro/go-zero/core/stores/sqlx"
 	"github.com/zeromicro/go-zero/rest"

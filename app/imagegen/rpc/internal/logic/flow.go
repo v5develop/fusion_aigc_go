@@ -6,13 +6,13 @@ import (
 	"fmt"
 	"time"
 
-	"aigc-life/app/imagegen/model"
-	"aigc-life/app/imagegen/rpc/internal/config"
-	"aigc-life/app/imagegen/rpc/internal/svc"
-	"aigc-life/pkg/aigc"
-	"aigc-life/pkg/asset"
-	"aigc-life/pkg/pagex"
-	"aigc-life/pkg/taskcenter"
+	"aigc-local-life/app/imagegen/model"
+	"aigc-local-life/app/imagegen/rpc/internal/config"
+	"aigc-local-life/app/imagegen/rpc/internal/svc"
+	"aigc-local-life/pkg/aigc"
+	"aigc-local-life/pkg/asset"
+	"aigc-local-life/pkg/pagex"
+	"aigc-local-life/pkg/taskcenter"
 
 	"github.com/zeromicro/go-zero/core/logx"
 )

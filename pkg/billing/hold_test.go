@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"testing"
 
-	"aigc-life/pkg/xerr"
+	"aigc-local-life/pkg/xerr"
 )
 
 func TestTierOf(t *testing.T) {

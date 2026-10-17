@@ -9,14 +9,14 @@ import (
 	"strconv"
 	"strings"
 
-	"aigc-life/app/copywriting/rpc/copywriting"
-	"aigc-life/app/imagegen/model"
-	"aigc-life/app/imagegen/rpc/internal/config"
-	"aigc-life/app/imagegen/rpc/internal/svc"
-	"aigc-life/app/imagegen/rpc/pb"
-	"aigc-life/pkg/aigc"
-	"aigc-life/pkg/storage"
-	"aigc-life/pkg/xerr"
+	"aigc-local-life/app/copywriting/rpc/copywriting"
+	"aigc-local-life/app/imagegen/model"
+	"aigc-local-life/app/imagegen/rpc/internal/config"
+	"aigc-local-life/app/imagegen/rpc/internal/svc"
+	"aigc-local-life/app/imagegen/rpc/pb"
+	"aigc-local-life/pkg/aigc"
+	"aigc-local-life/pkg/storage"
+	"aigc-local-life/pkg/xerr"
 
 	"github.com/zeromicro/go-zero/core/logx"
 )

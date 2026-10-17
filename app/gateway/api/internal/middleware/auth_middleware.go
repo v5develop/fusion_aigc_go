@@ -6,11 +6,11 @@ import (
 	"strconv"
 	"strings"
 
-	"aigc-life/pkg/ctxdata"
-	"aigc-life/pkg/result"
-	"aigc-life/pkg/session"
-	"aigc-life/pkg/token"
-	"aigc-life/pkg/xerr"
+	"aigc-local-life/pkg/ctxdata"
+	"aigc-local-life/pkg/result"
+	"aigc-local-life/pkg/session"
+	"aigc-local-life/pkg/token"
+	"aigc-local-life/pkg/xerr"
 
 	"github.com/zeromicro/go-zero/core/logx"
 )

@@ -6,9 +6,9 @@ package copywriting
 import (
 	"net/http"
 
-	"aigc-life/app/admin/api/internal/logic/copywriting"
-	"aigc-life/app/admin/api/internal/svc"
-	"aigc-life/app/admin/api/internal/types"
+	"aigc-local-life/app/admin/api/internal/logic/copywriting"
+	"aigc-local-life/app/admin/api/internal/svc"
+	"aigc-local-life/app/admin/api/internal/types"
 
 	"github.com/zeromicro/go-zero/rest/httpx"
 )

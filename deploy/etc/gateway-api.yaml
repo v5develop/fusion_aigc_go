@@ -44,7 +44,7 @@ NoteRpc:
 DataSource: root:123456@tcp(127.0.0.1:3306)/fusion_aigc?charset=utf8mb4&parseTime=true&loc=Asia%2FShanghai&time_zone=%27%2B08%3A00%27
 Storage:                # 须与 digitalhuman-rpc 一致
   Mode: local
-  Prefix: aigc-life
+  Prefix: aigc-local-life
   LocalDir: data/files
   LocalBaseUrl: http://127.0.0.1:8888/files
 Upload:

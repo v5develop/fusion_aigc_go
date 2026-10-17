@@ -25,7 +25,7 @@ func TestOSSRealUpload(t *testing.T) {
 		t.Skip("设置 OSS_REAL=1 与 OSS_DSN 后才会连真实的桶")
 	}
 	conn := sqlx.NewMysql(dsn)
-	s := New(Conf{Mode: "oss", Prefix: "aigc-life"}, conn).(*ossStore)
+	s := New(Conf{Mode: "oss", Prefix: "aigc-local-life"}, conn).(*ossStore)
 	ctx := context.Background()
 
 	cfg, err := s.config(ctx)
@@ -34,8 +34,8 @@ func TestOSSRealUpload(t *testing.T) {
 	}
 	t.Logf("bucket=%s host=%s base=%s", cfg.Bucket, cfg.host(), cfg.publicBase())
 
-	key := ObjectKey("aigc-life", "selftest", 0, "txt")
-	body := []byte("aigc-life storage self test " + time.Now().Format(time.RFC3339))
+	key := ObjectKey("aigc-local-life", "selftest", 0, "txt")
+	body := []byte("aigc-local-life storage self test " + time.Now().Format(time.RFC3339))
 	url, err := s.Put(ctx, key, "text/plain", body)
 	if err != nil {
 		t.Fatalf("上传失败: %v", err)
@@ -85,13 +85,13 @@ func deleteObject(t *testing.T, s *ossStore, c *ossConfig, key string) {
 
 // TestOSSDeleteKey 手工清理用：删掉指定对象。
 //
-//	OSS_REAL=1 OSS_DSN='…' OSS_DELETE_KEY='aigc-life/image/…' go test ./pkg/storage -run OSSDeleteKey -v
+//	OSS_REAL=1 OSS_DSN='…' OSS_DELETE_KEY='aigc-local-life/image/…' go test ./pkg/storage -run OSSDeleteKey -v
 func TestOSSDeleteKey(t *testing.T) {
 	dsn, key := os.Getenv("OSS_DSN"), os.Getenv("OSS_DELETE_KEY")
 	if os.Getenv("OSS_REAL") != "1" || dsn == "" || key == "" {
 		t.Skip("需要 OSS_REAL=1、OSS_DSN 与 OSS_DELETE_KEY")
 	}
-	s := New(Conf{Mode: "oss", Prefix: "aigc-life"}, sqlx.NewMysql(dsn)).(*ossStore)
+	s := New(Conf{Mode: "oss", Prefix: "aigc-local-life"}, sqlx.NewMysql(dsn)).(*ossStore)
 	cfg, err := s.config(context.Background())
 	if err != nil {
 		t.Fatal(err)

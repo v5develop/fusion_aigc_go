@@ -1,4 +1,4 @@
-# aigc-life 正式部署（docker compose）
+# aigc-local-life 正式部署（docker compose）
 #
 # 在本目录执行：
 #   cp .env.example .env && chmod 600 .env      # 填写，见 .env.example
@@ -11,7 +11,7 @@
 #   · Redis 在宿主机（127.0.0.1:6379），MySQL 是阿里云 RDS（按内网地址连），Java 在 127.0.0.1:18080。
 #
 # 本文件不含 mock。本地联调叠加 docker-compose.dev.yml。
-name: ${COMPOSE_PROJECT_NAME:-aigc-life}
+name: ${COMPOSE_PROJECT_NAME:-aigc-local-life}
 
 x-svc: &svc
   image: ${AIGC_IMAGE:?设置 AIGC_IMAGE：镜像仓库地址与版本，建议带 @sha256 digest}

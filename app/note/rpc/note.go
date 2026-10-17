@@ -4,11 +4,11 @@ import (
 	"flag"
 	"fmt"
 
-	"aigc-life/app/note/rpc/internal/config"
-	"aigc-life/app/note/rpc/internal/logic"
-	"aigc-life/app/note/rpc/internal/server"
-	"aigc-life/app/note/rpc/internal/svc"
-	"aigc-life/app/note/rpc/pb"
+	"aigc-local-life/app/note/rpc/internal/config"
+	"aigc-local-life/app/note/rpc/internal/logic"
+	"aigc-local-life/app/note/rpc/internal/server"
+	"aigc-local-life/app/note/rpc/internal/svc"
+	"aigc-local-life/app/note/rpc/pb"
 
 	"github.com/zeromicro/go-zero/core/conf"
 	"github.com/zeromicro/go-zero/core/service"

@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 
-	"aigc-life/app/digitalhuman/model"
-	"aigc-life/app/digitalhuman/rpc/internal/svc"
-	"aigc-life/app/digitalhuman/rpc/pb"
-	"aigc-life/pkg/storage"
-	"aigc-life/pkg/xerr"
+	"aigc-local-life/app/digitalhuman/model"
+	"aigc-local-life/app/digitalhuman/rpc/internal/svc"
+	"aigc-local-life/app/digitalhuman/rpc/pb"
+	"aigc-local-life/pkg/storage"
+	"aigc-local-life/pkg/xerr"
 )
 
 const (

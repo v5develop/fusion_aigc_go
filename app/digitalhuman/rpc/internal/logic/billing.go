@@ -1,8 +1,8 @@
 package logic
 
 import (
-	"aigc-life/app/digitalhuman/model"
-	"aigc-life/pkg/billing"
+	"aigc-local-life/app/digitalhuman/model"
+	"aigc-local-life/pkg/billing"
 )
 
 // humanCharge 数字人出片的计费请求：按档次、按配音实际时长算。

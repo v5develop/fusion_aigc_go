@@ -1,8 +1,8 @@
 package logic
 
 import (
-	"aigc-life/app/imagegen/model"
-	"aigc-life/pkg/billing"
+	"aigc-local-life/app/imagegen/model"
+	"aigc-local-life/pkg/billing"
 )
 
 // imageCharge 图片类记录（海报 / 长图 / 动作迁移 / 数字人口播）的计费请求。入口码就是 kind。

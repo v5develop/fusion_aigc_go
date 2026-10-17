@@ -6,9 +6,9 @@ package copywriting
 import (
 	"context"
 
-	"aigc-life/app/admin/api/internal/svc"
-	"aigc-life/app/admin/api/internal/types"
-	"aigc-life/app/copywriting/rpc/copywriting"
+	"aigc-local-life/app/admin/api/internal/svc"
+	"aigc-local-life/app/admin/api/internal/types"
+	"aigc-local-life/app/copywriting/rpc/copywriting"
 
 	"github.com/zeromicro/go-zero/core/logx"
 )

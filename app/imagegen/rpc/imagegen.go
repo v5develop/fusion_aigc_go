@@ -4,12 +4,12 @@ import (
 	"flag"
 	"fmt"
 
-	"aigc-life/app/imagegen/rpc/internal/config"
-	"aigc-life/app/imagegen/rpc/internal/logic"
-	"aigc-life/app/imagegen/rpc/internal/server"
-	"aigc-life/app/imagegen/rpc/internal/svc"
-	"aigc-life/app/imagegen/rpc/pb"
-	"aigc-life/pkg/billing"
+	"aigc-local-life/app/imagegen/rpc/internal/config"
+	"aigc-local-life/app/imagegen/rpc/internal/logic"
+	"aigc-local-life/app/imagegen/rpc/internal/server"
+	"aigc-local-life/app/imagegen/rpc/internal/svc"
+	"aigc-local-life/app/imagegen/rpc/pb"
+	"aigc-local-life/pkg/billing"
 
 	"github.com/zeromicro/go-zero/core/conf"
 	"github.com/zeromicro/go-zero/core/service"

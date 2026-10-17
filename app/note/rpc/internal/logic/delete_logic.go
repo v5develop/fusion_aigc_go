@@ -3,8 +3,8 @@ package logic
 import (
 	"context"
 
-	"aigc-life/app/note/rpc/internal/svc"
-	"aigc-life/app/note/rpc/pb"
+	"aigc-local-life/app/note/rpc/internal/svc"
+	"aigc-local-life/app/note/rpc/pb"
 
 	"github.com/zeromicro/go-zero/core/logx"
 )

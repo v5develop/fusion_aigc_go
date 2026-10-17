@@ -7,7 +7,7 @@ package copywriting
 import (
 	"context"
 
-	"aigc-life/app/copywriting/rpc/pb"
+	"aigc-local-life/app/copywriting/rpc/pb"
 
 	"github.com/zeromicro/go-zero/zrpc"
 	"google.golang.org/grpc"

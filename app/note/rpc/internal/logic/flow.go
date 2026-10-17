@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 	"time"
 
-	"aigc-life/app/note/model"
-	"aigc-life/app/note/rpc/internal/svc"
-	"aigc-life/pkg/aigc"
-	"aigc-life/pkg/asset"
-	"aigc-life/pkg/taskcenter"
+	"aigc-local-life/app/note/model"
+	"aigc-local-life/app/note/rpc/internal/svc"
+	"aigc-local-life/pkg/aigc"
+	"aigc-local-life/pkg/asset"
+	"aigc-local-life/pkg/taskcenter"
 
 	"github.com/zeromicro/go-zero/core/logx"
 )

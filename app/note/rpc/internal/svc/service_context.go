@@ -1,19 +1,19 @@
 package svc
 
 import (
-	"aigc-life/pkg/billing"
+	"aigc-local-life/pkg/billing"
 	"time"
 
-	"aigc-life/pkg/taskcenter"
+	"aigc-local-life/pkg/taskcenter"
 
-	"aigc-life/app/copywriting/rpc/copywriting"
-	"aigc-life/app/digitalhuman/rpc/digitalhuman"
-	"aigc-life/app/note/model"
-	"aigc-life/app/note/rpc/internal/config"
-	"aigc-life/pkg/aigc"
-	"aigc-life/pkg/asset"
-	"aigc-life/pkg/moderation"
-	"aigc-life/pkg/storage"
+	"aigc-local-life/app/copywriting/rpc/copywriting"
+	"aigc-local-life/app/digitalhuman/rpc/digitalhuman"
+	"aigc-local-life/app/note/model"
+	"aigc-local-life/app/note/rpc/internal/config"
+	"aigc-local-life/pkg/aigc"
+	"aigc-local-life/pkg/asset"
+	"aigc-local-life/pkg/moderation"
+	"aigc-local-life/pkg/storage"
 
 	"github.com/zeromicro/go-zero/core/stores/sqlx"
 	"github.com/zeromicro/go-zero/zrpc"

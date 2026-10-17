@@ -9,13 +9,13 @@ import (
 	"strings"
 	"time"
 
-	"aigc-life/app/gateway/api/internal/svc"
-	"aigc-life/app/gateway/api/internal/types"
-	"aigc-life/pkg/appuser"
-	"aigc-life/pkg/session"
-	"aigc-life/pkg/token"
-	"aigc-life/pkg/unionauth"
-	"aigc-life/pkg/xerr"
+	"aigc-local-life/app/gateway/api/internal/svc"
+	"aigc-local-life/app/gateway/api/internal/types"
+	"aigc-local-life/pkg/appuser"
+	"aigc-local-life/pkg/session"
+	"aigc-local-life/pkg/token"
+	"aigc-local-life/pkg/unionauth"
+	"aigc-local-life/pkg/xerr"
 
 	"github.com/zeromicro/go-zero/core/logx"
 )

@@ -1,8 +1,8 @@
 package copywriting
 
 import (
-	"aigc-life/app/copywriting/rpc/copywriting"
-	"aigc-life/app/gateway/api/internal/types"
+	"aigc-local-life/app/copywriting/rpc/copywriting"
+	"aigc-local-life/app/gateway/api/internal/types"
 )
 
 func toCopywriting(c *copywriting.CopywritingInfo) *types.Copywriting {

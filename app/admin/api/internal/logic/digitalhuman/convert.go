@@ -1,8 +1,8 @@
 package digitalhuman
 
 import (
-	"aigc-life/app/admin/api/internal/types"
-	"aigc-life/app/digitalhuman/rpc/digitalhuman"
+	"aigc-local-life/app/admin/api/internal/types"
+	"aigc-local-life/app/digitalhuman/rpc/digitalhuman"
 )
 
 func toOption(o *digitalhuman.OptionInfo) *types.Option {

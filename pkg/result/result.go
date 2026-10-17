@@ -5,7 +5,7 @@ import (
 	"context"
 	"net/http"
 
-	"aigc-life/pkg/xerr"
+	"aigc-local-life/pkg/xerr"
 
 	"github.com/zeromicro/go-zero/core/logx"
 	"github.com/zeromicro/go-zero/rest/httpx"

@@ -3,8 +3,8 @@ package svc
 import (
 	"context"
 
-	"aigc-life/pkg/appuser"
-	"aigc-life/pkg/fusion"
+	"aigc-local-life/pkg/appuser"
+	"aigc-local-life/pkg/fusion"
 
 	"github.com/zeromicro/go-zero/core/logx"
 )

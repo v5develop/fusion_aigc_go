@@ -8,11 +8,11 @@ import (
 	"time"
 	"unicode"
 
-	"aigc-life/app/copywriting/model"
-	"aigc-life/app/copywriting/rpc/internal/config"
-	"aigc-life/app/copywriting/rpc/internal/svc"
-	"aigc-life/app/copywriting/rpc/pb"
-	"aigc-life/pkg/xerr"
+	"aigc-local-life/app/copywriting/model"
+	"aigc-local-life/app/copywriting/rpc/internal/config"
+	"aigc-local-life/app/copywriting/rpc/internal/svc"
+	"aigc-local-life/app/copywriting/rpc/pb"
+	"aigc-local-life/pkg/xerr"
 )
 
 // charLen 按设计稿便签的口径数字数：汉字等全角字符算 2，其余算 1。

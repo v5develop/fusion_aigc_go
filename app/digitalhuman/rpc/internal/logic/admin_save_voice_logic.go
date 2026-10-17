@@ -7,10 +7,10 @@ import (
 	"errors"
 	"strings"
 
-	"aigc-life/app/digitalhuman/model"
-	"aigc-life/app/digitalhuman/rpc/internal/svc"
-	"aigc-life/app/digitalhuman/rpc/pb"
-	"aigc-life/pkg/xerr"
+	"aigc-local-life/app/digitalhuman/model"
+	"aigc-local-life/app/digitalhuman/rpc/internal/svc"
+	"aigc-local-life/app/digitalhuman/rpc/pb"
+	"aigc-local-life/pkg/xerr"
 
 	"github.com/zeromicro/go-zero/core/logx"
 )

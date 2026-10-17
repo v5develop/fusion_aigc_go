@@ -21,7 +21,7 @@ import (
 type Conf struct {
 	Mode string `json:",default=local,options=local|oss"`
 	// Prefix 对象路径前缀，所有文件都在它下面
-	Prefix string `json:",default=aigc-life"`
+	Prefix string `json:",default=aigc-local-life"`
 	// LocalDir / LocalBaseUrl 仅 local 模式使用
 	LocalDir     string `json:",default=data/files"`
 	LocalBaseUrl string `json:",default=http://127.0.0.1:8888/files"`

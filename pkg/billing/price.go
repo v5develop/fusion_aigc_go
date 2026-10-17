@@ -83,7 +83,7 @@ func (q *Quote) Snapshot() string {
 		"entryCode": q.EntryCode, "offerCode": q.OfferCode, "variantCode": q.VariantCode,
 		"modelId": q.ModelID, "priceUnit": q.PriceUnit, "quantity": q.Quantity,
 		"pricePoints": q.PricePoints, "settlement": q.Settlement, "lines": q.Lines,
-		"source": "aigc-life", // 一眼看出这单是 Go 写的
+		"source": "aigc-local-life", // 一眼看出这单是 Go 写的
 	})
 	if err != nil {
 		return "{}"

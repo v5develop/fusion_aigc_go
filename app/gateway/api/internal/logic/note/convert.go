@@ -1,8 +1,8 @@
 package note
 
 import (
-	"aigc-life/app/gateway/api/internal/types"
-	"aigc-life/app/note/rpc/note"
+	"aigc-local-life/app/gateway/api/internal/types"
+	"aigc-local-life/app/note/rpc/note"
 )
 
 func orEmpty(v []string) []string {

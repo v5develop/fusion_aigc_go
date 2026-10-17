@@ -180,8 +180,8 @@ for _ in $(seq 1 30); do
   LV=$(sql "SELECT IFNULL(source_video_url,'') FROM afv_video_creation WHERE id=$LID")
   [[ -n $LV ]] && break; sleep 1
 done
-check "视频转存到我们的桶了" "$(sql "SELECT source_video_url LIKE 'http://127.0.0.1:8888/files/aigc-life/video/%' FROM afv_video_creation WHERE id=$LID")" 1
-check "封面也转存了" "$(sql "SELECT cover_url LIKE 'http://127.0.0.1:8888/files/aigc-life/image/%' FROM afv_video_creation WHERE id=$LID")" 1
+check "视频转存到我们的桶了" "$(sql "SELECT source_video_url LIKE 'http://127.0.0.1:8888/files/aigc-local-life/video/%' FROM afv_video_creation WHERE id=$LID")" 1
+check "封面也转存了" "$(sql "SELECT cover_url LIKE 'http://127.0.0.1:8888/files/aigc-local-life/image/%' FROM afv_video_creation WHERE id=$LID")" 1
 B70=$(task_body "$(sql "SELECT plan_task_id FROM afv_video_creation WHERE id=$LID")")
 check "70 拿到的是转存后的地址，不是会过期的直链" "$(jq -r --arg u "$LV" '.video_url == $u' <<<"$B70")" true
 

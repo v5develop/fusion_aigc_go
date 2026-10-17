@@ -68,40 +68,40 @@ release:
 	@ls -lh bin/linux
 
 # 正式镜像（容器部署用）：linux/amd64（线上是 x86_64），不含 mock。
-#   make image IMAGE=<仓库>/aigc-life VERSION=v1.0.0           # 构建到本机
-#   make image IMAGE=<仓库>/aigc-life VERSION=v1.0.0 PUSH=1    # 直接推送；部署时 .env 的 AIGC_IMAGE 填推送后的 digest
-IMAGE ?= aigc-life
+#   make image IMAGE=<仓库>/aigc-local-life VERSION=v1.0.0           # 构建到本机
+#   make image IMAGE=<仓库>/aigc-local-life VERSION=v1.0.0 PUSH=1    # 直接推送；部署时 .env 的 AIGC_IMAGE 填推送后的 digest
+IMAGE ?= aigc-local-life
 image:
 	docker buildx build --platform linux/amd64 -f deploy/docker/Dockerfile \
 		--build-arg VERSION=$(VERSION) -t $(IMAGE):$(VERSION) $(if $(filter 1,$(PUSH)),--push,--load) .
 
-# 服务器部署包：dist/aigc-life-<版本>.tar.gz，上传到服务器解压后 bash install.sh（见 deploy/server/README.md）
+# 服务器部署包：dist/aigc-local-life-<版本>.tar.gz，上传到服务器解压后 bash install.sh（见 deploy/server/README.md）
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 package:
-	@rm -rf dist/aigc-life dist/*.tar.gz   # 只留这一次的包，免得部署时拿错版本
-	@mkdir -p dist/aigc-life/bin dist/aigc-life/etc-dev dist/aigc-life/sql dist/aigc-life/scripts dist/aigc-life/docs
+	@rm -rf dist/aigc-local-life dist/*.tar.gz   # 只留这一次的包，免得部署时拿错版本
+	@mkdir -p dist/aigc-local-life/bin dist/aigc-local-life/etc-dev dist/aigc-local-life/sql dist/aigc-local-life/scripts dist/aigc-local-life/docs
 	@for s in copywriting/rpc digitalhuman/rpc note/rpc imagegen/rpc gateway/api admin/api; do \
 		name=$$(echo $$s | sed 's#/rpc#-rpc#; s#/api#-api#'); \
 		echo "build $$name"; \
-		GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -tags timetzdata -trimpath -ldflags '-s -w' -o dist/aigc-life/bin/$$name ./app/$$s || exit 1; \
+		GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -tags timetzdata -trimpath -ldflags '-s -w' -o dist/aigc-local-life/bin/$$name ./app/$$s || exit 1; \
 	done
 	@for t in mkconf seed billing-check; do \
 		echo "build $$t"; \
-		GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -tags timetzdata -trimpath -ldflags '-s -w' -o dist/aigc-life/bin/$$t ./tools/ops/$$t || exit 1; \
+		GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -tags timetzdata -trimpath -ldflags '-s -w' -o dist/aigc-local-life/bin/$$t ./tools/ops/$$t || exit 1; \
 	done
-	cp deploy/etc/*.yaml dist/aigc-life/etc-dev/
-	cp deploy/sql/Go_V*.sql dist/aigc-life/sql/
-	cp deploy/server/migrate.sh dist/aigc-life/
-	cp deploy/scripts/gen-voice-previews.sh deploy/scripts/seed-templates.sh dist/aigc-life/scripts/   # e2e-real 会真实调用模型、产生费用，不进正式包
-	cp deploy/sql/ops/fix-billing-offers-2026-10-16.sql deploy/sql/ops/check-billing-online.sql dist/aigc-life/scripts/   # 手工执行的，不会被 install.sh 自动跑
-	cp -r docs/api dist/aigc-life/docs/   # 前端接口文档；计费与问答文档是内部资料，不进正式包
-	cp deploy/server/install.sh deploy/server/deploy.env.example deploy/server/README.md dist/aigc-life/
-	cp -r deploy/server/nginx dist/aigc-life/
-	@echo $(VERSION) > dist/aigc-life/VERSION
-	@if ls dist/aigc-life/bin | grep -q mock; then echo "正式包里不能有 mock"; exit 1; fi
-	@if ls dist/aigc-life/docs | grep -qv "^api$$"; then echo "正式包只带 docs/api"; exit 1; fi
-	tar -C dist -czf dist/aigc-life-$(VERSION).tar.gz aigc-life
-	@ls -lh dist/aigc-life-$(VERSION).tar.gz
+	cp deploy/etc/*.yaml dist/aigc-local-life/etc-dev/
+	cp deploy/sql/Go_V*.sql dist/aigc-local-life/sql/
+	cp deploy/server/migrate.sh dist/aigc-local-life/
+	cp deploy/scripts/gen-voice-previews.sh deploy/scripts/seed-templates.sh dist/aigc-local-life/scripts/   # e2e-real 会真实调用模型、产生费用，不进正式包
+	cp deploy/sql/ops/fix-billing-offers-2026-10-16.sql deploy/sql/ops/check-billing-online.sql dist/aigc-local-life/scripts/   # 手工执行的，不会被 install.sh 自动跑
+	cp -r docs/api dist/aigc-local-life/docs/   # 前端接口文档；计费与问答文档是内部资料，不进正式包
+	cp deploy/server/install.sh deploy/server/deploy.env.example deploy/server/README.md dist/aigc-local-life/
+	cp -r deploy/server/nginx dist/aigc-local-life/
+	@echo $(VERSION) > dist/aigc-local-life/VERSION
+	@if ls dist/aigc-local-life/bin | grep -q mock; then echo "正式包里不能有 mock"; exit 1; fi
+	@if ls dist/aigc-local-life/docs | grep -qv "^api$$"; then echo "正式包只带 docs/api"; exit 1; fi
+	tar -C dist -czf dist/aigc-local-life-$(VERSION).tar.gz aigc-local-life
+	@ls -lh dist/aigc-local-life-$(VERSION).tar.gz
 
 # 本地一键启动（日志写到 logs/）
 run-all: build stop-all

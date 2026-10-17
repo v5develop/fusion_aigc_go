@@ -1,11 +1,11 @@
 package config
 
 import (
-	"aigc-life/pkg/aigc"
-	"aigc-life/pkg/asset"
-	"aigc-life/pkg/billing"
-	"aigc-life/pkg/linkparse"
-	"aigc-life/pkg/storage"
+	"aigc-local-life/pkg/aigc"
+	"aigc-local-life/pkg/asset"
+	"aigc-local-life/pkg/billing"
+	"aigc-local-life/pkg/linkparse"
+	"aigc-local-life/pkg/storage"
 
 	"github.com/zeromicro/go-zero/zrpc"
 )

@@ -2,7 +2,7 @@
 #
 #   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
 #
-# .env 里设 AIGC_IMAGE=aigc-life:dev，执行面等地址指向本机 mock：
+# .env 里设 AIGC_IMAGE=aigc-local-life:dev，执行面等地址指向本机 mock：
 #   AIGC_ENDPOINT=http://127.0.0.1:5055  UNION_BASE_URL=http://127.0.0.1:5056  LINK_PARSE_URL=http://127.0.0.1:5058
 # 正式环境的校验规则（token 鉴权、计费开启、会话共享……）在这里同样生效。
 services:

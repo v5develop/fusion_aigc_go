@@ -4,10 +4,10 @@ import (
 	"context"
 	"strings"
 
-	"aigc-life/app/copywriting/model"
-	"aigc-life/app/copywriting/rpc/internal/svc"
-	"aigc-life/app/copywriting/rpc/pb"
-	"aigc-life/pkg/pagex"
+	"aigc-local-life/app/copywriting/model"
+	"aigc-local-life/app/copywriting/rpc/internal/svc"
+	"aigc-local-life/app/copywriting/rpc/pb"
+	"aigc-local-life/pkg/pagex"
 
 	"github.com/zeromicro/go-zero/core/logx"
 )

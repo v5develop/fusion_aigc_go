@@ -6,12 +6,12 @@ import (
 	"errors"
 	"strings"
 
-	"aigc-life/app/digitalhuman/rpc/digitalhuman"
-	"aigc-life/app/note/model"
-	"aigc-life/app/note/rpc/internal/svc"
-	"aigc-life/app/note/rpc/pb"
-	"aigc-life/pkg/storage"
-	"aigc-life/pkg/xerr"
+	"aigc-local-life/app/digitalhuman/rpc/digitalhuman"
+	"aigc-local-life/app/note/model"
+	"aigc-local-life/app/note/rpc/internal/svc"
+	"aigc-local-life/app/note/rpc/pb"
+	"aigc-local-life/pkg/storage"
+	"aigc-local-life/pkg/xerr"
 
 	"github.com/zeromicro/go-zero/core/logx"
 )

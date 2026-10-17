@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"net/http"
 
-	"aigc-life/app/gateway/api/doc"
-	"aigc-life/app/gateway/api/internal/config"
-	"aigc-life/app/gateway/api/internal/handler"
-	"aigc-life/app/gateway/api/internal/svc"
-	"aigc-life/pkg/result"
-	"aigc-life/pkg/swaggerui"
+	"aigc-local-life/app/gateway/api/doc"
+	"aigc-local-life/app/gateway/api/internal/config"
+	"aigc-local-life/app/gateway/api/internal/handler"
+	"aigc-local-life/app/gateway/api/internal/svc"
+	"aigc-local-life/pkg/result"
+	"aigc-local-life/pkg/swaggerui"
 
 	"github.com/zeromicro/go-zero/core/conf"
 	"github.com/zeromicro/go-zero/rest"

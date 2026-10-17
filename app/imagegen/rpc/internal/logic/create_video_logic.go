@@ -3,19 +3,19 @@ package logic
 import (
 	"time"
 
-	"aigc-life/pkg/linkparse"
+	"aigc-local-life/pkg/linkparse"
 	"context"
 
-	"aigc-life/app/imagegen/rpc/internal/svc"
-	"aigc-life/app/imagegen/rpc/pb"
+	"aigc-local-life/app/imagegen/rpc/internal/svc"
+	"aigc-local-life/app/imagegen/rpc/pb"
 	"errors"
 	"net/http"
 	"strings"
 
-	"aigc-life/app/digitalhuman/rpc/digitalhuman"
-	"aigc-life/app/imagegen/model"
-	"aigc-life/pkg/storage"
-	"aigc-life/pkg/xerr"
+	"aigc-local-life/app/digitalhuman/rpc/digitalhuman"
+	"aigc-local-life/app/imagegen/model"
+	"aigc-local-life/pkg/storage"
+	"aigc-local-life/pkg/xerr"
 
 	"github.com/zeromicro/go-zero/core/logx"
 )

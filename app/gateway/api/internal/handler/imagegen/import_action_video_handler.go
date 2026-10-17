@@ -6,9 +6,9 @@ package imagegen
 import (
 	"net/http"
 
-	"aigc-life/app/gateway/api/internal/logic/imagegen"
-	"aigc-life/app/gateway/api/internal/svc"
-	"aigc-life/app/gateway/api/internal/types"
+	"aigc-local-life/app/gateway/api/internal/logic/imagegen"
+	"aigc-local-life/app/gateway/api/internal/svc"
+	"aigc-local-life/app/gateway/api/internal/types"
 	"github.com/zeromicro/go-zero/rest/httpx"
 )
 

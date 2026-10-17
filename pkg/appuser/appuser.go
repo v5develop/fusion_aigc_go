@@ -21,7 +21,7 @@ import (
 	"sync"
 	"time"
 
-	"aigc-life/pkg/workspace"
+	"aigc-local-life/pkg/workspace"
 
 	"github.com/zeromicro/go-zero/core/logx"
 	"github.com/zeromicro/go-zero/core/stores/sqlx"

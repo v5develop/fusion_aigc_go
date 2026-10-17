@@ -6,9 +6,9 @@ package digitalhuman
 import (
 	"net/http"
 
-	"aigc-life/app/admin/api/internal/logic/digitalhuman"
-	"aigc-life/app/admin/api/internal/svc"
-	"aigc-life/app/admin/api/internal/types"
+	"aigc-local-life/app/admin/api/internal/logic/digitalhuman"
+	"aigc-local-life/app/admin/api/internal/svc"
+	"aigc-local-life/app/admin/api/internal/types"
 	"github.com/zeromicro/go-zero/rest/httpx"
 )
 

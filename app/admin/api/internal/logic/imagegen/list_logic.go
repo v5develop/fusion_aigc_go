@@ -6,9 +6,9 @@ package imagegen
 import (
 	"context"
 
-	"aigc-life/app/admin/api/internal/svc"
-	"aigc-life/app/admin/api/internal/types"
-	"aigc-life/app/imagegen/rpc/imagegen"
+	"aigc-local-life/app/admin/api/internal/svc"
+	"aigc-local-life/app/admin/api/internal/types"
+	"aigc-local-life/app/imagegen/rpc/imagegen"
 
 	"github.com/zeromicro/go-zero/core/logx"
 )

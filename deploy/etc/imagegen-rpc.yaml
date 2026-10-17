@@ -19,7 +19,7 @@ Aigc:
   TimeoutSeconds: 10
 Storage:                # 须与网关一致
   Mode: local
-  Prefix: aigc-life
+  Prefix: aigc-local-life
   LocalDir: data/files
   LocalBaseUrl: http://127.0.0.1:8888/files
 Asset:

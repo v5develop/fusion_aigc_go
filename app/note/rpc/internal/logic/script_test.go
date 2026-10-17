@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"aigc-life/app/note/rpc/internal/config"
-	"aigc-life/app/note/rpc/internal/svc"
+	"aigc-local-life/app/note/rpc/internal/config"
+	"aigc-local-life/app/note/rpc/internal/svc"
 )
 
 // sampleScript AIGC 同事提供的 74 真实返回（image_prompt 已截短）。

@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"aigc-life/pkg/xerr"
+	"aigc-local-life/pkg/xerr"
 
 	"github.com/zeromicro/go-zero/core/logx"
 )

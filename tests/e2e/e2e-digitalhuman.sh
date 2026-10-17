@@ -117,7 +117,7 @@ check "按内容识别为 png" "$(jq -r .data.content_type <<<"$UP")" image/png
 check "文件可访问" "$(curl -s -o /dev/null -w '%{http_code}' "$IMG")" 200
 echo "not an image" > "$TMP/a.txt"
 check "非图片被拒" "$(curl -sS -H "X-User-Id: $USER_ID" -F "file=@$TMP/a.txt" "$GW/upload" | jq -r .code)" 1001
-check "不能列目录" "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:8888/files/aigc-life/")" 404
+check "不能列目录" "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:8888/files/aigc-local-life/")" 404
 
 echo "== AI 定制形象（mock 执行面 75）"
 RID=$(uuidgen)

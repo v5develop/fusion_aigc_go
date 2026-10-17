@@ -4,16 +4,16 @@
 package main
 
 import (
-	"aigc-life/app/admin/api/doc"
-	"aigc-life/pkg/result"
-	"aigc-life/pkg/swaggerui"
+	"aigc-local-life/app/admin/api/doc"
+	"aigc-local-life/pkg/result"
+	"aigc-local-life/pkg/swaggerui"
 
 	"flag"
 	"fmt"
 
-	"aigc-life/app/admin/api/internal/config"
-	"aigc-life/app/admin/api/internal/handler"
-	"aigc-life/app/admin/api/internal/svc"
+	"aigc-local-life/app/admin/api/internal/config"
+	"aigc-local-life/app/admin/api/internal/handler"
+	"aigc-local-life/app/admin/api/internal/svc"
 
 	"github.com/zeromicro/go-zero/core/conf"
 	"github.com/zeromicro/go-zero/rest"

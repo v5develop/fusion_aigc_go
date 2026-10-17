@@ -2,7 +2,7 @@
 # 正式部署（docker-compose.yml）与一键脚本都是服务间直连，不需要 etcd。
 #
 #   docker compose -f deploy/docker/docker-compose.etcd.yml up -d
-name: aigc-life-dev-etcd
+name: aigc-local-life-dev-etcd
 services:
   etcd:
     image: quay.io/coreos/etcd:v3.5.21

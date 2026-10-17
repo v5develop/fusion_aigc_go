@@ -6,10 +6,10 @@ import (
 	"strconv"
 	"strings"
 
-	"aigc-life/pkg/ctxdata"
-	"aigc-life/pkg/result"
-	"aigc-life/pkg/token"
-	"aigc-life/pkg/xerr"
+	"aigc-local-life/pkg/ctxdata"
+	"aigc-local-life/pkg/result"
+	"aigc-local-life/pkg/token"
+	"aigc-local-life/pkg/xerr"
 )
 
 // AdminAuthMiddleware 解析当前管理员。

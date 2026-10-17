@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# aigc-life 一键部署 / 升级（Linux x86_64，root 执行）
+# aigc-local-life 一键部署 / 升级（Linux x86_64，root 执行）
 #
 #   bash install.sh            安装或升级（可重复执行）：检查环境 → 建表 → 生成配置 → 注册服务并启动 → 自检
 #   bash install.sh status     各服务运行状态
@@ -12,7 +12,7 @@
 #   bash install.sh uninstall  停止并注销服务（不删数据库、不删安装目录）
 #   bash install.sh prepare    容器部署专用（docker compose 的 prepare 服务调用）：检查数据库 → 迁移 → 生成配置 → 渲染 nginx → 计费自检
 #
-# 不影响服务器上已有的项目：只新建 aigc-life-* 服务，端口不与已占用的冲突（冲突会停下来提示），
+# 不影响服务器上已有的项目：只新建 aigc-local-life-* 服务，端口不与已占用的冲突（冲突会停下来提示），
 # 数据库只新建本项目的 afv_* 新表 / 插配置数据，不改现有表结构。
 set -euo pipefail
 
@@ -28,7 +28,7 @@ die()    { red "✗ $*"; exit 1; }
 
 # ---------- 配置 ----------
 load_env() {
-  local f="" installed=${INSTALL_DIR:-/opt/aigc-life}/deploy.env
+  local f="" installed=${INSTALL_DIR:-/opt/aigc-local-life}/deploy.env
   if [[ ${AIGC_CONTAINER:-0} == 1 ]]; then
     : # 容器部署：配置全部来自环境变量（compose 的 env_file），不读写 deploy.env
   elif [[ -f $PKG/deploy.env ]]; then
@@ -51,7 +51,7 @@ load_env() {
   # shellcheck disable=SC1090
   if [[ -n $f ]]; then source "$f"; fi
   ENV_FILE=$f
-  INSTALL_DIR=${INSTALL_DIR:-/opt/aigc-life}
+  INSTALL_DIR=${INSTALL_DIR:-/opt/aigc-local-life}
   DB_HOST=${DB_HOST:-127.0.0.1}; DB_PORT=${DB_PORT:-3306}; DB_NAME=${DB_NAME:-fusion_aigc}; DB_USER=${DB_USER:-root}
   # mysql / mysqldump 的额外连接参数（如 --ssl）：MySQL 8 的 caching_sha2_password 账号在不走 TLS 时可能需要
   MYSQL_OPTS=${MYSQL_OPTS:-}; read -r -a MYSQL_OPT_ARR <<< "$MYSQL_OPTS"
@@ -143,7 +143,7 @@ backup_db() {
   dump="$(dirname "$MYSQL_BIN")/mysqldump"
   [[ -x $dump ]] || dump=$(command -v mysqldump || true)
   [[ -n ${dump:-} && -x $dump ]] || die "BACKUP_BEFORE_MIGRATE=1 但找不到 mysqldump"
-  out="${INSTALL_DIR:-/opt/aigc-life}/backup/${DB_NAME}-$(date +%Y%m%d-%H%M%S).sql.gz"
+  out="${INSTALL_DIR:-/opt/aigc-local-life}/backup/${DB_NAME}-$(date +%Y%m%d-%H%M%S).sql.gz"
   mkdir -p "$(dirname "$out")"
   MYSQL_PWD="$DB_PASS" "$dump" -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" ${MYSQL_OPT_ARR[@]+"${MYSQL_OPT_ARR[@]}"} --single-transaction --quick --no-tablespaces "$DB_NAME" | gzip > "$out" \
     || die "迁移前备份失败：$out"
@@ -297,11 +297,11 @@ gen_conf() {
   chmod 600 "$out"/*.yaml   # 配置里有数据库口令、JWT 密钥、会话 Redis 口令
 }
 
-# render_nginx：渲染 nginx 站点配置到 $INSTALL_DIR/nginx/aigc-life.conf（宿主机 nginx 加载它）
+# render_nginx：渲染 nginx 站点配置到 $INSTALL_DIR/nginx/aigc-local-life.conf（宿主机 nginx 加载它）
 render_nginx() {
   mkdir -p "$INSTALL_DIR/nginx"
   sed -e "s|__SERVER_NAME__|$PUBLIC_DOMAIN|g" -e "s|__GATEWAY_PORT__|$GATEWAY_PORT|g" -e "s|__JAVA_UPSTREAM__|$JAVA_UPSTREAM|g" \
-    "$PKG/nginx/aigc-life.conf.tmpl" > "$INSTALL_DIR/nginx/aigc-life.conf"
+    "$PKG/nginx/aigc-local-life.conf.tmpl" > "$INSTALL_DIR/nginx/aigc-local-life.conf"
 }
 
 # ---------- 服务 ----------
@@ -312,9 +312,9 @@ exec_line() {
 
 write_unit() {
   local s=$1
-  cat > "/etc/systemd/system/aigc-life-$s.service" <<EOF
+  cat > "/etc/systemd/system/aigc-local-life-$s.service" <<EOF
 [Unit]
-Description=aigc-life $s
+Description=aigc-local-life $s
 After=network.target
 
 [Service]
@@ -332,8 +332,8 @@ EOF
 svc_start() {
   local s=$1
   if [[ $USE_SYSTEMD == 1 ]]; then
-    systemctl enable "aigc-life-$s" >/dev/null 2>&1 # CentOS 7 的 systemd 不支持 enable --now
-    systemctl restart "aigc-life-$s"
+    systemctl enable "aigc-local-life-$s" >/dev/null 2>&1 # CentOS 7 的 systemd 不支持 enable --now
+    systemctl restart "aigc-local-life-$s"
   else
     nohup bash -c "exec $(exec_line "$s")" >> "$INSTALL_DIR/logs/$s.out" 2>&1 &
     echo $! > "$INSTALL_DIR/run/$s.pid"
@@ -343,7 +343,7 @@ svc_start() {
 svc_stop() {
   local s=$1 pid
   if [[ $USE_SYSTEMD == 1 ]]; then
-    systemctl stop "aigc-life-$s" >/dev/null 2>&1 || true
+    systemctl stop "aigc-local-life-$s" >/dev/null 2>&1 || true
   elif [[ -f $INSTALL_DIR/run/$s.pid ]]; then
     pid=$(cat "$INSTALL_DIR/run/$s.pid")
     kill "$pid" 2>/dev/null || true
@@ -356,7 +356,7 @@ svc_stop() {
 svc_active() {
   local s=$1
   if [[ $USE_SYSTEMD == 1 ]]; then
-    systemctl is-active --quiet "aigc-life-$s"
+    systemctl is-active --quiet "aigc-local-life-$s"
   else
     [[ -f $INSTALL_DIR/run/$s.pid ]] && kill -0 "$(cat "$INSTALL_DIR/run/$s.pid")" 2>/dev/null
   fi
@@ -457,8 +457,8 @@ cmd_install() {
   if [[ $USE_SYSTEMD == 1 ]]; then
     for s in "${SERVICES[@]}"; do write_unit "$s"; done
     # 清理早期开发版遗留的 mock 服务（正式版不再包含它）
-    systemctl disable aigc-life-mock-aigc >/dev/null 2>&1 || true
-    rm -f /etc/systemd/system/aigc-life-mock-aigc.service
+    systemctl disable aigc-local-life-mock-aigc >/dev/null 2>&1 || true
+    rm -f /etc/systemd/system/aigc-local-life-mock-aigc.service
     systemctl daemon-reload
   fi
   all_start
@@ -483,7 +483,7 @@ cmd_install() {
   执行面：    $AIGC_ENDPOINT
 
   公网只开 80/443：${GATEWAY_PORT}、$ADMIN_PORT 不对外（不要在安全组里放行）。
-  nginx 配置已生成：$INSTALL_DIR/nginx/aigc-life.conf，把它加进宝塔站点 $PUBLIC_DOMAIN 的配置并 reload。
+  nginx 配置已生成：$INSTALL_DIR/nginx/aigc-local-life.conf，把它加进宝塔站点 $PUBLIC_DOMAIN 的配置并 reload。
 
   常用：bash $INSTALL_DIR/install.sh status | restart | logs gateway-api
   首次部署：bash $INSTALL_DIR/install.sh voices          生成系统音色试听
@@ -516,7 +516,7 @@ cmd_prepare() {
   chown -R "${RUN_UID:-10001}:${RUN_UID:-10001}" "$INSTALL_DIR/etc"
   chmod 700 "$INSTALL_DIR/etc"
 
-  step "4/5 渲染 nginx → $INSTALL_DIR/nginx/aigc-life.conf"
+  step "4/5 渲染 nginx → $INSTALL_DIR/nginx/aigc-local-life.conf"
   render_nginx
 
   step "5/5 计费配置检查"
@@ -569,12 +569,12 @@ cmd_uninstall() {
   if [[ $USE_SYSTEMD == 1 ]]; then
     local s
     for s in "${RPCS[@]}" "${APIS[@]}"; do
-      systemctl disable "aigc-life-$s" >/dev/null 2>&1 || true
-      rm -f "/etc/systemd/system/aigc-life-$s.service"
+      systemctl disable "aigc-local-life-$s" >/dev/null 2>&1 || true
+      rm -f "/etc/systemd/system/aigc-local-life-$s.service"
     done
     systemctl daemon-reload
   fi
-  green "已停止并注销全部 aigc-life 服务。安装目录 $INSTALL_DIR 与数据库都保留，需要的话手动删除安装目录。"
+  green "已停止并注销全部 aigc-local-life 服务。安装目录 $INSTALL_DIR 与数据库都保留，需要的话手动删除安装目录。"
 }
 
 load_env

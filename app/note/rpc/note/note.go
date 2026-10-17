@@ -7,7 +7,7 @@ package note
 import (
 	"context"
 
-	"aigc-life/app/note/rpc/pb"
+	"aigc-local-life/app/note/rpc/pb"
 
 	"github.com/zeromicro/go-zero/zrpc"
 	"google.golang.org/grpc"

@@ -111,7 +111,7 @@ OSS 已允许跨域 PUT。文件大小与类型由前端控制；后端只校验
 {"access_key_id":"STS.…","access_key_secret":"…","security_token":"…",
  "expiration":"2026-09-21T06:12:00Z","bucket":"xx-shop-img",
  "host":"xx-shop-img.oss-cn-hangzhou.aliyuncs.com",
- "dir":"aigc-life/image/123/20260921/","base_url":"https://xx-shop-img.oss-cn-hangzhou.aliyuncs.com"}
+ "dir":"aigc-local-life/image/123/20260921/","base_url":"https://xx-shop-img.oss-cn-hangzhou.aliyuncs.com"}
 ```
 
 2. 用凭证把文件 PUT 到 `https://{host}/{dir}{随机文件名}`，**对象 key 必须在 `dir` 下**，否则 OSS 返回 403。
@@ -350,7 +350,7 @@ OSS 已允许跨域 PUT。文件大小与类型由前端控制；后端只校验
 
 ## 六、产物地址
 
-生成成功后返回的图片 / 视频地址都在我们自己的公有桶上（`https://xx-shop-img.oss-cn-hangzhou.aliyuncs.com/aigc-life/...`），
+生成成功后返回的图片 / 视频地址都在我们自己的公有桶上（`https://xx-shop-img.oss-cn-hangzhou.aliyuncs.com/aigc-local-life/...`），
 长期有效，可以直接展示、下载、保存。AI 执行面自己返回的是会过期的临时地址，后端已经统一转存，前端不会拿到那种地址。
 
 ## 七、待办（会影响前端的）

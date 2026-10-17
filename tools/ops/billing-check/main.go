@@ -12,7 +12,7 @@ import (
 	"fmt"
 	"os"
 
-	"aigc-life/pkg/billing"
+	"aigc-local-life/pkg/billing"
 
 	"github.com/zeromicro/go-zero/core/logx"
 	"github.com/zeromicro/go-zero/core/stores/sqlx"

@@ -23,7 +23,7 @@ func TestSTSRealCredentials(t *testing.T) {
 	if os.Getenv("OSS_REAL") != "1" || dsn == "" {
 		t.Skip("设置 OSS_REAL=1 与 OSS_DSN 后才会连真实账号")
 	}
-	s := New(Conf{Mode: "oss", Prefix: "aigc-life"}, sqlx.NewMysql(dsn))
+	s := New(Conf{Mode: "oss", Prefix: "aigc-local-life"}, sqlx.NewMysql(dsn))
 	cred, err := s.Credentials(context.Background(), "video", 123456, 30*time.Minute)
 	if err != nil {
 		t.Fatalf("AssumeRole 失败: %v", err)
@@ -32,7 +32,7 @@ func TestSTSRealCredentials(t *testing.T) {
 	if cred.AccessKeyID == "" || cred.SecurityToken == "" {
 		t.Fatalf("凭证不完整: %+v", cred)
 	}
-	if got := cred.Dir; got[:10] != "aigc-life/" {
+	if got := cred.Dir; got[:10] != "aigc-local-life/" {
 		t.Fatalf("目录前缀不对: %s", got)
 	}
 }
@@ -44,7 +44,7 @@ func TestSTSRealUpload(t *testing.T) {
 		t.Skip("设置 OSS_REAL=1 与 OSS_DSN 后才会连真实账号")
 	}
 	conn := sqlx.NewMysql(dsn)
-	s := New(Conf{Mode: "oss", Prefix: "aigc-life"}, conn).(*ossStore)
+	s := New(Conf{Mode: "oss", Prefix: "aigc-local-life"}, conn).(*ossStore)
 	ctx := context.Background()
 	cred, err := s.Credentials(ctx, "video", 123456, 30*time.Minute)
 	if err != nil {
@@ -63,7 +63,7 @@ func TestSTSRealUpload(t *testing.T) {
 	if size, ct, err := s.Stat(ctx, cred.BaseURL+"/"+key); err != nil || size != int64(len(body)) {
 		t.Fatalf("Stat: size=%d ct=%s err=%v", size, ct, err)
 	}
-	if code, _ := stsPut(cred, "aigc-life/other/999/evil.txt", body); code != 403 {
+	if code, _ := stsPut(cred, "aigc-local-life/other/999/evil.txt", body); code != 403 {
 		t.Errorf("目录外应被拒，得到 %d", code)
 	}
 }

@@ -1,7 +1,7 @@
 package config
 
 import (
-	"aigc-life/pkg/billing"
+	"aigc-local-life/pkg/billing"
 
 	"github.com/zeromicro/go-zero/zrpc"
 )

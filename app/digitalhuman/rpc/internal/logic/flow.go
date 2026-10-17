@@ -1,7 +1,7 @@
 package logic
 
 import (
-	"aigc-life/pkg/taskcenter"
+	"aigc-local-life/pkg/taskcenter"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -9,12 +9,12 @@ import (
 	"strings"
 	"time"
 
-	"aigc-life/app/digitalhuman/model"
-	"aigc-life/app/digitalhuman/rpc/internal/svc"
-	"aigc-life/pkg/aigc"
-	"aigc-life/pkg/asset"
-	"aigc-life/pkg/storage"
-	"aigc-life/pkg/xerr"
+	"aigc-local-life/app/digitalhuman/model"
+	"aigc-local-life/app/digitalhuman/rpc/internal/svc"
+	"aigc-local-life/pkg/aigc"
+	"aigc-local-life/pkg/asset"
+	"aigc-local-life/pkg/storage"
+	"aigc-local-life/pkg/xerr"
 
 	"github.com/zeromicro/go-zero/core/logx"
 	"github.com/zeromicro/go-zero/core/threading"

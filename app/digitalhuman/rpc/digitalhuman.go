@@ -4,11 +4,11 @@ import (
 	"flag"
 	"fmt"
 
-	"aigc-life/app/digitalhuman/rpc/internal/config"
-	"aigc-life/app/digitalhuman/rpc/internal/logic"
-	"aigc-life/app/digitalhuman/rpc/internal/server"
-	"aigc-life/app/digitalhuman/rpc/internal/svc"
-	"aigc-life/app/digitalhuman/rpc/pb"
+	"aigc-local-life/app/digitalhuman/rpc/internal/config"
+	"aigc-local-life/app/digitalhuman/rpc/internal/logic"
+	"aigc-local-life/app/digitalhuman/rpc/internal/server"
+	"aigc-local-life/app/digitalhuman/rpc/internal/svc"
+	"aigc-local-life/app/digitalhuman/rpc/pb"
 
 	"github.com/zeromicro/go-zero/core/conf"
 	"github.com/zeromicro/go-zero/core/service"

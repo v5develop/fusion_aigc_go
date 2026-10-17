@@ -150,8 +150,8 @@ GET /api/v1/local-life/copywriting?keyword=睡眠&page=1&page_size=20
    ```
 
    ```json
-   {"put_url": "https://xx-shop-img.oss-cn-hangzhou.aliyuncs.com/aigc-life/image/123/20260922/2aaf….jpg?OSSAccessKeyId=…&Expires=…&Signature=…",
-    "url": "https://xx-shop-img.oss-cn-hangzhou.aliyuncs.com/aigc-life/image/123/20260922/2aaf….jpg",
+   {"put_url": "https://xx-shop-img.oss-cn-hangzhou.aliyuncs.com/aigc-local-life/image/123/20260922/2aaf….jpg?OSSAccessKeyId=…&Expires=…&Signature=…",
+    "url": "https://xx-shop-img.oss-cn-hangzhou.aliyuncs.com/aigc-local-life/image/123/20260922/2aaf….jpg",
     "content_type": "image/jpeg",
     "expires_at": 1790051817000}
    ```
@@ -165,7 +165,7 @@ GET /api/v1/local-life/copywriting?keyword=睡眠&page=1&page_size=20
 - `put_url` 默认 30 分钟有效，**一个地址只传一个文件**，每个文件单独取。
 - 大小与格式由前端控制，后端不再校验（设计稿提示「建议上传模特半身照片，增加成功率」）。
 - OSS 已允许跨域 PUT（含离线包的 `Origin: null`），不需要额外配置。
-- 后端只接受本服务签发的地址（`…/aigc-life/…`），别的外链会报「请先上传照片」/「请先通过上传接口上传」。
+- 后端只接受本服务签发的地址（`…/aigc-local-life/…`），别的外链会报「请先上传照片」/「请先通过上传接口上传」。
 - 上传后的地址是公有桶的永久地址，不带过期签名。
 
 > 另有 `GET /upload/credentials?kind=image`（STS 临时凭证，前端自行签名上传），功能相同，保留兼容，新接入请用预签名。

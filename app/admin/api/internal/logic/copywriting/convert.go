@@ -1,8 +1,8 @@
 package copywriting
 
 import (
-	"aigc-life/app/admin/api/internal/types"
-	"aigc-life/app/copywriting/rpc/copywriting"
+	"aigc-local-life/app/admin/api/internal/types"
+	"aigc-local-life/app/copywriting/rpc/copywriting"
 )
 
 func toOption(o *copywriting.OptionInfo) *types.Option {
