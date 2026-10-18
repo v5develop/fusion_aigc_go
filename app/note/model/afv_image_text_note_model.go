@@ -28,6 +28,10 @@ type (
 	AfvImageTextNoteModel interface {
 		afvImageTextNoteModel
 		withSession(session sqlx.Session) AfvImageTextNoteModel
+		// ForceFail 运营强制失败：生成失败态记录置 admin_locked=1，之后运营重做一律拒绝。
+		ForceFail(ctx context.Context, id int64) (bool, error)
+		// AdminLocked 是否已被运营强制失败（封禁运营重做）。
+		AdminLocked(ctx context.Context, id int64) (bool, error)
 		// FindOwned 未删除且属于该用户；userID 为 0 表示不校验归属（后台）。
 		FindOwned(ctx context.Context, id, userID int64) (*AfvImageTextNote, error)
 		FindByRequestID(ctx context.Context, userID int64, requestID string) (*AfvImageTextNote, error)
@@ -176,4 +180,16 @@ func affected(r sql.Result, err error) (bool, error) {
 
 func nullString(s string) sql.NullString {
 	return sql.NullString{String: s, Valid: s != ""}
+}
+
+func (m *customAfvImageTextNoteModel) ForceFail(ctx context.Context, id int64) (bool, error) {
+	q := fmt.Sprintf("UPDATE %s SET `admin_locked` = 1 WHERE `id` = ? AND `status` = ? AND `admin_locked` = 0 AND `deleted` = 0", m.table)
+	return affected(m.conn.ExecCtx(ctx, q, id, StatusGenFailed))
+}
+
+func (m *customAfvImageTextNoteModel) AdminLocked(ctx context.Context, id int64) (bool, error) {
+	var locked int64
+	q := fmt.Sprintf("SELECT `admin_locked` FROM %s WHERE `id` = ? AND `deleted` = 0 LIMIT 1", m.table)
+	err := m.conn.QueryRowCtx(ctx, &locked, q, id)
+	return locked == 1, err
 }

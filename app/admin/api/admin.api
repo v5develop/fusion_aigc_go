@@ -444,6 +444,9 @@ type (
 	RetryTaskReq {
 		OriginRef string `path:"origin_ref"`
 	}
+	ForceFailTaskReq {
+		OriginRef string `path:"origin_ref"`
+	}
 )
 
 @server (
@@ -457,5 +460,9 @@ service admin-api {
 	@doc "运营重做生成失败的任务：origin_ref 形如 img:123（来源记录坐标）；按原内容重新冻结点数并重新提交"
 	@handler retryTask
 	post /tasks/:origin_ref/retry (RetryTaskReq) returns (EmptyResp)
+
+	@doc "运营强制失败生成失败的任务：origin_ref 形如 img:123；封禁运营重做，点数已退回不动账"
+	@handler forceFailTask
+	post /tasks/:origin_ref/force-fail (ForceFailTaskReq) returns (EmptyResp)
 }
 

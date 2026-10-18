@@ -37,8 +37,10 @@ service ImageGen {
   rpc AdminListVideos(VideoListReq) returns (VideoList);
   // 运营取消在途图片 / 长图（预留原路退回）
   rpc AdminRetry(IdReq) returns (Empty);
+  rpc AdminForceFail(IdReq) returns (Empty);
   // 运营取消在途视频（预留原路退回）
   rpc AdminRetryVideo(IdReq) returns (Empty);
+  rpc AdminForceFailVideo(IdReq) returns (Empty);
 
   // 生成选项（模型 / 比例 / 时长）的运营配置：只能改启用、名称、排序、默认
   rpc AdminGenOptions(Empty) returns (GenOptionList);

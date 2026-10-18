@@ -36,6 +36,13 @@ func (l *AdminRetryLogic) AdminRetry(in *pb.IdReq) (*pb.Empty, error) {
 	if err != nil {
 		return nil, err
 	}
+	locked, err := l.svcCtx.Note.AdminLocked(l.ctx, in.Id)
+	if err != nil {
+		return nil, err
+	}
+	if locked {
+		return nil, xerr.New(xerr.Conflict, "已强制失败，不能重试")
+	}
 	if n.Status != model.StatusGenFailed {
 		return nil, xerr.New(xerr.Conflict, "笔记不是生成失败，不能重试")
 	}

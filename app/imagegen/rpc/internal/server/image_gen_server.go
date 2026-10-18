@@ -128,10 +128,20 @@ func (s *ImageGenServer) AdminRetry(ctx context.Context, in *pb.IdReq) (*pb.Empt
 	return l.AdminRetry(in)
 }
 
+func (s *ImageGenServer) AdminForceFail(ctx context.Context, in *pb.IdReq) (*pb.Empty, error) {
+	l := logic.NewAdminForceFailLogic(ctx, s.svcCtx)
+	return l.AdminForceFail(in)
+}
+
 // 运营取消在途视频（预留原路退回）
 func (s *ImageGenServer) AdminRetryVideo(ctx context.Context, in *pb.IdReq) (*pb.Empty, error) {
 	l := logic.NewAdminRetryVideoLogic(ctx, s.svcCtx)
 	return l.AdminRetryVideo(in)
+}
+
+func (s *ImageGenServer) AdminForceFailVideo(ctx context.Context, in *pb.IdReq) (*pb.Empty, error) {
+	l := logic.NewAdminForceFailVideoLogic(ctx, s.svcCtx)
+	return l.AdminForceFailVideo(in)
 }
 
 // 生成选项（模型 / 比例 / 时长）的运营配置：只能改启用、名称、排序、默认

@@ -36,6 +36,13 @@ func (l *AdminRetryVideoLogic) AdminRetryVideo(in *pb.IdReq) (*pb.Empty, error) 
 	if err != nil {
 		return nil, err
 	}
+	locked, err := l.svcCtx.Video.AdminLocked(l.ctx, in.Id)
+	if err != nil {
+		return nil, err
+	}
+	if locked {
+		return nil, xerr.New(xerr.Conflict, "已强制失败，不能重试")
+	}
 	if v.Status != model.VideoFailed || !v.GenTaskId.Valid {
 		return nil, xerr.New(xerr.Conflict, "视频不是出片失败，不能重试")
 	}

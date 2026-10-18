@@ -1979,7 +1979,7 @@ const file_digitalhuman_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x12\n" +
 	"\x04code\x18\x03 \x01(\tR\x04code\x12\x1a\n" +
-	"\bplatform\x18\x04 \x01(\tR\bplatform2\xff\f\n" +
+	"\bplatform\x18\x04 \x01(\tR\bplatform2\xbb\r\n" +
 	"\fDigitalHuman\x12G\n" +
 	"\fGetAgreement\x12\x1a.digitalhuman.AgreementReq\x1a\x1b.digitalhuman.AgreementInfo\x12J\n" +
 	"\x0fAcceptAgreement\x12\x1a.digitalhuman.AgreementReq\x1a\x1b.digitalhuman.AgreementInfo\x12;\n" +
@@ -2006,7 +2006,8 @@ const file_digitalhuman_proto_rawDesc = "" +
 	"\x19AdminGenerateVoicePreview\x12\x13.digitalhuman.IdReq\x1a\x17.digitalhuman.VoiceInfo\x12G\n" +
 	"\tAdminList\x12\x1a.digitalhuman.AdminListReq\x1a\x1e.digitalhuman.DigitalHumanList\x126\n" +
 	"\n" +
-	"AdminRetry\x12\x13.digitalhuman.IdReq\x1a\x13.digitalhuman.Empty\x12@\n" +
+	"AdminRetry\x12\x13.digitalhuman.IdReq\x1a\x13.digitalhuman.Empty\x12:\n" +
+	"\x0eAdminForceFail\x12\x13.digitalhuman.IdReq\x1a\x13.digitalhuman.Empty\x12@\n" +
 	"\x10AdminGetTTSModel\x12\x13.digitalhuman.Empty\x1a\x17.digitalhuman.ModelInfoB\x06Z\x04./pbb\x06proto3"
 
 var (
@@ -2082,33 +2083,35 @@ var file_digitalhuman_proto_depIdxs = []int32{
 	1,  // 29: digitalhuman.DigitalHuman.AdminGenerateVoicePreview:input_type -> digitalhuman.IdReq
 	22, // 30: digitalhuman.DigitalHuman.AdminList:input_type -> digitalhuman.AdminListReq
 	1,  // 31: digitalhuman.DigitalHuman.AdminRetry:input_type -> digitalhuman.IdReq
-	0,  // 32: digitalhuman.DigitalHuman.AdminGetTTSModel:input_type -> digitalhuman.Empty
-	4,  // 33: digitalhuman.DigitalHuman.GetAgreement:output_type -> digitalhuman.AgreementInfo
-	4,  // 34: digitalhuman.DigitalHuman.AcceptAgreement:output_type -> digitalhuman.AgreementInfo
-	6,  // 35: digitalhuman.DigitalHuman.ListPublic:output_type -> digitalhuman.PublicList
-	10, // 36: digitalhuman.DigitalHuman.Options:output_type -> digitalhuman.OptionsResp
-	13, // 37: digitalhuman.DigitalHuman.CreatePortrait:output_type -> digitalhuman.PortraitInfo
-	13, // 38: digitalhuman.DigitalHuman.GetPortrait:output_type -> digitalhuman.PortraitInfo
-	13, // 39: digitalhuman.DigitalHuman.RegeneratePortrait:output_type -> digitalhuman.PortraitInfo
-	8,  // 40: digitalhuman.DigitalHuman.VoiceCategories:output_type -> digitalhuman.OptionList
-	16, // 41: digitalhuman.DigitalHuman.ListVoices:output_type -> digitalhuman.VoiceList
-	20, // 42: digitalhuman.DigitalHuman.Create:output_type -> digitalhuman.DigitalHumanInfo
-	20, // 43: digitalhuman.DigitalHuman.Get:output_type -> digitalhuman.DigitalHumanInfo
-	23, // 44: digitalhuman.DigitalHuman.List:output_type -> digitalhuman.DigitalHumanList
-	0,  // 45: digitalhuman.DigitalHuman.Delete:output_type -> digitalhuman.Empty
-	19, // 46: digitalhuman.DigitalHuman.ResolvePortrait:output_type -> digitalhuman.PortraitImage
-	8,  // 47: digitalhuman.DigitalHuman.AdminListOptions:output_type -> digitalhuman.OptionList
-	7,  // 48: digitalhuman.DigitalHuman.AdminSaveOption:output_type -> digitalhuman.OptionInfo
-	0,  // 49: digitalhuman.DigitalHuman.AdminDeleteOption:output_type -> digitalhuman.Empty
-	16, // 50: digitalhuman.DigitalHuman.AdminListVoices:output_type -> digitalhuman.VoiceList
-	14, // 51: digitalhuman.DigitalHuman.AdminSaveVoice:output_type -> digitalhuman.VoiceInfo
-	0,  // 52: digitalhuman.DigitalHuman.AdminDeleteVoice:output_type -> digitalhuman.Empty
-	14, // 53: digitalhuman.DigitalHuman.AdminGenerateVoicePreview:output_type -> digitalhuman.VoiceInfo
-	23, // 54: digitalhuman.DigitalHuman.AdminList:output_type -> digitalhuman.DigitalHumanList
-	0,  // 55: digitalhuman.DigitalHuman.AdminRetry:output_type -> digitalhuman.Empty
-	24, // 56: digitalhuman.DigitalHuman.AdminGetTTSModel:output_type -> digitalhuman.ModelInfo
-	33, // [33:57] is the sub-list for method output_type
-	9,  // [9:33] is the sub-list for method input_type
+	1,  // 32: digitalhuman.DigitalHuman.AdminForceFail:input_type -> digitalhuman.IdReq
+	0,  // 33: digitalhuman.DigitalHuman.AdminGetTTSModel:input_type -> digitalhuman.Empty
+	4,  // 34: digitalhuman.DigitalHuman.GetAgreement:output_type -> digitalhuman.AgreementInfo
+	4,  // 35: digitalhuman.DigitalHuman.AcceptAgreement:output_type -> digitalhuman.AgreementInfo
+	6,  // 36: digitalhuman.DigitalHuman.ListPublic:output_type -> digitalhuman.PublicList
+	10, // 37: digitalhuman.DigitalHuman.Options:output_type -> digitalhuman.OptionsResp
+	13, // 38: digitalhuman.DigitalHuman.CreatePortrait:output_type -> digitalhuman.PortraitInfo
+	13, // 39: digitalhuman.DigitalHuman.GetPortrait:output_type -> digitalhuman.PortraitInfo
+	13, // 40: digitalhuman.DigitalHuman.RegeneratePortrait:output_type -> digitalhuman.PortraitInfo
+	8,  // 41: digitalhuman.DigitalHuman.VoiceCategories:output_type -> digitalhuman.OptionList
+	16, // 42: digitalhuman.DigitalHuman.ListVoices:output_type -> digitalhuman.VoiceList
+	20, // 43: digitalhuman.DigitalHuman.Create:output_type -> digitalhuman.DigitalHumanInfo
+	20, // 44: digitalhuman.DigitalHuman.Get:output_type -> digitalhuman.DigitalHumanInfo
+	23, // 45: digitalhuman.DigitalHuman.List:output_type -> digitalhuman.DigitalHumanList
+	0,  // 46: digitalhuman.DigitalHuman.Delete:output_type -> digitalhuman.Empty
+	19, // 47: digitalhuman.DigitalHuman.ResolvePortrait:output_type -> digitalhuman.PortraitImage
+	8,  // 48: digitalhuman.DigitalHuman.AdminListOptions:output_type -> digitalhuman.OptionList
+	7,  // 49: digitalhuman.DigitalHuman.AdminSaveOption:output_type -> digitalhuman.OptionInfo
+	0,  // 50: digitalhuman.DigitalHuman.AdminDeleteOption:output_type -> digitalhuman.Empty
+	16, // 51: digitalhuman.DigitalHuman.AdminListVoices:output_type -> digitalhuman.VoiceList
+	14, // 52: digitalhuman.DigitalHuman.AdminSaveVoice:output_type -> digitalhuman.VoiceInfo
+	0,  // 53: digitalhuman.DigitalHuman.AdminDeleteVoice:output_type -> digitalhuman.Empty
+	14, // 54: digitalhuman.DigitalHuman.AdminGenerateVoicePreview:output_type -> digitalhuman.VoiceInfo
+	23, // 55: digitalhuman.DigitalHuman.AdminList:output_type -> digitalhuman.DigitalHumanList
+	0,  // 56: digitalhuman.DigitalHuman.AdminRetry:output_type -> digitalhuman.Empty
+	0,  // 57: digitalhuman.DigitalHuman.AdminForceFail:output_type -> digitalhuman.Empty
+	24, // 58: digitalhuman.DigitalHuman.AdminGetTTSModel:output_type -> digitalhuman.ModelInfo
+	34, // [34:59] is the sub-list for method output_type
+	9,  // [9:34] is the sub-list for method input_type
 	9,  // [9:9] is the sub-list for extension type_name
 	9,  // [9:9] is the sub-list for extension extendee
 	0,  // [0:9] is the sub-list for field type_name

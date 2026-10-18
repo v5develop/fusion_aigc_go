@@ -38,7 +38,9 @@ const (
 	ImageGen_AdminList_FullMethodName            = "/imagegen.ImageGen/AdminList"
 	ImageGen_AdminListVideos_FullMethodName      = "/imagegen.ImageGen/AdminListVideos"
 	ImageGen_AdminRetry_FullMethodName           = "/imagegen.ImageGen/AdminRetry"
+	ImageGen_AdminForceFail_FullMethodName       = "/imagegen.ImageGen/AdminForceFail"
 	ImageGen_AdminRetryVideo_FullMethodName      = "/imagegen.ImageGen/AdminRetryVideo"
+	ImageGen_AdminForceFailVideo_FullMethodName  = "/imagegen.ImageGen/AdminForceFailVideo"
 	ImageGen_AdminGenOptions_FullMethodName      = "/imagegen.ImageGen/AdminGenOptions"
 	ImageGen_AdminUpdateGenOption_FullMethodName = "/imagegen.ImageGen/AdminUpdateGenOption"
 	ImageGen_AdminUpdateGenKind_FullMethodName   = "/imagegen.ImageGen/AdminUpdateGenKind"
@@ -80,8 +82,10 @@ type ImageGenClient interface {
 	AdminListVideos(ctx context.Context, in *VideoListReq, opts ...grpc.CallOption) (*VideoList, error)
 	// 运营取消在途图片 / 长图（预留原路退回）
 	AdminRetry(ctx context.Context, in *IdReq, opts ...grpc.CallOption) (*Empty, error)
+	AdminForceFail(ctx context.Context, in *IdReq, opts ...grpc.CallOption) (*Empty, error)
 	// 运营取消在途视频（预留原路退回）
 	AdminRetryVideo(ctx context.Context, in *IdReq, opts ...grpc.CallOption) (*Empty, error)
+	AdminForceFailVideo(ctx context.Context, in *IdReq, opts ...grpc.CallOption) (*Empty, error)
 	// 生成选项（模型 / 比例 / 时长）的运营配置：只能改启用、名称、排序、默认
 	AdminGenOptions(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*GenOptionList, error)
 	AdminUpdateGenOption(ctx context.Context, in *UpdateGenOptionReq, opts ...grpc.CallOption) (*GenOptionItem, error)
@@ -286,10 +290,30 @@ func (c *imageGenClient) AdminRetry(ctx context.Context, in *IdReq, opts ...grpc
 	return out, nil
 }
 
+func (c *imageGenClient) AdminForceFail(ctx context.Context, in *IdReq, opts ...grpc.CallOption) (*Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, ImageGen_AdminForceFail_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *imageGenClient) AdminRetryVideo(ctx context.Context, in *IdReq, opts ...grpc.CallOption) (*Empty, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(Empty)
 	err := c.cc.Invoke(ctx, ImageGen_AdminRetryVideo_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *imageGenClient) AdminForceFailVideo(ctx context.Context, in *IdReq, opts ...grpc.CallOption) (*Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, ImageGen_AdminForceFailVideo_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -362,8 +386,10 @@ type ImageGenServer interface {
 	AdminListVideos(context.Context, *VideoListReq) (*VideoList, error)
 	// 运营取消在途图片 / 长图（预留原路退回）
 	AdminRetry(context.Context, *IdReq) (*Empty, error)
+	AdminForceFail(context.Context, *IdReq) (*Empty, error)
 	// 运营取消在途视频（预留原路退回）
 	AdminRetryVideo(context.Context, *IdReq) (*Empty, error)
+	AdminForceFailVideo(context.Context, *IdReq) (*Empty, error)
 	// 生成选项（模型 / 比例 / 时长）的运营配置：只能改启用、名称、排序、默认
 	AdminGenOptions(context.Context, *Empty) (*GenOptionList, error)
 	AdminUpdateGenOption(context.Context, *UpdateGenOptionReq) (*GenOptionItem, error)
@@ -435,8 +461,14 @@ func (UnimplementedImageGenServer) AdminListVideos(context.Context, *VideoListRe
 func (UnimplementedImageGenServer) AdminRetry(context.Context, *IdReq) (*Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method AdminRetry not implemented")
 }
+func (UnimplementedImageGenServer) AdminForceFail(context.Context, *IdReq) (*Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method AdminForceFail not implemented")
+}
 func (UnimplementedImageGenServer) AdminRetryVideo(context.Context, *IdReq) (*Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method AdminRetryVideo not implemented")
+}
+func (UnimplementedImageGenServer) AdminForceFailVideo(context.Context, *IdReq) (*Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method AdminForceFailVideo not implemented")
 }
 func (UnimplementedImageGenServer) AdminGenOptions(context.Context, *Empty) (*GenOptionList, error) {
 	return nil, status.Error(codes.Unimplemented, "method AdminGenOptions not implemented")
@@ -810,6 +842,24 @@ func _ImageGen_AdminRetry_Handler(srv interface{}, ctx context.Context, dec func
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ImageGen_AdminForceFail_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(IdReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ImageGenServer).AdminForceFail(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ImageGen_AdminForceFail_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ImageGenServer).AdminForceFail(ctx, req.(*IdReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _ImageGen_AdminRetryVideo_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(IdReq)
 	if err := dec(in); err != nil {
@@ -824,6 +874,24 @@ func _ImageGen_AdminRetryVideo_Handler(srv interface{}, ctx context.Context, dec
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(ImageGenServer).AdminRetryVideo(ctx, req.(*IdReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ImageGen_AdminForceFailVideo_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(IdReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ImageGenServer).AdminForceFailVideo(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ImageGen_AdminForceFailVideo_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ImageGenServer).AdminForceFailVideo(ctx, req.(*IdReq))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -966,8 +1034,16 @@ var ImageGen_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _ImageGen_AdminRetry_Handler,
 		},
 		{
+			MethodName: "AdminForceFail",
+			Handler:    _ImageGen_AdminForceFail_Handler,
+		},
+		{
 			MethodName: "AdminRetryVideo",
 			Handler:    _ImageGen_AdminRetryVideo_Handler,
+		},
+		{
+			MethodName: "AdminForceFailVideo",
+			Handler:    _ImageGen_AdminForceFailVideo_Handler,
 		},
 		{
 			MethodName: "AdminGenOptions",

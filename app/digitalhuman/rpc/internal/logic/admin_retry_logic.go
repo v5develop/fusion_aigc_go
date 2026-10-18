@@ -39,6 +39,13 @@ func (l *AdminRetryLogic) AdminRetry(in *pb.IdReq) (*pb.Empty, error) {
 	if err != nil {
 		return nil, err
 	}
+	locked, err := l.svcCtx.Human.AdminLocked(l.ctx, in.Id)
+	if err != nil {
+		return nil, err
+	}
+	if locked {
+		return nil, xerr.New(xerr.Conflict, "已强制失败，不能重试")
+	}
 	if h.Status != model.DhStatusFailed {
 		return nil, xerr.New(xerr.Conflict, "数字人不是生成失败，不能重试")
 	}

@@ -147,6 +147,11 @@ func (s *DigitalHumanServer) AdminRetry(ctx context.Context, in *pb.IdReq) (*pb.
 	return l.AdminRetry(in)
 }
 
+func (s *DigitalHumanServer) AdminForceFail(ctx context.Context, in *pb.IdReq) (*pb.Empty, error) {
+	l := logic.NewAdminForceFailLogic(ctx, s.svcCtx)
+	return l.AdminForceFail(in)
+}
+
 // 当前配音模型（只读，来自 afv_system_config + afv_ai_model）
 func (s *DigitalHumanServer) AdminGetTTSModel(ctx context.Context, in *pb.Empty) (*pb.ModelInfo, error) {
 	l := logic.NewAdminGetTTSModelLogic(ctx, s.svcCtx)

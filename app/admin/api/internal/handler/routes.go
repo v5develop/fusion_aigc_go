@@ -225,6 +225,12 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 			[]rest.Middleware{serverCtx.AdminAuth},
 			[]rest.Route{
 				{
+					// 运营强制失败生成失败的任务：origin_ref 形如 img:123；封禁运营重做，点数已退回不动账
+					Method:  http.MethodPost,
+					Path:    "/tasks/:origin_ref/force-fail",
+					Handler: localtask.ForceFailTaskHandler(serverCtx),
+				},
+				{
 					// 运营重做生成失败的任务：origin_ref 形如 img:123（来源记录坐标）；按原内容重新冻结点数并重新提交
 					Method:  http.MethodPost,
 					Path:    "/tasks/:origin_ref/retry",

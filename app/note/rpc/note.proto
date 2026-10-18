@@ -24,6 +24,7 @@ service Note {
   rpc AdminList(ListReq) returns (NoteList);
   // 运营取消在途笔记（预留原路退回；已确认扣费的不能取消）
   rpc AdminRetry(IdReq) returns (Empty);
+  rpc AdminForceFail(IdReq) returns (Empty);
 }
 
 message Empty {}

@@ -19,16 +19,17 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	Note_Options_FullMethodName    = "/note.Note/Options"
-	Note_Plan_FullMethodName       = "/note.Note/Plan"
-	Note_Replan_FullMethodName     = "/note.Note/Replan"
-	Note_Generate_FullMethodName   = "/note.Note/Generate"
-	Note_Get_FullMethodName        = "/note.Note/Get"
-	Note_List_FullMethodName       = "/note.Note/List"
-	Note_Update_FullMethodName     = "/note.Note/Update"
-	Note_Delete_FullMethodName     = "/note.Note/Delete"
-	Note_AdminList_FullMethodName  = "/note.Note/AdminList"
-	Note_AdminRetry_FullMethodName = "/note.Note/AdminRetry"
+	Note_Options_FullMethodName        = "/note.Note/Options"
+	Note_Plan_FullMethodName           = "/note.Note/Plan"
+	Note_Replan_FullMethodName         = "/note.Note/Replan"
+	Note_Generate_FullMethodName       = "/note.Note/Generate"
+	Note_Get_FullMethodName            = "/note.Note/Get"
+	Note_List_FullMethodName           = "/note.Note/List"
+	Note_Update_FullMethodName         = "/note.Note/Update"
+	Note_Delete_FullMethodName         = "/note.Note/Delete"
+	Note_AdminList_FullMethodName      = "/note.Note/AdminList"
+	Note_AdminRetry_FullMethodName     = "/note.Note/AdminRetry"
+	Note_AdminForceFail_FullMethodName = "/note.Note/AdminForceFail"
 )
 
 // NoteClient is the client API for Note service.
@@ -55,6 +56,7 @@ type NoteClient interface {
 	AdminList(ctx context.Context, in *ListReq, opts ...grpc.CallOption) (*NoteList, error)
 	// 运营取消在途笔记（预留原路退回；已确认扣费的不能取消）
 	AdminRetry(ctx context.Context, in *IdReq, opts ...grpc.CallOption) (*Empty, error)
+	AdminForceFail(ctx context.Context, in *IdReq, opts ...grpc.CallOption) (*Empty, error)
 }
 
 type noteClient struct {
@@ -165,6 +167,16 @@ func (c *noteClient) AdminRetry(ctx context.Context, in *IdReq, opts ...grpc.Cal
 	return out, nil
 }
 
+func (c *noteClient) AdminForceFail(ctx context.Context, in *IdReq, opts ...grpc.CallOption) (*Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, Note_AdminForceFail_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // NoteServer is the server API for Note service.
 // All implementations must embed UnimplementedNoteServer
 // for forward compatibility.
@@ -189,6 +201,7 @@ type NoteServer interface {
 	AdminList(context.Context, *ListReq) (*NoteList, error)
 	// 运营取消在途笔记（预留原路退回；已确认扣费的不能取消）
 	AdminRetry(context.Context, *IdReq) (*Empty, error)
+	AdminForceFail(context.Context, *IdReq) (*Empty, error)
 	mustEmbedUnimplementedNoteServer()
 }
 
@@ -228,6 +241,9 @@ func (UnimplementedNoteServer) AdminList(context.Context, *ListReq) (*NoteList, 
 }
 func (UnimplementedNoteServer) AdminRetry(context.Context, *IdReq) (*Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method AdminRetry not implemented")
+}
+func (UnimplementedNoteServer) AdminForceFail(context.Context, *IdReq) (*Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method AdminForceFail not implemented")
 }
 func (UnimplementedNoteServer) mustEmbedUnimplementedNoteServer() {}
 func (UnimplementedNoteServer) testEmbeddedByValue()              {}
@@ -430,6 +446,24 @@ func _Note_AdminRetry_Handler(srv interface{}, ctx context.Context, dec func(int
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Note_AdminForceFail_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(IdReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NoteServer).AdminForceFail(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Note_AdminForceFail_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NoteServer).AdminForceFail(ctx, req.(*IdReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Note_ServiceDesc is the grpc.ServiceDesc for Note service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -476,6 +510,10 @@ var Note_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "AdminRetry",
 			Handler:    _Note_AdminRetry_Handler,
+		},
+		{
+			MethodName: "AdminForceFail",
+			Handler:    _Note_AdminForceFail_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

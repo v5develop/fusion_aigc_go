@@ -42,6 +42,7 @@ const (
 	DigitalHuman_AdminGenerateVoicePreview_FullMethodName = "/digitalhuman.DigitalHuman/AdminGenerateVoicePreview"
 	DigitalHuman_AdminList_FullMethodName                 = "/digitalhuman.DigitalHuman/AdminList"
 	DigitalHuman_AdminRetry_FullMethodName                = "/digitalhuman.DigitalHuman/AdminRetry"
+	DigitalHuman_AdminForceFail_FullMethodName            = "/digitalhuman.DigitalHuman/AdminForceFail"
 	DigitalHuman_AdminGetTTSModel_FullMethodName          = "/digitalhuman.DigitalHuman/AdminGetTTSModel"
 )
 
@@ -84,6 +85,7 @@ type DigitalHumanClient interface {
 	AdminList(ctx context.Context, in *AdminListReq, opts ...grpc.CallOption) (*DigitalHumanList, error)
 	// 运营取消在途数字人（预留原路退回）
 	AdminRetry(ctx context.Context, in *IdReq, opts ...grpc.CallOption) (*Empty, error)
+	AdminForceFail(ctx context.Context, in *IdReq, opts ...grpc.CallOption) (*Empty, error)
 	// 当前配音模型（只读，来自 afv_system_config + afv_ai_model）
 	AdminGetTTSModel(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*ModelInfo, error)
 }
@@ -326,6 +328,16 @@ func (c *digitalHumanClient) AdminRetry(ctx context.Context, in *IdReq, opts ...
 	return out, nil
 }
 
+func (c *digitalHumanClient) AdminForceFail(ctx context.Context, in *IdReq, opts ...grpc.CallOption) (*Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, DigitalHuman_AdminForceFail_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *digitalHumanClient) AdminGetTTSModel(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*ModelInfo, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ModelInfo)
@@ -375,6 +387,7 @@ type DigitalHumanServer interface {
 	AdminList(context.Context, *AdminListReq) (*DigitalHumanList, error)
 	// 运营取消在途数字人（预留原路退回）
 	AdminRetry(context.Context, *IdReq) (*Empty, error)
+	AdminForceFail(context.Context, *IdReq) (*Empty, error)
 	// 当前配音模型（只读，来自 afv_system_config + afv_ai_model）
 	AdminGetTTSModel(context.Context, *Empty) (*ModelInfo, error)
 	mustEmbedUnimplementedDigitalHumanServer()
@@ -455,6 +468,9 @@ func (UnimplementedDigitalHumanServer) AdminList(context.Context, *AdminListReq)
 }
 func (UnimplementedDigitalHumanServer) AdminRetry(context.Context, *IdReq) (*Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method AdminRetry not implemented")
+}
+func (UnimplementedDigitalHumanServer) AdminForceFail(context.Context, *IdReq) (*Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method AdminForceFail not implemented")
 }
 func (UnimplementedDigitalHumanServer) AdminGetTTSModel(context.Context, *Empty) (*ModelInfo, error) {
 	return nil, status.Error(codes.Unimplemented, "method AdminGetTTSModel not implemented")
@@ -894,6 +910,24 @@ func _DigitalHuman_AdminRetry_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DigitalHuman_AdminForceFail_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(IdReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DigitalHumanServer).AdminForceFail(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DigitalHuman_AdminForceFail_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DigitalHumanServer).AdminForceFail(ctx, req.(*IdReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _DigitalHuman_AdminGetTTSModel_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(Empty)
 	if err := dec(in); err != nil {
@@ -1010,6 +1044,10 @@ var DigitalHuman_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "AdminRetry",
 			Handler:    _DigitalHuman_AdminRetry_Handler,
+		},
+		{
+			MethodName: "AdminForceFail",
+			Handler:    _DigitalHuman_AdminForceFail_Handler,
 		},
 		{
 			MethodName: "AdminGetTTSModel",

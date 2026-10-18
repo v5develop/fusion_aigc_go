@@ -2630,8 +2630,7 @@ const file_imagegen_proto_rawDesc = "" +
 	"\x04list\x18\x01 \x03(\v2\x13.imagegen.VideoInfoR\x04list\x12\x14\n" +
 	"\x05total\x18\x02 \x01(\x03R\x05total\"\x17\n" +
 	"\x05IdReq\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\x03R\x02id2\xed\n" +
-	"\n" +
+	"\x02id\x18\x01 \x01(\x03R\x02id2\xda\v\n" +
 	"\bImageGen\x123\n" +
 	"\aOptions\x12\x11.imagegen.KindReq\x1a\x15.imagegen.OptionsResp\x12C\n" +
 	"\rListTemplates\x12\x1a.imagegen.ListTemplatesReq\x1a\x16.imagegen.TemplateList\x125\n" +
@@ -2653,8 +2652,10 @@ const file_imagegen_proto_rawDesc = "" +
 	"\tAdminList\x12\x11.imagegen.ListReq\x1a\x16.imagegen.CreationList\x12>\n" +
 	"\x0fAdminListVideos\x12\x16.imagegen.VideoListReq\x1a\x13.imagegen.VideoList\x12.\n" +
 	"\n" +
-	"AdminRetry\x12\x0f.imagegen.IdReq\x1a\x0f.imagegen.Empty\x123\n" +
-	"\x0fAdminRetryVideo\x12\x0f.imagegen.IdReq\x1a\x0f.imagegen.Empty\x12;\n" +
+	"AdminRetry\x12\x0f.imagegen.IdReq\x1a\x0f.imagegen.Empty\x122\n" +
+	"\x0eAdminForceFail\x12\x0f.imagegen.IdReq\x1a\x0f.imagegen.Empty\x123\n" +
+	"\x0fAdminRetryVideo\x12\x0f.imagegen.IdReq\x1a\x0f.imagegen.Empty\x127\n" +
+	"\x13AdminForceFailVideo\x12\x0f.imagegen.IdReq\x1a\x0f.imagegen.Empty\x12;\n" +
 	"\x0fAdminGenOptions\x12\x0f.imagegen.Empty\x1a\x17.imagegen.GenOptionList\x12M\n" +
 	"\x14AdminUpdateGenOption\x12\x1c.imagegen.UpdateGenOptionReq\x1a\x17.imagegen.GenOptionItem\x12G\n" +
 	"\x12AdminUpdateGenKind\x12\x1a.imagegen.UpdateGenKindReq\x1a\x15.imagegen.GenKindItemB\x06Z\x04./pbb\x06proto3"
@@ -2734,35 +2735,39 @@ var file_imagegen_proto_depIdxs = []int32{
 	18, // 29: imagegen.ImageGen.AdminList:input_type -> imagegen.ListReq
 	24, // 30: imagegen.ImageGen.AdminListVideos:input_type -> imagegen.VideoListReq
 	26, // 31: imagegen.ImageGen.AdminRetry:input_type -> imagegen.IdReq
-	26, // 32: imagegen.ImageGen.AdminRetryVideo:input_type -> imagegen.IdReq
-	0,  // 33: imagegen.ImageGen.AdminGenOptions:input_type -> imagegen.Empty
-	5,  // 34: imagegen.ImageGen.AdminUpdateGenOption:input_type -> imagegen.UpdateGenOptionReq
-	4,  // 35: imagegen.ImageGen.AdminUpdateGenKind:input_type -> imagegen.UpdateGenKindReq
-	12, // 36: imagegen.ImageGen.Options:output_type -> imagegen.OptionsResp
-	15, // 37: imagegen.ImageGen.ListTemplates:output_type -> imagegen.TemplateList
-	17, // 38: imagegen.ImageGen.Create:output_type -> imagegen.CreationInfo
-	17, // 39: imagegen.ImageGen.Get:output_type -> imagegen.CreationInfo
-	19, // 40: imagegen.ImageGen.List:output_type -> imagegen.CreationList
-	0,  // 41: imagegen.ImageGen.Delete:output_type -> imagegen.Empty
-	10, // 42: imagegen.ImageGen.ListActionVideos:output_type -> imagegen.ActionVideoList
-	9,  // 43: imagegen.ImageGen.ImportActionVideo:output_type -> imagegen.ActionVideo
-	0,  // 44: imagegen.ImageGen.DeleteActionVideo:output_type -> imagegen.Empty
-	20, // 45: imagegen.ImageGen.VideoOptions:output_type -> imagegen.VideoOptionsResp
-	23, // 46: imagegen.ImageGen.CreateVideo:output_type -> imagegen.VideoInfo
-	23, // 47: imagegen.ImageGen.GetVideo:output_type -> imagegen.VideoInfo
-	23, // 48: imagegen.ImageGen.ReplanVideo:output_type -> imagegen.VideoInfo
-	23, // 49: imagegen.ImageGen.GenerateVideo:output_type -> imagegen.VideoInfo
-	25, // 50: imagegen.ImageGen.ListVideos:output_type -> imagegen.VideoList
-	0,  // 51: imagegen.ImageGen.DeleteVideo:output_type -> imagegen.Empty
-	19, // 52: imagegen.ImageGen.AdminList:output_type -> imagegen.CreationList
-	25, // 53: imagegen.ImageGen.AdminListVideos:output_type -> imagegen.VideoList
-	0,  // 54: imagegen.ImageGen.AdminRetry:output_type -> imagegen.Empty
-	0,  // 55: imagegen.ImageGen.AdminRetryVideo:output_type -> imagegen.Empty
-	2,  // 56: imagegen.ImageGen.AdminGenOptions:output_type -> imagegen.GenOptionList
-	1,  // 57: imagegen.ImageGen.AdminUpdateGenOption:output_type -> imagegen.GenOptionItem
-	3,  // 58: imagegen.ImageGen.AdminUpdateGenKind:output_type -> imagegen.GenKindItem
-	36, // [36:59] is the sub-list for method output_type
-	13, // [13:36] is the sub-list for method input_type
+	26, // 32: imagegen.ImageGen.AdminForceFail:input_type -> imagegen.IdReq
+	26, // 33: imagegen.ImageGen.AdminRetryVideo:input_type -> imagegen.IdReq
+	26, // 34: imagegen.ImageGen.AdminForceFailVideo:input_type -> imagegen.IdReq
+	0,  // 35: imagegen.ImageGen.AdminGenOptions:input_type -> imagegen.Empty
+	5,  // 36: imagegen.ImageGen.AdminUpdateGenOption:input_type -> imagegen.UpdateGenOptionReq
+	4,  // 37: imagegen.ImageGen.AdminUpdateGenKind:input_type -> imagegen.UpdateGenKindReq
+	12, // 38: imagegen.ImageGen.Options:output_type -> imagegen.OptionsResp
+	15, // 39: imagegen.ImageGen.ListTemplates:output_type -> imagegen.TemplateList
+	17, // 40: imagegen.ImageGen.Create:output_type -> imagegen.CreationInfo
+	17, // 41: imagegen.ImageGen.Get:output_type -> imagegen.CreationInfo
+	19, // 42: imagegen.ImageGen.List:output_type -> imagegen.CreationList
+	0,  // 43: imagegen.ImageGen.Delete:output_type -> imagegen.Empty
+	10, // 44: imagegen.ImageGen.ListActionVideos:output_type -> imagegen.ActionVideoList
+	9,  // 45: imagegen.ImageGen.ImportActionVideo:output_type -> imagegen.ActionVideo
+	0,  // 46: imagegen.ImageGen.DeleteActionVideo:output_type -> imagegen.Empty
+	20, // 47: imagegen.ImageGen.VideoOptions:output_type -> imagegen.VideoOptionsResp
+	23, // 48: imagegen.ImageGen.CreateVideo:output_type -> imagegen.VideoInfo
+	23, // 49: imagegen.ImageGen.GetVideo:output_type -> imagegen.VideoInfo
+	23, // 50: imagegen.ImageGen.ReplanVideo:output_type -> imagegen.VideoInfo
+	23, // 51: imagegen.ImageGen.GenerateVideo:output_type -> imagegen.VideoInfo
+	25, // 52: imagegen.ImageGen.ListVideos:output_type -> imagegen.VideoList
+	0,  // 53: imagegen.ImageGen.DeleteVideo:output_type -> imagegen.Empty
+	19, // 54: imagegen.ImageGen.AdminList:output_type -> imagegen.CreationList
+	25, // 55: imagegen.ImageGen.AdminListVideos:output_type -> imagegen.VideoList
+	0,  // 56: imagegen.ImageGen.AdminRetry:output_type -> imagegen.Empty
+	0,  // 57: imagegen.ImageGen.AdminForceFail:output_type -> imagegen.Empty
+	0,  // 58: imagegen.ImageGen.AdminRetryVideo:output_type -> imagegen.Empty
+	0,  // 59: imagegen.ImageGen.AdminForceFailVideo:output_type -> imagegen.Empty
+	2,  // 60: imagegen.ImageGen.AdminGenOptions:output_type -> imagegen.GenOptionList
+	1,  // 61: imagegen.ImageGen.AdminUpdateGenOption:output_type -> imagegen.GenOptionItem
+	3,  // 62: imagegen.ImageGen.AdminUpdateGenKind:output_type -> imagegen.GenKindItem
+	38, // [38:63] is the sub-list for method output_type
+	13, // [13:38] is the sub-list for method input_type
 	13, // [13:13] is the sub-list for extension type_name
 	13, // [13:13] is the sub-list for extension extendee
 	0,  // [0:13] is the sub-list for field type_name

@@ -41,6 +41,10 @@ type (
 		UpdateTasks(ctx context.Context, id int64, tasks string, status int64, imageURLs, failReason string) (bool, error)
 		// RestartGenerate 失败的记录重做：换新的请求号（点数按它冻结），清空逐张任务，回到生成中。只从失败态进入。
 		RestartGenerate(ctx context.Context, id int64, requestID string) (bool, error)
+		// ForceFail 运营强制失败：失败态记录置 admin_locked=1，之后运营重做一律拒绝。只从失败态进入。
+		ForceFail(ctx context.Context, id int64) (bool, error)
+		// AdminLocked 是否已被运营强制失败（封禁运营重做）。
+		AdminLocked(ctx context.Context, id int64) (bool, error)
 		ListGenerating(ctx context.Context, before time.Time, limit int64) ([]*LocalLifeCreation, error)
 		SoftDelete(ctx context.Context, id int64) error
 	}
@@ -157,7 +161,7 @@ func (m *customLocalLifeCreationModel) UpdateTasks(ctx context.Context, id int64
 
 func (m *customLocalLifeCreationModel) RestartGenerate(ctx context.Context, id int64, requestID string) (bool, error) {
 	q := fmt.Sprintf("UPDATE %s SET `request_id` = ?, `tasks` = '[]', `status` = ?, `image_urls` = NULL, `fail_reason` = NULL "+
-		"WHERE `id` = ? AND `status` = ? AND `deleted` = 0", m.table)
+		"WHERE `id` = ? AND `status` = ? AND `admin_locked` = 0 AND `deleted` = 0", m.table)
 	return affected(m.conn.ExecCtx(ctx, q, requestID, StatusGenerating, id, StatusFailed))
 }
 
@@ -175,4 +179,16 @@ func (m *customLocalLifeCreationModel) SoftDelete(ctx context.Context, id int64)
 
 func nullString(s string) sql.NullString {
 	return sql.NullString{String: s, Valid: s != ""}
+}
+
+func (m *customLocalLifeCreationModel) ForceFail(ctx context.Context, id int64) (bool, error) {
+	q := fmt.Sprintf("UPDATE %s SET `admin_locked` = 1 WHERE `id` = ? AND `status` = ? AND `admin_locked` = 0 AND `deleted` = 0", m.table)
+	return affected(m.conn.ExecCtx(ctx, q, id, StatusFailed))
+}
+
+func (m *customLocalLifeCreationModel) AdminLocked(ctx context.Context, id int64) (bool, error) {
+	var locked int64
+	q := fmt.Sprintf("SELECT `admin_locked` FROM %s WHERE `id` = ? AND `deleted` = 0 LIMIT 1", m.table)
+	err := m.conn.QueryRowCtx(ctx, &locked, q, id)
+	return locked == 1, err
 }

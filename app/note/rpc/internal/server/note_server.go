@@ -79,3 +79,8 @@ func (s *NoteServer) AdminRetry(ctx context.Context, in *pb.IdReq) (*pb.Empty, e
 	l := logic.NewAdminRetryLogic(ctx, s.svcCtx)
 	return l.AdminRetry(in)
 }
+
+func (s *NoteServer) AdminForceFail(ctx context.Context, in *pb.IdReq) (*pb.Empty, error) {
+	l := logic.NewAdminForceFailLogic(ctx, s.svcCtx)
+	return l.AdminForceFail(in)
+}

@@ -45,6 +45,7 @@ type (
 		AdminList(ctx context.Context, in *ListReq, opts ...grpc.CallOption) (*NoteList, error)
 		// 运营取消在途笔记（预留原路退回；已确认扣费的不能取消）
 		AdminRetry(ctx context.Context, in *IdReq, opts ...grpc.CallOption) (*Empty, error)
+		AdminForceFail(ctx context.Context, in *IdReq, opts ...grpc.CallOption) (*Empty, error)
 	}
 
 	defaultNote struct {
@@ -113,4 +114,9 @@ func (m *defaultNote) AdminList(ctx context.Context, in *ListReq, opts ...grpc.C
 func (m *defaultNote) AdminRetry(ctx context.Context, in *IdReq, opts ...grpc.CallOption) (*Empty, error) {
 	client := pb.NewNoteClient(m.cli.Conn())
 	return client.AdminRetry(ctx, in, opts...)
+}
+
+func (m *defaultNote) AdminForceFail(ctx context.Context, in *IdReq, opts ...grpc.CallOption) (*Empty, error) {
+	client := pb.NewNoteClient(m.cli.Conn())
+	return client.AdminForceFail(ctx, in, opts...)
 }

@@ -1003,7 +1003,7 @@ const file_note_proto_rawDesc = "" +
 	"\x04list\x18\x01 \x03(\v2\x0e.note.NoteInfoR\x04list\x12\x14\n" +
 	"\x05total\x18\x02 \x01(\x03R\x05total\"\x17\n" +
 	"\x05IdReq\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\x03R\x02id2\xa8\x03\n" +
+	"\x02id\x18\x01 \x01(\x03R\x02id2\xd4\x03\n" +
 	"\x04Note\x12)\n" +
 	"\aOptions\x12\v.note.Empty\x1a\x11.note.OptionsResp\x12%\n" +
 	"\x04Plan\x12\r.note.PlanReq\x1a\x0e.note.NoteInfo\x12)\n" +
@@ -1015,7 +1015,8 @@ const file_note_proto_rawDesc = "" +
 	"\x06Delete\x12\x0f.note.IdUserReq\x1a\v.note.Empty\x12*\n" +
 	"\tAdminList\x12\r.note.ListReq\x1a\x0e.note.NoteList\x12&\n" +
 	"\n" +
-	"AdminRetry\x12\v.note.IdReq\x1a\v.note.EmptyB\x06Z\x04./pbb\x06proto3"
+	"AdminRetry\x12\v.note.IdReq\x1a\v.note.Empty\x12*\n" +
+	"\x0eAdminForceFail\x12\v.note.IdReq\x1a\v.note.EmptyB\x06Z\x04./pbb\x06proto3"
 
 var (
 	file_note_proto_rawDescOnce sync.Once
@@ -1057,18 +1058,20 @@ var file_note_proto_depIdxs = []int32{
 	1,  // 9: note.Note.Delete:input_type -> note.IdUserReq
 	9,  // 10: note.Note.AdminList:input_type -> note.ListReq
 	11, // 11: note.Note.AdminRetry:input_type -> note.IdReq
-	3,  // 12: note.Note.Options:output_type -> note.OptionsResp
-	8,  // 13: note.Note.Plan:output_type -> note.NoteInfo
-	8,  // 14: note.Note.Replan:output_type -> note.NoteInfo
-	8,  // 15: note.Note.Generate:output_type -> note.NoteInfo
-	8,  // 16: note.Note.Get:output_type -> note.NoteInfo
-	10, // 17: note.Note.List:output_type -> note.NoteList
-	8,  // 18: note.Note.Update:output_type -> note.NoteInfo
-	0,  // 19: note.Note.Delete:output_type -> note.Empty
-	10, // 20: note.Note.AdminList:output_type -> note.NoteList
-	0,  // 21: note.Note.AdminRetry:output_type -> note.Empty
-	12, // [12:22] is the sub-list for method output_type
-	2,  // [2:12] is the sub-list for method input_type
+	11, // 12: note.Note.AdminForceFail:input_type -> note.IdReq
+	3,  // 13: note.Note.Options:output_type -> note.OptionsResp
+	8,  // 14: note.Note.Plan:output_type -> note.NoteInfo
+	8,  // 15: note.Note.Replan:output_type -> note.NoteInfo
+	8,  // 16: note.Note.Generate:output_type -> note.NoteInfo
+	8,  // 17: note.Note.Get:output_type -> note.NoteInfo
+	10, // 18: note.Note.List:output_type -> note.NoteList
+	8,  // 19: note.Note.Update:output_type -> note.NoteInfo
+	0,  // 20: note.Note.Delete:output_type -> note.Empty
+	10, // 21: note.Note.AdminList:output_type -> note.NoteList
+	0,  // 22: note.Note.AdminRetry:output_type -> note.Empty
+	0,  // 23: note.Note.AdminForceFail:output_type -> note.Empty
+	13, // [13:24] is the sub-list for method output_type
+	2,  // [2:13] is the sub-list for method input_type
 	2,  // [2:2] is the sub-list for extension type_name
 	2,  // [2:2] is the sub-list for extension extendee
 	0,  // [0:2] is the sub-list for field type_name

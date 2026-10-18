@@ -2497,6 +2497,60 @@
         }
       }
     },
+    "/api/v1/local-life/admin/tasks/{origin_ref}/force-fail": {
+      "post": {
+        "security": [
+          {
+            "auth": []
+          }
+        ],
+        "consumes": [
+          "application/x-www-form-urlencoded"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "本地生活任务操作"
+        ],
+        "summary": "运营强制失败生成失败的任务：origin_ref 形如 img:123；封禁运营重做，点数已退回不动账",
+        "operationId": "localtaskForceFailTask",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "origin_ref",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
+                  "type": "integer",
+                  "example": 0
+                },
+                "data": {
+                  "type": "object"
+                },
+                "msg": {
+                  "description": "business message",
+                  "type": "string",
+                  "example": "ok"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/local-life/admin/tasks/{origin_ref}/retry": {
       "post": {
         "security": [
@@ -2709,7 +2763,7 @@
       "in": "header"
     }
   },
-  "x-date": "2026-10-18 08:01:06",
+  "x-date": "2026-10-18 14:37:14",
   "x-description": "This is a goctl generated swagger file.",
   "x-github": "https://github.com/zeromicro/go-zero",
   "x-go-zero-doc": "https://go-zero.dev/",

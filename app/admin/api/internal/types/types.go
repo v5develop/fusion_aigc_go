@@ -147,6 +147,10 @@ type DigitalHumanListResp struct {
 type EmptyResp struct {
 }
 
+type ForceFailTaskReq struct {
+	OriginRef string `path:"origin_ref"`
+}
+
 type GenKindItem struct {
 	Kind             string `json:"kind"`
 	TemplateRequired bool   `json:"template_required"`
