@@ -71,6 +71,8 @@ type (
 		// 用该音色合成一句固定文案作为试听音频
 		AdminGenerateVoicePreview(ctx context.Context, in *IdReq, opts ...grpc.CallOption) (*VoiceInfo, error)
 		AdminList(ctx context.Context, in *AdminListReq, opts ...grpc.CallOption) (*DigitalHumanList, error)
+		// 运营取消在途数字人（预留原路退回）
+		AdminRetry(ctx context.Context, in *IdReq, opts ...grpc.CallOption) (*Empty, error)
 		// 当前配音模型（只读，来自 afv_system_config + afv_ai_model）
 		AdminGetTTSModel(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*ModelInfo, error)
 	}
@@ -202,6 +204,12 @@ func (m *defaultDigitalHuman) AdminGenerateVoicePreview(ctx context.Context, in 
 func (m *defaultDigitalHuman) AdminList(ctx context.Context, in *AdminListReq, opts ...grpc.CallOption) (*DigitalHumanList, error) {
 	client := pb.NewDigitalHumanClient(m.cli.Conn())
 	return client.AdminList(ctx, in, opts...)
+}
+
+// 运营取消在途数字人（预留原路退回）
+func (m *defaultDigitalHuman) AdminRetry(ctx context.Context, in *IdReq, opts ...grpc.CallOption) (*Empty, error) {
+	client := pb.NewDigitalHumanClient(m.cli.Conn())
+	return client.AdminRetry(ctx, in, opts...)
 }
 
 // 当前配音模型（只读，来自 afv_system_config + afv_ai_model）

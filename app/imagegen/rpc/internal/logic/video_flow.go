@@ -1,6 +1,7 @@
 package logic
 
 import (
+	"aigc-local-life/pkg/billing"
 	"aigc-local-life/pkg/taskcenter"
 	"context"
 	"encoding/json"
@@ -119,6 +120,12 @@ func (p *Poller) pollVideoGenerates(ctx context.Context) {
 			}
 			genTimeout = cfg.GenTimeoutMinutes
 		}
+		// 未超时的在途任务续期预留（见 pollGenerates 的说明）
+		if time.Since(c.UpdateTime) <= time.Duration(genTimeout)*time.Minute {
+			if err := svcCtx.Billing.Renew(ctx, c.UserId, c.GenTaskId.String); err != nil {
+				logx.WithContext(ctx).Errorf("renew video %d: %v", c.Id, err)
+			}
+		}
 		r := p.query(ctx, c.GenTaskId.String)
 		switch {
 		case r != nil && r.Status == aigc.StatusSuccess && r.GeneratedImagePath != "":
@@ -128,6 +135,13 @@ func (p *Poller) pollVideoGenerates(ctx context.Context) {
 				logx.WithContext(ctx).Errorf("%s %d 转存失败: %v", c.Kind, c.Id, terr)
 				continue
 			}
+			// 先确认扣费，确认成功才交付；预留已失效则不交付
+			if err := svcCtx.Billing.Settle(ctx, c.UserId, c.GenTaskId.String, 0); err != nil {
+				logx.WithContext(ctx).Errorf("settle video %s %d: %v", c.Kind, c.Id, err)
+				aigc.LogTaskFailed(ctx, aigc.Trace{Service: "imagegen", Kind: c.Kind, Stage: "generate", RecordID: c.Id, UserID: c.UserId, TaskCenterID: taskcenter.Ref("vid", c.Id)}, billing.DeliverBlockedReason, err)
+				failVideo(ctx, svcCtx, c.Id, model.VideoGenerating, billing.DeliverBlockedReason)
+				continue
+			}
 			ok, err := svcCtx.Video.FinishGenerate(ctx, c.Id, model.VideoDone, u, "")
 			if err != nil {
 				logx.WithContext(ctx).Errorf("finish generate %s %d: %v", c.Kind, c.Id, err)
@@ -135,7 +149,6 @@ func (p *Poller) pollVideoGenerates(ctx context.Context) {
 			}
 			if ok {
 				saveVideoAsset(ctx, svcCtx, c, u)
-				svcCtx.Billing.Done(ctx, c.UserId, c.GenTaskId.String, 0)
 			}
 		case r != nil && r.Done():
 			aigc.LogOutcome(ctx, aigc.Trace{Service: "imagegen", Kind: c.Kind, Stage: "generate", RecordID: c.Id, UserID: c.UserId, TaskCenterID: taskcenter.Ref("vid", c.Id), ExecTaskID: c.GenTaskId.String}, r)

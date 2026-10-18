@@ -1,6 +1,7 @@
 package logic
 
 import (
+	"aigc-local-life/pkg/billing"
 	"context"
 	"encoding/json"
 	"time"
@@ -196,6 +197,12 @@ func (p *Poller) pollGenerates(ctx context.Context) {
 	}
 	deadline := time.Duration(svcCtx.Config.Generate.TimeoutMinutes) * time.Minute
 	for _, n := range list {
+		// 未超时的在途任务续期预留：排队再久也不会因固定时长过期；超时后不再续，预留随之释放
+		if time.Since(n.UpdateTime) <= deadline {
+			if err := svcCtx.Billing.Renew(ctx, n.UserId, n.GenTaskId.String); err != nil {
+				logx.WithContext(ctx).Errorf("renew note %d: %v", n.Id, err)
+			}
+		}
 		r := p.query(ctx, n.GenTaskId.String)
 		switch {
 		case r != nil && r.Status == aigc.StatusSuccess:
@@ -209,11 +216,17 @@ func (p *Poller) pollGenerates(ctx context.Context) {
 				logx.WithContext(ctx).Errorf("note %d 转存失败，下一轮重试", n.Id)
 				continue
 			}
+			// 先确认扣费，确认成功才交付；预留已失效则不交付
+			if err := svcCtx.Billing.Settle(ctx, n.UserId, n.GenTaskId.String, len(urls)); err != nil {
+				logx.WithContext(ctx).Errorf("settle note %d: %v", n.Id, err)
+				aigc.LogTaskFailed(ctx, aigc.Trace{Service: "note", Stage: "generate", RecordID: n.Id, UserID: n.UserId, TaskCenterID: taskcenter.Ref("note", n.Id)}, billing.DeliverBlockedReason, err)
+				failGenerate(ctx, svcCtx, n.Id, billing.DeliverBlockedReason)
+				continue
+			}
 			if ok, err := svcCtx.Note.FinishGenerate(ctx, n.Id, model.StatusDone, jsonList(urls), ""); err != nil {
 				logx.WithContext(ctx).Errorf("finish generate %d: %v", n.Id, err)
 			} else if ok {
 				saveNoteAssets(ctx, svcCtx, n, urls) // 设计稿：成品自动存进素材库
-				svcCtx.Billing.Done(ctx, n.UserId, n.GenTaskId.String, len(urls))
 			}
 		case r != nil && r.Done():
 			aigc.LogOutcome(ctx, aigc.Trace{Service: "note", Stage: "generate", RecordID: n.Id, UserID: n.UserId, TaskCenterID: taskcenter.Ref("note", n.Id), ExecTaskID: n.GenTaskId.String}, r)

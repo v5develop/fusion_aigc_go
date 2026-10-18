@@ -73,3 +73,9 @@ func (s *NoteServer) AdminList(ctx context.Context, in *pb.ListReq) (*pb.NoteLis
 	l := logic.NewAdminListLogic(ctx, s.svcCtx)
 	return l.AdminList(in)
 }
+
+// 运营取消在途笔记（预留原路退回；已确认扣费的不能取消）
+func (s *NoteServer) AdminRetry(ctx context.Context, in *pb.IdReq) (*pb.Empty, error) {
+	l := logic.NewAdminRetryLogic(ctx, s.svcCtx)
+	return l.AdminRetry(in)
+}

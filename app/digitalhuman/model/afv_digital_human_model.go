@@ -39,6 +39,8 @@ type (
 		List(ctx context.Context, f DhFilter) ([]*AfvDigitalHuman, int64, error)
 		// StartRendering 配音中 → 视频生成中，记下音频与视频任务。
 		StartRendering(ctx context.Context, id int64, audioURL string, duration int64, videoTaskID string) (bool, error)
+		// RestartRendering 出片失败后重做：音频已经有了，换新的出片任务号回到视频生成中。只从失败态、且有音频时进入。
+		RestartRendering(ctx context.Context, id int64, videoTaskID string) (bool, error)
 		// Finish 从 from 状态结束为完成/失败，返回是否由本次调用完成。
 		Finish(ctx context.Context, id, from, to int64, videoURL, failReason string) (bool, error)
 		// ListByStatus 取某状态下 update_time 早于 before 的记录（轮询与卡单回收用）。
@@ -112,6 +114,12 @@ func (m *customAfvDigitalHumanModel) List(ctx context.Context, f DhFilter) ([]*A
 func (m *customAfvDigitalHumanModel) StartRendering(ctx context.Context, id int64, audioURL string, duration int64, videoTaskID string) (bool, error) {
 	q := fmt.Sprintf("UPDATE %s SET `status` = ?, `audio_url` = ?, `duration` = ?, `video_task_id` = ? WHERE `id` = ? AND `status` = ?", m.table)
 	return affected(m.conn.ExecCtx(ctx, q, DhStatusRendering, audioURL, duration, videoTaskID, id, DhStatusDubbing))
+}
+
+func (m *customAfvDigitalHumanModel) RestartRendering(ctx context.Context, id int64, videoTaskID string) (bool, error) {
+	q := fmt.Sprintf("UPDATE %s SET `status` = ?, `video_task_id` = ?, `video_url` = NULL, `fail_reason` = NULL "+
+		"WHERE `id` = ? AND `status` = ? AND `audio_url` IS NOT NULL", m.table)
+	return affected(m.conn.ExecCtx(ctx, q, DhStatusRendering, videoTaskID, id, DhStatusFailed))
 }
 
 func (m *customAfvDigitalHumanModel) Finish(ctx context.Context, id, from, to int64, videoURL, failReason string) (bool, error) {

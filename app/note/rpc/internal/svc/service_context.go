@@ -47,6 +47,7 @@ func NewServiceContext(c config.Config) *ServiceContext {
 			Include: "status IN (3,4,5)",
 			Status:  "CASE status WHEN 3 THEN 1 WHEN 4 THEN 2 ELSE 3 END",
 			Result:  "JSON_UNQUOTE(JSON_EXTRACT(image_urls, '$[0]'))", Results: "image_urls", Fail: "fail_reason", Prompt: "title",
+			BillingRequest: "gen_task_id",
 			RequestPairs: "'prompt', title, 'noteType', note_type, 'topic', topic, 'content', content, 'tags', tags, " +
 				"'materials', material_urls, 'digitalHumanId', digital_human_id, 'shopProfileId', shop_profile_id, " +
 				"'copywritingId', copywriting_id, 'imageCount', image_count",

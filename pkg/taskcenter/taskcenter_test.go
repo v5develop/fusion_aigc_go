@@ -56,3 +56,39 @@ func TestSyncSQLWritesRequestAndExecutionFields(t *testing.T) {
 		t.Fatalf("旧行为变了: %s", got)
 	}
 }
+
+// 占位符数量必须与参数一致，否则整条同步语句报错、该源全部不同步。
+func TestSyncArgsMatchPlaceholders(t *testing.T) {
+	withBilling := Source{Table: "t", Prefix: "img", EntryCode: "poster", Type: "image", Status: "1", BillingRequest: "request_id"}
+	if got, want := len(withBilling.args(60)), strings.Count(withBilling.sql(), "?"); got != want {
+		t.Fatalf("有计费：参数 %d 个，占位符 %d 个", got, want)
+	}
+	noBilling := Source{Table: "t", Prefix: "img", EntryCode: "poster", Type: "image", Status: "1"}
+	if got, want := len(noBilling.args(60)), strings.Count(noBilling.sql(), "?"); got != want {
+		t.Fatalf("无计费：参数 %d 个，占位符 %d 个", got, want)
+	}
+}
+
+// 关联键与 pkg/billing 的 bizID 一致：超过 64 字节要走 SHA-256 截断，且必须包含 LOCALLIFE 业务类型。
+func TestBillingKeyMatchesBillingRule(t *testing.T) {
+	s := Source{Table: "t", Prefix: "vid", BillingRequest: "gen_task_id"}
+	q := s.sql()
+	for _, want := range []string{"biz_type = 'LOCALLIFE'", "SHA2(", "LENGTH(", "<= 64"} {
+		if !strings.Contains(q, want) {
+			t.Fatalf("计费关联缺少 %q", want)
+		}
+	}
+	if !strings.Contains(q, "'NONE'") && !strings.Contains(q, "IFNULL(") {
+		t.Fatalf("没有预留单时应显示 NONE")
+	}
+}
+
+func TestOriginRef(t *testing.T) {
+	if got := OriginRef("img", 123); got != "img:123" {
+		t.Fatalf("OriginRef = %q, want img:123", got)
+	}
+	s := Source{Prefix: "dh"}
+	if got := s.originRefSQL(); got != "CONCAT('dh:', s.id)" {
+		t.Fatalf("originRefSQL = %q", got)
+	}
+}

@@ -25,6 +25,7 @@ type (
 	GenOptionItem        = pb.GenOptionItem
 	GenOptionList        = pb.GenOptionList
 	GenerateVideoReq     = pb.GenerateVideoReq
+	IdReq                = pb.IdReq
 	IdUserReq            = pb.IdUserReq
 	ImportActionVideoReq = pb.ImportActionVideoReq
 	KindReq              = pb.KindReq
@@ -69,6 +70,10 @@ type (
 		// ---- 运营后台 ----
 		AdminList(ctx context.Context, in *ListReq, opts ...grpc.CallOption) (*CreationList, error)
 		AdminListVideos(ctx context.Context, in *VideoListReq, opts ...grpc.CallOption) (*VideoList, error)
+		// 运营取消在途图片 / 长图（预留原路退回）
+		AdminRetry(ctx context.Context, in *IdReq, opts ...grpc.CallOption) (*Empty, error)
+		// 运营取消在途视频（预留原路退回）
+		AdminRetryVideo(ctx context.Context, in *IdReq, opts ...grpc.CallOption) (*Empty, error)
 		// 生成选项（模型 / 比例 / 时长）的运营配置：只能改启用、名称、排序、默认
 		AdminGenOptions(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*GenOptionList, error)
 		AdminUpdateGenOption(ctx context.Context, in *UpdateGenOptionReq, opts ...grpc.CallOption) (*GenOptionItem, error)
@@ -183,6 +188,18 @@ func (m *defaultImageGen) AdminList(ctx context.Context, in *ListReq, opts ...gr
 func (m *defaultImageGen) AdminListVideos(ctx context.Context, in *VideoListReq, opts ...grpc.CallOption) (*VideoList, error) {
 	client := pb.NewImageGenClient(m.cli.Conn())
 	return client.AdminListVideos(ctx, in, opts...)
+}
+
+// 运营取消在途图片 / 长图（预留原路退回）
+func (m *defaultImageGen) AdminRetry(ctx context.Context, in *IdReq, opts ...grpc.CallOption) (*Empty, error) {
+	client := pb.NewImageGenClient(m.cli.Conn())
+	return client.AdminRetry(ctx, in, opts...)
+}
+
+// 运营取消在途视频（预留原路退回）
+func (m *defaultImageGen) AdminRetryVideo(ctx context.Context, in *IdReq, opts ...grpc.CallOption) (*Empty, error) {
+	client := pb.NewImageGenClient(m.cli.Conn())
+	return client.AdminRetryVideo(ctx, in, opts...)
 }
 
 // 生成选项（模型 / 比例 / 时长）的运营配置：只能改启用、名称、排序、默认

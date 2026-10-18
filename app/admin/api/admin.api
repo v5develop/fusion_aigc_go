@@ -439,3 +439,23 @@ type (
 	}
 )
 
+// ---------------- 本地生活任务操作（由 Java 后台转发）----------------
+type (
+	RetryTaskReq {
+		OriginRef string `path:"origin_ref"`
+	}
+)
+
+@server (
+	prefix:     /api/v1/local-life/admin
+	middleware: AdminAuth
+	group:      localtask
+	tags:       "本地生活任务操作"
+	authType:   auth
+)
+service admin-api {
+	@doc "运营重做生成失败的任务：origin_ref 形如 img:123（来源记录坐标）；按原内容重新冻结点数并重新提交"
+	@handler retryTask
+	post /tasks/:origin_ref/retry (RetryTaskReq) returns (EmptyResp)
+}
+

@@ -151,7 +151,7 @@ func (l *CreateLogic) insertAndSubmit(row *model.LocalLifeCreation, cfg *config.
 		l.svcCtx.Billing.Fail(l.ctx, row.UserId, row.RequestId.String, "落库失败")
 		return nil, err
 	}
-	tasks := submit(l.ctx, l.svcCtx, row, cfg, typeLabel)
+	tasks := submit(l.ctx, l.svcCtx, row, cfg, typeLabel, "")
 	if _, err := l.svcCtx.Creation.UpdateTasks(l.ctx, row.Id, dumpTasks(tasks), model.StatusGenerating, "", ""); err != nil {
 		l.Errorf("save tasks %d: %v", row.Id, err)
 	}

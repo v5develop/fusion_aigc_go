@@ -2350,6 +2350,50 @@ func (x *VideoList) GetTotal() int64 {
 	return 0
 }
 
+type IdReq struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *IdReq) Reset() {
+	*x = IdReq{}
+	mi := &file_imagegen_proto_msgTypes[26]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *IdReq) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*IdReq) ProtoMessage() {}
+
+func (x *IdReq) ProtoReflect() protoreflect.Message {
+	mi := &file_imagegen_proto_msgTypes[26]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use IdReq.ProtoReflect.Descriptor instead.
+func (*IdReq) Descriptor() ([]byte, []int) {
+	return file_imagegen_proto_rawDescGZIP(), []int{26}
+}
+
+func (x *IdReq) GetId() int64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
 var File_imagegen_proto protoreflect.FileDescriptor
 
 const file_imagegen_proto_rawDesc = "" +
@@ -2584,7 +2628,9 @@ const file_imagegen_proto_rawDesc = "" +
 	"\tpage_size\x18\x05 \x01(\x03R\bpageSize\"J\n" +
 	"\tVideoList\x12'\n" +
 	"\x04list\x18\x01 \x03(\v2\x13.imagegen.VideoInfoR\x04list\x12\x14\n" +
-	"\x05total\x18\x02 \x01(\x03R\x05total2\x88\n" +
+	"\x05total\x18\x02 \x01(\x03R\x05total\"\x17\n" +
+	"\x05IdReq\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x03R\x02id2\xed\n" +
 	"\n" +
 	"\bImageGen\x123\n" +
 	"\aOptions\x12\x11.imagegen.KindReq\x1a\x15.imagegen.OptionsResp\x12C\n" +
@@ -2605,7 +2651,10 @@ const file_imagegen_proto_rawDesc = "" +
 	"ListVideos\x12\x16.imagegen.VideoListReq\x1a\x13.imagegen.VideoList\x123\n" +
 	"\vDeleteVideo\x12\x13.imagegen.IdUserReq\x1a\x0f.imagegen.Empty\x126\n" +
 	"\tAdminList\x12\x11.imagegen.ListReq\x1a\x16.imagegen.CreationList\x12>\n" +
-	"\x0fAdminListVideos\x12\x16.imagegen.VideoListReq\x1a\x13.imagegen.VideoList\x12;\n" +
+	"\x0fAdminListVideos\x12\x16.imagegen.VideoListReq\x1a\x13.imagegen.VideoList\x12.\n" +
+	"\n" +
+	"AdminRetry\x12\x0f.imagegen.IdReq\x1a\x0f.imagegen.Empty\x123\n" +
+	"\x0fAdminRetryVideo\x12\x0f.imagegen.IdReq\x1a\x0f.imagegen.Empty\x12;\n" +
 	"\x0fAdminGenOptions\x12\x0f.imagegen.Empty\x1a\x17.imagegen.GenOptionList\x12M\n" +
 	"\x14AdminUpdateGenOption\x12\x1c.imagegen.UpdateGenOptionReq\x1a\x17.imagegen.GenOptionItem\x12G\n" +
 	"\x12AdminUpdateGenKind\x12\x1a.imagegen.UpdateGenKindReq\x1a\x15.imagegen.GenKindItemB\x06Z\x04./pbb\x06proto3"
@@ -2622,7 +2671,7 @@ func file_imagegen_proto_rawDescGZIP() []byte {
 	return file_imagegen_proto_rawDescData
 }
 
-var file_imagegen_proto_msgTypes = make([]protoimpl.MessageInfo, 26)
+var file_imagegen_proto_msgTypes = make([]protoimpl.MessageInfo, 27)
 var file_imagegen_proto_goTypes = []any{
 	(*Empty)(nil),                // 0: imagegen.Empty
 	(*GenOptionItem)(nil),        // 1: imagegen.GenOptionItem
@@ -2650,6 +2699,7 @@ var file_imagegen_proto_goTypes = []any{
 	(*VideoInfo)(nil),            // 23: imagegen.VideoInfo
 	(*VideoListReq)(nil),         // 24: imagegen.VideoListReq
 	(*VideoList)(nil),            // 25: imagegen.VideoList
+	(*IdReq)(nil),                // 26: imagegen.IdReq
 }
 var file_imagegen_proto_depIdxs = []int32{
 	1,  // 0: imagegen.GenOptionList.list:type_name -> imagegen.GenOptionItem
@@ -2683,32 +2733,36 @@ var file_imagegen_proto_depIdxs = []int32{
 	6,  // 28: imagegen.ImageGen.DeleteVideo:input_type -> imagegen.IdUserReq
 	18, // 29: imagegen.ImageGen.AdminList:input_type -> imagegen.ListReq
 	24, // 30: imagegen.ImageGen.AdminListVideos:input_type -> imagegen.VideoListReq
-	0,  // 31: imagegen.ImageGen.AdminGenOptions:input_type -> imagegen.Empty
-	5,  // 32: imagegen.ImageGen.AdminUpdateGenOption:input_type -> imagegen.UpdateGenOptionReq
-	4,  // 33: imagegen.ImageGen.AdminUpdateGenKind:input_type -> imagegen.UpdateGenKindReq
-	12, // 34: imagegen.ImageGen.Options:output_type -> imagegen.OptionsResp
-	15, // 35: imagegen.ImageGen.ListTemplates:output_type -> imagegen.TemplateList
-	17, // 36: imagegen.ImageGen.Create:output_type -> imagegen.CreationInfo
-	17, // 37: imagegen.ImageGen.Get:output_type -> imagegen.CreationInfo
-	19, // 38: imagegen.ImageGen.List:output_type -> imagegen.CreationList
-	0,  // 39: imagegen.ImageGen.Delete:output_type -> imagegen.Empty
-	10, // 40: imagegen.ImageGen.ListActionVideos:output_type -> imagegen.ActionVideoList
-	9,  // 41: imagegen.ImageGen.ImportActionVideo:output_type -> imagegen.ActionVideo
-	0,  // 42: imagegen.ImageGen.DeleteActionVideo:output_type -> imagegen.Empty
-	20, // 43: imagegen.ImageGen.VideoOptions:output_type -> imagegen.VideoOptionsResp
-	23, // 44: imagegen.ImageGen.CreateVideo:output_type -> imagegen.VideoInfo
-	23, // 45: imagegen.ImageGen.GetVideo:output_type -> imagegen.VideoInfo
-	23, // 46: imagegen.ImageGen.ReplanVideo:output_type -> imagegen.VideoInfo
-	23, // 47: imagegen.ImageGen.GenerateVideo:output_type -> imagegen.VideoInfo
-	25, // 48: imagegen.ImageGen.ListVideos:output_type -> imagegen.VideoList
-	0,  // 49: imagegen.ImageGen.DeleteVideo:output_type -> imagegen.Empty
-	19, // 50: imagegen.ImageGen.AdminList:output_type -> imagegen.CreationList
-	25, // 51: imagegen.ImageGen.AdminListVideos:output_type -> imagegen.VideoList
-	2,  // 52: imagegen.ImageGen.AdminGenOptions:output_type -> imagegen.GenOptionList
-	1,  // 53: imagegen.ImageGen.AdminUpdateGenOption:output_type -> imagegen.GenOptionItem
-	3,  // 54: imagegen.ImageGen.AdminUpdateGenKind:output_type -> imagegen.GenKindItem
-	34, // [34:55] is the sub-list for method output_type
-	13, // [13:34] is the sub-list for method input_type
+	26, // 31: imagegen.ImageGen.AdminRetry:input_type -> imagegen.IdReq
+	26, // 32: imagegen.ImageGen.AdminRetryVideo:input_type -> imagegen.IdReq
+	0,  // 33: imagegen.ImageGen.AdminGenOptions:input_type -> imagegen.Empty
+	5,  // 34: imagegen.ImageGen.AdminUpdateGenOption:input_type -> imagegen.UpdateGenOptionReq
+	4,  // 35: imagegen.ImageGen.AdminUpdateGenKind:input_type -> imagegen.UpdateGenKindReq
+	12, // 36: imagegen.ImageGen.Options:output_type -> imagegen.OptionsResp
+	15, // 37: imagegen.ImageGen.ListTemplates:output_type -> imagegen.TemplateList
+	17, // 38: imagegen.ImageGen.Create:output_type -> imagegen.CreationInfo
+	17, // 39: imagegen.ImageGen.Get:output_type -> imagegen.CreationInfo
+	19, // 40: imagegen.ImageGen.List:output_type -> imagegen.CreationList
+	0,  // 41: imagegen.ImageGen.Delete:output_type -> imagegen.Empty
+	10, // 42: imagegen.ImageGen.ListActionVideos:output_type -> imagegen.ActionVideoList
+	9,  // 43: imagegen.ImageGen.ImportActionVideo:output_type -> imagegen.ActionVideo
+	0,  // 44: imagegen.ImageGen.DeleteActionVideo:output_type -> imagegen.Empty
+	20, // 45: imagegen.ImageGen.VideoOptions:output_type -> imagegen.VideoOptionsResp
+	23, // 46: imagegen.ImageGen.CreateVideo:output_type -> imagegen.VideoInfo
+	23, // 47: imagegen.ImageGen.GetVideo:output_type -> imagegen.VideoInfo
+	23, // 48: imagegen.ImageGen.ReplanVideo:output_type -> imagegen.VideoInfo
+	23, // 49: imagegen.ImageGen.GenerateVideo:output_type -> imagegen.VideoInfo
+	25, // 50: imagegen.ImageGen.ListVideos:output_type -> imagegen.VideoList
+	0,  // 51: imagegen.ImageGen.DeleteVideo:output_type -> imagegen.Empty
+	19, // 52: imagegen.ImageGen.AdminList:output_type -> imagegen.CreationList
+	25, // 53: imagegen.ImageGen.AdminListVideos:output_type -> imagegen.VideoList
+	0,  // 54: imagegen.ImageGen.AdminRetry:output_type -> imagegen.Empty
+	0,  // 55: imagegen.ImageGen.AdminRetryVideo:output_type -> imagegen.Empty
+	2,  // 56: imagegen.ImageGen.AdminGenOptions:output_type -> imagegen.GenOptionList
+	1,  // 57: imagegen.ImageGen.AdminUpdateGenOption:output_type -> imagegen.GenOptionItem
+	3,  // 58: imagegen.ImageGen.AdminUpdateGenKind:output_type -> imagegen.GenKindItem
+	36, // [36:59] is the sub-list for method output_type
+	13, // [13:36] is the sub-list for method input_type
 	13, // [13:13] is the sub-list for extension type_name
 	13, // [13:13] is the sub-list for extension extendee
 	0,  // [0:13] is the sub-list for field type_name
@@ -2725,7 +2779,7 @@ func file_imagegen_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_imagegen_proto_rawDesc), len(file_imagegen_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   26,
+			NumMessages:   27,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

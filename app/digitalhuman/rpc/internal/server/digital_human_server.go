@@ -141,6 +141,12 @@ func (s *DigitalHumanServer) AdminList(ctx context.Context, in *pb.AdminListReq)
 	return l.AdminList(in)
 }
 
+// 运营取消在途数字人（预留原路退回）
+func (s *DigitalHumanServer) AdminRetry(ctx context.Context, in *pb.IdReq) (*pb.Empty, error) {
+	l := logic.NewAdminRetryLogic(ctx, s.svcCtx)
+	return l.AdminRetry(in)
+}
+
 // 当前配音模型（只读，来自 afv_system_config + afv_ai_model）
 func (s *DigitalHumanServer) AdminGetTTSModel(ctx context.Context, in *pb.Empty) (*pb.ModelInfo, error) {
 	l := logic.NewAdminGetTTSModelLogic(ctx, s.svcCtx)

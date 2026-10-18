@@ -37,6 +37,8 @@ service DigitalHuman {
   // 用该音色合成一句固定文案作为试听音频
   rpc AdminGenerateVoicePreview(IdReq) returns (VoiceInfo);
   rpc AdminList(AdminListReq) returns (DigitalHumanList);
+  // 运营取消在途数字人（预留原路退回）
+  rpc AdminRetry(IdReq) returns (Empty);
   // 当前配音模型（只读，来自 afv_system_config + afv_ai_model）
   rpc AdminGetTTSModel(Empty) returns (ModelInfo);
 }

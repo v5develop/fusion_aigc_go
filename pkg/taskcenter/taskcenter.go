@@ -51,10 +51,13 @@ type Source struct {
 	ExecTaskID string
 	// ExecParams 下发执行方的参数快照 JSON（execution_params）：模型、比例、时长等。
 	ExecParams string
-	Results    string // 成品地址数组（JSON），视频类留空
-	Cover      string // 封面；空=用 Result
-	Fail       string // 失败原因
-	Prompt     string // 提示词 / 文案，放进 request_params.prompt 供列表展示
+	// BillingRequest 计费预留的请求号所在列（如 request_id、gen_task_id）。与 billing.Charge 的 RequestID 同源；
+	// 空=不同步计费字段。同步时按 biz_type=LOCALLIFE、biz_id=用户号_请求号（超长时同 billing.bizID 取 SHA-256）关联预留单。
+	BillingRequest string
+	Results        string // 成品地址数组（JSON），视频类留空
+	Cover          string // 封面；空=用 Result
+	Fail           string // 失败原因
+	Prompt         string // 提示词 / 文案，放进 request_params.prompt 供列表展示
 }
 
 // Ref 一条源表记录在任务中心里的 task_id：AiCreation_LF_ + md5("<Prefix>:<id>") 的 32 位小写十六进制。
@@ -71,11 +74,61 @@ func (s Source) refSQL() string {
 	return "CONCAT('AiCreation_LF_', MD5(CONCAT('" + s.Prefix + ":', id)))"
 }
 
+// OriginRef 源记录的坐标，如 img:123。写进 afv_creation_task.origin_ref：Java 后台转发操作时用它定位 Go 的记录，
+// 不靠反推 task_id（md5 不可逆）。格式：<Prefix>:<主键>，与 Ref 的前缀一致。
+func OriginRef(prefix string, id int64) string {
+	return prefix + ":" + strconv.FormatInt(id, 10)
+}
+
+// originRefSQL 与 OriginRef 等价的 MySQL 表达式。
+func (s Source) originRefSQL() string {
+	return "CONCAT('" + s.Prefix + ":', s.id)"
+}
+
 func orNull(e string) string {
 	if strings.TrimSpace(e) == "" {
 		return "NULL"
 	}
 	return e
+}
+
+// billingKeySQL 预留单的 biz_id：与 pkg/billing 的 bizID 同一规则（超过 64 字节取 SHA-256 十六进制截断）。
+func (s Source) billingKeySQL() string {
+	id := "CONCAT(s.user_id, '_', s.`" + s.BillingRequest + "`)"
+	return "CASE WHEN LENGTH(" + id + ") <= 64 THEN " + id +
+		" ELSE LEFT(CONCAT(s.user_id, '_', SHA2(" + id + ", 256)), 64) END"
+}
+
+// billingSub 取预留单的某一列；没有预留单返回 NULL。
+func (s Source) billingSub(expr string) string {
+	return "(SELECT " + expr + " FROM afv_billing_reservation r WHERE r.biz_type = 'LOCALLIFE' AND r.deleted = 0" +
+		" AND r.biz_id = " + s.billingKeySQL() + " LIMIT 1)"
+}
+
+// billingColumns 计费字段的 SELECT 表达式（顺序与 INSERT 列一致）。
+// 预留状态映射到 Java 的 billing_status：EXPIRED 是预扣过期释放，点数已回到余额，等同退款。
+func (s Source) billingColumns() []string {
+	if strings.TrimSpace(s.BillingRequest) == "" {
+		return []string{"'NONE'", "NULL", "NULL", "NULL", "NULL"}
+	}
+	status := "CASE r.status WHEN 'HELD' THEN 'HELD' WHEN 'CONFIRMED' THEN 'CONFIRMED' " +
+		"WHEN 'PARTIALLY_REFUNDED' THEN 'PARTIALLY_REFUNDED' WHEN 'REFUNDED' THEN 'REFUNDED' " +
+		"WHEN 'CANCELLED' THEN 'REFUNDED' WHEN 'EXPIRED' THEN 'REFUNDED' ELSE 'BILLING_PENDING_REVIEW' END"
+	return []string{
+		"IFNULL(" + s.billingSub(status) + ", 'NONE')",
+		s.billingSub("r.price_points"),
+		s.billingSub("r.feature_code"),
+		s.billingSub("r.model_id"),
+		s.billingSub("r.reservation_no"),
+	}
+}
+
+// args 与 sql() 的占位符一一对应：窗口参数，有计费关联时多一个。
+func (s Source) args(secs int64) []any {
+	if strings.TrimSpace(s.BillingRequest) == "" {
+		return []any{secs, secs}
+	}
+	return []any{secs, secs, secs}
 }
 
 // requestSQL 入参快照：配了 RequestPairs 就用完整入参，否则只有 prompt（与旧行为一致）。
@@ -88,7 +141,13 @@ func (s Source) requestSQL() string {
 
 // sql 生成 upsert 语句。窗口参数：只同步 update_time 在最近 N 秒内的行（N=0 同步全部）。
 func (s Source) sql() string {
-	where := []string{"(? = 0 OR update_time >= NOW() - INTERVAL ? SECOND)"}
+	where := []string{"(? = 0 OR s.update_time >= NOW() - INTERVAL ? SECOND)"}
+	if strings.TrimSpace(s.BillingRequest) != "" {
+		// 预留状态会独立变化（冻结→结算→过期），源记录没动也要同步：预留单在窗口内更新过也纳入
+		where[0] = "(? = 0 OR s.update_time >= NOW() - INTERVAL ? SECOND OR EXISTS (SELECT 1 FROM afv_billing_reservation r " +
+			"WHERE r.biz_type = 'LOCALLIFE' AND r.deleted = 0 AND r.biz_id = " + s.billingKeySQL() +
+			" AND r.update_time >= NOW() - INTERVAL ? SECOND))"
+	}
 	if s.Kind != "" {
 		where = append(where, "kind = '"+s.Kind+"'")
 	}
@@ -101,15 +160,20 @@ func (s Source) sql() string {
 	}
 	return "INSERT INTO afv_creation_task " +
 		"(task_id, user_id, type, status, entry_code, request_params, execution_task_id, execution_params, " +
-		"result_url, result_urls, cover_url, error_msg, is_transferred, deleted, create_time, update_time, origin_service) " +
-		"SELECT " + s.refSQL() + ", user_id, '" + s.Type + "', " + s.Status + ", '" + s.EntryCode + "', " +
+		"billing_status, price_points, feature_code, model_id, reservation_no, " +
+		"result_url, result_urls, cover_url, error_msg, is_transferred, deleted, create_time, update_time, origin_service, origin_ref) " +
+		"SELECT " + s.refSQL() + ", s.user_id, '" + s.Type + "', " + s.Status + ", '" + s.EntryCode + "', " +
 		s.requestSQL() + ", " + orNull(s.ExecTaskID) + ", " + orNull(s.ExecParams) + ", " +
+		strings.Join(s.billingColumns(), ", ") + ", " +
 		orNull(s.Result) + ", " + orNull(s.Results) + ", " + orNull(cover) + ", " + orNull(s.Fail) + ", " +
-		"1, deleted, create_time, update_time, '" + OriginLocalLife + "' FROM " + s.Table + " WHERE " + strings.Join(where, " AND ") + " " +
+		"1, s.deleted, s.create_time, s.update_time, '" + OriginLocalLife + "', " + s.originRefSQL() + " FROM " + s.Table + " s WHERE " + strings.Join(where, " AND ") + " " +
 		"ON DUPLICATE KEY UPDATE status = VALUES(status), result_url = VALUES(result_url), result_urls = VALUES(result_urls), " +
 		"cover_url = VALUES(cover_url), error_msg = VALUES(error_msg), request_params = VALUES(request_params), " +
 		"execution_task_id = VALUES(execution_task_id), execution_params = VALUES(execution_params), " +
-		"deleted = GREATEST(afv_creation_task.deleted, VALUES(deleted)), update_time = VALUES(update_time), origin_service = VALUES(origin_service)"
+		"billing_status = VALUES(billing_status), price_points = VALUES(price_points), feature_code = VALUES(feature_code), " +
+		"model_id = VALUES(model_id), reservation_no = VALUES(reservation_no), " +
+		"deleted = GREATEST(afv_creation_task.deleted, VALUES(deleted)), update_time = VALUES(update_time), " +
+		"origin_service = VALUES(origin_service), origin_ref = VALUES(origin_ref)"
 }
 
 // Syncer 一个服务里的若干源表。
@@ -139,7 +203,7 @@ func (y *Syncer) Sync(ctx context.Context) {
 	}
 	ok := true
 	for _, s := range y.sources {
-		if _, err := y.conn.ExecCtx(ctx, s.sql(), secs, secs); err != nil {
+		if _, err := y.conn.ExecCtx(ctx, s.sql(), s.args(secs)...); err != nil {
 			ok = false
 			logx.WithContext(ctx).Errorf("taskcenter sync %s/%s: %v", s.Table, s.EntryCode, err)
 		}

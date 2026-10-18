@@ -1,6 +1,7 @@
 package logic
 
 import (
+	"aigc-local-life/pkg/billing"
 	"context"
 	"encoding/json"
 	"errors"
@@ -90,13 +91,18 @@ func buildTask(c *model.LocalLifeCreation, cfg *config.KindConf, mats []string, 
 }
 
 // submit 一张图一个任务，逐个提交；提交失败的那张直接记失败，其余照常。
-func submit(ctx context.Context, svcCtx *svc.ServiceContext, c *model.LocalLifeCreation, cfg *config.KindConf, typeLabel string) []imageTask {
+// attempt 为空是首次提交；重做时传一个新的标记，执行面任务号随之变化（同一个号执行面不会再跑一遍）。
+func submit(ctx context.Context, svcCtx *svc.ServiceContext, c *model.LocalLifeCreation, cfg *config.KindConf, typeLabel, attempt string) []imageTask {
 	mats := parseList(c.MaterialUrls)
 	task := buildTask(c, cfg, mats, typeLabel)
 	tasks := make([]imageTask, 0, c.ImageCount)
 	for i := int64(0); i < c.ImageCount; i++ {
-		id := newRefTaskID(svcCtx, "img", c.Id, fmt.Sprintf("i%d", i+1))
-		if c.ImageCount == 1 { // 只出一张：执行面任务就这一个，直接用任务中心编号
+		stage := fmt.Sprintf("i%d", i+1)
+		if attempt != "" {
+			stage = attempt + "_" + stage
+		}
+		id := newRefTaskID(svcCtx, "img", c.Id, stage)
+		if c.ImageCount == 1 && attempt == "" { // 只出一张：执行面任务就这一个，直接用任务中心编号
 			id = aigc.ExactTaskID(svcCtx.Config.TaskIDPrefix, taskcenter.Ref("img", c.Id), false)
 		}
 		if _, err := svcCtx.Aigc.Submit(ctx, id, task); err != nil {
@@ -202,7 +208,10 @@ func (p *Poller) pollOne(ctx context.Context, c *model.LocalLifeCreation, timedO
 			urls = append(urls, t.URL)
 		}
 	}
-	if pending > 0 { // 还有没出结果的，先把进展存下来
+	if pending > 0 { // 还有没出结果的，先把进展存下来；任务仍在途，续期预留，避免排队时被释放
+		if err := svcCtx.Billing.Renew(ctx, c.UserId, c.RequestId.String); err != nil {
+			logx.WithContext(ctx).Errorf("renew hold %d: %v", c.Id, err)
+		}
 		if changed {
 			if _, err := svcCtx.Creation.UpdateTasks(ctx, c.Id, dumpTasks(tasks), model.StatusGenerating, "", ""); err != nil {
 				logx.WithContext(ctx).Errorf("update tasks %d: %v", c.Id, err)
@@ -218,8 +227,17 @@ func (p *Poller) pollOne(ctx context.Context, c *model.LocalLifeCreation, timedO
 		// 全部失败：每张图的执行面原因汇总成一条 task_failed，运维按记录号即可看到整单的失败经过
 		aigc.LogTaskFailed(ctx, aigc.Trace{Service: "imagegen", Kind: c.Kind, Stage: "image", RecordID: c.Id, UserID: c.UserId, TaskCenterID: taskcenter.Ref("img", c.Id)}, reason, taskCauses(tasks))
 	}
+	// 先确认扣费，确认成功才交付。预留已过期释放时不能交付（否则用户白拿成品），改为失败。
+	if status == model.StatusDone {
+		if err := svcCtx.Billing.Settle(ctx, c.UserId, c.RequestId.String, len(urls)); err != nil {
+			logx.WithContext(ctx).Errorf("settle %s %d: %v", c.Kind, c.Id, err)
+			aigc.LogTaskFailed(ctx, aigc.Trace{Service: "imagegen", Kind: c.Kind, Stage: "image", RecordID: c.Id, UserID: c.UserId, TaskCenterID: taskcenter.Ref("img", c.Id)}, billing.DeliverBlockedReason, err)
+			status, reason, urls = model.StatusFailed, billing.DeliverBlockedReason, nil
+		}
+	}
 	ok, err := svcCtx.Creation.UpdateTasks(ctx, c.Id, dumpTasks(tasks), status, jsonList(urls), reason)
 	if err != nil {
+		// 确认已成功但写库失败：下一轮会再进来，Settle 幂等，不会重复扣费
 		logx.WithContext(ctx).Errorf("finish %d: %v", c.Id, err)
 		return
 	}
@@ -228,8 +246,6 @@ func (p *Poller) pollOne(ctx context.Context, c *model.LocalLifeCreation, timedO
 	}
 	if status == model.StatusDone {
 		saveAssets(ctx, svcCtx, c, urls)
-		// 一次出多张时可能部分成功：按成功的张数确认，差额退回
-		svcCtx.Billing.Done(ctx, c.UserId, c.RequestId.String, len(urls))
 	} else {
 		svcCtx.Billing.Fail(ctx, c.UserId, c.RequestId.String, reason)
 	}

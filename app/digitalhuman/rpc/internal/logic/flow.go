@@ -1,6 +1,7 @@
 package logic
 
 import (
+	"aigc-local-life/pkg/billing"
 	"aigc-local-life/pkg/taskcenter"
 	"context"
 	"encoding/json"
@@ -158,19 +159,10 @@ func startDigitalHuman(svcCtx *svc.ServiceContext, h *model.AfvDigitalHuman, voi
 		}
 		secs = max(secs, minVideoSeconds)
 
-		// lite 走本地 LTX：执行面自己从 OSS 下载，给的必须是 key，不是公网 URL。
-		imagePath, audioPath := h.ImageUrl, d.URL
-		if h.Model == modelLite {
-			if imagePath, err = svcCtx.Storage.ObjectKey(ctx, h.ImageUrl); err != nil {
-				log.Errorf("lite 取形象图 key: %v", err)
-				failHuman(ctx, svcCtx, h.Id, model.DhStatusDubbing, "形象图不在可用的存储里，请重新上传或改用云端模型")
-				return
-			}
-			if audioPath, err = svcCtx.Storage.ObjectKey(ctx, d.URL); err != nil {
-				log.Errorf("lite 取配音 key: %v", err)
-				failHuman(ctx, svcCtx, h.Id, model.DhStatusDubbing, "配音存储异常，请重试")
-				return
-			}
+		imagePath, audioPath, msg := humanMedia(ctx, svcCtx, h, d.URL)
+		if msg != "" {
+			failHuman(ctx, svcCtx, h.Id, model.DhStatusDubbing, msg)
+			return
 		}
 
 		taskID := aigc.ExactTaskID(svcCtx.Config.TaskIDPrefix, taskcenter.Ref("dh", h.Id), h.VideoTaskId.Valid) // 数字人出片只有这一个执行面任务，和任务中心编号一致
@@ -186,18 +178,41 @@ func startDigitalHuman(svcCtx *svc.ServiceContext, h *model.AfvDigitalHuman, voi
 			svcCtx.Billing.Fail(ctx, h.UserId, taskID, "未能开始生成")
 			return
 		}
-		cfg := svcCtx.Config.Video
-		_, err = svcCtx.Aigc.Submit(ctx, taskID, aigc.DigitalHuman{
-			ImagePath: imagePath, AudioPath: audioPath, AspectRatio: cfg.AspectRatio, Resolution: cfg.Resolution,
-			Duration: secs, Model: wireModel(h.Model),
-		})
-		if err != nil {
-			aigc.LogSubmitFailed(ctx, aigc.Trace{Service: "digitalhuman", Stage: "rendering", RecordID: h.Id, UserID: h.UserId, TaskCenterID: taskcenter.Ref("dh", h.Id), ExecTaskID: taskID}, err)
-			failHuman(ctx, svcCtx, h.Id, model.DhStatusRendering, "提交生成失败，请重试")
-			return
-		}
-		// TODO 任务：确认后写 afv_creation_task：配音一条 mode=0，视频一条 mode=85（parent_task_id 串起来）
+		submitRendering(ctx, svcCtx, h, imagePath, audioPath, secs, taskID)
 	})
+}
+
+// humanMedia 出片要用的形象图与配音地址。lite 走本地 LTX：执行面自己从 OSS 下载，给的必须是 key，不是公网 URL。
+// 返回的 msg 非空即失败，内容是给用户看的原因。首次出片与重做出片共用。
+func humanMedia(ctx context.Context, svcCtx *svc.ServiceContext, h *model.AfvDigitalHuman, audioURL string) (imagePath, audioPath, msg string) {
+	imagePath, audioPath = h.ImageUrl, audioURL
+	if h.Model != modelLite {
+		return imagePath, audioPath, ""
+	}
+	var err error
+	if imagePath, err = svcCtx.Storage.ObjectKey(ctx, h.ImageUrl); err != nil {
+		logx.WithContext(ctx).Errorf("digital human %d lite 取形象图 key: %v", h.Id, err)
+		return "", "", "形象图不在可用的存储里，请重新上传或改用云端模型"
+	}
+	if audioPath, err = svcCtx.Storage.ObjectKey(ctx, audioURL); err != nil {
+		logx.WithContext(ctx).Errorf("digital human %d lite 取配音 key: %v", h.Id, err)
+		return "", "", "配音存储异常，请重试"
+	}
+	return imagePath, audioPath, ""
+}
+
+// submitRendering 提交出片任务（执行面 85）；提交失败直接标记失败并退回点数。首次出片与重做出片共用，
+// 调用前 video_task_id 必须已经是 taskID（失败退款按它找预留单）。
+func submitRendering(ctx context.Context, svcCtx *svc.ServiceContext, h *model.AfvDigitalHuman, imagePath, audioPath string, secs int, taskID string) {
+	cfg := svcCtx.Config.Video
+	// TODO 任务：确认后写 afv_creation_task：配音一条 mode=0，视频一条 mode=85（parent_task_id 串起来）
+	if _, err := svcCtx.Aigc.Submit(ctx, taskID, aigc.DigitalHuman{
+		ImagePath: imagePath, AudioPath: audioPath, AspectRatio: cfg.AspectRatio, Resolution: cfg.Resolution,
+		Duration: secs, Model: wireModel(h.Model),
+	}); err != nil {
+		aigc.LogSubmitFailed(ctx, aigc.Trace{Service: "digitalhuman", Stage: "rendering", RecordID: h.Id, UserID: h.UserId, TaskCenterID: taskcenter.Ref("dh", h.Id), ExecTaskID: taskID}, err)
+		failHuman(ctx, svcCtx, h.Id, model.DhStatusRendering, "提交生成失败，请重试")
+	}
 }
 
 // failHuman 标记失败。
@@ -352,6 +367,12 @@ func (p *Poller) pollVideos(ctx context.Context) {
 	}
 	deadline := time.Duration(svcCtx.Config.Video.TimeoutMinutes) * time.Minute
 	for _, it := range list {
+		// 未超时的在途任务续期预留：排队再久也不会因固定时长过期；超时后不再续，预留随之释放
+		if time.Since(it.UpdateTime) <= deadline {
+			if err := svcCtx.Billing.Renew(ctx, it.UserId, it.VideoTaskId.String); err != nil {
+				logx.WithContext(ctx).Errorf("renew digital human %d: %v", it.Id, err)
+			}
+		}
 		r := p.query(ctx, it.VideoTaskId.String)
 		switch {
 		case r != nil && r.Status == aigc.StatusSuccess && r.GeneratedImagePath != "":
@@ -359,11 +380,17 @@ func (p *Poller) pollVideos(ctx context.Context) {
 			if videoURL == "" {
 				continue // 转存失败，保持生成中，下一轮重试
 			}
+			// 先确认扣费，确认成功才交付；预留已失效则不交付
+			if err := svcCtx.Billing.Settle(ctx, it.UserId, it.VideoTaskId.String, 0); err != nil {
+				logx.WithContext(ctx).Errorf("settle digital human %d: %v", it.Id, err)
+				aigc.LogTaskFailed(ctx, aigc.Trace{Service: "digitalhuman", Stage: "rendering", RecordID: it.Id, UserID: it.UserId, TaskCenterID: taskcenter.Ref("dh", it.Id)}, billing.DeliverBlockedReason, err)
+				failHuman(ctx, svcCtx, it.Id, model.DhStatusRendering, billing.DeliverBlockedReason)
+				continue
+			}
 			if ok, err := svcCtx.Human.Finish(ctx, it.Id, model.DhStatusRendering, model.DhStatusDone, videoURL, ""); err != nil {
 				logx.WithContext(ctx).Errorf("finish %d: %v", it.Id, err)
 			} else if ok {
 				saveVideoAsset(ctx, svcCtx, it, videoURL)
-				svcCtx.Billing.Done(ctx, it.UserId, it.VideoTaskId.String, 0)
 			}
 		case r != nil && r.Done():
 			aigc.LogOutcome(ctx, aigc.Trace{Service: "digitalhuman", Stage: "rendering", RecordID: it.Id, UserID: it.UserId, TaskCenterID: taskcenter.Ref("dh", it.Id), ExecTaskID: it.VideoTaskId.String}, r)

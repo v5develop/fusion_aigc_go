@@ -80,6 +80,7 @@ func taskSources(c config.Config) []taskcenter.Source {
 			Table: "afv_local_life_creation", Prefix: "img", Kind: kind, EntryCode: code(k.AssetEntryCode, kind), Type: t,
 			Status: "CASE status WHEN 0 THEN 1 WHEN 1 THEN 2 ELSE 3 END",
 			Result: "JSON_UNQUOTE(JSON_EXTRACT(image_urls, '$[0]'))", Fail: "fail_reason", Prompt: "content",
+			BillingRequest: "request_id",
 			RequestPairs: "'prompt', content, 'kind', kind, 'size', size, 'model', model, 'duration', duration, 'imageCount', image_count, " +
 				"'posterType', poster_type, 'posterStyle', poster_style, 'templateAssetId', template_asset_id, 'templateUrl', template_url, " +
 				"'materials', material_urls, 'inputImageUrl', input_image_url, 'inputVideoUrl', input_video_url, 'inputBgUrl', input_bg_url, " +
@@ -102,7 +103,8 @@ func taskSources(c config.Config) []taskcenter.Source {
 			Include: "status IN (2,3) OR (status = 4 AND gen_task_id IS NOT NULL)",
 			Status:  "CASE status WHEN 2 THEN 1 WHEN 3 THEN 2 ELSE 3 END",
 			Result:  "video_url", Cover: "COALESCE(char_url, cover_url, video_url)", Fail: "fail_reason",
-			Prompt: "COALESCE(user_text, title)",
+			Prompt:         "COALESCE(user_text, title)",
+			BillingRequest: "gen_task_id",
 			RequestPairs: "'prompt', COALESCE(user_text, title), 'kind', kind, 'sourceUrl', source_url, 'sourceVideoUrl', source_video_url, " +
 				"'title', title, 'userText', user_text, 'sellingPoints', selling_points, 'shopProfileId', shop_profile_id, " +
 				"'copywritingId', copywriting_id, 'charUrl', char_url, 'env1Url', env1_url, 'env2Url', env2_url, 'propUrl', prop_url, " +

@@ -122,6 +122,18 @@ func (s *ImageGenServer) AdminListVideos(ctx context.Context, in *pb.VideoListRe
 	return l.AdminListVideos(in)
 }
 
+// 运营取消在途图片 / 长图（预留原路退回）
+func (s *ImageGenServer) AdminRetry(ctx context.Context, in *pb.IdReq) (*pb.Empty, error) {
+	l := logic.NewAdminRetryLogic(ctx, s.svcCtx)
+	return l.AdminRetry(in)
+}
+
+// 运营取消在途视频（预留原路退回）
+func (s *ImageGenServer) AdminRetryVideo(ctx context.Context, in *pb.IdReq) (*pb.Empty, error) {
+	l := logic.NewAdminRetryVideoLogic(ctx, s.svcCtx)
+	return l.AdminRetryVideo(in)
+}
+
 // 生成选项（模型 / 比例 / 时长）的运营配置：只能改启用、名称、排序、默认
 func (s *ImageGenServer) AdminGenOptions(ctx context.Context, in *pb.Empty) (*pb.GenOptionList, error) {
 	l := logic.NewAdminGenOptionsLogic(ctx, s.svcCtx)

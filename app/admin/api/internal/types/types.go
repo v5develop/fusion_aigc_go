@@ -223,6 +223,10 @@ type OptionListResp struct {
 	List []Option `json:"list"`
 }
 
+type RetryTaskReq struct {
+	OriginRef string `path:"origin_ref"`
+}
+
 type SaveOptionReq struct {
 	Id         int64  `path:"id,optional"`
 	OptionType string `json:"option_type,options=CONTENT_TYPE|STYLE|INDUSTRY|WORD_COUNT|PROMPT|BLOCKWORD"`

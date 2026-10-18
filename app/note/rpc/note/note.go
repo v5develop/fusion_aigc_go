@@ -16,6 +16,7 @@ import (
 type (
 	Empty       = pb.Empty
 	GenerateReq = pb.GenerateReq
+	IdReq       = pb.IdReq
 	IdUserReq   = pb.IdUserReq
 	ListReq     = pb.ListReq
 	NoteInfo    = pb.NoteInfo
@@ -42,6 +43,8 @@ type (
 		Delete(ctx context.Context, in *IdUserReq, opts ...grpc.CallOption) (*Empty, error)
 		// ---- 运营后台 ----
 		AdminList(ctx context.Context, in *ListReq, opts ...grpc.CallOption) (*NoteList, error)
+		// 运营取消在途笔记（预留原路退回；已确认扣费的不能取消）
+		AdminRetry(ctx context.Context, in *IdReq, opts ...grpc.CallOption) (*Empty, error)
 	}
 
 	defaultNote struct {
@@ -104,4 +107,10 @@ func (m *defaultNote) Delete(ctx context.Context, in *IdUserReq, opts ...grpc.Ca
 func (m *defaultNote) AdminList(ctx context.Context, in *ListReq, opts ...grpc.CallOption) (*NoteList, error) {
 	client := pb.NewNoteClient(m.cli.Conn())
 	return client.AdminList(ctx, in, opts...)
+}
+
+// 运营取消在途笔记（预留原路退回；已确认扣费的不能取消）
+func (m *defaultNote) AdminRetry(ctx context.Context, in *IdReq, opts ...grpc.CallOption) (*Empty, error) {
+	client := pb.NewNoteClient(m.cli.Conn())
+	return client.AdminRetry(ctx, in, opts...)
 }

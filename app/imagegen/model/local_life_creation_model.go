@@ -39,6 +39,8 @@ type (
 		List(ctx context.Context, f ListFilter) ([]*LocalLifeCreation, int64, error)
 		// UpdateTasks 回写各张图的任务进展；status 为 StatusGenerating 时表示还没结束。
 		UpdateTasks(ctx context.Context, id int64, tasks string, status int64, imageURLs, failReason string) (bool, error)
+		// RestartGenerate 失败的记录重做：换新的请求号（点数按它冻结），清空逐张任务，回到生成中。只从失败态进入。
+		RestartGenerate(ctx context.Context, id int64, requestID string) (bool, error)
 		ListGenerating(ctx context.Context, before time.Time, limit int64) ([]*LocalLifeCreation, error)
 		SoftDelete(ctx context.Context, id int64) error
 	}
@@ -151,6 +153,12 @@ func (m *customLocalLifeCreationModel) UpdateTasks(ctx context.Context, id int64
 	}
 	n, err := r.RowsAffected()
 	return n > 0, err
+}
+
+func (m *customLocalLifeCreationModel) RestartGenerate(ctx context.Context, id int64, requestID string) (bool, error) {
+	q := fmt.Sprintf("UPDATE %s SET `request_id` = ?, `tasks` = '[]', `status` = ?, `image_urls` = NULL, `fail_reason` = NULL "+
+		"WHERE `id` = ? AND `status` = ? AND `deleted` = 0", m.table)
+	return affected(m.conn.ExecCtx(ctx, q, requestID, StatusGenerating, id, StatusFailed))
 }
 
 func (m *customLocalLifeCreationModel) ListGenerating(ctx context.Context, before time.Time, limit int64) ([]*LocalLifeCreation, error) {

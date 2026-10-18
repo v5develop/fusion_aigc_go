@@ -22,6 +22,8 @@ service Note {
 
   // ---- 运营后台 ----
   rpc AdminList(ListReq) returns (NoteList);
+  // 运营取消在途笔记（预留原路退回；已确认扣费的不能取消）
+  rpc AdminRetry(IdReq) returns (Empty);
 }
 
 message Empty {}
@@ -112,4 +114,8 @@ message ListReq {
 message NoteList {
   repeated NoteInfo list = 1;
   int64 total = 2;
+}
+
+message IdReq {
+  int64 id = 1;
 }

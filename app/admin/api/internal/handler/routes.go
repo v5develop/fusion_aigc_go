@@ -11,6 +11,7 @@ import (
 	digitalhuman "aigc-local-life/app/admin/api/internal/handler/digitalhuman"
 	genoption "aigc-local-life/app/admin/api/internal/handler/genoption"
 	imagegen "aigc-local-life/app/admin/api/internal/handler/imagegen"
+	localtask "aigc-local-life/app/admin/api/internal/handler/localtask"
 	note "aigc-local-life/app/admin/api/internal/handler/note"
 	"aigc-local-life/app/admin/api/internal/svc"
 
@@ -213,6 +214,21 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 					Method:  http.MethodGet,
 					Path:    "/video-creations",
 					Handler: imagegen.ListVideosHandler(serverCtx),
+				},
+			}...,
+		),
+		rest.WithPrefix("/api/v1/local-life/admin"),
+	)
+
+	server.AddRoutes(
+		rest.WithMiddlewares(
+			[]rest.Middleware{serverCtx.AdminAuth},
+			[]rest.Route{
+				{
+					// 运营重做生成失败的任务：origin_ref 形如 img:123（来源记录坐标）；按原内容重新冻结点数并重新提交
+					Method:  http.MethodPost,
+					Path:    "/tasks/:origin_ref/retry",
+					Handler: localtask.RetryTaskHandler(serverCtx),
 				},
 			}...,
 		),
