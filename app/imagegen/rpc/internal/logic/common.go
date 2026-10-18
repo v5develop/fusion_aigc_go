@@ -21,6 +21,17 @@ import (
 // posterTypeFilter 海报类型在模板筛选维度字典里的编码（afv_public_template_filter）
 const posterTypeFilter = "posterType"
 
+// longImageTypeFilter 长图类型（喜庆 / 营销 / 社媒）在模板筛选维度字典里的编码。与海报类型是两个维度：选项编码可以相同，但互不相通。
+const longImageTypeFilter = "longImageType"
+
+// templateTypeFilter 模板列表按哪个筛选维度过滤：海报用 posterType，长图用 longImageType。
+func templateTypeFilter(kind string) string {
+	if kind == model.KindLongImage {
+		return longImageTypeFilter
+	}
+	return posterTypeFilter
+}
+
 // posterStyles 海报风格（设计稿「海报偏好」弹窗）。空 code = AI自动匹配，不传给执行面。
 var posterStyles = []*pb.Option{
 	{Code: "", Label: "AI自动匹配"},

@@ -52,6 +52,14 @@ func (l *OptionsLogic) Options(in *pb.KindReq) (*pb.OptionsResp, error) {
 	}
 	if in.Kind == model.KindLongImage { // 长图比例固定，设计稿没有比例与风格选项
 		resp.Sizes = optionsOf(l.ctx, l.svcCtx, genLongImageSizes, []*pb.Option{{Code: cfg.DefaultSize, Label: cfg.DefaultSize}})
+		// 长图类型（喜庆 / 营销 / 社媒）来自长图筛选维度，沿用 poster_types 字段下发，与模板列表的 poster_type 参数配对
+		types, err := l.svcCtx.Shared.ListFilterOptions(l.ctx, cfg.BizType, longImageTypeFilter)
+		if err != nil {
+			return nil, err
+		}
+		for _, o := range types {
+			resp.PosterTypes = append(resp.PosterTypes, &pb.Option{Code: o.Code, Label: o.Name})
+		}
 		return resp, nil
 	}
 	// 海报：档位由后端下发（前端不写死）；长图没有 model 参数，上面已 return

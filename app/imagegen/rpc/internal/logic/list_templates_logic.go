@@ -29,7 +29,7 @@ func (l *ListTemplatesLogic) ListTemplates(in *pb.ListTemplatesReq) (*pb.Templat
 	if err != nil {
 		return nil, err
 	}
-	list, err := l.svcCtx.Shared.ListTemplates(l.ctx, templateSlot(cfg), posterTypeFilter, in.PosterType)
+	list, err := l.svcCtx.Shared.ListTemplates(l.ctx, templateSlot(cfg), templateTypeFilter(in.Kind), in.PosterType)
 	if err != nil {
 		return nil, err
 	}
