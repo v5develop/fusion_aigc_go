@@ -38,6 +38,8 @@ service Copywriting {
   rpc AdminDeleteOption(IdReq) returns (Empty);
   rpc AdminListCopywriting(AdminListReq) returns (CopywritingList);
   rpc AdminDeleteCopywriting(IdReq) returns (Empty);
+  // 人工处理卡住的文案（生成中、点数已扣但结果未落库）：退回已扣点数、标记失败并记录处理说明
+  rpc AdminResolveStuckCopywriting(AdminResolveReq) returns (AdminResolveResp);
   // 当前写作模型（只读，来自 afv_system_config + afv_ai_model）
   rpc AdminGetModel(Empty) returns (ModelInfo);
 }
@@ -239,4 +241,14 @@ message Derivative {
 message DerivativeList {
   repeated Derivative list = 1;
   int64 total = 2;
+}
+
+message AdminResolveReq {
+  int64 id = 1;
+  string note = 2;
+}
+
+message AdminResolveResp {
+  string reservation_status = 1;
+  int64 refunded_points = 2;
 }

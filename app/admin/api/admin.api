@@ -53,6 +53,14 @@ type (
 		UserId   int64  `form:"user_id,optional"`
 		Keyword  string `form:"keyword,optional"`
 	}
+	ResolveCopywritingReq {
+		Id   int64  `path:"id"`
+		Note string `json:"note"`
+	}
+	ResolveCopywritingResp {
+		ReservationStatus string `json:"reservation_status"`
+		RefundedPoints    int64  `json:"refunded_points"`
+	}
 	Copywriting {
 		Id               int64  `json:"id"`
 		Source           string `json:"source"`
@@ -151,6 +159,10 @@ service admin-api {
 	@doc "删除用户文案"
 	@handler deleteCopywriting
 	delete /copywriting/:id (IdPath) returns (EmptyResp)
+
+	@doc "人工处理卡住的文案：仅限生成中且点数已扣的记录；先把已扣点数全部退回，再标记失败并记录处理说明；返回预留单状态与退回点数"
+	@handler resolveCopywriting
+	post /copywriting/:id/resolve (ResolveCopywritingReq) returns (ResolveCopywritingResp)
 }
 
 // ---------------- AI 数字人 ----------------

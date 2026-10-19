@@ -15,6 +15,8 @@ import (
 	"context"
 	"crypto/md5"
 	"encoding/hex"
+	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -200,42 +202,50 @@ func (s Source) sql() string {
 type Syncer struct {
 	conn    sqlx.SqlConn
 	sources []Source
-	first   bool
-	window  time.Duration
+	// synced 每个源是否已经成功做过一次全量同步。只有成功过的源才改用窗口同步：
+	// 某个源一直失败时，只让它自己反复全量，不拖累其他源。
+	synced []bool
+	window time.Duration
 }
 
-// New window：每轮回看多久内有变动的行；第一轮（进程刚起）全量同步，补上停机期间漏掉的。
 func New(conn sqlx.SqlConn, window time.Duration, sources ...Source) *Syncer {
 	if window <= 0 {
 		window = 10 * time.Minute
 	}
-	return &Syncer{conn: conn, sources: sources, first: true, window: window}
+	return &Syncer{conn: conn, sources: sources, synced: make([]bool, len(sources)), window: window}
 }
 
-// Sync 同步一轮。失败只记日志，不影响业务轮询。
-func (y *Syncer) Sync(ctx context.Context) {
+// Sync 同步一轮，返回本轮所有失败的合并错误（nil=全部成功）。
+// 调用方可以只记日志、不影响业务轮询；返回值让测试和排障能直接看到失败原因。
+func (y *Syncer) Sync(ctx context.Context) error {
 	if y == nil {
-		return
+		return nil
 	}
-	secs := int64(y.window / time.Second)
-	if y.first {
-		secs = 0
-	}
-	ok := true
-	for _, s := range y.sources {
-		if _, err := y.conn.ExecCtx(ctx, s.sql(), s.args(secs)...); err != nil {
-			ok = false
-			logx.WithContext(ctx).Errorf("taskcenter sync %s/%s: %v", s.Table, s.EntryCode, err)
+	window := int64(y.window / time.Second)
+	var errs []error
+	for i, s := range y.sources {
+		secs := window
+		if !y.synced[i] {
+			secs = 0 // 首次（或上次失败后）全量同步，保证不漏
 		}
-		if s.ResultText == "" {
+		err := y.exec(ctx, s.sql(), s.args(secs))
+		if err == nil && s.ResultText != "" {
+			err = y.exec(ctx, s.textSQL(), s.args(secs))
+		}
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s/%s: %w", s.Table, s.EntryCode, err))
 			continue
 		}
-		if _, err := y.conn.ExecCtx(ctx, s.textSQL(), s.args(secs)...); err != nil {
-			ok = false
-			logx.WithContext(ctx).Errorf("taskcenter sync text %s/%s: %v", s.Table, s.EntryCode, err)
-		}
+		y.synced[i] = true
 	}
-	if ok {
-		y.first = false
+	return errors.Join(errs...)
+}
+
+// exec 执行一条同步语句，失败时记日志并返回带源信息的错误。
+func (y *Syncer) exec(ctx context.Context, query string, args []any) error {
+	if _, err := y.conn.ExecCtx(ctx, query, args...); err != nil {
+		logx.WithContext(ctx).Errorf("taskcenter sync: %v", err)
+		return err
 	}
+	return nil
 }

@@ -63,6 +63,12 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 					Handler: copywriting.DeleteCopywritingHandler(serverCtx),
 				},
 				{
+					// 人工处理卡住的文案：仅限生成中且点数已扣的记录；先把已扣点数全部退回，再标记失败并记录处理说明；返回预留单状态与退回点数
+					Method:  http.MethodPost,
+					Path:    "/copywriting/:id/resolve",
+					Handler: copywriting.ResolveCopywritingHandler(serverCtx),
+				},
+				{
 					// 当前写作模型（只读）
 					Method:  http.MethodGet,
 					Path:    "/copywriting/model",

@@ -16,6 +16,8 @@ import (
 type (
 	AdminListOptionsReq = pb.AdminListOptionsReq
 	AdminListReq        = pb.AdminListReq
+	AdminResolveReq     = pb.AdminResolveReq
+	AdminResolveResp    = pb.AdminResolveResp
 	AiWriteReq          = pb.AiWriteReq
 	AiWriteResp         = pb.AiWriteResp
 	CopywritingInfo     = pb.CopywritingInfo
@@ -72,6 +74,8 @@ type (
 		AdminDeleteOption(ctx context.Context, in *IdReq, opts ...grpc.CallOption) (*Empty, error)
 		AdminListCopywriting(ctx context.Context, in *AdminListReq, opts ...grpc.CallOption) (*CopywritingList, error)
 		AdminDeleteCopywriting(ctx context.Context, in *IdReq, opts ...grpc.CallOption) (*Empty, error)
+		// 人工处理卡住的文案（生成中、点数已扣但结果未落库）：退回已扣点数、标记失败并记录处理说明
+		AdminResolveStuckCopywriting(ctx context.Context, in *AdminResolveReq, opts ...grpc.CallOption) (*AdminResolveResp, error)
 		// 当前写作模型（只读，来自 afv_system_config + afv_ai_model）
 		AdminGetModel(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*ModelInfo, error)
 	}
@@ -199,6 +203,12 @@ func (m *defaultCopywriting) AdminListCopywriting(ctx context.Context, in *Admin
 func (m *defaultCopywriting) AdminDeleteCopywriting(ctx context.Context, in *IdReq, opts ...grpc.CallOption) (*Empty, error) {
 	client := pb.NewCopywritingClient(m.cli.Conn())
 	return client.AdminDeleteCopywriting(ctx, in, opts...)
+}
+
+// 人工处理卡住的文案（生成中、点数已扣但结果未落库）：退回已扣点数、标记失败并记录处理说明
+func (m *defaultCopywriting) AdminResolveStuckCopywriting(ctx context.Context, in *AdminResolveReq, opts ...grpc.CallOption) (*AdminResolveResp, error) {
+	client := pb.NewCopywritingClient(m.cli.Conn())
+	return client.AdminResolveStuckCopywriting(ctx, in, opts...)
 }
 
 // 当前写作模型（只读，来自 afv_system_config + afv_ai_model）

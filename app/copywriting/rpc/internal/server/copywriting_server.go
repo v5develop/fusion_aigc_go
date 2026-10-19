@@ -137,6 +137,12 @@ func (s *CopywritingServer) AdminDeleteCopywriting(ctx context.Context, in *pb.I
 	return l.AdminDeleteCopywriting(in)
 }
 
+// 人工处理卡住的文案（生成中、点数已扣但结果未落库）：退回已扣点数、标记失败并记录处理说明
+func (s *CopywritingServer) AdminResolveStuckCopywriting(ctx context.Context, in *pb.AdminResolveReq) (*pb.AdminResolveResp, error) {
+	l := logic.NewAdminResolveStuckCopywritingLogic(ctx, s.svcCtx)
+	return l.AdminResolveStuckCopywriting(in)
+}
+
 // 当前写作模型（只读，来自 afv_system_config + afv_ai_model）
 func (s *CopywritingServer) AdminGetModel(ctx context.Context, in *pb.Empty) (*pb.ModelInfo, error) {
 	l := logic.NewAdminGetModelLogic(ctx, s.svcCtx)

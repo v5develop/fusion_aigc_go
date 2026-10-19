@@ -227,6 +227,16 @@ type OptionListResp struct {
 	List []Option `json:"list"`
 }
 
+type ResolveCopywritingReq struct {
+	Id   int64  `path:"id"`
+	Note string `json:"note"`
+}
+
+type ResolveCopywritingResp struct {
+	ReservationStatus string `json:"reservation_status"`
+	RefundedPoints    int64  `json:"refunded_points"`
+}
+
 type RetryTaskReq struct {
 	OriginRef string `path:"origin_ref"`
 }

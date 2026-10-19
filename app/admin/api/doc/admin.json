@@ -815,6 +815,84 @@
         }
       }
     },
+    "/api/v1/local-life/admin/copywriting/{id}/resolve": {
+      "post": {
+        "security": [
+          {
+            "auth": []
+          }
+        ],
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "AI文案"
+        ],
+        "summary": "人工处理卡住的文案：仅限生成中且点数已扣的记录；先把已扣点数全部退回，再标记失败并记录处理说明；返回预留单状态与退回点数",
+        "operationId": "copywritingResolveCopywriting",
+        "parameters": [
+          {
+            "type": "integer",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "required": [
+                "note"
+              ],
+              "properties": {
+                "note": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
+                  "type": "integer",
+                  "example": 0
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "refunded_points": {
+                      "type": "integer"
+                    },
+                    "reservation_status": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "msg": {
+                  "description": "business message",
+                  "type": "string",
+                  "example": "ok"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/local-life/admin/creations": {
       "get": {
         "security": [
@@ -2763,7 +2841,7 @@
       "in": "header"
     }
   },
-  "x-date": "2026-10-18 14:37:14",
+  "x-date": "2026-10-19 22:01:23",
   "x-description": "This is a goctl generated swagger file.",
   "x-github": "https://github.com/zeromicro/go-zero",
   "x-go-zero-doc": "https://go-zero.dev/",
