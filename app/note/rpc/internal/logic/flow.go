@@ -37,7 +37,6 @@ func submitPlan(ctx context.Context, svcCtx *svc.ServiceContext, n *model.AfvIma
 		return
 	}
 	// TODO 计费：等计费方案确认后，构思扣 10 点，失败退回
-	// TODO 任务：确认后写 afv_creation_task（mode=74，execution_task_id=plan_task_id）
 }
 
 // submitGenerate 提交出图任务（75）；提交失败直接标记生成失败。
@@ -47,7 +46,6 @@ func submitGenerate(ctx context.Context, svcCtx *svc.ServiceContext, id int64, t
 		failGenerate(ctx, svcCtx, id, "提交生成失败，请重试")
 		return
 	}
-	// TODO 任务：确认后写 afv_creation_task（mode=75，parent 为构思任务）
 }
 
 // lookupCtx 失败日志要补的查库上下文：原 ctx 可能已经超时，单独给一个短超时，查不到也不影响业务。

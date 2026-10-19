@@ -116,7 +116,6 @@ func submitPortrait(ctx context.Context, svcCtx *svc.ServiceContext, p *model.Af
 		return
 	}
 	// AI 定制形象不收费（不在计费入口里）
-	// TODO 任务：确认后写 afv_creation_task（mode=75，execution_task_id=task_id）
 }
 
 // finishPortrait 写终态；同 failHuman，ctx 可能已经超时，写库要用新的。
@@ -205,7 +204,6 @@ func humanMedia(ctx context.Context, svcCtx *svc.ServiceContext, h *model.AfvDig
 // 调用前 video_task_id 必须已经是 taskID（失败退款按它找预留单）。
 func submitRendering(ctx context.Context, svcCtx *svc.ServiceContext, h *model.AfvDigitalHuman, imagePath, audioPath string, secs int, taskID string) {
 	cfg := svcCtx.Config.Video
-	// TODO 任务：确认后写 afv_creation_task：配音一条 mode=0，视频一条 mode=85（parent_task_id 串起来）
 	if _, err := svcCtx.Aigc.Submit(ctx, taskID, aigc.DigitalHuman{
 		ImagePath: imagePath, AudioPath: audioPath, AspectRatio: cfg.AspectRatio, Resolution: cfg.Resolution,
 		Duration: secs, Model: wireModel(h.Model),

@@ -12,8 +12,6 @@ type Config struct {
 	DataSource string
 	// Generate 生成相关的限制
 	Generate GenerateConf
-	// Task 写入 afv_creation_task 的取值。枚举值待数据库负责人确认，确认前 Enabled=false。
-	Task TaskConf
 	// Billing 计费：off 不计费 / shadow 只算价 / on 真扣。由 deploy.env 的 BILLING_MODE 经 mkconf 写入
 	Billing billing.Conf
 	// BillingEntryCode 文案计费的入口码（afv_billing_offer.entry_code）。方案见 deploy/sql/Go_V1.0.13__add_copywriting_billing.sql
@@ -49,14 +47,4 @@ type ShopProfileConf struct {
 	MaxSellingPoints  int `json:",default=220"` // 核心卖点
 	MaxSelfTitle      int `json:",default=15"`  // 如何称呼自己
 	MaxTargetAudience int `json:",default=40"`  // 主要目标客群
-}
-
-type TaskConf struct {
-	Enabled     bool   `json:",default=false"`
-	Type        string `json:",default=copywriting"`
-	EntryCode   string `json:",default=aiCopywriting"`
-	FeatureCode string `json:",default=locallife_text_gen"`
-	// Mode 已定：0 = 非 AIGC 执行面任务。AI文案直接调模型，不走 AIGC 编排，故无模式可填。
-	// 以后若接入 AIGC 执行面，需向 AIGC 同事申请正式值。
-	Mode int `json:",default=0"`
 }

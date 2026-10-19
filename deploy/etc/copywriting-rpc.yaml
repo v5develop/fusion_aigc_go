@@ -17,13 +17,6 @@ Generate:
 Moderation:
   Mode: keyword        # keyword-关键词过滤（词库见选项表 BLOCKWORD）/ off-不审核
   LogToDb: false       # 写 afv_moderation_log 需先确认 provider 取值与 task_id 约定
-# 以下两块等数据库负责人确认枚举取值后开启
-Task:
-  Enabled: false       # 待 entry_code / feature_code 确认后开启
-  Type: copywriting
-  EntryCode: aiCopywriting
-  FeatureCode: locallife_text_gen
-  Mode: 0              # 已定：0 = 非 AIGC 执行面任务（不调 AIGC 同事的接口，无模式可填）
 Billing:
   Mode: off                # 由 mkconf 按 BILLING_MODE 写入（线上 on）
   CheckEntitlement: false  # 文案不做权益准入

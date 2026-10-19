@@ -330,7 +330,7 @@ ensure_secret() {
 # gen_conf <mkconf 路径> <输出目录> [mkconf 的额外参数…]：由开发配置生成正式配置。一键安装与容器部署共用这一份。
 gen_conf() {
   local bin=$1 out=$2; shift 2
-  local dsn="$DB_USER:$DB_PASS@tcp($DB_HOST:$DB_PORT)/$DB_NAME?charset=utf8mb4&parseTime=true&loc=Asia%2FShanghai&time_zone=%27%2B08%3A00%27"
+  local dsn="$DB_USER:$DB_PASS@tcp($DB_HOST:$DB_PORT)/$DB_NAME?charset=utf8mb4&collation=utf8mb4_unicode_ci&parseTime=true&loc=Asia%2FShanghai&time_zone=%27%2B08%3A00%27"
   "$bin" -src "$PKG/etc-dev" -out "$out" -logs "$INSTALL_DIR/logs" \
     -dsn "$dsn" -aigc "$AIGC_ENDPOINT" -keep-days "$LOG_KEEP_DAYS" \
     -auth-mode "$AUTH_MODE" -union "$UNION_BASE_URL" -swagger=$([[ $SWAGGER_ENABLED == 1 ]] && echo true || echo false) -task-id-prefix "$TASK_ID_PREFIX" \
@@ -620,7 +620,7 @@ cmd_check_billing() {
   local bin="$INSTALL_DIR/bin/billing-check"
   [[ -x $bin ]] || bin="$PKG/bin/billing-check"
   [[ -x $bin ]] || { yellow "  ! 没有 billing-check，跳过计费配置检查"; return 0; }
-  local dsn="$DB_USER:$DB_PASS@tcp($DB_HOST:$DB_PORT)/$DB_NAME?charset=utf8mb4&parseTime=true&loc=Asia%2FShanghai"
+  local dsn="$DB_USER:$DB_PASS@tcp($DB_HOST:$DB_PORT)/$DB_NAME?charset=utf8mb4&collation=utf8mb4_unicode_ci&parseTime=true&loc=Asia%2FShanghai"
   "$bin" -dsn "$dsn"
 }
 

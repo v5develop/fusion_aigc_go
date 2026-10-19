@@ -33,6 +33,9 @@ const (
 // OriginLocalLife 同步进 afv_creation_task 的行的来源标记（Java 侧 CreationTaskOwnership 按它判定只读）。
 const OriginLocalLife = "LOCAL_LIFE"
 
+// TextTable 文本产物正文的扩展表（task_id 1:1 指向 afv_creation_task.task_id）。
+const TextTable = "afv_creation_task_text"
+
 // Source 一张源表（的一类记录）。除 Table / Prefix / EntryCode / Type 外都是 SQL 表达式，写源表的列名。
 type Source struct {
 	Table     string // 源表，如 afv_local_life_creation
@@ -50,10 +53,12 @@ type Source struct {
 	// ExecTaskID 执行方任务号（execution_task_id）；多个执行面任务时取第一个，其余在源表的明细里。
 	// 执行参数（execution_params）不在这里配：统一取提交时落库的快照，见 execParamsSQL。
 	ExecTaskID string
-	// BillingRequest 计费预留的请求号所在列（如 request_id、gen_task_id）。与 billing.Charge 的 RequestID 同源；
-	// 空=不同步计费字段。同步时按 biz_type=LOCALLIFE、biz_id=用户号_请求号（超长时同 billing.bizID 取 SHA-256）关联预留单。
+	// BillingRequest 计费请求号的 SQL 表达式（以 s 为源表别名，如 s.`request_id`、CONCAT('copywriting-', s.id)），
+	// 必须与服务里 billing.Charge.RequestID 的生成规则一致。空=不同步计费字段。
+	// 同步时按 biz_type=LOCALLIFE、biz_id=用户号_请求号（超长时同 billing.bizID 取 SHA-256）关联预留单。
 	BillingRequest string
 	Results        string // 成品地址数组（JSON），视频类留空
+	ResultText     string // 文本产物正文（如文案 body），媒体类留空；写入扩展表 afv_creation_task_text，不进任务主表
 	Cover          string // 封面；空=用 Result
 	Fail           string // 失败原因
 	Prompt         string // 提示词 / 文案，放进 request_params.prompt 供列表展示
@@ -93,7 +98,7 @@ func orNull(e string) string {
 
 // billingKeySQL 预留单的 biz_id：与 pkg/billing 的 bizID 同一规则（超过 64 字节取 SHA-256 十六进制截断）。
 func (s Source) billingKeySQL() string {
-	id := "CONCAT(s.user_id, '_', s.`" + s.BillingRequest + "`)"
+	id := "CONCAT(s.user_id, '_', " + s.BillingRequest + ")"
 	return "CASE WHEN LENGTH(" + id + ") <= 64 THEN " + id +
 		" ELSE LEFT(CONCAT(s.user_id, '_', SHA2(" + id + ", 256)), 64) END"
 }
@@ -138,8 +143,8 @@ func (s Source) requestSQL() string {
 	return "JSON_OBJECT('entryCode', '" + s.EntryCode + "', 'prompt', " + orNull(s.Prompt) + ")"
 }
 
-// sql 生成 upsert 语句。窗口参数：只同步 update_time 在最近 N 秒内的行（N=0 同步全部）。
-func (s Source) sql() string {
+// where 同步的筛选条件（窗口 + 类型 + 包含条件），sql 与 textSQL 共用，占位符参数见 args。
+func (s Source) where() []string {
 	where := []string{"(? = 0 OR s.update_time >= NOW() - INTERVAL ? SECOND)"}
 	if strings.TrimSpace(s.BillingRequest) != "" {
 		// 预留状态会独立变化（冻结→结算→过期），源记录没动也要同步：预留单在窗口内更新过也纳入
@@ -153,6 +158,21 @@ func (s Source) sql() string {
 	if s.Include != "" {
 		where = append(where, "("+s.Include+")")
 	}
+	return where
+}
+
+// textSQL 文本产物正文的 upsert，写扩展表 afv_creation_task_text（按任务编号 1:1）。
+// 任务主表不放正文：列表查询是 SELECT *，大字段会拖慢所有任务的列表。只有有正文（非空）的行才写。
+func (s Source) textSQL() string {
+	return "INSERT INTO " + TextTable + " (task_id, content, create_time, update_time) " +
+		"SELECT " + s.refSQL() + ", " + s.ResultText + ", s.create_time, s.update_time FROM " + s.Table + " s " +
+		"WHERE " + strings.Join(s.where(), " AND ") + " AND COALESCE(" + s.ResultText + ", '') <> '' " +
+		"ON DUPLICATE KEY UPDATE content = VALUES(content), update_time = VALUES(update_time)"
+}
+
+// sql 生成主表 upsert 语句。窗口参数：只同步 update_time 在最近 N 秒内的行（N=0 同步全部）。
+func (s Source) sql() string {
+	where := s.where()
 	cover := s.Cover
 	if strings.TrimSpace(cover) == "" {
 		cover = s.Result
@@ -206,6 +226,13 @@ func (y *Syncer) Sync(ctx context.Context) {
 		if _, err := y.conn.ExecCtx(ctx, s.sql(), s.args(secs)...); err != nil {
 			ok = false
 			logx.WithContext(ctx).Errorf("taskcenter sync %s/%s: %v", s.Table, s.EntryCode, err)
+		}
+		if s.ResultText == "" {
+			continue
+		}
+		if _, err := y.conn.ExecCtx(ctx, s.textSQL(), s.args(secs)...); err != nil {
+			ok = false
+			logx.WithContext(ctx).Errorf("taskcenter sync text %s/%s: %v", s.Table, s.EntryCode, err)
 		}
 	}
 	if ok {

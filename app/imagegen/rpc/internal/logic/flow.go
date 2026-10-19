@@ -112,7 +112,6 @@ func submit(ctx context.Context, svcCtx *svc.ServiceContext, c *model.LocalLifeC
 		}
 		tasks = append(tasks, imageTask{TaskID: id})
 	}
-	// TODO 任务：确认后写 afv_creation_task（海报 mode=78 / 长图 mode=76 / 动作迁移 9 / 数字人口播 92）
 	return tasks
 }
 

@@ -39,6 +39,8 @@ func main() {
 	group.Add(s)
 	// 回收卡在「生成中」的记录（服务重启或崩溃留下的）
 	group.Add(logic.NewStuckRecovery(ctx))
+	// 文案同步进任务中心（afv_creation_task）
+	group.Add(logic.NewTaskCenterSync(ctx))
 
 	fmt.Printf("Starting rpc server at %s...\n", c.ListenOn)
 	group.Start()

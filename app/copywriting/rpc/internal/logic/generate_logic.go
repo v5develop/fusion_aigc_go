@@ -101,7 +101,6 @@ func (l *GenerateLogic) Generate(in *pb.GenerateReq) (*pb.CopywritingInfo, error
 	if err := l.svcCtx.Billing.Enough(l.ctx, copywritingCharge(l.svcCtx.Config.BillingEntryCode, in.UserId, "")); err != nil {
 		return nil, err
 	}
-	// TODO 任务：等 mode 等枚举确认后，写一条 afv_creation_task，external_ref = 文案 id（Config.Task）
 	res, err := l.svcCtx.Copywriting.Insert(l.ctx, row)
 	if err != nil {
 		var me *mysql.MySQLError
