@@ -47,6 +47,7 @@ type Task interface {
 type Client struct {
 	endpoint string
 	hc       *http.Client
+	rec      Recorder // 提交快照落库；nil 则不记
 }
 
 func New(c Conf) *Client {
@@ -117,8 +118,8 @@ type SubmitResult struct {
 	QueueLength int    `json:"queue_length"`
 }
 
-// Submit 提交任务。taskID 建议用 NewTaskID 生成并先落库；传空则由服务端生成，以返回值为准。
-func (c *Client) Submit(ctx context.Context, taskID string, t Task) (*SubmitResult, error) {
+// submit 真正发送请求；记录快照的逻辑在 record.go 的 Submit 包装里。
+func (c *Client) submit(ctx context.Context, taskID string, t Task) (*SubmitResult, error) {
 	if !c.Enabled() {
 		return nil, ErrNotConfigured
 	}

@@ -32,19 +32,19 @@ func TestRefSQLUsesSameKeyAsRef(t *testing.T) {
 }
 
 // 同步语句必须同时写入入参快照、执行任务号、执行参数（与 Java 的 requestParams / executionTaskId / executionParams 对齐）。
+// 执行参数统一取提交快照，所有源都按执行任务号查，不再有各自拼的表达式。
 func TestSyncSQLWritesRequestAndExecutionFields(t *testing.T) {
 	s := Source{
 		Table: "afv_video_creation", Prefix: "vid", EntryCode: "shortDrama", Type: "video",
 		Status: "1", Prompt: "user_text",
 		RequestPairs: "'duration', duration, 'model', model",
 		ExecTaskID:   "gen_task_id",
-		ExecParams:   "JSON_OBJECT('model', model)",
 	}
 	q := s.sql()
 	for _, want := range []string{
 		"request_params", "execution_task_id", "execution_params",
 		"JSON_OBJECT('entryCode', 'shortDrama', 'duration', duration, 'model', model)",
-		"gen_task_id", "JSON_OBJECT('model', model)",
+		"gen_task_id", "FROM afv_exec_submission x WHERE x.exec_task_id = gen_task_id",
 	} {
 		if !strings.Contains(q, want) {
 			t.Fatalf("同步语句缺少 %q", want)

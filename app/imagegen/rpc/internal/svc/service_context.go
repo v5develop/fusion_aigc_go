@@ -52,7 +52,7 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		Video:           model.NewAfvVideoCreationModel(conn),
 		Shared:          shared,
 		GenOpts:         model.NewGenOptionModel(conn),
-		Aigc:            aigc.New(c.Aigc),
+		Aigc:            aigc.New(c.Aigc).WithRecorder(taskcenter.NewSubmissionRecorder(conn)),
 		Asset:           asset.NewWriter(conn),
 		Storage:         storage.New(c.Storage, conn),
 		LinkParse:       linkparse.New(c.VideoRemake.LinkParse),
@@ -87,7 +87,6 @@ func taskSources(c config.Config) []taskcenter.Source {
 				"'copywritingId', copywriting_id",
 			// 第一个执行面任务（多张图的其余任务在 tasks 明细里）
 			ExecTaskID: "JSON_UNQUOTE(JSON_EXTRACT(tasks, '$[0].task_id'))",
-			ExecParams: "JSON_OBJECT('model', model, 'size', size, 'duration', duration, 'imageCount', image_count)",
 		}
 		if t == "video" {
 			s.Cover = "input_image_url" // 成品是视频：人物图当封面
@@ -110,7 +109,6 @@ func taskSources(c config.Config) []taskcenter.Source {
 				"'copywritingId', copywriting_id, 'charUrl', char_url, 'env1Url', env1_url, 'env2Url', env2_url, 'propUrl', prop_url, " +
 				"'duration', duration, 'size', size, 'model', model",
 			ExecTaskID: "COALESCE(gen_task_id, plan_task_id)",
-			ExecParams: "JSON_OBJECT('model', model, 'size', size, 'duration', duration)",
 		}
 	}
 	return []taskcenter.Source{

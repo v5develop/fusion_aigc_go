@@ -48,9 +48,8 @@ type Source struct {
 	// 与 Java 的 requestParams 一致：用户端提交的完整入参，便于任务中心查看「当时提交了什么」。
 	RequestPairs string
 	// ExecTaskID 执行方任务号（execution_task_id）；多个执行面任务时取第一个，其余在源表的明细里。
+	// 执行参数（execution_params）不在这里配：统一取提交时落库的快照，见 execParamsSQL。
 	ExecTaskID string
-	// ExecParams 下发执行方的参数快照 JSON（execution_params）：模型、比例、时长等。
-	ExecParams string
 	// BillingRequest 计费预留的请求号所在列（如 request_id、gen_task_id）。与 billing.Charge 的 RequestID 同源；
 	// 空=不同步计费字段。同步时按 biz_type=LOCALLIFE、biz_id=用户号_请求号（超长时同 billing.bizID 取 SHA-256）关联预留单。
 	BillingRequest string
@@ -163,13 +162,14 @@ func (s Source) sql() string {
 		"billing_status, price_points, feature_code, model_id, reservation_no, " +
 		"result_url, result_urls, cover_url, error_msg, is_transferred, deleted, create_time, update_time, origin_service, origin_ref) " +
 		"SELECT " + s.refSQL() + ", s.user_id, '" + s.Type + "', " + s.Status + ", '" + s.EntryCode + "', " +
-		s.requestSQL() + ", " + orNull(s.ExecTaskID) + ", " + orNull(s.ExecParams) + ", " +
+		s.requestSQL() + ", " + orNull(s.ExecTaskID) + ", " + s.execParamsSQL() + ", " +
 		strings.Join(s.billingColumns(), ", ") + ", " +
 		orNull(s.Result) + ", " + orNull(s.Results) + ", " + orNull(cover) + ", " + orNull(s.Fail) + ", " +
 		"1, s.deleted, s.create_time, s.update_time, '" + OriginLocalLife + "', " + s.originRefSQL() + " FROM " + s.Table + " s WHERE " + strings.Join(where, " AND ") + " " +
 		"ON DUPLICATE KEY UPDATE status = VALUES(status), result_url = VALUES(result_url), result_urls = VALUES(result_urls), " +
 		"cover_url = VALUES(cover_url), error_msg = VALUES(error_msg), request_params = VALUES(request_params), " +
-		"execution_task_id = VALUES(execution_task_id), execution_params = VALUES(execution_params), " +
+		// 没有提交快照的行（上线前提交的）不覆盖已有的执行参数，免得同步一次就被清空
+		"execution_task_id = VALUES(execution_task_id), execution_params = COALESCE(VALUES(execution_params), execution_params), " +
 		"billing_status = VALUES(billing_status), price_points = VALUES(price_points), feature_code = VALUES(feature_code), " +
 		"model_id = VALUES(model_id), reservation_no = VALUES(reservation_no), " +
 		"deleted = GREATEST(afv_creation_task.deleted, VALUES(deleted)), update_time = VALUES(update_time), " +
