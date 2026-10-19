@@ -1,8 +1,11 @@
 package svc
 
 import (
-	"aigc-local-life/pkg/billing"
+	"fmt"
+	"strings"
 	"time"
+
+	"aigc-local-life/pkg/billing"
 
 	"aigc-local-life/pkg/taskcenter"
 
@@ -54,7 +57,11 @@ func NewServiceContext(c config.Config) *ServiceContext {
 			RequestPairs: "'prompt', script, 'portraitSource', portrait_source, 'portraitRefId', portrait_ref_id, 'imageUrl', image_url, " +
 				"'voiceId', voice_id, 'copywritingId', copywriting_id, 'duration', duration, 'model', model",
 			ExecTaskID: "video_task_id",
-			ExecParams: "JSON_OBJECT('model', model, 'ttsTaskId', tts_task_id)",
+			// 执行参数 = 实际提交给执行面的入参：duration 是落库的实际秒数（StartRendering 写入），不是用户填的值；
+			// 比例与分辨率来自配置（提交时用的就是它们）。形象与配音记的是落库的公网 URL。
+			ExecParams: "JSON_OBJECT('model', model, 'ttsTaskId', tts_task_id, 'duration', duration, " +
+				"'imageUrl', image_url, 'audioUrl', audio_url, " +
+				fmt.Sprintf("'aspectRatio', %s, 'resolution', %s)", sqlLiteral(c.Video.AspectRatio), sqlLiteral(c.Video.Resolution)),
 		}),
 		Config:     c,
 		Billing:    billing.New(c.Billing, conn),
@@ -71,4 +78,12 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		Moderation: moderation.New(c.Moderation.Mode, shared.BlockWords),
 		Sem:        semaphore.NewGroup(),
 	}
+}
+
+// sqlLiteral 把配置值转成 SQL 字符串字面量（单引号转义；空值为 NULL）。只用于同步定义里的常量配置，不接用户输入。
+func sqlLiteral(v string) string {
+	if v == "" {
+		return "NULL"
+	}
+	return "'" + strings.ReplaceAll(v, "'", "''") + "'"
 }

@@ -393,10 +393,29 @@ func (p *Poller) pollVideos(ctx context.Context) {
 				saveVideoAsset(ctx, svcCtx, it, videoURL)
 			}
 		case r != nil && r.Done():
-			aigc.LogOutcome(ctx, aigc.Trace{Service: "digitalhuman", Stage: "rendering", RecordID: it.Id, UserID: it.UserId, TaskCenterID: taskcenter.Ref("dh", it.Id), ExecTaskID: it.VideoTaskId.String}, r)
-			failHuman(ctx, svcCtx, it.Id, model.DhStatusRendering, "视频生成失败，请重试")
+			// 执行面的原因只进日志（exec_failed 带 msg/错误码/截断的 traceback），再以 task_failed 把用户看到的那句话和它串起来
+			trace := aigc.Trace{Service: "digitalhuman", Stage: "rendering", RecordID: it.Id, UserID: it.UserId,
+				TaskCenterID: taskcenter.Ref("dh", it.Id), ExecTaskID: it.VideoTaskId.String}
+			aigc.LogOutcome(ctx, trace, r)
+			const failedReason = "视频生成失败，请重试"
+			cause := r.Describe()
+			if r.Status == aigc.StatusNotFound {
+				// 执行面没有这条任务：提交可能没有真正到达，或任务号对不上；原因写明，便于对照执行面查证
+				cause = "执行面查不到该任务（提交可能未生效）；" + cause
+			}
+			aigc.LogTaskFailed(ctx, trace, failedReason, fmt.Errorf("%s", cause))
+			failHuman(ctx, svcCtx, it.Id, model.DhStatusRendering, failedReason)
 		case time.Since(it.UpdateTime) > deadline:
-			failHuman(ctx, svcCtx, it.Id, model.DhStatusRendering, "视频生成超时，请重试")
+			// 超时也要留下日志：没有这一条，任务中心里只剩一句「超时」，查不到最后一次看到的状态
+			trace := aigc.Trace{Service: "digitalhuman", Stage: "rendering", RecordID: it.Id, UserID: it.UserId,
+				TaskCenterID: taskcenter.Ref("dh", it.Id), ExecTaskID: it.VideoTaskId.String}
+			const timeoutReason = "视频生成超时，请重试"
+			last := "无查询结果"
+			if r != nil {
+				last = r.Describe()
+			}
+			aigc.LogTaskFailed(ctx, trace, timeoutReason, fmt.Errorf("超过 %s 仍未完成，最后一次查询：%s", deadline, last))
+			failHuman(ctx, svcCtx, it.Id, model.DhStatusRendering, timeoutReason)
 		}
 	}
 }
