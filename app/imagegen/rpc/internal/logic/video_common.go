@@ -215,7 +215,7 @@ func failVideo(ctx context.Context, svcCtx *svc.ServiceContext, id, from int64, 
 		_, err = svcCtx.Video.FinishPlan(ctx, id, "", reason, model.VideoFailed)
 	case model.VideoGenerating:
 		var ok bool
-		if ok, err = svcCtx.Video.FinishGenerate(ctx, id, model.VideoFailed, "", reason); err == nil && ok {
+		if ok, err = svcCtx.Video.FinishGenerate(ctx, id, model.VideoFailed, "", "", reason); err == nil && ok {
 			// 出片失败 / 超时：退回出片时冻结的点数（构思、解析阶段不收费，没有冻结）
 			if c, ferr := svcCtx.Video.FindOne(ctx, id); ferr == nil {
 				svcCtx.Billing.Fail(ctx, c.UserId, c.GenTaskId.String, reason)

@@ -80,11 +80,28 @@ type KindConf struct {
 	Resolution string `json:",optional"`
 }
 
+// MediaSvcConf 共享媒体服务的地址与鉴权（app/media）。
+type MediaSvcConf struct {
+	// BaseURL / BaseURLs 静态实例地址（单个或多个）；注册中心不可用时的回退
+	BaseURL  string   `json:",optional"`
+	BaseURLs []string `json:",optional"`
+	// NacosServerAddr 注册中心（r-nacos）HTTP 地址 host:port。配置后按服务名订阅实例，静态地址只作回退
+	NacosServerAddr    string `json:",optional"`
+	NacosNamespace     string `json:",optional"`
+	NacosGroup         string `json:",default=DEFAULT_GROUP"`
+	NacosServiceName   string `json:",default=aigc-media"`
+	NacosUsername      string `json:",optional"`
+	NacosPassword      string `json:",optional"`
+	Token              string `json:",optional"`
+}
+
 // VideoRemakeConf 爆款视频复刻。源视频的限制见设计稿：仅支持 3 分钟、50M 以内。
 type VideoRemakeConf struct {
 	MaxVideoBytes   int64    `json:",default=52428800"` // 50M
 	MaxVideoSeconds int      `json:",default=180"`      // 3 分钟
 	Formats         []string `json:",optional"`         // 允许的扩展名，留空用内置白名单
+	// MediaSvc 共享媒体服务（抽代表帧封面等）；BaseURL 留空则复刻成片不生成封面
+	MediaSvc MediaSvcConf
 	// LinkParse 链接解析服务（抖音/快手/小红书/bilibili 分享链接 → 可下载直链 + 标题 + 封面）。
 	// BaseURL 留空表示「链接查视频」暂未开放，App 端只显示「上传视频」。
 	LinkParse linkparse.Conf

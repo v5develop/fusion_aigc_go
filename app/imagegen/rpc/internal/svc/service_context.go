@@ -2,6 +2,7 @@ package svc
 
 import (
 	"aigc-local-life/pkg/billing"
+	"strings"
 	"time"
 
 	"aigc-local-life/app/copywriting/rpc/copywriting"
@@ -11,6 +12,7 @@ import (
 	"aigc-local-life/pkg/aigc"
 	"aigc-local-life/pkg/asset"
 	"aigc-local-life/pkg/linkparse"
+	"aigc-local-life/pkg/mediasvc"
 	"aigc-local-life/pkg/moderation"
 	"aigc-local-life/pkg/storage"
 	"aigc-local-life/pkg/taskcenter"
@@ -31,11 +33,13 @@ type ServiceContext struct {
 	Shared          *model.SharedModel
 	GenOpts         *model.GenOptionModel
 	Aigc            *aigc.Client
-	Asset           *asset.Writer
-	Storage         storage.Store
-	LinkParse       *linkparse.Client
-	Moderation      moderation.Checker
-	TaskCenter      *taskcenter.Syncer
+	// MediaSvc 共享媒体服务；未配置为 nil
+	MediaSvc   *mediasvc.Client
+	Asset      *asset.Writer
+	Storage    storage.Store
+	LinkParse  *linkparse.Client
+	Moderation moderation.Checker
+	TaskCenter *taskcenter.Syncer
 }
 
 func NewServiceContext(c config.Config) *ServiceContext {
@@ -53,6 +57,7 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		Shared:          shared,
 		GenOpts:         model.NewGenOptionModel(conn),
 		Aigc:            aigc.New(c.Aigc).WithRecorder(taskcenter.NewSubmissionRecorder(conn)),
+		MediaSvc:        newMediaSvc(c.VideoRemake.MediaSvc),
 		Asset:           asset.NewWriter(conn),
 		Storage:         storage.New(c.Storage, conn),
 		LinkParse:       linkparse.New(c.VideoRemake.LinkParse),
@@ -120,4 +125,20 @@ func taskSources(c config.Config) []taskcenter.Source {
 		video("shortDrama", c.ShortDrama.AssetEntryCode, c.ShortDrama.AssetType),
 		video("videoRemake", c.VideoRemake.AssetEntryCode, c.VideoRemake.AssetType),
 	}
+}
+
+// newMediaSvc 媒体服务客户端：配了注册中心就订阅实例，否则用静态地址；都没配返回 nil（复刻不出封面）。
+func newMediaSvc(c config.MediaSvcConf) *mediasvc.Client {
+	fallback := append([]string{c.BaseURL}, c.BaseURLs...)
+	if strings.TrimSpace(c.NacosServerAddr) != "" {
+		return mediasvc.Discover(mediasvc.DiscoveryConfig{
+			ServerAddr:  c.NacosServerAddr,
+			Namespace:   c.NacosNamespace,
+			Group:       c.NacosGroup,
+			ServiceName: c.NacosServiceName,
+			Username:    c.NacosUsername,
+			Password:    c.NacosPassword,
+		}, c.Token, fallback)
+	}
+	return mediasvc.New(fallback, c.Token)
 }

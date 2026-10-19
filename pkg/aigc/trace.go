@@ -63,6 +63,11 @@ func LogTaskFailed(ctx context.Context, t Trace, userReason string, cause error)
 	logx.WithContext(ctx).Errorf("event=task_failed %s user_reason=%q cause=%q", t.keys(), userReason, c)
 }
 
+// LogCoverSkipped 封面没能生成（抽帧或转存失败）：event=cover_skipped，视频照常交付，不算任务失败，也不会有 task_failed。
+func LogCoverSkipped(ctx context.Context, t Trace, err error) {
+	logx.WithContext(ctx).Infof("event=cover_skipped %s cause=%q", t.keys(), err.Error())
+}
+
 // LogStepFailed 流水线中某一步出错（下载、转存、回写等），事件 step_failed，带原始错误与坐标。
 // 这一步的失败会紧接着由业务侧宣告为 task_failed；本行只保留技术原因。
 func LogStepFailed(ctx context.Context, t Trace, step string, err error) {

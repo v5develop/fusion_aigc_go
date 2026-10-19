@@ -1,0 +1,37 @@
+# 媒体服务镜像（封面 / 水印 / 合成）。只有这个镜像装 FFmpeg 与 ffprobe；主服务镜像（Dockerfile）不带。
+#
+#   docker build -f deploy/docker/Dockerfile.media -t <仓库>/aigc-media:v1.0.0 .
+#   运行与配置见 docker-compose.media.yml、media.env.example；契约见 docs/api/media-service.md
+#
+# 构建上下文是仓库根目录。配置直接打进镜像（deploy/docker/media/media-svc.yaml），
+# 里面的 Token、Listen 由环境变量注入（go-zero 会展开 ${VAR}）；水印 logo 用挂载提供。
+ARG GO_VERSION=1.26
+
+FROM golang:${GO_VERSION}-bookworm AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 go build -trimpath -ldflags '-s -w' -o /out/media ./app/media/cmd
+
+FROM debian:bookworm-slim
+# ffmpeg 包内自带 ffprobe；curl 给健康检查用
+# fonts-noto-cjk：烧录字幕用的中文字体（字幕样式默认 Noto Sans CJK SC）
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ffmpeg fonts-noto-cjk ca-certificates tzdata curl \
+ && rm -rf /var/lib/apt/lists/* \
+ && ffmpeg -version >/dev/null && ffprobe -version >/dev/null \
+ || (echo "ffmpeg / ffprobe 未装好" && exit 1)
+ENV TZ=Asia/Shanghai \
+    MEDIA_LISTEN=127.0.0.1:18090 \
+    MEDIA_LOGO_PATH=/app/logo.png
+RUN groupadd --system --gid 10001 app \
+ && useradd --system --uid 10001 --gid 10001 --home-dir /app --shell /usr/sbin/nologin app
+WORKDIR /app
+COPY --from=build /out/media /app/media
+COPY deploy/docker/media/media-svc.yaml /app/etc/media-svc.yaml
+USER app
+HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=6 \
+  CMD curl -fsS "http://${MEDIA_LISTEN}/healthz" >/dev/null || exit 1
+ENTRYPOINT ["/app/media"]
+CMD ["-f", "/app/etc/media-svc.yaml"]

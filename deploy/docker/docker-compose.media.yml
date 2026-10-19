@@ -1,0 +1,38 @@
+# 媒体服务单容器部署（封面 / 水印 / 合成）。镜像里自带 FFmpeg 与 ffprobe，宿主机不需要安装。
+#
+# 在本目录执行：
+#   cp media.env.example media.env && chmod 600 media.env   # 填写 token、镜像地址
+#   docker compose -f docker-compose.media.yml --env-file media.env up -d
+#
+# 网络：host 网络，只监听 127.0.0.1:18090。Java 与 Go 服务在同一台机器上直接调用，不经公网。
+name: ${COMPOSE_PROJECT_NAME:-aigc-media}
+
+services:
+  media-svc:
+    image: ${AIGC_MEDIA_IMAGE:?设置 AIGC_MEDIA_IMAGE：媒体服务镜像地址与版本}
+    network_mode: host
+    restart: unless-stopped
+    init: true
+    environment:
+      TZ: Asia/Shanghai
+      MEDIA_LISTEN: ${MEDIA_LISTEN:-127.0.0.1:18090}
+      # 注册中心（r-nacos）：填了地址就自注册（调用方自动发现）；留空则不注册，调用方用静态地址
+      MEDIA_NACOS_SERVER_ADDR: ${MEDIA_NACOS_SERVER_ADDR:-}
+      MEDIA_ADVERTISE_URL: ${MEDIA_ADVERTISE_URL:-http://127.0.0.1:18090}
+      # 默认关闭；仅本地 e2e 设为 true（见 deploy/e2e/README.md）
+      MEDIA_ALLOW_PRIVATE_HOSTS: ${MEDIA_ALLOW_PRIVATE_HOSTS:-false}
+      MEDIA_SERVICE_TOKEN: ${MEDIA_SERVICE_TOKEN:?设置 MEDIA_SERVICE_TOKEN}
+    volumes:
+      # 水印 logo（PNG）。不需要水印就删掉这一行，或者留空文件
+      - ${MEDIA_LOGO_FILE:-./logo.png}:/app/logo.png:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+    stop_grace_period: 30s
+    # 合成会把多段视频落到容器临时目录，内存与磁盘都要给够（单段上限见 MaxInputBytes）
+    deploy:
+      resources:
+        limits:
+          memory: ${MEDIA_MEM_LIMIT:-2g}

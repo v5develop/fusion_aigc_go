@@ -62,8 +62,8 @@ type (
 		Replan(ctx context.Context, id int64, planTaskID string) (bool, error)
 		// SetPlanTaskID 新建后改出剧本任务号：任务号要带任务中心编号，而编号要插入后才有。只改还在构思中的。
 		SetPlanTaskID(ctx context.Context, id int64, planTaskID string) error
-		// FinishGenerate 出片结束（成功或失败）
-		FinishGenerate(ctx context.Context, id int64, status int64, videoURL, failReason string) (bool, error)
+		// FinishGenerate 出片结束（成功或失败）。coverURL 为空时保留原封面（复刻上传源没有封面，成片抽帧后才有）
+		FinishGenerate(ctx context.Context, id int64, status int64, videoURL, coverURL, failReason string) (bool, error)
 		SoftDelete(ctx context.Context, id int64) error
 	}
 
@@ -182,9 +182,9 @@ func (m *customAfvVideoCreationModel) SetPlanTaskID(ctx context.Context, id int6
 	return err
 }
 
-func (m *customAfvVideoCreationModel) FinishGenerate(ctx context.Context, id int64, status int64, videoURL, failReason string) (bool, error) {
-	q := fmt.Sprintf("UPDATE %s SET `status` = ?, `video_url` = ?, `fail_reason` = ? WHERE `id` = ? AND `status` = ?", m.table)
-	return affected(m.conn.ExecCtx(ctx, q, status, nullString(videoURL), nullString(failReason), id, VideoGenerating))
+func (m *customAfvVideoCreationModel) FinishGenerate(ctx context.Context, id int64, status int64, videoURL, coverURL, failReason string) (bool, error) {
+	q := fmt.Sprintf("UPDATE %s SET `status` = ?, `video_url` = ?, `cover_url` = COALESCE(NULLIF(?, ''), `cover_url`), `fail_reason` = ? WHERE `id` = ? AND `status` = ?", m.table)
+	return affected(m.conn.ExecCtx(ctx, q, status, nullString(videoURL), coverURL, nullString(failReason), id, VideoGenerating))
 }
 
 func (m *customAfvVideoCreationModel) SoftDelete(ctx context.Context, id int64) error {

@@ -5,6 +5,7 @@ import (
 	"aigc-local-life/pkg/taskcenter"
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"aigc-local-life/app/imagegen/rpc/internal/svc"
 	"aigc-local-life/pkg/aigc"
 	"aigc-local-life/pkg/asset"
+	"aigc-local-life/pkg/storage"
 
 	"github.com/zeromicro/go-zero/core/logx"
 )
@@ -142,13 +144,18 @@ func (p *Poller) pollVideoGenerates(ctx context.Context) {
 				failVideo(ctx, svcCtx, c.Id, model.VideoGenerating, billing.DeliverBlockedReason)
 				continue
 			}
-			ok, err := svcCtx.Video.FinishGenerate(ctx, c.Id, model.VideoDone, u, "")
+			// 复刻成片没有封面时（上传的源视频没有封面）抽一张代表帧；抽不到不影响交付
+			frame := ""
+			if c.Kind == model.KindVideoRemake && !hasCover(c) {
+				frame = remakeFrameCover(ctx, svcCtx, c, u)
+			}
+			ok, err := svcCtx.Video.FinishGenerate(ctx, c.Id, model.VideoDone, u, frame, "")
 			if err != nil {
 				logx.WithContext(ctx).Errorf("finish generate %s %d: %v", c.Kind, c.Id, err)
 				continue
 			}
 			if ok {
-				saveVideoAsset(ctx, svcCtx, c, u)
+				saveVideoAsset(ctx, svcCtx, c, u, frame)
 			}
 		case r != nil && r.Done():
 			aigc.LogOutcome(ctx, aigc.Trace{Service: "imagegen", Kind: c.Kind, Stage: "generate", RecordID: c.Id, UserID: c.UserId, TaskCenterID: taskcenter.Ref("vid", c.Id), ExecTaskID: c.GenTaskId.String}, r)
@@ -159,8 +166,36 @@ func (p *Poller) pollVideoGenerates(ctx context.Context) {
 	}
 }
 
-// saveVideoAsset 成品写进素材库，封面用出镜人物图（没有就用成片地址）。
-func saveVideoAsset(ctx context.Context, svcCtx *svc.ServiceContext, c *model.AfvVideoCreation, url string) {
+// hasCover 记录上已经有封面（复刻链接来源带解析出的封面）。
+func hasCover(c *model.AfvVideoCreation) bool {
+	return c.CoverUrl.Valid && c.CoverUrl.String != ""
+}
+
+// remakeFrameCover 复刻成片抽代表帧（由共享媒体服务完成），转存到公有桶后返回地址。
+// 封面是展示优化：任何一步失败都只记 cover_skipped 并返回空串，任务照常交付。
+func remakeFrameCover(ctx context.Context, svcCtx *svc.ServiceContext, c *model.AfvVideoCreation, videoURL string) string {
+	trace := aigc.Trace{Service: "imagegen", Kind: c.Kind, Stage: "cover", RecordID: c.Id, UserID: c.UserId,
+		TaskCenterID: taskcenter.Ref("vid", c.Id), ExecTaskID: c.GenTaskId.String}
+	if svcCtx.MediaSvc == nil {
+		aigc.LogCoverSkipped(ctx, trace, errors.New("未配置媒体服务"))
+		return ""
+	}
+	data, err := svcCtx.MediaSvc.Cover(ctx, videoURL)
+	if err != nil {
+		aigc.LogCoverSkipped(ctx, trace, err)
+		return ""
+	}
+	key := storage.ObjectKey(svcCtx.Config.Storage.Prefix, "image", c.UserId, "jpg")
+	url, err := svcCtx.Storage.Put(ctx, key, "image/jpeg", data)
+	if err != nil {
+		aigc.LogCoverSkipped(ctx, trace, err)
+		return ""
+	}
+	return url
+}
+
+// saveVideoAsset 成品写进素材库，封面用出镜人物图；复刻没有源封面时用抽出的代表帧，都没有就用成片地址。
+func saveVideoAsset(ctx context.Context, svcCtx *svc.ServiceContext, c *model.AfvVideoCreation, url, frame string) {
 	if !svcCtx.Config.Asset.Enabled {
 		return
 	}
@@ -178,6 +213,8 @@ func saveVideoAsset(ctx context.Context, svcCtx *svc.ServiceContext, c *model.Af
 		cover = c.CharUrl.String // 探店 / 短剧：出镜人物图
 	case c.CoverUrl.Valid && c.CoverUrl.String != "":
 		cover = c.CoverUrl.String // 视频复刻：原视频封面
+	case frame != "":
+		cover = frame // 视频复刻：上传源没有封面，用成片代表帧
 	}
 	name := c.UserText.String
 	if c.Kind == model.KindVideoRemake {
