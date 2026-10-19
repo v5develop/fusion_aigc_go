@@ -1,0 +1,22 @@
+# 本地开发配置（go run ./app/media/cmd 的默认 -f）。容器部署用 deploy/docker/media/media-svc.yaml，不要混用。
+#
+# 敏感项不写在这里：Token 从环境变量 MEDIA_SERVICE_TOKEN 读取，未设置时服务拒绝启动。
+#   export MEDIA_SERVICE_TOKEN=$(openssl rand -hex 32)
+# 与调用方（Java app.media-service.token、Go imagegen）的 token 必须一致。
+Listen: 127.0.0.1:18090
+Token: ${MEDIA_SERVICE_TOKEN}
+# 本地不注册到注册中心，调用方走静态地址（Java MEDIA_SERVICE_BASE_URLS / imagegen BaseURL）
+Registry:
+  ServerAddr: ""
+# 水印 logo（PNG）：export MEDIA_LOGO_PATH=/path/to/logo.png；不设则水印接口返回 logo_unavailable
+LogoPath: ${MEDIA_LOGO_PATH}
+# 本机已装的 ffmpeg / ffprobe（在 PATH 里即可）
+FFmpeg: ffmpeg
+FFprobe: ffprobe
+MaxInputBytes: 209715200
+MaxComposeInputs: 50
+MaxConcurrent: 4
+FetchTimeoutSeconds: 300
+OpTimeoutSeconds: 900
+# 仅本地联调可开；线上必须为 false
+AllowPrivateHosts: false
