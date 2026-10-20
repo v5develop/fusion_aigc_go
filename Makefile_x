@@ -96,7 +96,7 @@ push-media: media
 deploy-media: push-media
 	@[ -n "$(HOOK_URL)" ] && [ -n "$(HOOK_KEY)" ] || { \
 		echo "deploy-media 需要 HOOK_URL 与 HOOK_KEY：export 进来，或写进 deploy/docker/release.env（不要写进仓库）"; exit 1; }
-	curl -fsS -X GET "$(HOOK_URL)?access_key=$(HOOK_KEY)&param=$(MEDIA_HOOK_PARAM)"
+	@curl -fsS -X GET "$(HOOK_URL)?access_key=$(HOOK_KEY)&param=$(MEDIA_HOOK_PARAM)" >/dev/null
 
 build-all: copywriting-rpc digitalhuman-rpc note-rpc imagegen-rpc gateway-api admin-api ops
 
@@ -124,7 +124,7 @@ endif
 deploy: push-all
 	@[ -n "$(HOOK_URL)" ] && [ -n "$(HOOK_KEY)" ] || { \
 		echo "deploy 需要 HOOK_URL 与 HOOK_KEY：export 进来，或写进 deploy/docker/release.env（不要写进仓库）"; exit 1; }
-	curl -fsS -X GET "$(HOOK_URL)?access_key=$(HOOK_KEY)&param=$(HOOK_PARAM)"
+	@curl -fsS -X GET "$(HOOK_URL)?access_key=$(HOOK_KEY)&param=$(HOOK_PARAM)" >/dev/null
 
 # ---- 清理本机上带仓库前缀的镜像 ----
 clean:

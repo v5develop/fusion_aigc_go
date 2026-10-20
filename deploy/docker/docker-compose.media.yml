@@ -35,7 +35,7 @@ services:
       # 初始化管理员（仅主节点首次启动生效）：直接复用 MEDIA_NACOS_USERNAME/PASSWORD（与母本栈 fusion-aigc 同一口径）。
       # 不另设一套 RNACOS_ADMIN_* —— 两套变量必然有人只改一处，表现为 media-svc 注册被拒、调用方发现不到实例。
       RNACOS_INIT_ADMIN_USERNAME: ${MEDIA_NACOS_USERNAME:-admin}
-      RNACOS_INIT_ADMIN_PASSWORD: ${MEDIA_NACOS_PASSWORD:-}
+      RNACOS_INIT_ADMIN_PASSWORD: ${MEDIA_NACOS_PASSWORD:?设置 MEDIA_NACOS_PASSWORD：r-nacos 管理员口令，不能留空或用占位符}
       RUST_LOG: warn
     volumes:
       - ${MEDIA_RNACOS_DATA:-./rnacos-data}:/io
@@ -66,8 +66,9 @@ services:
       MEDIA_NACOS_SERVER_ADDR: ${MEDIA_NACOS_SERVER_ADDR:-127.0.0.1:8848}
       MEDIA_NACOS_NAMESPACE: ${MEDIA_NACOS_NAMESPACE:-}
       MEDIA_NACOS_USERNAME: ${MEDIA_NACOS_USERNAME:-}
-      MEDIA_NACOS_PASSWORD: ${MEDIA_NACOS_PASSWORD:-}
-      MEDIA_ADVERTISE_URL: ${MEDIA_ADVERTISE_URL:-http://127.0.0.1:18090}
+      MEDIA_NACOS_PASSWORD: ${MEDIA_NACOS_PASSWORD:?设置 MEDIA_NACOS_PASSWORD}
+      # 必须是调用方能直连的内网 IP:端口。不能是 127.0.0.1：注册后调用方会连到它，bridge 里的调用方会连到自己
+      MEDIA_ADVERTISE_URL: ${MEDIA_ADVERTISE_URL:?设置 MEDIA_ADVERTISE_URL：本机内网 IP 加端口，如 http://10.0.0.5:18090}
       # 默认关闭；仅本地 e2e 设为 true（见 deploy/e2e/README.md）
       MEDIA_ALLOW_PRIVATE_HOSTS: ${MEDIA_ALLOW_PRIVATE_HOSTS:-false}
       MEDIA_SERVICE_TOKEN: ${MEDIA_SERVICE_TOKEN:?设置 MEDIA_SERVICE_TOKEN}
