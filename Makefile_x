@@ -1,0 +1,133 @@
+# aigc-local-life 镜像打包（新文件机制：与主 Makefile 并存，互不影响）
+#
+# 每个服务一个镜像，buildx 跨编译 linux/amd64 推到私有仓库，webhook 触发服务器部署。
+#
+#   make -f Makefile_x login              # 登录私有仓库（REGISTRY_PASS 已设时免交互）
+#   make -f Makefile_x build-all          # 构建全部镜像到本机（--load）
+#   make -f Makefile_x gateway-api        # 只构建某一个（服务名即目标名）
+#   make -f Makefile_x push-all           # 构建并推送全部镜像
+#   make -f Makefile_x deploy             # push-all + 触发部署 hook
+#   make -f Makefile_x clean              # 清理本机上带仓库前缀的镜像
+#   make -f Makefile_x media              # 单独构建共享媒体服务镜像 aigc-media（含 FFmpeg，见 deploy/docker/Dockerfile.media）
+#   make -f Makefile_x deploy-media       # 构建 + 推送 + 触发媒体服务部署（部署单元名见 MEDIA_HOOK_PARAM）
+#
+# 常用覆盖：make -f Makefile_x deploy TAG=v1.0.0 REGISTRY=<仓库> HOOK_PARAM=<部署单元>
+# 镜像与服务器侧部署单元的对应：<REGISTRY>/aigc-local-life-<服务>:<TAG>，prepare 用 aigc-local-life-ops。
+# 媒体服务是独立镜像 <REGISTRY>/aigc-media:<TAG>，独立 compose 栈（docker-compose.media.yml，project aigc-media），
+# 与本地生活栈分开上线、分开回滚 —— 不在 build-all / push-all 里，单独用 media / deploy-media。
+
+.PHONY: copywriting-rpc digitalhuman-rpc note-rpc imagegen-rpc gateway-api admin-api ops \
+	media push-media deploy-media \
+	build-all push-all login deploy clean
+
+TAG ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+REGISTRY ?= uniontest.pengqiwl.com:5000
+REGISTRY_USER ?= admin
+# 凭据**不进仓库**（与 Java 仓 makefile_x / scripts/release/build-image.sh 同一约定：那边靠 export 传入）。
+# 两种给法，二选一：
+#   export REGISTRY_PASS=...                  # login 用
+#   export HOOK_URL=... HOOK_KEY=...          # deploy / deploy-media 用
+# 或写进本机 deploy/docker/release.env（已 gitignore，模板 deploy/docker/release.env.example），下面自动读取。
+-include deploy/docker/release.env
+REGISTRY_PASS ?=
+HOOK_URL ?=
+HOOK_KEY ?=
+# 服务器侧的部署单元名（hook 的 param）：一个 compose 栈一个单元，按需覆盖
+HOOK_PARAM ?= aigc-local-life
+# 媒体服务是独立 compose 栈（docker-compose.media.yml，project aigc-media），部署单元名单独给
+MEDIA_HOOK_PARAM ?= aigc-media
+
+# 构建机是 Apple 芯片、线上是 x86_64：固定 linux/amd64；
+# --provenance=false 出干净的单架构镜像（不带 attestation manifest）
+PLATFORM ?= linux/amd64
+# 走 OrbStack 的 dockerd（镜像加速、insecure-registries 都生效）
+BUILDER ?= orbstack
+
+# ---- 服务镜像：app/<SERVICE> => <REGISTRY>/aigc-local-life-<BIN>:<TAG> ----
+# 6 个服务共用一个参数化 Dockerfile，只有服务目录与产物名不同
+
+copywriting-rpc:
+	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --provenance=false \
+		--build-arg SERVICE=copywriting/rpc --build-arg BIN=copywriting-rpc \
+		-t $(REGISTRY)/aigc-local-life-copywriting-rpc:$(TAG) -f deploy/docker/_Dockerfile.svc --load .
+
+digitalhuman-rpc:
+	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --provenance=false \
+		--build-arg SERVICE=digitalhuman/rpc --build-arg BIN=digitalhuman-rpc \
+		-t $(REGISTRY)/aigc-local-life-digitalhuman-rpc:$(TAG) -f deploy/docker/_Dockerfile.svc --load .
+
+note-rpc:
+	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --provenance=false \
+		--build-arg SERVICE=note/rpc --build-arg BIN=note-rpc \
+		-t $(REGISTRY)/aigc-local-life-note-rpc:$(TAG) -f deploy/docker/_Dockerfile.svc --load .
+
+imagegen-rpc:
+	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --provenance=false \
+		--build-arg SERVICE=imagegen/rpc --build-arg BIN=imagegen-rpc \
+		-t $(REGISTRY)/aigc-local-life-imagegen-rpc:$(TAG) -f deploy/docker/_Dockerfile.svc --load .
+
+gateway-api:
+	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --provenance=false \
+		--build-arg SERVICE=gateway/api --build-arg BIN=gateway-api \
+		-t $(REGISTRY)/aigc-local-life-gateway-api:$(TAG) -f deploy/docker/_Dockerfile.svc --load .
+
+admin-api:
+	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --provenance=false \
+		--build-arg SERVICE=admin/api --build-arg BIN=admin-api \
+		-t $(REGISTRY)/aigc-local-life-admin-api:$(TAG) -f deploy/docker/_Dockerfile.svc --load .
+
+# ---- ops 镜像：prepare（检查数据库/迁移/生成配置/渲染 nginx/计费自检）与运维工具 ----
+# 服务器侧每次部署先跑它，成功退出后服务容器才启动；逻辑与 install.sh prepare 一致
+ops:
+	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --provenance=false \
+		--build-arg VERSION=$(TAG) -t $(REGISTRY)/aigc-local-life-ops:$(TAG) \
+		-f deploy/docker/_Dockerfile.ops --load .
+
+# ---- 媒体服务镜像：aigc-media（封面 / 水印 / 合成 / 探测 / 抽帧 / 解码校验）----
+# 源码在本仓 app/media/cmd，只有这个镜像装 FFmpeg 与 ffprobe；本地生活主服务镜像不带。
+# 部署是独立栈（docker-compose.media.yml，project aigc-media），与本地生活栈分开上线、分开回滚。
+media:
+	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --provenance=false \
+		-t $(REGISTRY)/aigc-media:$(TAG) -f deploy/docker/Dockerfile.media --load .
+
+push-media: media
+	docker push $(REGISTRY)/aigc-media:$(TAG)
+
+deploy-media: push-media
+	@[ -n "$(HOOK_URL)" ] && [ -n "$(HOOK_KEY)" ] || { \
+		echo "deploy-media 需要 HOOK_URL 与 HOOK_KEY：export 进来，或写进 deploy/docker/release.env（不要写进仓库）"; exit 1; }
+	curl -fsS -X GET "$(HOOK_URL)?access_key=$(HOOK_KEY)&param=$(MEDIA_HOOK_PARAM)"
+
+build-all: copywriting-rpc digitalhuman-rpc note-rpc imagegen-rpc gateway-api admin-api ops
+
+# ---- 推送：dockerd 认 insecure-registries，普通 docker push 即可 ----
+SVC_IMAGES := aigc-local-life-copywriting-rpc aigc-local-life-digitalhuman-rpc aigc-local-life-note-rpc \
+	aigc-local-life-imagegen-rpc aigc-local-life-gateway-api aigc-local-life-admin-api \
+	aigc-local-life-ops
+
+push-all: build-all
+	@for i in $(SVC_IMAGES); do \
+		echo "push $$i:$(TAG)"; \
+		docker push $(REGISTRY)/$$i:$(TAG) || exit 1; \
+	done
+
+# ---- 登录私有仓库 ----
+login:
+ifeq ($(strip $(REGISTRY_PASS)),)
+	@read -sp "Password: " pass; \
+	docker login $(REGISTRY) -u $(REGISTRY_USER) -p "$$pass"
+else
+	@printf '%s' "$(REGISTRY_PASS)" | docker login $(REGISTRY) -u $(REGISTRY_USER) --password-stdin
+endif
+
+# ---- 部署：推送全部镜像后触发 webhook ----
+deploy: push-all
+	@[ -n "$(HOOK_URL)" ] && [ -n "$(HOOK_KEY)" ] || { \
+		echo "deploy 需要 HOOK_URL 与 HOOK_KEY：export 进来，或写进 deploy/docker/release.env（不要写进仓库）"; exit 1; }
+	curl -fsS -X GET "$(HOOK_URL)?access_key=$(HOOK_KEY)&param=$(HOOK_PARAM)"
+
+# ---- 清理本机上带仓库前缀的镜像 ----
+clean:
+	@for i in $(SVC_IMAGES) aigc-media; do \
+		docker rmi $(REGISTRY)/$$i:$(TAG) 2>/dev/null || true; \
+	done

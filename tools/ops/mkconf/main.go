@@ -66,6 +66,11 @@ func main() {
 	logConsole := flag.Bool("log-console", false, "日志输出到标准输出（容器部署用，由 Docker 负责轮转）；默认写文件")
 	swagger := flag.Bool("swagger", false, "网关与后台是否开放 /swagger 接口文档（正式环境必须关）")
 	billingMode := flag.String("billing-mode", "", "计费档位 off / shadow / on（写进笔记、数字人、图片视频三个服务的 Billing.Mode），留空保持开发配置")
+	mediaToken := flag.String("media-token", "", "共享媒体服务鉴权 token（写进 imagegen 的 VideoRemake.MediaSvc.Token，须与 media-svc / Java 的 MEDIA_SERVICE_TOKEN 一致）")
+	mediaNacosAddr := flag.String("media-nacos-addr", "", "媒体服务注册中心（r-nacos）地址 host:port；imagegen 用它订阅实例，留空保留模板默认")
+	mediaNacosUser := flag.String("media-nacos-user", "", "r-nacos 鉴权用户名（开启 OpenAPI 鉴权时）")
+	mediaNacosPass := flag.String("media-nacos-pass", "", "r-nacos 鉴权密码")
+	mediaBaseURL := flag.String("media-base-url", "", "媒体服务静态回退地址（imagegen 的 VideoRemake.MediaSvc.BaseURL）")
 	flag.Parse()
 	for _, r := range *taskIDPrefix {
 		if !(r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' || r >= '0' && r <= '9') {
@@ -107,7 +112,8 @@ func main() {
 			sessionRedis: *sessionRedis, sessionRedisPass: *sessionRedisPass,
 			sessionRedisDB: *sessionRedisDB,
 			fusionURL:      *fusionURL, fusionKey: *fusionKey, fusionSecret: *fusionSecret, fusionKeyVer: *fusionKeyVer, billingMode: *billingMode, swagger: *swagger, taskIDPrefix: *taskIDPrefix,
-			listenHost: *listenHost, accessHours: *accessHours, refreshDays: *refreshDays, sessionMax: *sessionMax}
+			listenHost: *listenHost, accessHours: *accessHours, refreshDays: *refreshDays, sessionMax: *sessionMax,
+			mediaToken: *mediaToken, mediaNacosAddr: *mediaNacosAddr, mediaNacosUser: *mediaNacosUser, mediaNacosPass: *mediaNacosPass, mediaBaseURL: *mediaBaseURL}
 		if err := e.apply(root); err != nil {
 			log.Fatalf("%s: %v", file, err)
 		}
@@ -165,6 +171,11 @@ type editor struct {
 	logDir           string
 	keepDays         int
 	logConsole       bool
+	mediaToken       string
+	mediaNacosAddr   string
+	mediaNacosUser   string
+	mediaNacosPass   string
+	mediaBaseURL     string
 }
 
 func (e editor) apply(root *yaml.Node) error {
@@ -254,6 +265,24 @@ func (e editor) apply(root *yaml.Node) error {
 	if vr := get(root, "VideoRemake"); vr != nil {
 		if lp := get(vr, "LinkParse"); lp != nil {
 			set(lp, "BaseURL", scalar(e.linkParse))
+		}
+		// 共享媒体服务（imagegen 复刻抽封面等）：token 必须与 media-svc / Java 一致。
+		// mkconf 原先不碰这段，模板里的 Token: change-me 会原样进生产 → Go 调媒体全部 401。
+		if ms := get(vr, "MediaSvc"); ms != nil {
+			// Token 始终写入（未配置则为空，宁可显式失败也不留占位符）
+			set(ms, "Token", quoted(e.mediaToken))
+			if e.mediaBaseURL != "" {
+				set(ms, "BaseURL", scalar(e.mediaBaseURL))
+			}
+			if e.mediaNacosAddr != "" {
+				set(ms, "NacosServerAddr", scalar(e.mediaNacosAddr))
+			}
+			if e.mediaNacosUser != "" {
+				set(ms, "NacosUsername", quoted(e.mediaNacosUser))
+			}
+			if e.mediaNacosPass != "" {
+				set(ms, "NacosPassword", quoted(e.mediaNacosPass))
+			}
 		}
 	}
 	// 计费档位：只有接了计费的三个服务有这段

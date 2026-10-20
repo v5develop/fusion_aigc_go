@@ -2,6 +2,8 @@
 
 **正式环境用这种方式部署。** 一键脚本（[`../server/README.md`](../server/README.md)）是没有 Docker 的服务器上的备选方式，两者的校验规则、迁移、配置生成完全是同一套代码（`install.sh` 的 `prepare` 子命令）。
 
+本文档讲**单镜像**（`AIGC_IMAGE`，一个镜像装全部服务）。另有一套**每服务独立镜像**的发布链路（私有仓库 + webhook，`Makefile_x` + `docker-compose.registry.yml`），见 [`README.registry.md`](README.registry.md)。
+
 ## 部署拓扑
 
 ```

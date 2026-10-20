@@ -1,0 +1,67 @@
+# aigc-local-life ops 镜像：prepare 与运维工具（不含服务二进制）。
+# 服务器侧每次部署先跑它：检查数据库 → 迁移（go_schema_history）→ 生成配置 → 渲染 nginx → 计费自检，
+# 逻辑与 deploy/server/install.sh 的 prepare 子命令完全一致（与一键脚本部署共用同一套代码）。
+# 多阶段、跨编译 linux/amd64、最小运行时、非 root 运行。
+#
+# 数据库客户端必须是官方 MySQL 8：RDS 账号默认用 caching_sha2_password，
+# MariaDB 客户端（alpine 的 mariadb-client）不带该插件，会报
+#   Plugin caching_sha2_password could not be loaded:
+#   Error loading shared library /usr/lib/mariadb/plugin/caching_sha2_password.so
+# 官方客户端把该插件内置了（不需要 .so）。官方客户端是 glibc 二进制，
+# 所以运行时用 debian 而不是 alpine（musl 跑不了）。
+#
+# 用法（Makefile_x 的 ops 目标已封装）：
+#   docker buildx build --builder orbstack --platform linux/amd64 --provenance=false \
+#     -t <仓库>/aigc-local-life-ops:<tag> -f deploy/docker/_Dockerfile.ops --load .
+#
+# 部署时由 compose 调用：command: ["bash", "/app/pkg/install.sh", "prepare"]
+# 成功退出后服务容器才启动；也可手工跑 check-billing / seed-templates / voices。
+# 固定到补丁版本（与本机工具链一致），避免上游发补丁时同一 tag 产出不同二进制
+ARG GO_VERSION=1.27.2
+
+# ---------- Stage 1：跨编译 linux/amd64（只编运维工具） ----------
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine AS build
+WORKDIR /src
+ARG GOPROXY=https://goproxy.cn,direct
+ENV GOPROXY=${GOPROXY}
+RUN apk add --no-cache git
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
+COPY . .
+RUN --mount=type=cache,target=/go/pkg/mod set -eux; mkdir -p /out; \
+    for t in mkconf billing-check seed; do \
+      CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -tags timetzdata -trimpath -ldflags '-s -w' \
+        -o "/out/$t" "./tools/ops/$t"; \
+    done
+
+# ---------- Stage 1b：官方 MySQL 客户端来源（只取客户端，不取 server） ----------
+FROM mysql:8.0 AS mysqlcli
+
+# ---------- Stage 2：最小运行时 ----------
+FROM debian:bookworm-slim
+# bash：install.sh / migrate.sh 是 bash 脚本；curl：健康检查；jq：音色试听脚本
+# 下面几个是官方 mysql 客户端的链接依赖（ldd 实测）：libncurses6 / libtinfo6 / libssl3 / libstdc++6
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates tzdata bash curl jq \
+      libncurses6 libtinfo6 libssl3 libstdc++6 \
+ && rm -rf /var/lib/apt/lists/*
+ENV TZ=Asia/Shanghai
+COPY --from=mysqlcli /usr/bin/mysql /usr/local/bin/mysql
+COPY --from=mysqlcli /usr/bin/mysqladmin /usr/local/bin/mysqladmin
+COPY --from=mysqlcli /usr/bin/mysqldump /usr/local/bin/mysqldump
+WORKDIR /app
+COPY --from=build /out/ /app/pkg/bin/
+COPY deploy/etc/ /app/pkg/etc-dev/
+COPY deploy/sql/Go_V*.sql /app/pkg/sql/
+COPY deploy/server/install.sh deploy/server/migrate.sh /app/pkg/
+COPY deploy/server/nginx/ /app/pkg/nginx/
+COPY deploy/scripts/gen-voice-previews.sh /app/pkg/scripts/
+ARG VERSION=dev
+# 客户端能跑起来才算合格；caching_sha2_password 能不能过由部署时连 RDS 验证
+RUN echo "$VERSION" > /app/pkg/VERSION \
+ && mkdir -p /app/etc /app/nginx /app/backup /app/logs \
+ && mysql --version && mysqldump --version && jq --version \
+ && groupadd --system --gid 10001 app \
+ && useradd --system --uid 10001 --gid 10001 --home-dir /app --shell /usr/sbin/nologin app \
+ && chown -R app:app /app/etc /app/logs
+USER app

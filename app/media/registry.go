@@ -113,7 +113,7 @@ type instance struct {
 func instanceOf(advertise string) (instance, error) {
 	u, err := url.Parse(strings.TrimSpace(advertise))
 	if err != nil || u.Host == "" {
-		return instance{}, errors.New("media: Advertise 地址无效，示例 http://10.0.0.5:18090")
+		return instance{}, errors.New("media: MEDIA_ADVERTISE_URL 未设置或无效（示例 http://10.0.0.5:18090）：注册中心只接受 IP，且必须是调用方能直连的地址")
 	}
 	host, portStr, err := net.SplitHostPort(u.Host)
 	if err != nil {

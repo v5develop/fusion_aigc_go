@@ -2,11 +2,15 @@
 Listen: ${MEDIA_LISTEN}
 # 与调用方（Java app.media-service.token、Go imagegen）保持一致；为空时服务拒绝启动
 Token: ${MEDIA_SERVICE_TOKEN}
-# 注册中心（r-nacos）：MEDIA_NACOS_SERVER_ADDR 留空则不注册（静态地址部署）；MEDIA_ADVERTISE_URL 是调用方访问本实例的地址（必须是 IP）
+# 注册中心（r-nacos，Nacos 协议）：MEDIA_NACOS_SERVER_ADDR 留空则不注册（静态地址部署）；MEDIA_ADVERTISE_URL 是调用方访问本实例的地址（必须是 IP）。
+# 开启 OpenAPI 鉴权时（RNACOS_ENABLE_OPEN_API_AUTH=true）必须给 Username/Password（与 r-nacos 初始化管理员账号一致），否则注册会被拒。
 Registry:
   ServerAddr: ${MEDIA_NACOS_SERVER_ADDR}
+  Namespace: ${MEDIA_NACOS_NAMESPACE}
   Group: DEFAULT_GROUP
   ServiceName: aigc-media
+  Username: ${MEDIA_NACOS_USERNAME}
+  Password: ${MEDIA_NACOS_PASSWORD}
   Advertise: ${MEDIA_ADVERTISE_URL}
 FFmpeg: ffmpeg
 FFprobe: ffprobe

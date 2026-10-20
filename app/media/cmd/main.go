@@ -40,7 +40,10 @@ func main() {
 	// 注册中心：启动后自注册，连不上会在后台重试，不影响服务本身
 	deregister, err := media.Register(ctx, c.Registry)
 	if err != nil {
-		log.Fatal(err)
+		// 注册失败**不致命**：媒体服务仍可被静态地址调用（Go 调用方走 MEDIA_SVC_BASE_URL）。
+		// 致命的是媒体服务本身起不来 —— Java 三个角色 depends_on 它 healthy，会被一起拖住。
+		log.Printf("media: 注册到注册中心失败，本次不注册（调用方需走静态地址）: %v", err)
+		deregister = func() {}
 	}
 
 	httpSrv := &http.Server{

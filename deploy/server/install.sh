@@ -123,6 +123,13 @@ load_env() {
   resolve SESSION_MAX_CONCURRENT APP_SECURITY_TOKEN_MAX_CONCURRENT_SESSIONS 0
   resolve TOKEN_ACCESS_HOURS TOKEN_ACCESS_HOURS 2
   resolve TOKEN_REFRESH_DAYS TOKEN_REFRESH_DAYS 7
+  # 共享媒体服务（aigc-media：封面/水印/合成/探测/抽帧）：imagegen 复刻时调用。
+  # token 与 Java 的 MEDIA_SERVICE_TOKEN 单一真相源一致（deploy.env 可覆盖）；地址/账密见 deploy.env。
+  resolve MEDIA_SVC_TOKEN MEDIA_SERVICE_TOKEN ""
+  MEDIA_SVC_BASE_URL=${MEDIA_SVC_BASE_URL:-http://127.0.0.1:18090}
+  MEDIA_NACOS_ADDR=${MEDIA_NACOS_ADDR:-127.0.0.1:8848}
+  MEDIA_NACOS_USERNAME=${MEDIA_NACOS_USERNAME:-}
+  MEDIA_NACOS_PASSWORD=${MEDIA_NACOS_PASSWORD:-}
   # 公网域名与 Java 的地址：nginx 把 App 接口和刷新令牌分别转到网关与 Java
   PUBLIC_DOMAIN=${PUBLIC_DOMAIN:-}; JAVA_UPSTREAM=${JAVA_UPSTREAM:-127.0.0.1:18080}
   FUSION_BASE_URL=${FUSION_BASE_URL:-}; FUSION_APP_KEY=${FUSION_APP_KEY:-}
@@ -335,6 +342,9 @@ gen_conf() {
     -dsn "$dsn" -aigc "$AIGC_ENDPOINT" -keep-days "$LOG_KEEP_DAYS" \
     -auth-mode "$AUTH_MODE" -union "$UNION_BASE_URL" -swagger=$([[ $SWAGGER_ENABLED == 1 ]] && echo true || echo false) -task-id-prefix "$TASK_ID_PREFIX" \
     -link-parse "$LINK_PARSE_URL" \
+    -media-token "$MEDIA_SVC_TOKEN" -media-nacos-addr "$MEDIA_NACOS_ADDR" \
+    -media-nacos-user "$MEDIA_NACOS_USERNAME" -media-nacos-pass "$MEDIA_NACOS_PASSWORD" \
+    -media-base-url "$MEDIA_SVC_BASE_URL" \
     -session-redis "$SESSION_REDIS_ADDR" -session-redis-pass "$SESSION_REDIS_PASS" \
     -session-redis-db "$SESSION_REDIS_DB" -session-max "$SESSION_MAX_CONCURRENT" \
     -token-access-hours "$TOKEN_ACCESS_HOURS" -token-refresh-days "$TOKEN_REFRESH_DAYS" \
@@ -438,6 +448,42 @@ all_start() {
   for s in "${SERVICES[@]}"; do svc_start "$s"; done
 }
 
+# check_media_svc 校验共享媒体服务（aigc-media）的配置与可达性。
+# 本栈（aigc-local-life）与 Java 栈是**两个独立的 compose**，各自构建、各自发布：
+#   Java 栈（fusion-aigc 的 docker-compose.prod.yml）负责编排 media-svc 与 r-nacos；
+#   本栈的 imagegen 经宿主 127.0.0.1:18090 调它（两边都是 host 网络）。
+# 所以 Java 栈的校验管不到这里，而配错的表现全是**静默**的：
+#   token 不对 → 每次调用 401，封面这类失败不报错，只是图没了；
+#   地址不对 → 连不上，封面同样没有、也不报错。
+# 媒体服务不可达只告警不拦（两个栈独立发布，Java 栈可能还没起，拦了会让本栈发布无故失败）；
+# token 为空是配置错误，直接停 —— 它意味着封面功能在生产上是坏的。
+check_media_svc() {
+  local base="${MEDIA_SVC_BASE_URL:-}" code=""
+  if [[ -z "${MEDIA_SVC_TOKEN:-}" ]]; then
+    red "✗ 媒体服务 token 为空（MEDIA_SVC_TOKEN）"
+    echo "  imagegen 复刻视频时要调 media-svc 抽封面，没有可用 token 时每次调用都是 401，"
+    echo "  而**不会报错** —— 表现只是封面图没了，很难归因。"
+    echo "  取值：deploy.env 的 MEDIA_SVC_TOKEN，或 JAVA_ENV_FILE 里 Java 的 MEDIA_SERVICE_TOKEN（两者必须相同）。"
+    die "共享媒体服务的 token 未配置"
+  fi
+  if [[ -z "$base" ]]; then
+    red "✗ 媒体服务地址为空（MEDIA_SVC_BASE_URL）"
+    die "共享媒体服务的地址未配置"
+  fi
+  if ! command -v curl >/dev/null 2>&1; then
+    yellow "  ! 本机没有 curl，跳过媒体服务探活"
+    return 0
+  fi
+  code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 "${base%/}/healthz" 2>/dev/null || true)"
+  if [[ "$code" == "200" ]]; then
+    green "  ✓ 媒体服务可达（${base}）"
+  else
+    yellow "  ! 媒体服务探活返回 ${code:-无响应}（${base%/}/healthz）"
+    echo "  媒体服务由 **Java 栈**编排（fusion-aigc 的 docker-compose.prod.yml 里的 media-svc），本栈是独立 compose。"
+    echo "  若 Java 栈还没起媒体服务，本栈可以继续起，但 imagegen 的封面/水印会失败（且不报错）。"
+  fi
+}
+
 # ---------- 自检 ----------
 # 健康检查：token 模式下请求没有令牌，业务接口返回 401 是正常的，所以只确认进程在线（能返回 1xx–4xx）。
 # 开发模式（dev）仍然校验业务返回 "code":0。
@@ -489,6 +535,9 @@ cmd_install() {
   green "  ✓ $(uname -sm)，$([[ $USE_SYSTEMD == 1 ]] && echo 'systemd 管理进程' || echo '无 systemd，用 nohup 管理进程')"
   echo "  配置文件：${ENV_FILE}（以后改配置就改这一份，改完重跑本脚本）"
   check_ports # 先查端口，冲突就什么都不动
+  # 共享媒体服务的 token / 地址校验放在最前面：这条不通只会让封面静默消失，不会报错，
+  # 与其装完再猜，不如在动任何文件（含停旧进程）之前就拦下来。
+  check_media_svc
 
   step "2/6 检查数据库"
   find_mysql
@@ -564,27 +613,30 @@ cmd_prepare() {
   validate_release
   echo "版本 $(cat "$PKG/VERSION" 2>/dev/null || echo '?')，执行面 ${AIGC_ENDPOINT}"
 
-  step "1/5 检查数据库"
+  step "1/6 检查数据库"
   find_mysql
   q "SELECT 1" >/dev/null || die "连不上数据库 $DB_USER@$DB_HOST:$DB_PORT/${DB_NAME}，检查 .env 里的 DB_* 与 MYSQL_OPTS"
   green "  ✓ 已连接 $DB_HOST:$DB_PORT/$DB_NAME"
   check_external_tables
   check_db_config
 
-  step "2/5 数据库迁移（Go_V*.sql，记录在 go_schema_history，已执行的跳过）"
+  step "2/6 数据库迁移（Go_V*.sql，记录在 go_schema_history，已执行的跳过）"
   migrate_go
 
-  step "3/5 生成配置 → $INSTALL_DIR/etc"
+  step "3/6 生成配置 → $INSTALL_DIR/etc"
   mkdir -p "$INSTALL_DIR/etc"
   gen_conf "$PKG/bin/mkconf" "$INSTALL_DIR/etc" -log-console
   # 服务容器以非 root 用户运行：配置交给它，同时只有它能读（含数据库口令、令牌密钥）
   chown -R "${RUN_UID:-10001}:${RUN_UID:-10001}" "$INSTALL_DIR/etc"
   chmod 700 "$INSTALL_DIR/etc"
 
-  step "4/5 渲染 nginx → $INSTALL_DIR/nginx/aigc-local-life.conf"
+  step "4/6 校验共享媒体服务（aigc-media）"
+  check_media_svc
+
+  step "5/6 渲染 nginx → $INSTALL_DIR/nginx/aigc-local-life.conf"
   render_nginx
 
-  step "5/5 计费配置检查"
+  step "6/6 计费配置检查"
   cmd_check_billing || die "计费配置有问题（见上）：补齐后重新部署。正式环境不允许带着计费缺口启动"
   green "准备完成"
 }

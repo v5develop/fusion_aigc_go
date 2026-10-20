@@ -1,23 +1,72 @@
 # 媒体服务单容器部署（封面 / 水印 / 合成）。镜像里自带 FFmpeg 与 ffprobe，宿主机不需要安装。
 #
+# ⚠️ **生产环境不要用本文件起媒体服务**：生产由 fusion-aigc 的母本
+#    deploy/compose/docker-compose.example.yml 统一编排 media-svc 与 r-nacos（都是 host 网络）。
+#    两边都起会抢宿主机 18090 / 8848，且注册中心里出现两个实例。本文件仅用于
+#    本地单独调试媒体服务。
+#
 # 在本目录执行：
 #   cp media.env.example media.env && chmod 600 media.env   # 填写 token、镜像地址
 #   docker compose -f docker-compose.media.yml --env-file media.env up -d
 #
 # 网络：host 网络，只监听 127.0.0.1:18090。Java 与 Go 服务在同一台机器上直接调用，不经公网。
+# r-nacos 在同一 compose 内，host 网络（与本地生活栈一致）；对外只放行 nginx，不对 8848/9848/10848 放行。
 name: ${COMPOSE_PROJECT_NAME:-aigc-media}
 
 services:
+  # ------------------------------------------------------------------ r-nacos 注册中心
+  # 媒体服务启动后自注册到这里，Java / Go 调用方订阅发现实例。
+  # 版本与 Java 母本（fusion-aigc 的 docker-compose.example.yml）保持一致：v0.8.7-alpine（≈20MB）。
+  # 线上注册中心由 Java 栈编排，这里的实例只供本地单独调试；两边版本必须相同，否则两套环境行为不一致。
+  r-nacos:
+    image: qingpan/rnacos:v0.8.7-alpine
+    restart: unless-stopped
+    # 与本地生活栈一致：host 网络。r-nacos 直接绑宿主机 8848/9848/10848；
+    # 同机的 media-svc、Go imagegen 走 127.0.0.1:8848 直连，Java（bridge）走 host.docker.internal:8848。
+    # 公网侧靠宿主机防火墙只放行 nginx（见 README：公网只经宿主机 nginx），不对 8848/9848/10848 放行。
+    network_mode: host
+    environment:
+      TZ: Asia/Shanghai
+      RNACOS_HTTP_PORT: "8848"
+      RNACOS_GRPC_PORT: "9848"
+      RNACOS_HTTP_CONSOLE_PORT: "10848"
+      # 开启 OpenAPI 鉴权：media-svc 注册 / 调用方发现必须带账密（MEDIA_NACOS_USERNAME/PASSWORD）
+      RNACOS_ENABLE_OPEN_API_AUTH: "true"
+      # 初始化管理员（仅主节点首次启动生效）：直接复用 MEDIA_NACOS_USERNAME/PASSWORD（与母本栈 fusion-aigc 同一口径）。
+      # 不另设一套 RNACOS_ADMIN_* —— 两套变量必然有人只改一处，表现为 media-svc 注册被拒、调用方发现不到实例。
+      RNACOS_INIT_ADMIN_USERNAME: ${MEDIA_NACOS_USERNAME:-admin}
+      RNACOS_INIT_ADMIN_PASSWORD: ${MEDIA_NACOS_PASSWORD:-}
+      RUST_LOG: warn
+    volumes:
+      - ${MEDIA_RNACOS_DATA:-./rnacos-data}:/io
+    deploy:
+      resources:
+        limits:
+          memory: ${RNACOS_MEM_LIMIT:-512m}
+    healthcheck:
+      # alpine 版是 busybox：没有 bash、没有 curl，开启鉴权后 HTTP 健康接口还返回 403，
+      # 所以只能用 busybox 自带的 nc -z（实测端口通 exit 0、不通 exit 1）
+      test: ["CMD", "nc", "-z", "127.0.0.1", "8848"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
   media-svc:
     image: ${AIGC_MEDIA_IMAGE:?设置 AIGC_MEDIA_IMAGE：媒体服务镜像地址与版本}
     network_mode: host
     restart: unless-stopped
     init: true
+    # 仅排序：注册中心不可达时 media-svc 仍可启动并后台重连，不因此卡死
+    depends_on:
+      - r-nacos
     environment:
       TZ: Asia/Shanghai
       MEDIA_LISTEN: ${MEDIA_LISTEN:-127.0.0.1:18090}
       # 注册中心（r-nacos）：填了地址就自注册（调用方自动发现）；留空则不注册，调用方用静态地址
-      MEDIA_NACOS_SERVER_ADDR: ${MEDIA_NACOS_SERVER_ADDR:-}
+      MEDIA_NACOS_SERVER_ADDR: ${MEDIA_NACOS_SERVER_ADDR:-127.0.0.1:8848}
+      MEDIA_NACOS_NAMESPACE: ${MEDIA_NACOS_NAMESPACE:-}
+      MEDIA_NACOS_USERNAME: ${MEDIA_NACOS_USERNAME:-}
+      MEDIA_NACOS_PASSWORD: ${MEDIA_NACOS_PASSWORD:-}
       MEDIA_ADVERTISE_URL: ${MEDIA_ADVERTISE_URL:-http://127.0.0.1:18090}
       # 默认关闭；仅本地 e2e 设为 true（见 deploy/e2e/README.md）
       MEDIA_ALLOW_PRIVATE_HOSTS: ${MEDIA_ALLOW_PRIVATE_HOSTS:-false}
