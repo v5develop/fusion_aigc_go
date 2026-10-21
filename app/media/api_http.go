@@ -496,6 +496,7 @@ func (s *Server) capabilities(w http.ResponseWriter, _ *http.Request) {
 		"ingest": true, "probe": true, "frames": true, "cover": true, "watermark": s.svc.logoAvailable(),
 		"trim": true, "conform": true, "compose": true, "extract_audio": true, "adjust_duration": true, "delete": true, "restore": true,
 		"image_resize": true, "font": true,
+		"image_watermark": true, "image_grid": true, "image_crop": true, "image_mark": true,
 	})
 }
 

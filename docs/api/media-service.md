@@ -70,7 +70,7 @@ docker compose -f docker-compose.media.yml --env-file media.env up -d
 
 - 基础路径：`/v1/mediasvc`，`Content-Type: application/json`。
 - `/healthz` 不加前缀，不需要鉴权。
-- **写操作**（`ingest`、`cover`、`watermark`、`video/trim`、`video/conform`、`image/conform`、`image/resize`、`compose`、`audio/extract`、`audio/timeline`、`video/replace-audio`、`video/burn-subtitles`、`video/adjust-duration`、`delete`）必须带 `Idempotency-Key` 头，缺失返回 400。幂等规则（按 路由 + 键 索引）：
+- **写操作**（`ingest`、`cover`、`watermark`、`video/trim`、`video/conform`、`image/conform`、`image/resize`、`image/watermark`、`image/grid`、`image/crop`、`image/mark`、`compose`、`audio/extract`、`audio/timeline`、`video/replace-audio`、`video/burn-subtitles`、`video/adjust-duration`、`delete`）必须带 `Idempotency-Key` 头，缺失返回 400。幂等规则（按 路由 + 键 索引）：
   - 已成功完成、且请求体一致：原样回放上次的状态码和响应体，响应带 `Idempotent-Replayed: true`，不重复处理；
   - 同一个键但请求体不同：400 `invalid_request`（check=`request.idempotency_key_reused`）；
   - 同一个键正在处理中：503，`Retry-After: 5`，用同一个键稍后重试；
@@ -153,6 +153,10 @@ Content-Type: <可选，仅作提示>
 | POST | `/v1/mediasvc/watermark` | 右下角叠加 logo | `MediaResult` |
 | POST | `/v1/mediasvc/video/trim` | 截到前 `seconds` 秒（重编码，切点精确） | `MediaResult` |
 | POST | `/v1/mediasvc/image/resize` | 图片精确尺寸缩放：输出严格为 `width×height`，不保比例。`format` 为 `png` 或 `jpeg`。PNG 仅在源图有 alpha 小于 255 的像素时保留透明通道，否则写 RGB；JPEG 先铺白底。`width`、`height` 各 1..16384，总像素不超过服务端 `MaxSourcePixels`（超过是 `422 source_rejected`，`check=image.target_pixels_exceeded`）。源必须是 PNG/JPEG/WebP，否则 `422`（`check=image.not_image`）；解码失败也是 `422`。必须带 `Idempotency-Key` | `MediaResult` |
+| POST | `/v1/mediasvc/image/watermark` | 图片展示水印：左上角 logo、右下角文字，版式同 Java `ImageWatermarkService`（见下"图像四件套"） | `MediaResult` |
+| POST | `/v1/mediasvc/image/grid` | 1..9 张图合成自适应宫格图（PNG） | `MediaResult` |
+| POST | `/v1/mediasvc/image/crop` | 按像素矩形或行列均分裁出多张 PNG | `ImageCropResp` |
+| POST | `/v1/mediasvc/image/mark` | 在图上画红色标记（圆环 / 实心点 / 矩形 / 折线） | `MediaResult` |
 | POST | `/v1/mediasvc/image/conform` | 图片规整：长边按区间等比缩放；限定格式时转码（PNG 保留透明）；不需要处理时原样落桶 | `MediaResult` |
 | POST | `/v1/mediasvc/video/conform` | 规整：去音轨、帧率、尺寸、比例；可选截剪与过短拒收 | `MediaResult` |
 | POST | `/v1/mediasvc/compose` | 按顺序拼接 | `MediaResult` |
@@ -170,6 +174,58 @@ Content-Type: <可选，仅作提示>
 参数细节以 `media.api` 为准。例如 `seconds` 的范围是 `(0, 600]`，`factor` 的范围是 `(0, 100]`。
 
 **显式复制（`resources/copy`）**：`POST /v1/mediasvc/resources/copy`，请求体 `{"rid": "<源 rid>", "purpose": "asset_library" | "third_party"}`，必须带 `Idempotency-Key`。源已在私有桶而服务商要公有地址时，Java 显式发复制指令：源被复制到 `asset`（素材库桶）或 `deliver`（第三方桶）类别下的新 rid，新 rid 由幂等键派生，同键重放得到同一个 rid；返回的 `MediaResult` 中 `parents` 为 `["<源 rid>"]`，用于溯源。源不存在返回 `404 not_found`；`purpose` 为 `user_input` 或 `intermediate`（即目标为 user/work 类别）返回 `400 invalid_request`。
+
+### 图像四件套（`image/watermark`、`image/grid`、`image/crop`、`image/mark`）
+
+把 Java 自研 Java2D 图像计算迁到媒体服务。四个都是写操作：必须带 `Idempotency-Key`（幂等语义见"请求约定"，同键同体回放同一结果，同键异体 400），输入 `source` 为 `rid` / `url`（`key` 历史写法也可），输出经 `purpose` 落桶（`intermediate` → work 类私有桶，`third_party` → deliver 类，`asset_library` → asset 类，与 `image/resize` 相同），响应里是 `rid` 与地址。解码、缩放、合成由 ffmpeg 完成，输入支持 PNG / JPEG / WebP（`image/watermark` 只支持 PNG / JPEG，同 Java）。**所有输入按编码像素处理，不应用 EXIF 方向**（Java `ImageIO` 同样不读 EXIF），坐标与排版以此为准。
+
+通用错误：不是图片 / 解不开 / 超过 `MaxSourcePixels` → `422 source_rejected`（`check=image.not_image` 等，素材类、永久失败）；参数问题 → `400 invalid_request`；处理超时、被终止、排队过久 → `503 transient`（同键可重试）。
+
+**`image/watermark`**——请求：
+
+```json
+{"source": {"rid": "mr://..."}, "logo": {"rid": "mr://..."}, "text": "示例水印",
+ "logo_scale_percent": 15, "margin": 40, "text_size": 56, "text_opacity_percent": 85, "purpose": "intermediate"}
+```
+
+- `logo`（来源，可省）与 `text`（可省）至少一个，都没有 → `400 request.watermark_empty`。logo、文字由请求给出，服务不内置业务文案。
+- 版式（默认值同 Java `WatermarkProperties`，括号内为可覆盖的字段）：logo 画在左上角 `(margin, margin)`，宽 = `max(1, 图宽 × logo_scale_percent / 100)`，高 = `max(1, logo 高 × 宽 / logo 宽)`（整数除法，双线性缩放）；文字为无衬线粗体，白色，画在右下角，右、下各留 `margin`（`x = max(margin, 图宽 − 文字宽 − margin)`，基线 `= 图高 − margin`），带向右下偏移 2 像素、不透明度 0.6 的黑色阴影；整层不透明度为 `text_opacity_percent`（阴影实际为 0.6 × 该值）。先画 logo，再画文字。默认：`logo_scale_percent=15`、`margin=40`、`text_size=56`（像素）、`text_opacity_percent=85`。范围：`logo_scale_percent` 0..100、`margin` 0..4096、`text_size` 0..512（0 取默认）、`text_opacity_percent` 0..100（0 即不画文字）、`text` 至多 200 字符且不含换行。
+- 输出格式跟随输入：PNG 进 PNG 出（RGBA），JPEG 进 JPEG 出（先铺白底，质量约 q:v 3）。尺寸不变。
+- 字体由 fontconfig 的 `Sans:bold` 决定，镜像已装 `fonts-noto-cjk`，中文可用；换镜像须保留中文字体。
+- 错误：源或 logo 不是图片 → `422 image.not_image`；源是 WebP 等非 PNG / JPEG → `422 source_rejected`（`check=image.format_unsupported`）。logo 取不到 / 被拒同样是素材类 422（Java 是静默只画文字，这里显式失败，由调用方决定是否去掉 logo 重试）。
+
+**`image/grid`**——请求：
+
+```json
+{"sources": [{"rid": "mr://a"}, {"rid": "mr://b"}], "gap": 20, "row_height": 960, "max_side": 1920, "purpose": "intermediate"}
+```
+
+- `sources` 1..9 张（超过 → `400 request.sources_count`），顺序即排版顺序。`gap`（0..512，默认 20）、`row_height`（16..4096，默认 960）、`max_side`（64..16384，默认 1920）可省，默认值同 Java `GridImageService`。
+- 排版（逐项同 Java `merge`，整数取整一致）：各图保持比例缩放到 `row_height` 高；1 张直出（不拼格，只限制最长边）；2 张一行两列；3 张上 1 张居中、下 2 张并排居中；4 张 2+2；5..9 张每行至多 3 张（5→3+2，7→3+3+1，9→3+3+3），每行整体居中；白底（RGB，PNG 输出）；画布最长边超过 `max_side` 时整体等比缩小（边 = `int(边 × max_side / 最长边)`）。
+- 画布总像素超过 `MaxSourcePixels`（极端长宽比的输入）→ `422 image.target_pixels_exceeded`。任一张取不到或不是图片 → 整体失败（Java 是跳过该张），避免产出与输入不对应的宫格。
+
+**`image/crop`**——请求（`boxes` 与 `grid` 二选一）：
+
+```json
+{"source": {"rid": "mr://..."}, "boxes": [{"x": 0, "y": 0, "width": 100, "height": 50}], "purpose": "intermediate"}
+{"source": {"rid": "mr://..."}, "grid": {"rows": 2, "cols": 2}, "purpose": "intermediate"}
+```
+
+- 坐标语义选**像素整数**（不用归一化）：原点在左上角，`x`/`y` 为裁剪框左上角，`width`/`height` 为宽高，必须完整落在图内（越界 → `400 request.crop_out_of_bounds`，宽高 < 1 → `request.crop_box`）。像素与 Java `getSubimage` 一致，不引入浮点取整歧义。至多 64 个框。
+- `grid`：`rows × cols` 均分（≤ 64 格），行优先；单格 = `floor(W / cols) × floor(H / rows)`，余数像素丢弃（同 `HitVideoCropHandler` 的 `W/2`、`H/2`：四宫格 = `rows=2, cols=2`，16s 的二宫格 = `rows=1, cols=2`（竖版）或 `rows=2, cols=1`（16:9））。单格不足 1 像素 → `400 request.crop_grid_too_fine`。
+- 响应 `{"crops": [MediaResult, ...]}`，与请求顺序（`grid` 为行优先）一一对应，输出 PNG。每张的 `rid` 由 `Idempotency-Key` 加序号派生：同键重放得到同一组 rid，不同张互不相同。
+
+**`image/mark`**——请求：
+
+```json
+{"source": {"rid": "mr://..."}, "marks": [{"x": 100, "y": 100, "radius": 30, "color": "#ff0000"}],
+ "shape": "auto", "color": "#ff0000", "line_width": 0, "format": "jpeg", "purpose": "intermediate"}
+```
+
+- `marks` 1..64 个点，**像素坐标**（原点左上角），超出图像的点夹到 `[0, 宽-1] × [0, 高-1]`（同 Java 的 clamp）。Java 传的是 0..1 比例，迁移后由调用方先换算：`clamp(round(ratio × (边 − 1)), 0, 边 − 1)`。
+- `shape`：`auto`（默认，同 Java：1 点画圆环、2 点画轴对齐矩形、≥3 点画闭合折线）、`circle`（每点一个圆环）、`dot`（每点一个实心圆）、`rect`（须正好 2 点）、`polygon`（≥3 点）。圆 / 点的 `radius` 默认 `max(20, int(短边 × 0.03))`，圆环线宽默认 `max(3, int(radius × 0.12))`；矩形 / 折线线宽默认 `max(3, int(短边 × 0.005))`；`line_width`（1..256）可统一覆盖。`color` 为 `#RGB` / `#RRGGBB`，默认纯红；单点 `color` 优先于请求级 `color`（矩形 / 折线只用请求级 `color` 与第一个点的 `color`，不建议混用）。
+- `format`：`jpeg`（默认，质量 95，铺白底，同 Java）或 `png`（保留透明）。边缘按抗锯齿绘制。
+- 错误：`400`（`request.marks_count` / `request.shape` / `request.color` / `request.radius` / `request.line_width` / `request.format` / `request.rect_needs_two_marks` / `request.polygon_needs_three_marks`）。
 
 ### 用途与落桶（purpose）
 

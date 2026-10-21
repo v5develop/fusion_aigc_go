@@ -132,6 +132,69 @@ type (
 		Format         string `json:"format,options=png|jpeg"`
 		Purpose        string `json:"purpose,options=user_input|intermediate|asset_library|third_party"`
 	}
+	// ImageWatermarkReq 展示水印：左上角 logo、右下角文字（版式同 Java ImageWatermarkService）。logo 与 text 至少一个。
+	ImageWatermarkReq {
+		IdempotencyKey     string  `header:"Idempotency-Key"`
+		Source             Source  `json:"source"`
+		Logo               *Source `json:"logo,optional"`
+		Text               string  `json:"text,optional"`
+		LogoScalePercent   int     `json:"logo_scale_percent,optional,range=[0:100]"`
+		Margin             *int    `json:"margin,optional,range=[0:4096]"`
+		TextSize           int     `json:"text_size,optional,range=[0:512]"`
+		TextOpacityPercent *int    `json:"text_opacity_percent,optional,range=[0:100]"`
+		Purpose            string  `json:"purpose,options=user_input|intermediate|asset_library|third_party"`
+	}
+	// ImageGridReq 自适应宫格（1..9 张，排版同 Java GridImageService）。
+	ImageGridReq {
+		IdempotencyKey string   `header:"Idempotency-Key"`
+		Sources        []Source `json:"sources"`
+		Gap            *int     `json:"gap,optional,range=[0:512]"`
+		RowHeight      int      `json:"row_height,optional,range=[0:4096]"`
+		MaxSide        int      `json:"max_side,optional,range=[0:16384]"`
+		Purpose        string   `json:"purpose,options=user_input|intermediate|asset_library|third_party"`
+	}
+	// CropBox 像素矩形：原点在左上角，必须完整落在图内。
+	CropBox {
+		X      int `json:"x,range=[0:]"`
+		Y      int `json:"y,range=[0:]"`
+		Width  int `json:"width,range=[1:]"`
+		Height int `json:"height,range=[1:]"`
+	}
+	// CropGrid 行列均分：行优先，单格 floor(W/cols)×floor(H/rows)，余数丢弃。
+	CropGrid {
+		Rows int `json:"rows,range=[1:64]"`
+		Cols int `json:"cols,range=[1:64]"`
+	}
+	// ImageCropReq 裁剪：boxes 与 grid 二选一（至多 64 个输出）。
+	ImageCropReq {
+		IdempotencyKey string    `header:"Idempotency-Key"`
+		Source         Source    `json:"source"`
+		Boxes          []CropBox `json:"boxes,optional"`
+		Grid           *CropGrid `json:"grid,optional"`
+		Purpose        string    `json:"purpose,options=user_input|intermediate|asset_library|third_party"`
+	}
+	// ImageCropResp 与请求顺序（grid 为行优先）一一对应；每张有自己的 rid。
+	ImageCropResp {
+		Crops []MediaResult `json:"crops"`
+	}
+	// MarkPoint 像素坐标（原点左上角，越界夹到边缘）。
+	MarkPoint {
+		X      int    `json:"x"`
+		Y      int    `json:"y"`
+		Radius int    `json:"radius,optional,range=[0:8192]"`
+		Color  string `json:"color,optional"`
+	}
+	// ImageMarkReq 画标记。shape: auto（1 点圆环 / 2 点矩形 / ≥3 点折线，同 Java）|circle|dot|rect|polygon。
+	ImageMarkReq {
+		IdempotencyKey string      `header:"Idempotency-Key"`
+		Source         Source      `json:"source"`
+		Marks          []MarkPoint `json:"marks"`
+		Shape          string      `json:"shape,optional,options=auto|circle|dot|rect|polygon"`
+		Color          string      `json:"color,optional"`
+		LineWidth      int         `json:"line_width,optional,range=[0:256]"`
+		Format         string      `json:"format,optional,options=jpeg|png"`
+		Purpose        string      `json:"purpose,options=user_input|intermediate|asset_library|third_party"`
+	}
 	UploadTargetReq {
 		Class   string `json:"class,options=user"`
 		Store   string `json:"store,options=private"`
@@ -273,6 +336,22 @@ service media {
 	@doc "图片精确尺寸缩放：输出 width×height（不保比例）；png 仅在源图有 alpha < 255 的像素时保留 alpha，否则写 RGB；jpeg 铺白底"
 	@handler ImageResize
 	post /image/resize (ImageResizeReq) returns (MediaResult)
+
+	@doc "图片展示水印：左上角 logo、右下角文字（带阴影），版式同 Java ImageWatermarkService；仅 PNG/JPEG，输出格式同输入"
+	@handler ImageWatermark
+	post /image/watermark (ImageWatermarkReq) returns (MediaResult)
+
+	@doc "自适应宫格：1..9 张，同行等高、整行居中、白底，最长边限制；排版同 Java GridImageService"
+	@handler ImageGrid
+	post /image/grid (ImageGridReq) returns (MediaResult)
+
+	@doc "图片裁剪：像素矩形或行列均分，输出多张 PNG（各有 rid，按请求顺序）"
+	@handler ImageCrop
+	post /image/crop (ImageCropReq) returns (ImageCropResp)
+
+	@doc "图片打标：像素坐标画圆环 / 实心点 / 矩形 / 折线，默认红色，JPEG 95（可选 PNG）"
+	@handler ImageMark
+	post /image/mark (ImageMarkReq) returns (MediaResult)
 
 	@doc "配音时间线：按起点拼成整条音轨（m4a）"
 	@handler AudioTimeline
