@@ -13,7 +13,6 @@ import (
 	"aigc-local-life/app/imagegen/rpc/internal/svc"
 	"aigc-local-life/pkg/aigc"
 	"aigc-local-life/pkg/asset"
-	"aigc-local-life/pkg/storage"
 
 	"github.com/zeromicro/go-zero/core/logx"
 )
@@ -171,7 +170,7 @@ func hasCover(c *model.AfvVideoCreation) bool {
 	return c.CoverUrl.Valid && c.CoverUrl.String != ""
 }
 
-// remakeFrameCover 复刻成片抽代表帧（由共享媒体服务完成），转存到公有桶后返回地址。
+// remakeFrameCover 复刻成片抽代表帧，由共享媒体服务完成抽帧、落桶（素材库桶），这里只拿回它的地址。
 // 封面是展示优化：任何一步失败都只记 cover_skipped 并返回空串，任务照常交付。
 func remakeFrameCover(ctx context.Context, svcCtx *svc.ServiceContext, c *model.AfvVideoCreation, videoURL string) string {
 	trace := aigc.Trace{Service: "imagegen", Kind: c.Kind, Stage: "cover", RecordID: c.Id, UserID: c.UserId,
@@ -180,13 +179,7 @@ func remakeFrameCover(ctx context.Context, svcCtx *svc.ServiceContext, c *model.
 		aigc.LogCoverSkipped(ctx, trace, errors.New("未配置媒体服务"))
 		return ""
 	}
-	data, err := svcCtx.MediaSvc.Cover(ctx, videoURL)
-	if err != nil {
-		aigc.LogCoverSkipped(ctx, trace, err)
-		return ""
-	}
-	key := storage.ObjectKey(svcCtx.Config.Storage.Prefix, "image", c.UserId, "jpg")
-	url, err := svcCtx.Storage.Put(ctx, key, "image/jpeg", data)
+	url, err := svcCtx.MediaSvc.CoverURL(ctx, videoURL)
 	if err != nil {
 		aigc.LogCoverSkipped(ctx, trace, err)
 		return ""

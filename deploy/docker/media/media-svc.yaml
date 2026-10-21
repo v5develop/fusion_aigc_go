@@ -2,6 +2,12 @@
 Listen: ${MEDIA_LISTEN}
 # 与调用方（Java app.media-service.token、Go imagegen）保持一致；为空时服务拒绝启动
 Token: ${MEDIA_SERVICE_TOKEN}
+# 运维定位接口（对象键与桶，仅运维用）的令牌；留空则该接口不开放。与业务令牌分开。
+OpsToken: ${MEDIA_OPS_TOKEN}
+# 本实例的稳定 ID（6 位小写字母或数字），部署时生成并持久化；资源 ID 嵌入它，不随 IP 变化
+InstanceID: ${MEDIA_INSTANCE_ID}
+# 派生资源 ID 与对象键的 HMAC 密钥（至少 32 字节）。丢失则已有资源的对象键无法重算，必须备份
+IdentitySecret: ${MEDIA_IDENTITY_SECRET}
 # 注册中心（r-nacos，Nacos 协议）：MEDIA_NACOS_SERVER_ADDR 留空则不注册（静态地址部署）；MEDIA_ADVERTISE_URL 是调用方访问本实例的地址（必须是 IP）。
 # 开启 OpenAPI 鉴权时（RNACOS_ENABLE_OPEN_API_AUTH=true）必须给 Username/Password（与 r-nacos 初始化管理员账号一致），否则注册会被拒。
 Registry:
@@ -16,10 +22,41 @@ FFmpeg: ffmpeg
 FFprobe: ffprobe
 # 水印 logo 路径：镜像默认 /app/logo.png（挂载提供）；为空则水印接口返回 logo_unavailable
 LogoPath: ${MEDIA_LOGO_PATH}
-MaxInputBytes: 209715200
+# 单个输入的体积上限（字节）。大视频下载慢，默认 1 GiB；由 compose 的 MEDIA_MAX_INPUT_BYTES 提供默认值
+MaxInputBytes: ${MEDIA_MAX_INPUT_BYTES}
+# 我方产物字节上传的体积上限（字节），默认 2 GiB，与 Java 的 GATEWAY_RESULT_MAX_BYTES 对齐
+StoreLocalMaxBytes: ${MEDIA_STORE_LOCAL_MAX_BYTES}
 MaxComposeInputs: 50
 MaxConcurrent: 4
-FetchTimeoutSeconds: 300
-OpTimeoutSeconds: 900
+# 单个输入下载的总时长上限（秒）：大视频下载会慢，由 MEDIA_FETCH_TIMEOUT_SECONDS 配置
+FetchTimeoutSeconds: ${MEDIA_FETCH_TIMEOUT_SECONDS}
+# 单次操作（ffmpeg、校验、下载之外的处理）与单次请求的时长上限（秒）：由 MEDIA_OP_TIMEOUT_SECONDS 配置
+# 调用方（Java）的 HTTP 超时必须大于它，否则会先于媒体服务超时
+OpTimeoutSeconds: ${MEDIA_OP_TIMEOUT_SECONDS}
+# 允许接收调用方请求头（凭证）的素材主机，逗号分隔；留空则拒绝所有带 headers 的 ingest
+IngestHeaderHosts: ${MEDIA_INGEST_HEADER_HOSTS}
 # 线上必须为 false：开了就能让服务去访问内网地址（SSRF）。只有本地 e2e 才由 main.go 读 MEDIA_ALLOW_PRIVATE_HOSTS=true 打开
 AllowPrivateHosts: false
+# 写操作幂等结果的保留时长（分钟）：同一个 Idempotency-Key 在此期间重放得到同一结果
+IdempotencyMinutes: 120
+# 对象存储（OSS）。MEDIA_OSS_ENABLED=false 时退回容器内的本地目录（只用于开发，线上必须开启）。
+# 密钥只从环境变量注入，不写进文件。私有桶放 user_input / intermediate；asset_library、third_party 各自一个桶（可配成同一个桶）。
+OSS:
+  Enabled: ${MEDIA_OSS_ENABLED}
+  PresignMinutes: ${MEDIA_OSS_PRESIGN_MINUTES}
+  Private:
+    Endpoint: ${MEDIA_OSS_PRIVATE_ENDPOINT}
+    Bucket: ${MEDIA_OSS_PRIVATE_BUCKET}
+    AccessKey: ${MEDIA_OSS_PRIVATE_ACCESS_KEY}
+    SecretKey: ${MEDIA_OSS_PRIVATE_SECRET_KEY}
+  AssetLibrary:
+    Endpoint: ${MEDIA_OSS_ASSET_ENDPOINT}
+    Bucket: ${MEDIA_OSS_ASSET_BUCKET}
+    AccessKey: ${MEDIA_OSS_ASSET_ACCESS_KEY}
+    SecretKey: ${MEDIA_OSS_ASSET_SECRET_KEY}
+    CustomDomain: ${MEDIA_OSS_ASSET_CUSTOM_DOMAIN}
+  ThirdParty:
+    Endpoint: ${MEDIA_OSS_THIRD_ENDPOINT}
+    Bucket: ${MEDIA_OSS_THIRD_BUCKET}
+    AccessKey: ${MEDIA_OSS_THIRD_ACCESS_KEY}
+    SecretKey: ${MEDIA_OSS_THIRD_SECRET_KEY}
