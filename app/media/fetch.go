@@ -10,6 +10,9 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -18,6 +21,18 @@ import (
 const maxRedirects = 5
 
 var errBlockedAddress = errors.New("地址不允许访问（内网 / 回环 / 保留地址）")
+
+// 重定向的永久错误（素材地址本身的问题，重试没有意义）：经 client.Do 返回时包在 *url.Error 里，用 errors.Is 识别。
+var (
+	errTooManyRedirects  = errors.New("重定向次数过多")
+	errRedirectForbidden = errors.New("重定向到不允许的地址（协议或内网）")
+)
+
+// redirectTraceKey 请求上下文里挂一个 *redirectTrace，CheckRedirect 记下是否发生过跳转：
+// 建连时被拦的内网地址（DNS 解析后才知道）如果出现在跳转之后，按"重定向到被禁止的地址"归类。
+type redirectTraceKey struct{}
+
+type redirectTrace struct{ hops atomic.Int32 }
 
 // fetcher 下载输入视频。防 SSRF 的要点：
 //   - 只放行 http / https；
@@ -53,10 +68,17 @@ func newFetcher(cfg Config) *fetcher {
 			Timeout:   time.Duration(cfg.FetchTimeoutSeconds) * time.Second,
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
 				if len(via) >= maxRedirects {
-					return errors.New("重定向次数过多")
+					return errTooManyRedirects
 				}
-				if err := checkScheme(req.URL); err != nil {
-					return err
+				if rt, ok := req.Context().Value(redirectTraceKey{}).(*redirectTrace); ok {
+					rt.hops.Add(1)
+				}
+				if req.URL.Scheme != "http" && req.URL.Scheme != "https" {
+					return errRedirectForbidden
+				}
+				// 跳转目标直接写成 IP 的，不必等到建连：内网 / 保留地址当场拒绝（域名的在 Dial 的 Control 里拦）
+				if ip := net.ParseIP(req.URL.Hostname()); ip != nil && !cfg.AllowPrivateHosts && !publicIP(ip) {
+					return errRedirectForbidden
 				}
 				// 带请求头的下载：跳到别的来源（主机或协议不同）时，调用方的头一律剥掉，只保留同来源的跳转
 				if !sameOrigin(via[0].URL, req.URL) {
@@ -120,9 +142,64 @@ func transientUpstreamStatus(code int) bool {
 	return code == http.StatusForbidden || code == http.StatusRequestTimeout || code == http.StatusTooManyRequests
 }
 
+// classifyFetchError 分类 client.Do 的错误。重定向次数过多、重定向到被禁止的地址（非 http/https 协议、内网 / 保留地址）
+// 是素材地址本身的问题，判永久（422 source_unavailable）；首跳就是内网地址保持原分类（422 source_rejected）；
+// 其余（超时、连接被拒或中断、DNS 临时失败、TLS 握手失败）仍是瞬时（503 transient）。
+func classifyFetchError(err error, redirected bool) error {
+	switch {
+	case errors.Is(err, errTooManyRedirects):
+		return sourceUnavailable("source.redirect_too_many", errTooManyRedirects.Error())
+	case errors.Is(err, errRedirectForbidden):
+		return sourceUnavailable("source.redirect_forbidden", errRedirectForbidden.Error())
+	case errors.Is(err, errBlockedAddress):
+		if redirected {
+			return sourceUnavailable("source.redirect_forbidden", errRedirectForbidden.Error())
+		}
+		return badInput(errBlockedAddress.Error())
+	}
+	return unavailable(fmt.Sprintf("下载视频失败: %v", err))
+}
+
+// maxRetryAfterSeconds 透传给调用方的 Retry-After 上限（秒）。
+// 截断理由：Retry-After 由源站（第三方 CDN / 对象存储）控制，不受信任；调用方（Java 工作流）按它推迟重试，
+// 过大的值会把任务挂住远超一次处理的排队上限（queueWaitCap 同为 120 秒），恶意或配置错误的源站可借此拖住任务。
+// 超过 120 秒的冷却交给调用方自己的退避策略。
+const maxRetryAfterSeconds = 120
+
+// parseRetryAfter 解析 Retry-After（RFC 9110 §10.2.3：非负整数秒，或 HTTP 日期），返回秒数，截到 [1, 120]。
+// 没有或格式非法返回 0（由 writeAPIError 回落默认 5 秒）。0 秒或已过去的日期按 1 秒，避免调用方零间隔重试。
+func parseRetryAfter(v string, now time.Time) int {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return 0
+	}
+	var secs int64
+	if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+		if n < 0 {
+			return 0
+		}
+		secs = n
+	} else if errors.Is(err, strconv.ErrRange) && v[0] != '-' {
+		secs = maxRetryAfterSeconds // 超出 int64 的秒数：按上限
+	} else if t, err := http.ParseTime(v); err == nil {
+		d := t.Sub(now)
+		secs = int64((d + time.Second - 1) / time.Second) // 向上取整，不早于源站要求的时刻
+	} else {
+		return 0
+	}
+	switch {
+	case secs < 1:
+		return 1
+	case secs > maxRetryAfterSeconds:
+		return maxRetryAfterSeconds
+	}
+	return int(secs)
+}
+
 // download 把 rawURL 的内容存到 dir/name，返回本地路径。
 // 分类：体积超限、地址不合规（422 source_rejected）；源站 404 / 410 与其它 4xx（除上面几个）为 source_unavailable（422，永久）；
-// 源站 5xx、429、408、403、超时、连接中断、DNS 临时失败为 transient（503，可重试）。
+// 重定向次数过多、重定向到被禁止的地址为 source_unavailable（422，永久，见 classifyFetchError）；
+// 源站 5xx、429、408、403、超时、连接中断、DNS 临时失败为 transient（503，可重试），源站的 Retry-After 透传（见 parseRetryAfter）。
 func (f *fetcher) download(ctx context.Context, rawURL, dir, name string) (string, error) {
 	return f.downloadWithHeaders(ctx, rawURL, nil, dir, name)
 }
@@ -137,7 +214,8 @@ func (f *fetcher) downloadWithHeaders(ctx context.Context, rawURL string, header
 	if err := checkScheme(u); err != nil {
 		return "", err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	trace := &redirectTrace{}
+	req, err := http.NewRequestWithContext(context.WithValue(ctx, redirectTraceKey{}, trace), http.MethodGet, rawURL, nil)
 	if err != nil {
 		return "", badInput("视频地址无效")
 	}
@@ -148,14 +226,12 @@ func (f *fetcher) downloadWithHeaders(ctx context.Context, rawURL string, header
 	}
 	resp, err := f.client.Do(req)
 	if err != nil {
-		if errors.Is(err, errBlockedAddress) {
-			return "", badInput(errBlockedAddress.Error())
-		}
-		return "", unavailable(fmt.Sprintf("下载视频失败: %v", err))
+		return "", classifyFetchError(err, trace.hops.Load() > 0)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 500 || transientUpstreamStatus(resp.StatusCode) {
-		return "", unavailable(fmt.Sprintf("源站返回 %d", resp.StatusCode))
+		return "", unavailableRetryAfter(fmt.Sprintf("源站返回 %d", resp.StatusCode),
+			parseRetryAfter(resp.Header.Get("Retry-After"), time.Now()))
 	}
 	if resp.StatusCode != http.StatusOK {
 		return "", upstreamBadInput(resp.StatusCode, fmt.Sprintf("源站返回 %d", resp.StatusCode))

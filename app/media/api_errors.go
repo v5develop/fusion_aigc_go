@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 )
 
 // 契约错误码（media.api / 草稿第 7 节）。unauthorized 是契约外的补充，用于鉴权失败。
@@ -36,7 +37,12 @@ type apiError struct {
 	status    int
 	// cause 仅内部错误保留原始错误，由 writeAPIError 带追踪号写日志（不回给调用方）
 	cause error
+	// retryAfter 503 时回给调用方的 Retry-After 秒数；0 用默认值 defaultRetryAfterSeconds
+	retryAfter int
 }
+
+// defaultRetryAfterSeconds 没有更具体的建议时，503 的 Retry-After。
+const defaultRetryAfterSeconds = 5
 
 func (e *apiError) Error() string { return e.Code + ": " + e.Check }
 
@@ -101,12 +107,17 @@ func classifyError(err error) *apiError {
 	if errors.As(err, &oe) {
 		switch oe.kind {
 		case kindBadInput:
+			if oe.sourceCheck != "" {
+				return newAPIError(codeSourceUnavailable, oe.sourceCheck)
+			}
 			if oe.upstream > 0 {
 				return newAPIError(codeSourceUnavailable, fmt.Sprintf("source.fetch_status=%d", oe.upstream))
 			}
 			return newAPIError(codeSourceRejected, "media.input_rejected")
 		case kindUnavailable:
-			return newAPIError(codeTransient, "media.processing_or_fetch_transient")
+			e := newAPIError(codeTransient, "media.processing_or_fetch_transient")
+			e.retryAfter = oe.retryAfter
+			return e
 		case kindLogoUnavailable:
 			e := newAPIError(codeInternal, "config.watermark_logo_missing")
 			e.Retryable = false
@@ -126,7 +137,11 @@ func writeAPIError(w http.ResponseWriter, err error) {
 		log.Printf("media internal error trace_id=%s: %v", traceIDOf(w), e.cause)
 	}
 	if e.status == http.StatusServiceUnavailable {
-		w.Header().Set("Retry-After", "5")
+		ra := e.retryAfter
+		if ra <= 0 {
+			ra = defaultRetryAfterSeconds
+		}
+		w.Header().Set("Retry-After", strconv.Itoa(ra))
 	}
 	writeJSON(w, e.status, map[string]any{"error": map[string]any{
 		"code":      e.Code,

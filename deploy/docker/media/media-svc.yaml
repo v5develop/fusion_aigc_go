@@ -39,6 +39,17 @@ IngestHeaderHosts: ${MEDIA_INGEST_HEADER_HOSTS}
 AllowPrivateHosts: false
 # 写操作幂等结果的保留时长（分钟）：同一个 Idempotency-Key 在此期间重放得到同一结果
 IdempotencyMinutes: 120
+# 幂等记录的存储。生产必须是 redis（默认；MEDIA_IDEMPOTENCY_STORE 留空即 redis）：所有实例共享，
+# 路由失效 / 重启 / 换实例时同一个 Idempotency-Key 不会重算（不重复调用供应商、不重复产生成本）。
+# MEDIA_REDIS_ADDR 必填（如 127.0.0.1:46379），未配置时服务拒绝启动；Redis 运行中不可用时写请求返回 503 transient
+# （check=idem.store_unavailable），不降级到内存。memory 只用于单机开发。
+# 键前缀 mediasvc:idem:，库号 5（与 Java 0 号库、网关 4 号库分开）。
+Idempotency:
+  Store: ${MEDIA_IDEMPOTENCY_STORE}
+  Redis:
+    Addr: ${MEDIA_REDIS_ADDR}
+    Password: ${MEDIA_REDIS_PASSWORD}
+    DB: 5
 # 对象存储（OSS）。MEDIA_OSS_ENABLED=false 时退回容器内的本地目录（只用于开发，线上必须开启）。
 # 密钥只从环境变量注入，不写进文件。私有桶放 user_input / intermediate；asset_library、third_party 各自一个桶（可配成同一个桶）。
 OSS:

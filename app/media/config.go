@@ -51,6 +51,8 @@ type Config struct {
 	InputCacheMinutes int `json:",default=5"`
 	// IdempotencyMinutes 写操作幂等结果的保留时长（分钟）。同一个 Idempotency-Key 在此期间重放得到同一结果
 	IdempotencyMinutes int `json:",default=120"`
+	// Idempotency 幂等记录的存储（Idempotency.Store: redis | memory，默认 redis，多实例共享）。见 idem_store.go
+	Idempotency IdempotencyConfig `json:",optional"`
 	// InputCacheMaxBytes 输入缓存的配置上限（单实例，默认 10 GiB）。实际上限还要不超过磁盘可用空间的 30%（见 effectiveCacheCap）。
 	// 超过时淘汰空闲且最早过期的文件；正在使用的不删，可能暂时超出
 	InputCacheMaxBytes int64 `json:",default=10737418240"` // 10 GiB

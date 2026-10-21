@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 
 	"github.com/zeromicro/go-zero/core/conf"
 )
@@ -45,6 +46,9 @@ func TestDeployConfigLoads(t *testing.T) {
 		"MEDIA_OSS_THIRD_BUCKET":        "third",
 		"MEDIA_OSS_THIRD_ACCESS_KEY":    "AK3",
 		"MEDIA_OSS_THIRD_SECRET_KEY":    "SK3",
+		"MEDIA_IDEMPOTENCY_STORE":       "",
+		"MEDIA_REDIS_ADDR":              "127.0.0.1:46379",
+		"MEDIA_REDIS_PASSWORD":          "pw",
 	}
 	for k, v := range env {
 		t.Setenv(k, v)
@@ -58,6 +62,18 @@ func TestDeployConfigLoads(t *testing.T) {
 	}
 	if cfg.IdempotencyMinutes != 120 {
 		t.Fatalf("IdempotencyMinutes = %d", cfg.IdempotencyMinutes)
+	}
+	// 幂等存储：MEDIA_IDEMPOTENCY_STORE 留空按 redis（生产默认），地址按环境变量展开
+	if cfg.Idempotency.Redis.Addr != "127.0.0.1:46379" || cfg.Idempotency.Redis.Password != "pw" || cfg.Idempotency.Redis.DB != 5 {
+		t.Fatalf("幂等存储的 Redis 配置没有按环境变量展开: %+v", cfg.Idempotency.Redis)
+	}
+	store, closeStore, err := newIdemStoreFromConfig(cfg.Idempotency, time.Minute, time.Second)
+	if err != nil {
+		t.Fatalf("部署配置生成的幂等存储无效: %v", err)
+	}
+	defer closeStore()
+	if _, ok := store.(*redisIdemStore); !ok {
+		t.Fatalf("部署配置的默认幂等存储应为 redis，得到 %T", store)
 	}
 	if cfg.MaxInputBytes != 1073741824 || cfg.StoreLocalMaxBytes != 2<<30 {
 		t.Fatalf("输入上限 %d / 产物上限 %d 没有按环境变量展开", cfg.MaxInputBytes, cfg.StoreLocalMaxBytes)

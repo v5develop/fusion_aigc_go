@@ -21,3 +21,6 @@ FetchTimeoutSeconds: 300
 OpTimeoutSeconds: 900
 # 仅本地联调可开；线上必须为 false
 AllowPrivateHosts: false
+# 本地单机开发用内存幂等存储（启动时会打印警告）；多实例 / 生产必须用 redis（见 deploy/docker/media/media-svc.yaml）
+Idempotency:
+  Store: memory

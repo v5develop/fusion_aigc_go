@@ -71,12 +71,13 @@ docker compose -f docker-compose.media.yml --env-file media.env up -d
 - 基础路径：`/v1/mediasvc`，`Content-Type: application/json`。
 - `/healthz` 不加前缀，不需要鉴权。
 - **写操作**（`ingest`、`cover`、`watermark`、`video/trim`、`video/conform`、`image/conform`、`image/resize`、`image/watermark`、`image/grid`、`image/crop`、`image/mark`、`compose`、`audio/extract`、`audio/timeline`、`video/replace-audio`、`video/burn-subtitles`、`video/adjust-duration`、`delete`）必须带 `Idempotency-Key` 头，缺失返回 400。幂等规则（按 路由 + 键 索引）：
-  - 已成功完成、且请求体一致：原样回放上次的状态码和响应体，响应带 `Idempotent-Replayed: true`，不重复处理；
+  - 已成功完成、且请求体一致：原样回放上次的状态码、响应头和响应体，响应带 `Idempotent-Replayed: true`，不重复处理；
   - 同一个键但请求体不同：400 `invalid_request`（check=`request.idempotency_key_reused`）；
   - 同一个键正在处理中：503，`Retry-After: 5`，用同一个键稍后重试；
   - 处理过程中 panic：返回 500 `internal`（`retryable: true`），不缓存，同一个键可以重试；
   - 只缓存 2xx 结果，错误不缓存，用同一个键重试会重新执行。
-  - 结果保留 `IdempotencyMinutes`（默认 120 分钟）。缓存只在本实例内有效，多实例之间不共享。
+  - 结果保留 `IdempotencyMinutes`（默认 120 分钟）。记录存在 `Idempotency.Store`：生产为 `redis`（默认），所有实例共享，路由失效、重启或换实例时同一个键不会重算；`memory` 只在本实例内有效，仅用于单机开发（启动时打印警告）。
+  - 幂等存储（Redis）不可用：503 `transient`（check=`idem.store_unavailable`），请求不执行、不降级到内存，用同一个键稍后重试。
 - 可选的 `deadline_ms`（请求体字段，毫秒）：本次请求最多处理这么久。超过服务端上限（`OpTimeoutSeconds`）时截到上限。超时后处理被取消，返回 503 `transient`，带 `Retry-After`，调用方用同一个 `Idempotency-Key` 重试。不带时用服务端上限。
 - 长操作超过服务端超时时同样返回 503，`Retry-After` 给出等待秒数。
 
@@ -278,7 +279,7 @@ Content-Type: <可选，仅作提示>
 
 | code | 含义 | Java 工作流对应的失败 | retryable |
 |---|---|---|---|
-| `source_unavailable` | 源站返回 404 / 410 或其它 4xx（403、408、429 除外）、对象不存在 | 素材不可用 | false |
+| `source_unavailable` | 源站返回 404 / 410 或其它 4xx（403、408、429 除外）、对象不存在；重定向次数过多（check=`source.redirect_too_many`）、重定向到被禁止的地址（非 http/https 协议、内网 / 保留地址，check=`source.redirect_forbidden`） | 素材不可用 | false |
 | `source_rejected` | 不是合法的媒体、解码被拒、超过大小、格式不支持、比例越界 | 素材被拒 | false |
 | `source_too_short` | 参考视频比请求的 `seconds` 短（仅 `video/conform`） | 素材被拒 | false |
 | `forbidden_purpose` | 不允许的操作（如删除 `user` 类别、删除历史 `sha256/` 路径） | 内部错误 | false |
@@ -288,6 +289,8 @@ Content-Type: <可选，仅作提示>
 | `resource_deleted` | 对象处于待删除状态（软删除宽限期内），读取与签发地址被拒，HTTP 410 | 素材不可用 | false |
 | `grace_expired` | 宽限期已过，不能再撤销（清理任务即将或已经删除它），HTTP 409 | 素材不可用 | false |
 | `transient` | 资源紧张、超时、下游暂时不可用；源站 5xx、429、408、403（签名过期、CDN 拦截常见）、连接中断、DNS 临时失败 | 暂时失败 | true |
+
+503 `transient` 都带 `Retry-After`（整数秒）：源站给了 `Retry-After`（秒数或 HTTP 日期）时换算成秒数透传，最少 1 秒、最多 120 秒（源站不受信任，过大的值会把调用方任务挂住，超出部分交给调用方自己的退避）；没有则为 5 秒。
 | `internal` | 未知错误 | 暂时失败 | true |
 
 - `check` 字段给出判据（如 `source.fetch_status=403`、`media.decode_rejected`），便于排障。

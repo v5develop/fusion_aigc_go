@@ -55,6 +55,9 @@ func newTestServer(t *testing.T, cfg Config) *httptest.Server {
 		cfg.OpTimeoutSeconds = 120
 	}
 	cfg.TempDir = t.TempDir()
+	if cfg.Idempotency.Store == "" {
+		cfg.Idempotency.Store = IdemStoreMemory
+	}
 	if cfg.ObjectDir == "" {
 		cfg.ObjectDir = filepath.Join(t.TempDir(), "objects")
 	}

@@ -84,22 +84,13 @@ func (s *Server) uploadBytes(w http.ResponseWriter, r *http.Request) {
 
 	// 摘要算出后再做幂等检查：重放直接返回已存的结果，同键不同体拒绝
 	idemKey := "ingest/upload|" + key
-	entry, state := s.idem.begin(idemKey, digest)
-	switch state {
-	case idemReplay:
-		writeReplay(w, entry)
-		return
-	case idemConflict:
-		writeAPIError(w, invalid("request.idempotency_key_reused"))
-		return
-	case idemBusy:
-		w.Header().Set("Retry-After", "5")
-		writeAPIError(w, newAPIError(codeTransient, "request.idempotency_in_flight"))
+	hold, ok := s.beginIdem(ctx, w, idemKey, digest)
+	if !ok {
 		return
 	}
 	// 没有成功就清掉"处理中"标记（非 2xx 不缓存），让同一个键可以重试；panic 按 500 结束（见 settleIdem）
 	succeeded := false
-	defer settleIdem(w, s.idem, idemKey, digest, &succeeded)
+	defer settleIdem(ctx, w, s.idem, hold, &succeeded)
 
 	jobCtx = withIdemKey(jobCtx, key)
 	out, err := s.ingestLocal(jobCtx, purpose, path)
@@ -112,7 +103,7 @@ func (s *Server) uploadBytes(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, err)
 		return
 	}
-	s.idem.finish(idemKey, digest, http.StatusOK, "application/json", body)
+	s.finishIdem(ctx, hold, http.StatusOK, http.Header{"Content-Type": {"application/json"}}, body)
 	succeeded = true
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)

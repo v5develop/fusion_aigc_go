@@ -32,6 +32,7 @@ func newSoftDeleteFixture(t *testing.T) *softDeleteFixture {
 		ObjectDir: filepath.Join(t.TempDir(), "objects"), TempDir: t.TempDir(),
 		MaxConcurrent: 2, MaxInputBytes: 50 << 20, FetchTimeoutSeconds: 60, OpTimeoutSeconds: 120,
 		MaxComposeInputs: 5, DeleteGraceMinutes: 60, SweepIntervalMinutes: 60,
+		Idempotency: IdempotencyConfig{Store: IdemStoreMemory},
 	})
 	if err != nil {
 		t.Fatal(err)

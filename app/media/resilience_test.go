@@ -405,8 +405,8 @@ func TestUploadBytesSizeLimitsDependOnPurpose(t *testing.T) {
 // ---- M8：同键处理中的状态码是 503 + Retry-After ----
 
 func TestIdempotentBusyIsServiceUnavailable(t *testing.T) {
-	s := &Server{idem: newIdemStore(time.Minute)}
-	if _, state := s.idem.begin("route|k", [32]byte{}); state != idemFresh {
+	s := &Server{idem: newMemIdemStore(time.Minute)}
+	if _, state, _, _ := s.idem.begin(context.Background(), "route|k", [32]byte{}); state != idemFresh {
 		t.Fatal("第一次应占用成功")
 	}
 	h := s.idempotent("route", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })

@@ -19,7 +19,7 @@ const apiPrefix = "/v1/mediasvc"
 type Server struct {
 	svc     *Service
 	objects ObjectStore
-	idem    *idemStore
+	idem    idemStore
 	id      *identity
 	// opCeiling 单次请求超时的上限（来自 OpTimeoutSeconds）；deadline_ms 超过它时截到它
 	opCeiling time.Duration
@@ -71,6 +71,10 @@ func NewServer(cfg Config) (*Server, error) {
 		objects = store
 	}
 	idemTTL := time.Duration(cfg.IdempotencyMinutes) * time.Minute
+	idem, closeIdem, err := newIdemStoreFromConfig(cfg.Idempotency, idemTTL, defaultIdemLease)
+	if err != nil {
+		return nil, err
+	}
 	if cfg.DeleteGraceMinutes < 0 {
 		return nil, errors.New("media: DeleteGraceMinutes 不能为负")
 	}
@@ -78,8 +82,9 @@ func NewServer(cfg Config) (*Server, error) {
 	if sweepEvery <= 0 {
 		sweepEvery = time.Hour
 	}
-	s := &Server{svc: NewService(cfg), objects: objects, id: id, idem: newIdemStore(idemTTL), opCeiling: time.Duration(cfg.OpTimeoutSeconds) * time.Second, token: cfg.Token, opsToken: cfg.OpsToken, mux: http.NewServeMux(),
+	s := &Server{svc: NewService(cfg), objects: objects, id: id, idem: idem, opCeiling: time.Duration(cfg.OpTimeoutSeconds) * time.Second, token: cfg.Token, opsToken: cfg.OpsToken, mux: http.NewServeMux(),
 		now: time.Now, grace: time.Duration(cfg.DeleteGraceMinutes) * time.Minute, sweepEvery: sweepEvery}
+	s.closers = append(s.closers, closeIdem)
 	s.owners = newOwnerPicker(cfg, id.instanceID, &s.closers)
 	s.mux.HandleFunc("GET /healthz", s.healthz)
 	s.mux.HandleFunc("GET "+apiPrefix+"/capabilities", s.auth(s.capabilities))

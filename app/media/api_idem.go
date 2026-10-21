@@ -9,84 +9,14 @@ import (
 	"log"
 	"net/http"
 	"runtime/debug"
-	"sync"
-	"time"
 )
 
-// 写操作的幂等结果缓存（契约 §2）。进程内存，按 路由 + Idempotency-Key 索引：
-//   - 已完成且请求体一致：原样回放上次的状态码和响应体（不重复处理）；
-//   - 已完成但请求体不同：422，同一个键不能用于不同的请求；
+// 写操作的幂等结果（契约 §2）。存储与语义见 idem_store.go：
+//   - 已完成且请求体一致：原样回放上次的状态码、响应头和响应体（不重复处理）；
+//   - 已完成但请求体不同：400 invalid_request，同一个键不能用于不同的请求；
 //   - 同一个键正在处理中：503 + Retry-After: 5（瞬时语义），5 秒后用同一键重试；
+//   - 幂等存储不可用：503 transient（check=idem.store_unavailable），不执行、不降级；
 //   - 只缓存成功（2xx）的结果。错误不缓存，调用方用同一个键重试会重新执行。
-//
-// 注意：只在本实例内有效；多实例之间不共享（与输入缓存的限制相同）。
-type idemStore struct {
-	mu       sync.Mutex
-	ttl      time.Duration
-	now      func() time.Time
-	done     map[string]idemEntry
-	inflight map[string][32]byte
-}
-
-type idemEntry struct {
-	digest      [32]byte
-	status      int
-	contentType string
-	body        []byte
-	at          time.Time
-}
-
-// sweepAt 已完成的条目超过这个数量时，写入时顺便清理过期的条目。
-const sweepAt = 1024
-
-func newIdemStore(ttl time.Duration) *idemStore {
-	return &idemStore{ttl: ttl, now: time.Now, done: map[string]idemEntry{}, inflight: map[string][32]byte{}}
-}
-
-type idemState int
-
-const (
-	idemFresh idemState = iota
-	idemReplay
-	idemConflict
-	idemBusy
-)
-
-// begin 查询并占用一个键。idemFresh 表示占用成功，调用方必须再调用 finish。
-func (s *idemStore) begin(key string, digest [32]byte) (idemEntry, idemState) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if e, ok := s.done[key]; ok && s.now().Sub(e.at) < s.ttl {
-		if e.digest != digest {
-			return idemEntry{}, idemConflict
-		}
-		return e, idemReplay
-	}
-	if _, busy := s.inflight[key]; busy {
-		return idemEntry{}, idemBusy
-	}
-	s.inflight[key] = digest
-	return idemEntry{}, idemFresh
-}
-
-// finish 释放占用；2xx 结果写入缓存。
-func (s *idemStore) finish(key string, digest [32]byte, status int, contentType string, body []byte) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	delete(s.inflight, key)
-	if status < 200 || status > 299 {
-		return
-	}
-	now := s.now()
-	if len(s.done) >= sweepAt {
-		for k, e := range s.done {
-			if now.Sub(e.at) >= s.ttl {
-				delete(s.done, k)
-			}
-		}
-	}
-	s.done[key] = idemEntry{digest: digest, status: status, contentType: contentType, body: body, at: now}
-}
 
 // captureWriter 记录 handler 的输出，以便结果既能回给调用方，也能缓存。
 type captureWriter struct {
@@ -145,24 +75,15 @@ func (s *Server) idempotent(route string, next http.HandlerFunc) http.HandlerFun
 		digest := sha256.Sum256(raw)
 		k := route + "|" + key
 
-		entry, state := s.idem.begin(k, digest)
-		switch state {
-		case idemReplay:
-			writeReplay(w, entry)
-			return
-		case idemConflict:
-			writeAPIError(w, invalid("request.idempotency_key_reused"))
-			return
-		case idemBusy:
-			w.Header().Set("Retry-After", "5")
-			writeAPIError(w, newAPIError(codeTransient, "request.idempotency_in_flight"))
+		hold, ok := s.beginIdem(r.Context(), w, k, digest)
+		if !ok {
 			return
 		}
 
 		// 占用的"处理中"标记必须释放（defer 保证，含 panic）：panic 按 500 失败结束、不缓存，
 		// 同一个键之后可以重试，而不是一直返回 503 in_flight。
 		finished := false
-		defer settleIdem(w, s.idem, k, digest, &finished)
+		defer settleIdem(r.Context(), w, s.idem, hold, &finished)
 
 		cw := &captureWriter{header: http.Header{}}
 		next(cw, r.WithContext(withIdemKey(r.Context(), key)))
@@ -170,9 +91,8 @@ func (s *Server) idempotent(route string, next http.HandlerFunc) http.HandlerFun
 		if status == 0 {
 			status = http.StatusOK
 		}
-		contentType := cw.header.Get("Content-Type")
 		body := cw.body.Bytes()
-		s.idem.finish(k, digest, status, contentType, append([]byte(nil), body...))
+		s.finishIdem(r.Context(), hold, status, cw.header, append([]byte(nil), body...))
 		finished = true
 
 		for name, values := range cw.header {
@@ -185,26 +105,64 @@ func (s *Server) idempotent(route string, next http.HandlerFunc) http.HandlerFun
 	}
 }
 
+// beginIdem 查询并占用幂等键。ok 为 false 时已写出响应（回放、同键异体 400、处理中 503、存储不可用 503），
+// 调用方直接返回；ok 为 true 时调用方必须 defer settleIdem 并在完成后 finishIdem。
+func (s *Server) beginIdem(ctx context.Context, w http.ResponseWriter, key string, digest [32]byte) (*idemHold, bool) {
+	entry, state, hold, err := s.idem.begin(ctx, key, digest)
+	if err != nil {
+		// 不降级到内存、不放行执行：别的实例可能已经有这个键的结果或正在处理，放行就可能重复调用供应商
+		log.Printf("media idempotency store unavailable trace_id=%s check=idem.store_unavailable: %v", traceIDOf(w), err)
+		writeAPIError(w, newAPIError(codeTransient, "idem.store_unavailable"))
+		return nil, false
+	}
+	switch state {
+	case idemReplay:
+		writeReplay(w, entry)
+		return nil, false
+	case idemConflict:
+		writeAPIError(w, invalid("request.idempotency_key_reused"))
+		return nil, false
+	case idemBusy:
+		writeAPIError(w, newAPIError(codeTransient, "request.idempotency_in_flight"))
+		return nil, false
+	}
+	return hold, true
+}
+
+// finishIdem 写入结果并释放占用。存储失败只记日志：结果已经算出来了，照常回给调用方；
+// 这次没存下的结果在标记租约到期后，同一个键会被重新执行（不会比返回 503 让调用方立刻重试更糟）。
+func (s *Server) finishIdem(ctx context.Context, hold *idemHold, status int, header http.Header, body []byte) {
+	if err := s.idem.finish(ctx, hold, status, header, body); err != nil {
+		log.Printf("media idempotency finish failed check=idem.store_unavailable status=%d: %v", status, err)
+	}
+}
+
 // settleIdem 在 defer 中调用，释放幂等键的"处理中"标记（非 2xx 不缓存）。
 // 正常完成（*finished 为 true）时什么也不做；handler panic 时记录栈、写出 500 internal（可重试），不再向上抛。
 // 必须直接作为 defer 的函数调用，recover 才能生效。
-func settleIdem(w http.ResponseWriter, idem *idemStore, key string, digest [32]byte, finished *bool) {
+func settleIdem(ctx context.Context, w http.ResponseWriter, idem idemStore, hold *idemHold, finished *bool) {
 	p := recover()
 	if p == nil && *finished {
 		return
 	}
-	idem.finish(key, digest, http.StatusInternalServerError, "", nil)
+	if err := idem.finish(ctx, hold, http.StatusInternalServerError, nil, nil); err != nil {
+		log.Printf("media idempotency release failed check=idem.store_unavailable: %v", err)
+	}
 	if p != nil {
-		log.Printf("media handler panic trace_id=%s key=%q: %v\n%s", traceIDOf(w), key, p, debug.Stack())
+		log.Printf("media handler panic trace_id=%s key=%q: %v\n%s", traceIDOf(w), hold.key, p, debug.Stack())
 		writeAPIError(w, internal(fmt.Errorf("handler panic: %v", p)))
 	}
 }
 
+// writeReplay 回放已完成的结果：状态码、handler 写的响应头、响应体。
 func writeReplay(w http.ResponseWriter, e idemEntry) {
-	w.Header().Set("Idempotent-Replayed", "true")
-	if e.contentType != "" {
-		w.Header().Set("Content-Type", e.contentType)
+	for name, values := range e.header {
+		w.Header().Del(name)
+		for _, v := range values {
+			w.Header().Add(name, v)
+		}
 	}
+	w.Header().Set("Idempotent-Replayed", "true")
 	w.WriteHeader(e.status)
 	_, _ = w.Write(e.body)
 }

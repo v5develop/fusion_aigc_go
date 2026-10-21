@@ -24,6 +24,10 @@ type opError struct {
 	msg      string
 	cause    error
 	upstream int // 源站返回的 HTTP 状态（仅 fetch 的 4xx 设置），供 v2 区分素材不可用与暂时失败
+	// sourceCheck 非空表示素材地址本身不可用（永久，422 source_unavailable），值是排障判据，如 source.redirect_too_many
+	sourceCheck string
+	// retryAfter 源站 / 内部限流给出的建议重试间隔（秒，已截到 maxRetryAfterSeconds）；0 表示没有，回落默认 5 秒
+	retryAfter int
 }
 
 func (e *opError) Error() string {
@@ -63,6 +67,16 @@ func statusOf(err error) (int, string) {
 	default:
 		return http.StatusInternalServerError, "internal"
 	}
+}
+
+// sourceUnavailable 素材地址本身不可用（永久失败，422 source_unavailable），check 是排障判据。
+func sourceUnavailable(check, msg string) error {
+	return &opError{kind: kindBadInput, msg: msg, sourceCheck: check}
+}
+
+// unavailableRetryAfter 暂时失败，并带上源站给出的重试间隔（秒）。
+func unavailableRetryAfter(msg string, retryAfter int) error {
+	return &opError{kind: kindUnavailable, msg: msg, retryAfter: retryAfter}
 }
 
 // upstreamBadInput 源站 4xx：永久失败，同时记下源站状态码。

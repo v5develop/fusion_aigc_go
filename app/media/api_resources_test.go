@@ -84,7 +84,8 @@ func newResourceFixture(t *testing.T, s *Server) (*httptest.Server, *fakeResourc
 func newResourceServer(t *testing.T) *Server {
 	t.Helper()
 	s, err := NewServer(Config{Token: testToken, InstanceID: "tst001", IdentitySecret: testSecret,
-		ObjectDir: t.TempDir(), MaxConcurrent: 2, MaxInputBytes: 50 << 20, OpTimeoutSeconds: 60})
+		ObjectDir: t.TempDir(), MaxConcurrent: 2, MaxInputBytes: 50 << 20, OpTimeoutSeconds: 60,
+		Idempotency: IdempotencyConfig{Store: IdemStoreMemory}})
 	if err != nil {
 		t.Fatal(err)
 	}

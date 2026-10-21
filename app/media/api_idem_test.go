@@ -1,6 +1,7 @@
 package media
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,7 +11,7 @@ import (
 
 // newIdemTestServer 只挂幂等包装，handler 按 calls 计数，status 由测试指定。
 func newIdemTestServer(status *int, calls *int) (*Server, http.HandlerFunc) {
-	s := &Server{idem: newIdemStore(time.Minute)}
+	s := &Server{idem: newMemIdemStore(time.Minute)}
 	h := s.idempotent("test", func(w http.ResponseWriter, r *http.Request) {
 		*calls++
 		w.Header().Set("Content-Type", "application/json")
@@ -63,8 +64,9 @@ func TestIdempotentRejectsReusedKeyWithDifferentBody(t *testing.T) {
 func TestIdempotentBusyWhileInFlight(t *testing.T) {
 	status, calls := http.StatusOK, 0
 	s, h := newIdemTestServer(&status, &calls)
-	k := "test|k3"
-	s.idem.inflight[k] = [32]byte{}
+	if _, state, _, _ := s.idem.begin(context.Background(), "test|k3", [32]byte{}); state != idemFresh {
+		t.Fatal("第一次应占用成功")
+	}
 	rec := idemRequest(h, "k3", `{"a":1}`)
 	if calls != 0 {
 		t.Fatalf("处理中的键不应再执行 handler，calls = %d", calls)
@@ -92,7 +94,7 @@ func TestIdempotentDoesNotCacheErrors(t *testing.T) {
 // handler panic 后：调用方得到 500 internal（可重试，不是连接被断开），"处理中"标记释放，
 // 同一个键的重试不能是 503 in_flight，也不缓存这次失败。
 func TestIdempotentPanicReleasesInflightMark(t *testing.T) {
-	s := &Server{idem: newIdemStore(time.Minute)}
+	s := &Server{idem: newMemIdemStore(time.Minute)}
 	panicked := true
 	h := s.idempotent("test", func(w http.ResponseWriter, r *http.Request) {
 		if panicked {
