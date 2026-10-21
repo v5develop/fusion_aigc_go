@@ -19,6 +19,7 @@ import (
 
 func main() {
 	cfgFile := flag.String("f", "deploy/etc/media-svc.yaml", "配置文件")
+	retire := flag.String("retire", "", "下线实例 ID：写入墓碑列表后退出，此后该 ID 永不能再注册")
 	flag.Parse()
 
 	var c media.Config
@@ -29,6 +30,14 @@ func main() {
 		c.AllowPrivateHosts = true
 	}
 
+	if *retire != "" {
+		if err := media.Retire(c.Registry, *retire); err != nil {
+			log.Fatal(err)
+		}
+		log.Printf("media: 已下线实例 %s，此后该 ID 不能再注册", *retire)
+		return
+	}
+
 	srv, err := media.NewServer(c)
 	if err != nil {
 		log.Fatal(err)
@@ -36,12 +45,20 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	// 软删除的清理：只删宽限期已过的待删除对象（设计文档 §8.5）
+	go srv.RunSweeper(ctx)
 
-	// 注册中心：启动后自注册，连不上会在后台重试，不影响服务本身
-	deregister, err := media.Register(ctx, c.Registry)
+	// 注册中心：启动后自注册。实例 ID 冲突或已下线属于致命错误：拒绝启动（非零退出）。
+	// 注册中心暂时连不上不致命：后台重试，服务本身照常可用（调用方可走静态地址）。
+	var fatal error
+	deregister, err := media.Register(ctx, c.Registry, c.InstanceID, func(err error) {
+		fatal = err
+		stop()
+	})
 	if err != nil {
-		// 注册失败**不致命**：媒体服务仍可被静态地址调用（Go 调用方走 MEDIA_SVC_BASE_URL）。
-		// 致命的是媒体服务本身起不来 —— Java 三个角色 depends_on 它 healthy，会被一起拖住。
+		if media.IsRefusedRegistration(err) {
+			log.Fatalf("media: 拒绝启动: %v", err)
+		}
 		log.Printf("media: 注册到注册中心失败，本次不注册（调用方需走静态地址）: %v", err)
 		deregister = func() {}
 	}
@@ -65,5 +82,10 @@ func main() {
 	log.Printf("media service listening on %s", c.Listen)
 	if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal(err)
+	}
+	srv.Close()
+	// 运行中发现实例 ID 冲突：已停止服务，以非零退出，不带着冲突的身份继续跑
+	if fatal != nil {
+		log.Fatalf("media: 拒绝继续运行: %v", fatal)
 	}
 }

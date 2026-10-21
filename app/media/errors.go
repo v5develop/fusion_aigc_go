@@ -20,9 +20,10 @@ const (
 )
 
 type opError struct {
-	kind  opKind
-	msg   string
-	cause error
+	kind     opKind
+	msg      string
+	cause    error
+	upstream int // 源站返回的 HTTP 状态（仅 fetch 的 4xx 设置），供 v2 区分素材不可用与暂时失败
 }
 
 func (e *opError) Error() string {
@@ -62,4 +63,9 @@ func statusOf(err error) (int, string) {
 	default:
 		return http.StatusInternalServerError, "internal"
 	}
+}
+
+// upstreamBadInput 源站 4xx：永久失败，同时记下源站状态码。
+func upstreamBadInput(status int, msg string) error {
+	return &opError{kind: kindBadInput, msg: msg, upstream: status}
 }

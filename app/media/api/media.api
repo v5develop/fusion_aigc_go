@@ -1,0 +1,312 @@
+syntax = "v1"
+
+info (
+	title:       "媒体服务"
+	version:     "v1"
+	description: "Java 只发指令，所有下载、探测、截剪、规整、落桶、删除由媒体服务完成。契约说明见 docs/api/media-service.md。写操作必须带 Idempotency-Key。"
+)
+
+type (
+	// Source 来源：url 与 key 二选一。
+	Source {
+		Rid   string `json:"rid,optional"`
+		Url   string `json:"url,optional"`
+		Key   string `json:"key,optional"`
+		Store string `json:"store,optional,options=private|asset_library|third_party"`
+		// Headers 下载请求头，只能与 url 一起用，且只在 ingest 上生效（其它接口带头返回 400）。
+		// 白名单：Authorization、User-Agent、Accept、Referer、Accept-Language；白名单外的头返回 400。
+		// 头只随请求发给 url 的来源；跳转到别的来源时剥掉。头的值不写日志、不回显错误、不参与 rid 派生。
+		Headers map[string]string `json:"headers,optional"`
+	}
+	// Rule 参考视频规整规则，字段与网关 VideoConformance 对齐。
+	Rule {
+		StripAudio bool    `json:"strip_audio,optional"`
+		TargetFps  int     `json:"target_fps,optional"`
+		MinSide    int     `json:"min_side,optional"`
+		MaxSide    int     `json:"max_side,optional"`
+		MinPixels  int64   `json:"min_pixels,optional"`
+		MaxPixels  int64   `json:"max_pixels,optional"`
+		MinRatio   float64 `json:"min_ratio,optional"`
+		MaxRatio   float64 `json:"max_ratio,optional"`
+	}
+	// ObjectRef 落桶后的对象引用（Java 只保存这些字段，不推算对象键）。
+	ObjectRef {
+		Rid       string  `json:"rid"`
+		Class     string  `json:"class"`
+		Store     string  `json:"store"`
+		Key       string  `json:"key"`
+		Sha256    string  `json:"sha256"`
+		Size      int64   `json:"size"`
+		Mime      string  `json:"mime"`
+		DurationS float64 `json:"duration_s"`
+		Width     int     `json:"width"`
+		Height    int     `json:"height"`
+		Fps       float64 `json:"fps"`
+		HasAudio  bool    `json:"has_audio"`
+	}
+	// URLRef 可访问地址：public 为公有地址，signed 为签名地址（带过期时间）。
+	URLRef {
+		Kind      string `json:"kind"`
+		Value     string `json:"value"`
+		ExpiresAt string `json:"expires_at,optional"`
+	}
+	// MediaResult 写操作统一结果。
+	MediaResult {
+		Object  ObjectRef `json:"object"`
+		Url     URLRef    `json:"url"`
+		// Parents 复制产物的源 rid（仅 resources/copy 返回）；其它写操作不返回该字段。
+		Parents []string `json:"parents,optional"`
+	}
+	// MediaMeta probe 结果（不落桶）。
+	MediaMeta {
+		Mime      string  `json:"mime"`
+		Size      int64   `json:"size"`
+		DurationS float64 `json:"duration_s"`
+		Width     int     `json:"width"`
+		Height    int     `json:"height"`
+		Fps       float64 `json:"fps"`
+		HasAudio  bool    `json:"has_audio"`
+	}
+	IngestReq {
+		IdempotencyKey string `header:"Idempotency-Key"`
+		Source         Source `json:"source"`
+		Purpose        string `json:"purpose,options=user_input|intermediate|asset_library|third_party"`
+	}
+	ProbeReq {
+		Source Source `json:"source"`
+	}
+	FramesReq {
+		IdempotencyKey string `header:"Idempotency-Key"`
+		Source         Source `json:"source"`
+		Count          int    `json:"count,range=[1:32]"`
+	}
+	FrameItem {
+		TimestampS float64   `json:"timestamp_s"`
+		Object     ObjectRef `json:"object"`
+	}
+	FramesResp {
+		Frames []FrameItem `json:"frames"`
+	}
+	CoverReq {
+		IdempotencyKey string `header:"Idempotency-Key"`
+		Source         Source `json:"source"`
+		Purpose        string `json:"purpose,options=user_input|intermediate|asset_library|third_party"`
+	}
+	WatermarkReq {
+		IdempotencyKey string `header:"Idempotency-Key"`
+		Source         Source `json:"source"`
+		Purpose        string `json:"purpose,options=user_input|intermediate|asset_library|third_party"`
+	}
+	TrimReq {
+		IdempotencyKey string  `header:"Idempotency-Key"`
+		Source         Source  `json:"source"`
+		Seconds        float64 `json:"seconds,range=(0:600]"`
+		Purpose        string  `json:"purpose,options=user_input|intermediate|asset_library|third_party"`
+	}
+	ConformReq {
+		IdempotencyKey string `header:"Idempotency-Key"`
+		Source         Source `json:"source"`
+		Rule           Rule   `json:"rule"`
+		// Seconds 大于 0 时：参考视频比它长则截到它；比它短则返回 422 source_too_short（不截、不延长）。
+		Seconds float64 `json:"seconds,optional,range=[0:600]"`
+		Purpose string  `json:"purpose,options=user_input|intermediate|asset_library|third_party"`
+	}
+	// ImageRule 图片规整规则，字段与网关 ImageConformance 对齐。
+	ImageRule {
+		MinLongSide int      `json:"min_long_side,optional"`
+		MaxLongSide int      `json:"max_long_side,optional"`
+		MimeTypes   []string `json:"mime_types,optional"`
+	}
+	ImageConformReq {
+		IdempotencyKey string    `header:"Idempotency-Key"`
+		Source         Source    `json:"source"`
+		Rule           ImageRule `json:"rule"`
+		Purpose        string    `json:"purpose,options=user_input|intermediate|asset_library|third_party"`
+	}
+	// ImageResizeReq 精确尺寸缩放：输出严格为 width×height，不保比例。
+	ImageResizeReq {
+		IdempotencyKey string `header:"Idempotency-Key"`
+		Source         Source `json:"source"`
+		Width          int    `json:"width,range=[1:16384]"`
+		Height         int    `json:"height,range=[1:16384]"`
+		Format         string `json:"format,options=png|jpeg"`
+		Purpose        string `json:"purpose,options=user_input|intermediate|asset_library|third_party"`
+	}
+	UploadTargetReq {
+		Class   string `json:"class,options=user"`
+		Store   string `json:"store,options=private"`
+		IdemKey string `json:"idem_key"`
+		Mime    string `json:"mime"`
+		Size    int64  `json:"size"`
+	}
+	UploadTargetResp {
+		Rid       string `json:"rid"`
+		ObjectKey string `json:"object_key"`
+		UploadUrl string `json:"upload_url"`
+		ExpiresAt string `json:"expires_at"`
+	}
+	RegisterReq {
+		Rid string `json:"rid"`
+	}
+	AudioTimelineReq {
+		IdempotencyKey string    `header:"Idempotency-Key"`
+		Sources        []Source  `json:"sources"`
+		Starts         []float64 `json:"starts"`
+		TotalSeconds   float64   `json:"total_seconds,range=(0:600]"`
+		SampleRate     int       `json:"sample_rate,optional"`
+		Channels       int       `json:"channels,optional"`
+		Purpose        string    `json:"purpose,options=user_input|intermediate|asset_library|third_party"`
+	}
+	ReplaceAudioReq {
+		IdempotencyKey string `header:"Idempotency-Key"`
+		Video          Source `json:"video"`
+		Audio          Source `json:"audio"`
+		Purpose        string `json:"purpose,options=user_input|intermediate|asset_library|third_party"`
+	}
+	BurnSubtitlesReq {
+		IdempotencyKey string `header:"Idempotency-Key"`
+		Video          Source `json:"video"`
+		Srt            string `json:"srt"`
+		Purpose        string `json:"purpose,options=user_input|intermediate|asset_library|third_party"`
+	}
+	ComposeReq {
+		IdempotencyKey string   `header:"Idempotency-Key"`
+		Sources        []Source `json:"sources"`
+		Purpose        string   `json:"purpose,options=user_input|intermediate|asset_library|third_party"`
+	}
+	ExtractAudioReq {
+		IdempotencyKey string `header:"Idempotency-Key"`
+		Source         Source `json:"source"`
+		Purpose        string `json:"purpose,options=user_input|intermediate|asset_library|third_party"`
+	}
+	AdjustDurationReq {
+		IdempotencyKey string  `header:"Idempotency-Key"`
+		Source         Source  `json:"source"`
+		Factor         float64 `json:"factor,range=(0:100]"`
+		Purpose        string  `json:"purpose,options=user_input|intermediate|asset_library|third_party"`
+	}
+	DeleteReq {
+		IdempotencyKey string    `header:"Idempotency-Key"`
+		Rid            string    `json:"rid,optional"`
+		Object         ObjectRef `json:"object,optional"`
+	}
+	ResourceURLReq {
+		Rid        string `json:"rid"`
+		Store      string `json:"store,optional,options=private|asset_library|third_party"`
+		Mode       string `json:"mode,options=signed|public"`
+		TTLSeconds int64  `json:"ttl_seconds,optional,range=[60:86400]"`
+	}
+	ResourceURLResp {
+		Rid       string `json:"rid"`
+		ObjectKey string `json:"object_key"`
+		Store     string `json:"store"`
+		Mode      string `json:"mode"`
+		Size      int64  `json:"size"`
+		Url       string `json:"url"`
+	}
+	// CopyReq 显式复制：POST /v1/mediasvc/resources/copy，返回 MediaResult（parents=[源 rid]）。
+	// purpose 只允许 asset_library（asset 类别）与 third_party（deliver 类别）；不允许复制到 user 类别。
+	CopyReq {
+		IdempotencyKey string `header:"Idempotency-Key"`
+		Rid            string `json:"rid"`
+		Purpose        string `json:"purpose,options=asset_library|third_party"`
+	}
+	DeleteResp {
+		Deleted     bool   `json:"deleted"`
+		State       string `json:"state"`
+		DeleteAfter string `json:"delete_after,optional"`
+	}
+	RestoreReq {
+		Rid string `json:"rid"`
+	}
+	RestoreResp {
+		Rid      string `json:"rid"`
+		Restored bool   `json:"restored"`
+	}
+)
+
+@server (
+	prefix:  /v1/mediasvc
+	timeout: 600s
+)
+service media {
+	@doc "读取来源、按用途落桶。字体（TTF/OTF/TTC/WOFF/WOFF2，按文件头识别）不解码直接落桶；其余做完整解码校验"
+	@handler Ingest
+	post /ingest (IngestReq) returns (MediaResult)
+
+	@doc "取元数据，不落桶"
+	@handler Probe
+	post /probe (ProbeReq) returns (MediaMeta)
+
+	@doc "抽帧，返回帧对象列表"
+	@handler Frames
+	post /frames (FramesReq) returns (FramesResp)
+
+	@doc "代表帧封面"
+	@handler Cover
+	post /cover (CoverReq) returns (MediaResult)
+
+	@doc "右下角叠加 logo"
+	@handler Watermark
+	post /watermark (WatermarkReq) returns (MediaResult)
+
+	@doc "截到前 seconds 秒"
+	@handler Trim
+	post /video/trim (TrimReq) returns (MediaResult)
+
+	@doc "规整：去音轨、帧率、尺寸、比例；可选截剪与过短拒收"
+	@handler Conform
+	post /video/conform (ConformReq) returns (MediaResult)
+
+	@doc "申请直传目标（只允许用户输入）：返回 rid 与签名 PUT 地址"
+	@handler UploadTarget
+	post /resources/upload-target (UploadTargetReq) returns (UploadTargetResp)
+
+	@doc "确认直传完成：凭 rid 校验对象存在，返回对象引用"
+	@handler Register
+	post /resources/register (RegisterReq) returns (MediaResult)
+
+	@doc "图片规整：长边等比缩放进区间；限定格式时转码（PNG 保留透明）；不需要处理时原样落桶"
+	@handler ImageConform
+	post /image/conform (ImageConformReq) returns (MediaResult)
+
+	@doc "图片精确尺寸缩放：输出 width×height（不保比例）；png 仅在源图有 alpha < 255 的像素时保留 alpha，否则写 RGB；jpeg 铺白底"
+	@handler ImageResize
+	post /image/resize (ImageResizeReq) returns (MediaResult)
+
+	@doc "配音时间线：按起点拼成整条音轨（m4a）"
+	@handler AudioTimeline
+	post /audio/timeline (AudioTimelineReq) returns (MediaResult)
+
+	@doc "换音轨：视频流拷贝，按短的一方截断"
+	@handler ReplaceAudio
+	post /video/replace-audio (ReplaceAudioReq) returns (MediaResult)
+
+	@doc "烧录字幕（固定样式）"
+	@handler BurnSubtitles
+	post /video/burn-subtitles (BurnSubtitlesReq) returns (MediaResult)
+
+	@doc "按顺序拼接"
+	@handler Compose
+	post /compose (ComposeReq) returns (MediaResult)
+
+	@doc "抽音轨"
+	@handler ExtractAudio
+	post /audio/extract (ExtractAudioReq) returns (MediaResult)
+
+	@doc "变速"
+	@handler AdjustDuration
+	post /video/adjust-duration (AdjustDurationReq) returns (MediaResult)
+
+	@doc "凭 rid 现签访问地址（类别由 rid 决定，请求里不传 class）"
+	@handler ResourceURLs
+	post /resources/urls (ResourceURLReq) returns (ResourceURLResp)
+
+	@doc "删除中间产物；用户输入（user 类别）与历史 sha256 路径一律拒绝；可用 rid 或 object 指定"
+	@handler Restore
+	post /resources/restore (RestoreReq) returns (RestoreResp)
+
+	@handler Delete
+	post /delete (DeleteReq) returns (DeleteResp)
+}
+

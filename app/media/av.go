@@ -42,20 +42,53 @@ func (s *Service) Probe(ctx context.Context, file string) (ProbeResult, error) {
 	return parseProbe(out)
 }
 
+// probeStream ffprobe 输出的单条流（只取用到的字段）。
+type probeStream struct {
+	CodecType    string         `json:"codec_type"`
+	Width        int            `json:"width"`
+	Height       int            `json:"height"`
+	AvgFrameRate string         `json:"avg_frame_rate"`
+	SampleRate   string         `json:"sample_rate"`
+	Channels     int            `json:"channels"`
+	Tags         map[string]any `json:"tags"`
+	SideData     []struct {
+		Type     string   `json:"side_data_type"`
+		Rotation *float64 `json:"rotation"`
+	} `json:"side_data_list"`
+}
+
+// displayRotated 流是否因旋转（手机竖拍常见的 90 / 270 度）而需要交换宽高。
+// 优先取 Display Matrix 侧数据；没有时回退到旧版 rotate 标签。0 / 180 度不交换。
+func displayRotated(st probeStream) bool {
+	for _, sd := range st.SideData {
+		if sd.Rotation != nil {
+			return quarterTurn(int(math.Round(*sd.Rotation)))
+		}
+	}
+	if v, ok := st.Tags["rotate"]; ok {
+		if s, ok := v.(string); ok {
+			if n, err := strconv.Atoi(strings.TrimSpace(s)); err == nil {
+				return quarterTurn(n)
+			}
+		}
+	}
+	return false
+}
+
+// quarterTurn 旋转角度（可为负）是否是 90 度的奇数倍。
+func quarterTurn(deg int) bool {
+	r := ((deg % 360) + 360) % 360
+	return r == 90 || r == 270
+}
+
 // parseProbe 解析 ffprobe 的 JSON。拿不到有效 JSON 视为输入问题。
+// 宽高是播放时的显示尺寸：有 90 / 270 度旋转的视频，宽高与编码尺寸互换（与 ffmpeg 自动旋转后的帧一致）。
 func parseProbe(raw []byte) (ProbeResult, error) {
 	var doc struct {
 		Format struct {
 			Duration string `json:"duration"`
 		} `json:"format"`
-		Streams []struct {
-			CodecType    string `json:"codec_type"`
-			Width        int    `json:"width"`
-			Height       int    `json:"height"`
-			AvgFrameRate string `json:"avg_frame_rate"`
-			SampleRate   string `json:"sample_rate"`
-			Channels     int    `json:"channels"`
-		} `json:"streams"`
+		Streams []probeStream `json:"streams"`
 	}
 	if err := json.Unmarshal(raw, &doc); err != nil {
 		return ProbeResult{}, badInput("媒体信息不可解析")
@@ -68,6 +101,9 @@ func parseProbe(raw []byte) (ProbeResult, error) {
 			if !res.HasVideo {
 				res.HasVideo = true
 				res.Width, res.Height = st.Width, st.Height
+				if displayRotated(st) {
+					res.Width, res.Height = st.Height, st.Width
+				}
 				res.FPS = parseFPS(st.AvgFrameRate)
 			}
 		case "audio":
@@ -122,24 +158,42 @@ func FrameTimestamps(durationSeconds float64, count int) []float64 {
 }
 
 // Frames 在片长内均匀抽 count 张 JPEG（审核用）。单帧失败跳过，与原 Java 行为一致。
+// 全部失败时才报错，且只在确为解码错误（ffmpeg 非零退出）时判为输入问题；中断、进程被杀、
+// 本机异常、空输出都是服务侧的暂时问题，不能把合法视频拒掉。
 func (s *Service) Frames(ctx context.Context, file string, count int) ([]Frame, error) {
 	probe, err := s.Probe(ctx, file)
 	if err != nil {
 		return nil, err
 	}
 	var frames []Frame
+	var lastErr error
 	for _, ts := range FrameTimestamps(probe.DurationSeconds, count) {
 		jpeg, err := s.output(ctx, s.ffmpeg(), "-nostdin", "-y", "-ss", strconv.FormatFloat(ts, 'f', 1, 64),
 			"-i", file, "-frames:v", "1", "-c:v", "mjpeg", "-q:v", "3", "-f", "mjpeg", "pipe:1")
-		if err != nil || len(jpeg) == 0 {
+		if err != nil {
+			if e := interruptedFailure(ctx, err, "抽帧失败"); e != nil {
+				return nil, e
+			}
+			lastErr = err
+			continue
+		}
+		if len(jpeg) == 0 {
 			continue
 		}
 		frames = append(frames, Frame{Timestamp: ts, JPEG: jpeg})
 	}
-	if len(frames) == 0 {
-		return nil, badInput("视频无法抽帧")
+	if len(frames) > 0 {
+		return frames, nil
 	}
-	return frames, nil
+	var exitErr *exec.ExitError
+	switch {
+	case lastErr == nil:
+		return nil, unavailable("抽帧结果为空")
+	case errors.As(lastErr, &exitErr) && !killedBySignal(lastErr):
+		return nil, badInput("视频无法抽帧")
+	default:
+		return nil, internal(lastErr)
+	}
 }
 
 // Validate 完整解码一遍（只看有没有报错）。解码失败是输入问题（422）。
@@ -202,6 +256,14 @@ func (s *Service) AdjustDuration(ctx context.Context, file string, factor float6
 		"-filter:v", "setpts="+ffmpegNumber(factor)+"*PTS", "-an", "-c:v", "libx264", out)
 }
 
+// Trim 截到前 seconds 秒。重编码（libx264 + aac）以保证切点精确；比 seconds 短的输入原样截成更短的输出，
+// 由调用方（Java 工作流）在调用前用 Probe 判断是否要拒收，这里不做拒收。
+func (s *Service) Trim(ctx context.Context, file string, seconds float64, out string) error {
+	return s.run(ctx, s.ffmpeg(), "-y", "-threads", s.threads(), "-i", file,
+		"-t", ffmpegNumber(seconds), "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac",
+		"-movflags", "+faststart", out)
+}
+
 // ReplaceAudio 视频流拷贝，换成新音轨（aac），按短的一方截断。
 func (s *Service) ReplaceAudio(ctx context.Context, video, audio, out string) error {
 	return s.run(ctx, s.ffmpeg(), "-y", "-threads", s.threads(), "-i", video, "-i", audio,
@@ -254,26 +316,35 @@ func copyFile(from, to string) error {
 	return os.WriteFile(to, data, 0o600)
 }
 
-// output 执行命令并返回 stdout；stderr 只保留尾部用于错误说明。
+// output 在计算名额内执行命令并返回 stdout；stderr 只保留尾部用于错误说明。
 func (s *Service) output(ctx context.Context, bin string, args ...string) ([]byte, error) {
-	var stdout, stderr bytes.Buffer
-	cmd := exec.CommandContext(ctx, bin, args...)
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("%w: %s", err, tailOf(stderr.String()))
+	var stdout bytes.Buffer
+	err := s.compute(ctx, func() error {
+		var stderr bytes.Buffer
+		cmd := exec.CommandContext(ctx, bin, args...)
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("%w: %s", err, tailOf(stderr.String()))
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	return stdout.Bytes(), nil
 }
 
-// runIn 在指定工作目录执行命令。
+// runIn 在计算名额内、指定工作目录执行命令。
 func (s *Service) runIn(ctx context.Context, dir, bin string, args ...string) error {
-	var stderr bytes.Buffer
-	cmd := exec.CommandContext(ctx, bin, args...)
-	cmd.Dir = dir
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("%w: %s", err, tailOf(stderr.String()))
-	}
-	return nil
+	return s.compute(ctx, func() error {
+		var stderr bytes.Buffer
+		cmd := exec.CommandContext(ctx, bin, args...)
+		cmd.Dir = dir
+		cmd.Stderr = &stderr
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("%w: %s", err, tailOf(stderr.String()))
+		}
+		return nil
+	})
 }

@@ -29,13 +29,23 @@ func testNacos(t *testing.T) string {
 	return addr
 }
 
-// fakeInstance 假的媒体服务实例：/v1/cover 返回固定 JPEG，并记下每个实例收到的请求数。
+// fakeInstance 假的媒体服务实例：/v1/mediasvc/cover 返回一个公有地址（指向本实例的 /obj），
+// /obj 返回固定 JPEG；并记下每个实例收到的 cover 请求数。
 func fakeInstance(t *testing.T, name string, hits map[string]int) *httptest.Server {
 	t.Helper()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		hits[name]++
-		w.Header().Set("Content-Type", "image/jpeg")
-		_, _ = w.Write([]byte{0xFF, 0xD8, 0xFF, 0xE0})
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/mediasvc/cover":
+			hits[name]++
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"object":{"store":"private","key":"intermediate/x.jpg"},"url":{"kind":"public","value":"` + srv.URL + `/obj"}}`))
+		case "/obj":
+			w.Header().Set("Content-Type", "image/jpeg")
+			_, _ = w.Write([]byte{0xFF, 0xD8, 0xFF, 0xE0})
+		default:
+			http.NotFound(w, r)
+		}
 	}))
 	t.Cleanup(srv.Close)
 	return srv
@@ -69,11 +79,11 @@ func TestDiscoveryFollowsRegistrationAndFailsOver(t *testing.T) {
 	// 两个实例各自注册（和媒体服务启动时一样）
 	regCtx, regCancel := context.WithCancel(context.Background())
 	defer regCancel()
-	deregA, err := media.Register(regCtx, media.RegistryConfig{ServerAddr: addr, ServiceName: service, Advertise: a.URL})
+	deregA, err := media.Register(regCtx, media.RegistryConfig{ServerAddr: addr, ServiceName: service, Advertise: a.URL}, "tst00a", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	deregB, err := media.Register(regCtx, media.RegistryConfig{ServerAddr: addr, ServiceName: service, Advertise: b.URL})
+	deregB, err := media.Register(regCtx, media.RegistryConfig{ServerAddr: addr, ServiceName: service, Advertise: b.URL}, "tst00b", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +97,7 @@ func TestDiscoveryFollowsRegistrationAndFailsOver(t *testing.T) {
 	// 同一个视频 URL 总是落到同一个实例
 	url := "https://cdn.example/clip-1.mp4"
 	for i := 0; i < 5; i++ {
-		if _, err := c.Cover(context.Background(), url); err != nil {
+		if _, err := c.CoverURL(context.Background(), url); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -107,7 +117,7 @@ func TestDiscoveryFollowsRegistrationAndFailsOver(t *testing.T) {
 	}
 	waitUntil(t, func() bool { return len(c.Instances()) == 1 }, "注销的实例应当被摘掉")
 	hits = map[string]int{}
-	if _, err := c.Cover(context.Background(), url); err != nil {
+	if _, err := c.CoverURL(context.Background(), url); err != nil {
 		t.Fatalf("剩下的实例应当能服务: %v", err)
 	}
 	if hits[first] != 0 {
@@ -127,7 +137,7 @@ func TestDiscoveryFallsBackToStaticWhenNoInstances(t *testing.T) {
 	if got := c.Instances(); len(got) != 1 || got[0] != fb.URL {
 		t.Fatalf("应当回退到静态地址，实际 %v", got)
 	}
-	if _, err := c.Cover(context.Background(), "https://cdn.example/x.mp4"); err != nil {
+	if _, err := c.CoverURL(context.Background(), "https://cdn.example/x.mp4"); err != nil {
 		t.Fatal(err)
 	}
 	if hits["fallback"] != 1 {

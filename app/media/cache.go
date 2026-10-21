@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
@@ -49,8 +50,14 @@ func newInputCache(root string, ttl time.Duration, maxBytes int64, f *fetcher) *
 
 // acquire 返回缓存文件的本地路径和释放函数。调用方用完必须调用释放函数。
 func (c *inputCache) acquire(ctx context.Context, url string) (string, func(), error) {
+	return c.acquireWith(ctx, url, nil)
+}
+
+// acquireWith 同 acquire，带下载头。缓存键包含头摘要，带头与不带头的下载互不命中。
+func (c *inputCache) acquireWith(ctx context.Context, url string, headers http.Header) (string, func(), error) {
+	key := cacheKeyFor(url, headers)
 	c.mu.Lock()
-	if e, ok := c.entries[url]; ok {
+	if e, ok := c.entries[key]; ok {
 		e.refs++
 		c.mu.Unlock()
 		return c.wait(ctx, e)
@@ -60,19 +67,19 @@ func (c *inputCache) acquire(ctx context.Context, url string) (string, func(), e
 		return "", nil, internal(err)
 	}
 	e := &cacheEntry{ready: make(chan struct{}), refs: 1}
-	c.entries[url] = e
+	c.entries[key] = e
 	dir := c.dir
 	c.mu.Unlock()
 
 	name := randomName() + ".mp4"
-	path, err := c.fetch.download(ctx, url, dir, name)
+	path, err := c.fetch.downloadWithHeaders(ctx, url, headers, dir, name)
 
 	c.mu.Lock()
 	e.path, e.err = path, err
 	close(e.ready)
 	if err != nil {
 		// 失败的下载不缓存：删掉可能写了一半的文件，下次重新下载
-		delete(c.entries, url)
+		delete(c.entries, key)
 		_ = os.Remove(filepath.Join(dir, name))
 		e.refs = 0
 		c.mu.Unlock()
@@ -165,7 +172,7 @@ func (c *inputCache) ensureDir() error {
 	if c.dir != "" {
 		return nil
 	}
-	dir, err := os.MkdirTemp(c.root, "media-cache-")
+	dir, err := os.MkdirTemp(c.root, cacheDirPrefix)
 	if err != nil {
 		return err
 	}
@@ -177,23 +184,37 @@ func (c *inputCache) ensureDir() error {
 	return nil
 }
 
+// cacheDirPrefix 缓存目录的前缀。清扫只认这个前缀，避免误删 TempDir 里别人的东西。
+const cacheDirPrefix = "media-cache-"
+
 // removeOrphanCaches 启动时清掉属主进程已经不在的缓存目录（崩溃、被 kill -9 之后残留的）。
-// 属主还活着的目录不动（同机多实例共用 TempDir 时的情况）；刚创建不久的目录不动（可能正在被登记）。
+// root 为空时用系统临时目录（os.TempDir），绝不扫描当前工作目录。
+// 只处理：名字带 media-cache- 前缀、是真正的目录（不跟随符号链接）、mtime 超过一分钟、
+// 且 owner 文件记录的属主进程已经不存在。属主还活着的目录不动（同机多实例共用 TempDir 时的情况）；
+// 刚创建不久的目录不动（可能正在被登记）；读不到属主的目录也不动（无法证明已经没人用）。
 func removeOrphanCaches(root string) {
-	matches, err := filepath.Glob(filepath.Join(root, "media-cache-*"))
+	if root == "" {
+		root = os.TempDir()
+	}
+	matches, err := filepath.Glob(filepath.Join(root, cacheDirPrefix+"*"))
 	if err != nil {
 		return
 	}
 	for _, dir := range matches {
-		info, err := os.Stat(dir)
-		if err != nil || time.Since(info.ModTime()) < time.Minute {
+		if !strings.HasPrefix(filepath.Base(dir), cacheDirPrefix) {
 			continue
 		}
-		if raw, err := os.ReadFile(filepath.Join(dir, ownerFile)); err == nil {
-			pid, convErr := strconv.Atoi(strings.TrimSpace(string(raw)))
-			if convErr == nil && pid > 0 && processAlive(pid) {
-				continue
-			}
+		info, err := os.Lstat(dir)
+		if err != nil || !info.IsDir() || time.Since(info.ModTime()) < time.Minute {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join(dir, ownerFile))
+		if err != nil {
+			continue
+		}
+		pid, convErr := strconv.Atoi(strings.TrimSpace(string(raw)))
+		if convErr != nil || pid <= 0 || processAlive(pid) {
+			continue
 		}
 		_ = os.RemoveAll(dir)
 	}
@@ -229,12 +250,12 @@ func (p *pins) releaseAll() {
 }
 
 // fetchCached 取 URL 对应的本地文件（命中缓存则直接用），并把引用挂到当前任务上。
-func (s *Service) fetchCached(ctx context.Context, url string) (string, error) {
+func (s *Service) fetchCached(ctx context.Context, url string, headers http.Header) (string, error) {
 	p, ok := ctx.Value(pinKey{}).(*pins)
 	if !ok {
 		return "", internal(errors.New("缺少任务上下文，无法借用缓存文件"))
 	}
-	path, release, err := s.cache.acquire(ctx, url)
+	path, release, err := s.cache.acquireWith(ctx, url, headers)
 	if err != nil {
 		return "", err
 	}

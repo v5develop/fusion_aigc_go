@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -18,6 +19,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -48,6 +50,8 @@ type Client struct {
 
 	mu    sync.RWMutex
 	bases []string
+	// owners 实例 ID（注册元数据 instance_id）→ 调用地址：rid 据此先路由到所属实例
+	owners map[string]string
 
 	// 注册中心订阅（为空则是静态地址）
 	naming   naming_client.INamingClient
@@ -143,6 +147,7 @@ func Discover(dc DiscoveryConfig, token string, fallback []string) *Client {
 // setInstances 把注册中心的实例换算成调用地址。只要健康且启用的实例；没有则回退到静态地址。
 func (c *Client) setInstances(services []model.Instance) {
 	var found []string
+	owners := map[string]string{}
 	for _, inst := range services {
 		if !inst.Healthy || !inst.Enable {
 			continue
@@ -151,15 +156,35 @@ func (c *Client) setInstances(services []model.Instance) {
 		if scheme == "" {
 			scheme = "http"
 		}
-		found = append(found, fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(inst.Ip, strconv.FormatUint(uint64(inst.Port), 10))))
+		base := fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(inst.Ip, strconv.FormatUint(uint64(inst.Port), 10)))
+		found = append(found, base)
+		if id := inst.Metadata[instanceIDMetaKey]; id != "" {
+			owners[id] = base
+		}
 	}
 	bases := normalize(found)
 	if len(bases) == 0 {
 		bases = c.fallback
+		owners = map[string]string{}
 	}
 	c.mu.Lock()
 	c.bases = bases
+	c.owners = owners
 	c.mu.Unlock()
+}
+
+// instanceIDMetaKey 注册元数据里实例 ID 的字段名（与媒体服务登记的一致）。
+const instanceIDMetaKey = "instance_id"
+
+// ridPattern 资源 ID：{所属实例 6 位}-{类别}-{26 位编码}。
+var ridPattern = regexp.MustCompile(`^([a-z0-9]{6})-(user|work|deliver|asset)-[a-z2-7]{26}$`)
+
+// ownerOf 资源 ID 的所属实例 ID；不是资源 ID（如 URL 键）返回空串。
+func ownerOf(key string) string {
+	if m := ridPattern.FindStringSubmatch(key); m != nil {
+		return m[1]
+	}
+	return ""
 }
 
 // Close 取消订阅并关闭注册中心客户端。
@@ -192,9 +217,14 @@ func normalize(urls []string) []string {
 }
 
 // rank 按 key 给实例排序（rendezvous 哈希）。实例增减时只有少量 key 会换实例。
+// 资源 ID 先把所属实例放到最前（它持有该资源的本地缓存）；所属实例不在线时按哈希顺序兜底。
 func (c *Client) rank(key string) []string {
 	c.mu.RLock()
 	bases := append([]string(nil), c.bases...)
+	owners := make(map[string]string, len(c.owners))
+	for id, base := range c.owners {
+		owners[id] = base
+	}
 	c.mu.RUnlock()
 	type scored struct {
 		base  string
@@ -210,20 +240,59 @@ func (c *Client) rank(key string) []string {
 	for i, s := range list {
 		out[i] = s.base
 	}
+	if base, ok := owners[ownerOf(key)]; ok {
+		for i, b := range out {
+			if b == base {
+				copy(out[1:i+1], out[:i])
+				out[0] = b
+				break
+			}
+		}
+	}
 	return out
 }
 
-// Cover 抽一张代表帧（JPEG 字节）。路由 key 是视频 URL。
-func (c *Client) Cover(ctx context.Context, videoURL string) ([]byte, error) {
-	body, err := json.Marshal(map[string]string{"video_url": videoURL})
+// ErrNoReadableURL 媒体服务返回了对象引用，但没有可读地址（如本地存储 kind=none）。
+var ErrNoReadableURL = &Error{Status: http.StatusNotImplemented, Code: "no_readable_url", Message: "封面对象没有可读地址"}
+
+// coverResult 对应 POST /v1/mediasvc/cover 的 MediaResult（只取用到的字段）。
+type coverResult struct {
+	URL struct {
+		Kind  string `json:"kind"`
+		Value string `json:"value"`
+	} `json:"url"`
+}
+
+// CoverURL 抽一张代表帧，返回它在媒体服务落下的对象地址（公有或签名）。路由 key 是视频 URL。
+//
+// 契约：POST /v1/mediasvc/cover，purpose=asset_library。存桶只发生在媒体服务里，调用方直接用返回的地址，
+// 不下载、也不再转存。没有可读地址（kind=none 或为空）时返回 ErrNoReadableURL，调用方按「封面跳过」处理。
+func (c *Client) CoverURL(ctx context.Context, videoURL string) (string, error) {
+	body, err := json.Marshal(map[string]any{
+		"source":  map[string]string{"url": videoURL},
+		"purpose": "asset_library",
+	})
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	return c.post(ctx, videoURL, "/v1/cover", body, "application/json")
+	// 写操作必须带 Idempotency-Key：同一个视频的封面请求用内容决定的键，重试不会重复生成
+	sum := sha256.Sum256([]byte("cover|asset_library|" + videoURL))
+	raw, err := c.post(ctx, videoURL, "/v1/mediasvc/cover", body, "application/json", hex.EncodeToString(sum[:]))
+	if err != nil {
+		return "", err
+	}
+	var res coverResult
+	if err := json.Unmarshal(raw, &res); err != nil {
+		return "", fmt.Errorf("媒体服务返回无法解析: %w", err)
+	}
+	if res.URL.Value == "" || res.URL.Kind == "" || res.URL.Kind == "none" {
+		return "", ErrNoReadableURL
+	}
+	return res.URL.Value, nil
 }
 
 // post 按路由顺序发送：连不上或 503 转到下一个实例；整轮都是 503 时等待后再来一轮。
-func (c *Client) post(ctx context.Context, key, path string, body []byte, contentType string) ([]byte, error) {
+func (c *Client) post(ctx context.Context, key, path string, body []byte, contentType, idemKey string) ([]byte, error) {
 	var last error
 	for round := 1; round <= maxRounds; round++ {
 		overloaded := false
@@ -233,7 +302,7 @@ func (c *Client) post(ctx context.Context, key, path string, body []byte, conten
 			return nil, &Error{Status: http.StatusServiceUnavailable, Code: "no_instance", Message: "没有可用的媒体服务实例"}
 		}
 		for _, base := range bases {
-			out, status, retryAfter, err := c.do(ctx, base+path, body, contentType)
+			out, status, retryAfter, err := c.do(ctx, base+path, body, contentType, idemKey)
 			if err != nil {
 				last = &Error{Status: http.StatusServiceUnavailable, Code: "unreachable", Message: "媒体服务暂不可用"}
 				continue
@@ -260,13 +329,16 @@ func (c *Client) post(ctx context.Context, key, path string, body []byte, conten
 	return nil, last
 }
 
-func (c *Client) do(ctx context.Context, url string, body []byte, contentType string) ([]byte, int, int, error) {
+func (c *Client) do(ctx context.Context, url string, body []byte, contentType, idemKey string) ([]byte, int, int, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return nil, 0, 0, err
 	}
 	req.Header.Set("Content-Type", contentType)
 	req.Header.Set(TokenHeader, c.token)
+	if idemKey != "" {
+		req.Header.Set("Idempotency-Key", idemKey)
+	}
 	resp, err := c.hc.Do(req)
 	if err != nil {
 		return nil, 0, 0, err

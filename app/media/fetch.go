@@ -55,17 +55,56 @@ func newFetcher(cfg Config) *fetcher {
 				if len(via) >= maxRedirects {
 					return errors.New("重定向次数过多")
 				}
-				return checkScheme(req.URL)
+				if err := checkScheme(req.URL); err != nil {
+					return err
+				}
+				// 带请求头的下载：跳到别的来源（主机或协议不同）时，调用方的头一律剥掉，只保留同来源的跳转
+				if !sameOrigin(via[0].URL, req.URL) {
+					req.Header = http.Header{}
+				}
+				return nil
 			},
 		},
 		maxBytes: cfg.MaxInputBytes,
 	}
 }
 
+// reservedNets 不属于公网、但 net.IP 的 IsPrivate 不覆盖的保留段。
+// 其中 100.64.0.0/10（CGNAT）包含阿里云 ECS 元数据地址 100.100.100.200，必须拦截，否则外部 URL 可以读到实例凭证。
+var reservedNets = mustCIDRs(
+	"0.0.0.0/8", "100.64.0.0/10", "192.0.0.0/24", "192.0.2.0/24", "198.18.0.0/15",
+	"198.51.100.0/24", "203.0.113.0/24", "240.0.0.0/4",
+)
+
+func mustCIDRs(cidrs ...string) []*net.IPNet {
+	out := make([]*net.IPNet, 0, len(cidrs))
+	for _, c := range cidrs {
+		_, n, err := net.ParseCIDR(c)
+		if err != nil {
+			panic(err)
+		}
+		out = append(out, n)
+	}
+	return out
+}
+
 // publicIP 只认公网单播地址。
 func publicIP(ip net.IP) bool {
-	return !(ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified() || ip.IsLinkLocalUnicast() ||
-		ip.IsLinkLocalMulticast() || ip.IsInterfaceLocalMulticast() || ip.IsMulticast())
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified() || ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() || ip.IsInterfaceLocalMulticast() || ip.IsMulticast() {
+		return false
+	}
+	for _, n := range reservedNets {
+		if n.Contains(ip) {
+			return false
+		}
+	}
+	return true
+}
+
+// sameOrigin 协议与主机（含端口）都相同。
+func sameOrigin(a, b *url.URL) bool {
+	return a.Scheme == b.Scheme && a.Host == b.Host
 }
 
 func checkScheme(u *url.URL) error {
@@ -75,9 +114,22 @@ func checkScheme(u *url.URL) error {
 	return nil
 }
 
-// download 把 rawURL 的内容存到 dir/name，返回本地路径。体积超限、地址不合规、源站 4xx 都是调用方的问题（422）；
-// 超时、源站 5xx、网络错误是暂时的（503），调用方可以稍后重试。
+// transientUpstreamStatus 源站这几个 4xx 是暂时的：限流（429）、请求超时（408），以及 CDN / 对象存储
+// 在签名刚过期或被临时拦截时返回的 403。按瞬时处理（503），调用方用同一键重试，避免把可恢复的素材判成永久失败。
+func transientUpstreamStatus(code int) bool {
+	return code == http.StatusForbidden || code == http.StatusRequestTimeout || code == http.StatusTooManyRequests
+}
+
+// download 把 rawURL 的内容存到 dir/name，返回本地路径。
+// 分类：体积超限、地址不合规（422 source_rejected）；源站 404 / 410 与其它 4xx（除上面几个）为 source_unavailable（422，永久）；
+// 源站 5xx、429、408、403、超时、连接中断、DNS 临时失败为 transient（503，可重试）。
 func (f *fetcher) download(ctx context.Context, rawURL, dir, name string) (string, error) {
+	return f.downloadWithHeaders(ctx, rawURL, nil, dir, name)
+}
+
+// downloadWithHeaders 同 download，并随原始请求发送 headers（已经过 validateHeaders 白名单校验）。
+// 头只随 rawURL 的来源发送；跳转到别的来源时由 CheckRedirect 剥掉。错误信息与日志里都不出现头的值。
+func (f *fetcher) downloadWithHeaders(ctx context.Context, rawURL string, headers http.Header, dir, name string) (string, error) {
 	u, err := url.Parse(rawURL)
 	if err != nil || u.Host == "" {
 		return "", badInput("视频地址无效")
@@ -89,6 +141,11 @@ func (f *fetcher) download(ctx context.Context, rawURL, dir, name string) (strin
 	if err != nil {
 		return "", badInput("视频地址无效")
 	}
+	for k, vs := range headers {
+		for _, v := range vs {
+			req.Header.Add(k, v)
+		}
+	}
 	resp, err := f.client.Do(req)
 	if err != nil {
 		if errors.Is(err, errBlockedAddress) {
@@ -97,11 +154,11 @@ func (f *fetcher) download(ctx context.Context, rawURL, dir, name string) (strin
 		return "", unavailable(fmt.Sprintf("下载视频失败: %v", err))
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode >= 500 {
+	if resp.StatusCode >= 500 || transientUpstreamStatus(resp.StatusCode) {
 		return "", unavailable(fmt.Sprintf("源站返回 %d", resp.StatusCode))
 	}
 	if resp.StatusCode != http.StatusOK {
-		return "", badInput(fmt.Sprintf("源站返回 %d", resp.StatusCode))
+		return "", upstreamBadInput(resp.StatusCode, fmt.Sprintf("源站返回 %d", resp.StatusCode))
 	}
 	if resp.ContentLength > f.maxBytes {
 		return "", badInput("视频体积超过上限")

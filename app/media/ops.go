@@ -7,10 +7,13 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"aigc-local-life/pkg/videocover"
@@ -28,7 +31,10 @@ type Service struct {
 	cfg   Config
 	fetch *fetcher
 	cache *inputCache
+	// slots 计算名额（ffmpeg / ffprobe / 图像运算）；只在叶子调用处占用，不跨越下载与上传。
 	slots chan struct{}
+	// ioSlots 输入的下载与字节读取名额。I/O 不占计算名额，但仍设上限，防止大量并发下载写满磁盘。
+	ioSlots chan struct{}
 }
 
 func NewService(cfg Config) *Service {
@@ -41,8 +47,10 @@ func NewService(cfg Config) *Service {
 	svc := &Service{
 		cfg:   cfg,
 		fetch: f,
-		cache: newInputCache(cfg.TempDir, time.Duration(cfg.InputCacheMinutes)*time.Minute, cfg.InputCacheMaxBytes, f),
-		slots: make(chan struct{}, n),
+		cache: newInputCache(cfg.TempDir, time.Duration(cfg.InputCacheMinutes)*time.Minute,
+			effectiveCacheCap(cfg.InputCacheMaxBytes, cfg.TempDir), f),
+		slots:   make(chan struct{}, n),
+		ioSlots: make(chan struct{}, ioSlotFactor*n),
 	}
 	go func() {
 		// 后台清扫过期的缓存文件；正在使用的文件不会被删
@@ -55,27 +63,70 @@ func NewService(cfg Config) *Service {
 	return svc
 }
 
-// acquire 占一个并发名额；满了就等到 ctx 结束为止，等不到返回 unavailable（503）。
-func (s *Service) acquire(ctx context.Context) (func(), error) {
+// queueWaitCap 名额排队等待的上限：超过就返回 503 transient，不把请求挂满整个处理时长。
+const queueWaitCap = 120 * time.Second
+
+// ioSlotFactor 输入名额数 = ioSlotFactor × MaxConcurrent。
+const ioSlotFactor = 4
+
+// queueWait 排队上限 = min(OpTimeoutSeconds, 120s)；OpTimeoutSeconds 未配置时取 120s。
+func (s *Service) queueWait() time.Duration {
+	if s.cfg.OpTimeoutSeconds > 0 {
+		if d := time.Duration(s.cfg.OpTimeoutSeconds) * time.Second; d < queueWaitCap {
+			return d
+		}
+	}
+	return queueWaitCap
+}
+
+// takeSlot 占 ch 里的一个名额。满了就排队，但不超过 queueWait，也不超过 ctx 的截止时间。
+// 等不到返回 unavailable（503 transient，带 Retry-After），调用方可用同一键重试。
+func (s *Service) takeSlot(ctx context.Context, ch chan struct{}) (func(), error) {
+	timer := time.NewTimer(s.queueWait())
+	defer timer.Stop()
 	select {
-	case s.slots <- struct{}{}:
-		return func() { <-s.slots }, nil
+	case ch <- struct{}{}:
+		return func() { <-ch }, nil
 	case <-ctx.Done():
+		return nil, unavailable("处理任务过多，请稍后重试")
+	case <-timer.C:
 		return nil, unavailable("处理任务过多，请稍后重试")
 	}
 }
 
-// begin 占名额 + 建工作目录 + 套上整体超时。调用方必须执行返回的 done。
-func (s *Service) begin(ctx context.Context) (context.Context, string, func(), error) {
+// acquire 占一个计算名额。
+func (s *Service) acquire(ctx context.Context) (func(), error) {
+	return s.takeSlot(ctx, s.slots)
+}
+
+// compute 在计算名额内执行 fn。只用于叶子操作（单次 ffmpeg / ffprobe / 图像进程），叶子之间不嵌套，
+// 否则同一个请求会占着名额再去等名额，并发为 1 时就死锁。
+func (s *Service) compute(ctx context.Context, fn func() error) error {
 	release, err := s.acquire(ctx)
 	if err != nil {
-		return nil, "", nil, err
+		return err
 	}
+	defer release()
+	return fn()
+}
+
+// withIO 在输入名额内执行 fn（下载、读取请求体、读取对象存储）。与计算名额互不占用。
+func (s *Service) withIO(ctx context.Context, fn func() error) error {
+	release, err := s.takeSlot(ctx, s.ioSlots)
+	if err != nil {
+		return err
+	}
+	defer release()
+	return fn()
+}
+
+// begin 建工作目录 + 套上整体超时（OpTimeoutSeconds）。不占名额：名额只在 compute / withIO 里按需占用。
+// 调用方必须执行返回的 done。
+func (s *Service) begin(ctx context.Context) (context.Context, string, func(), error) {
 	opCtx, cancel := context.WithTimeout(ctx, time.Duration(s.cfg.OpTimeoutSeconds)*time.Second)
 	dir, err := os.MkdirTemp(s.cfg.TempDir, "media-")
 	if err != nil {
 		cancel()
-		release()
 		return nil, "", nil, internal(err)
 	}
 	// 任务借到的缓存文件挂在 ctx 上，任务结束时统一释放
@@ -85,7 +136,6 @@ func (s *Service) begin(ctx context.Context) (context.Context, string, func(), e
 		cancel()
 		pn.releaseAll()
 		_ = os.RemoveAll(dir)
-		release()
 	}
 	return opCtx, dir, done, nil
 }
@@ -95,32 +145,54 @@ type Source func(ctx context.Context, dir string) (string, error)
 
 // FromURL 公网地址输入，经 SSRF 检查后下载。
 func (s *Service) FromURL(videoURL string) Source {
-	return func(ctx context.Context, _ string) (string, error) {
-		return s.fetchCached(ctx, videoURL)
+	return s.FromURLWithHeaders(videoURL, nil)
+}
+
+// FromURLWithHeaders 公网地址输入，下载时带上白名单请求头（已校验）。
+func (s *Service) FromURLWithHeaders(videoURL string, headers http.Header) Source {
+	return func(ctx context.Context, dir string) (string, error) {
+		var path string
+		err := s.withIO(ctx, func() error {
+			var err error
+			if headers != nil {
+				// 带调用方凭证的下载不进共享缓存：凭证不会被同一服务的其它调用方借用，也不会留在缓存里
+				path, err = s.fetch.downloadWithHeaders(ctx, videoURL, headers, dir, randomName()+".bin")
+			} else {
+				path, err = s.fetchCached(ctx, videoURL, headers)
+			}
+			return err
+		})
+		return path, err
 	}
 }
 
 // FromBody 请求体输入（视频文件本体），同样受体积上限约束。
 func (s *Service) FromBody(body io.Reader) Source {
-	return func(_ context.Context, dir string) (string, error) {
+	return func(ctx context.Context, dir string) (string, error) {
 		path := filepath.Join(dir, "src.mp4")
-		out, err := os.Create(path)
+		err := s.withIO(ctx, func() error {
+			out, err := os.Create(path)
+			if err != nil {
+				return internal(err)
+			}
+			n, copyErr := io.Copy(out, io.LimitReader(body, s.cfg.MaxInputBytes+1))
+			closeErr := out.Close()
+			if copyErr != nil {
+				return badInput("读取视频内容失败")
+			}
+			if closeErr != nil {
+				return internal(closeErr)
+			}
+			if n == 0 {
+				return badInput("视频内容为空")
+			}
+			if n > s.cfg.MaxInputBytes {
+				return badInput("视频体积超过上限")
+			}
+			return nil
+		})
 		if err != nil {
-			return "", internal(err)
-		}
-		n, copyErr := io.Copy(out, io.LimitReader(body, s.cfg.MaxInputBytes+1))
-		closeErr := out.Close()
-		if copyErr != nil {
-			return "", badInput("读取视频内容失败")
-		}
-		if closeErr != nil {
-			return "", internal(closeErr)
-		}
-		if n == 0 {
-			return "", badInput("视频内容为空")
-		}
-		if n > s.cfg.MaxInputBytes {
-			return "", badInput("视频体积超过上限")
+			return "", err
 		}
 		return path, nil
 	}
@@ -169,16 +241,25 @@ func (s *Service) Watermark(ctx context.Context, in Source) (*Output, error) {
 
 // Compose 按顺序拼接。先用 concat demuxer 零转码；失败再回退到 filter_complex 重新编码（与 Java 的 VideoComposeService 一致）。
 func (s *Service) Compose(ctx context.Context, urls []string) (*Output, error) {
-	if len(urls) == 0 || len(urls) > s.cfg.MaxComposeInputs {
+	srcs := make([]Source, 0, len(urls))
+	for _, u := range urls {
+		srcs = append(srcs, s.FromURL(u))
+	}
+	return s.ComposeSources(ctx, srcs)
+}
+
+// ComposeSources 同 Compose，输入可以是任意 Source（公网地址或本地对象）。
+func (s *Service) ComposeSources(ctx context.Context, in []Source) (*Output, error) {
+	if len(in) == 0 || len(in) > s.cfg.MaxComposeInputs {
 		return nil, badInput(fmt.Sprintf("合成片段数须在 1 到 %d 之间", s.cfg.MaxComposeInputs))
 	}
 	opCtx, dir, done, err := s.begin(ctx)
 	if err != nil {
 		return nil, err
 	}
-	files := make([]string, 0, len(urls))
-	for _, u := range urls {
-		f, err := s.fetchCached(opCtx, u)
+	files := make([]string, 0, len(in))
+	for _, src := range in {
+		f, err := src(opCtx, dir)
 		if err != nil {
 			done()
 			return nil, err
@@ -216,7 +297,11 @@ func (s *Service) concatDemuxer(ctx context.Context, dir string, files []string,
 func (s *Service) concatFilter(ctx context.Context, files []string, out string) error {
 	withAudio := true
 	for _, f := range files {
-		if !s.hasAudio(ctx, f) {
+		has, err := s.hasAudio(ctx, f)
+		if err != nil {
+			return err
+		}
+		if !has {
 			withAudio = false
 			break
 		}
@@ -250,21 +335,28 @@ func (s *Service) concatFilter(ctx context.Context, files []string, out string) 
 }
 
 // hasAudio 用 ffprobe 看有没有音轨；探测失败按无音轨处理（宁可丢声音，也不让整段合成失败）。
-func (s *Service) hasAudio(ctx context.Context, file string) bool {
-	out, err := exec.CommandContext(ctx, binOr(s.cfg.FFprobe, "ffprobe"), "-v", "error",
-		"-select_streams", "a", "-show_entries", "stream=index", "-of", "csv=p=0", file).Output()
-	return err == nil && len(bytes.TrimSpace(out)) > 0
+func (s *Service) hasAudio(ctx context.Context, file string) (bool, error) {
+	var has bool
+	err := s.compute(ctx, func() error {
+		out, err := exec.CommandContext(ctx, binOr(s.cfg.FFprobe, "ffprobe"), "-v", "error",
+			"-select_streams", "a", "-show_entries", "stream=index", "-of", "csv=p=0", file).Output()
+		has = err == nil && len(bytes.TrimSpace(out)) > 0
+		return nil
+	})
+	return has, err
 }
 
 func (s *Service) run(ctx context.Context, bin string, args ...string) error {
-	var stderr bytes.Buffer
-	cmd := exec.CommandContext(ctx, bin, args...)
-	cmd.Stdout = nil
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("%w: %s", err, tailOf(stderr.String()))
-	}
-	return nil
+	return s.compute(ctx, func() error {
+		var stderr bytes.Buffer
+		cmd := exec.CommandContext(ctx, bin, args...)
+		cmd.Stdout = nil
+		cmd.Stderr = &stderr
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("%w: %s", err, tailOf(stderr.String()))
+		}
+		return nil
+	})
 }
 
 func (s *Service) ffmpeg() string { return binOr(s.cfg.FFmpeg, "ffmpeg") }
@@ -277,15 +369,48 @@ func (s *Service) logoAvailable() bool {
 	return err == nil && !st.IsDir()
 }
 
-// classifyFFmpeg 区分三种情况：超时（503）、本机缺 ffmpeg（500）、输入解不开（422）。
+// classifyFFmpeg 区分几种情况：外部中断或被信号杀死（503，瞬时）、本机缺 ffmpeg（500）、输入解不开（422）。
+// 已经是契约错误（如排队超时）的原样返回，不能再被改判成输入问题。
 func classifyFFmpeg(ctx context.Context, err error, msg string) error {
-	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		return unavailable(msg + "：处理超时")
+	var oe *opError
+	if errors.As(err, &oe) {
+		return err
+	}
+	// 失败路径：原始 ffmpeg 错误（含 stderr 尾部）只进日志，并带上追踪号，便于按任务号找到
+	log.Printf("media ffmpeg 失败 trace_id=%s step=%q: %v", TraceIDFromContext(ctx), msg, err)
+	if e := interruptedFailure(ctx, err, msg); e != nil {
+		return e
 	}
 	if errors.Is(err, exec.ErrNotFound) || errors.Is(err, fs.ErrNotExist) {
 		return internal(err)
 	}
 	return badInput(msg + "：视频无法处理")
+}
+
+// interruptedFailure 判断 ffmpeg / ffprobe 的失败是否来自外部中断：上下文超时或取消（上游断开、关机），
+// 或进程被信号杀死（如内核 OOM 的 SIGKILL）。这类失败与输入内容无关，返回瞬时错误（503，可用同一键重试）；否则返回 nil。
+// 判据统一用 ctx.Err()，不依赖退出码的文字。
+func interruptedFailure(ctx context.Context, err error, msg string) error {
+	switch {
+	case errors.Is(ctx.Err(), context.DeadlineExceeded):
+		return unavailable(msg + "：处理超时")
+	case ctx.Err() != nil:
+		return unavailable(msg + "：处理被取消")
+	}
+	if killedBySignal(err) {
+		return unavailable(msg + "：进程被终止")
+	}
+	return nil
+}
+
+// killedBySignal 进程是否被信号杀死（如内核 OOM 的 SIGKILL）。
+func killedBySignal(err error) bool {
+	var ee *exec.ExitError
+	if !errors.As(err, &ee) || ee.ProcessState == nil {
+		return false
+	}
+	ws, ok := ee.Sys().(syscall.WaitStatus)
+	return ok && ws.Signaled()
 }
 
 func binOr(path, def string) string {

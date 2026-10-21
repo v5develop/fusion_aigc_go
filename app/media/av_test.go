@@ -3,11 +3,7 @@ package media
 import (
 	"bytes"
 	"context"
-	"encoding/json"
-	"io"
 	"math"
-	"mime/multipart"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -242,119 +238,18 @@ func TestAudioOperationsEndToEnd(t *testing.T) {
 
 // ---- HTTP：multipart 与原始体 ----
 
-func TestAVHTTPRoutes(t *testing.T) {
+// TestTrimCutsToRequestedSeconds：4 秒的测试片截到 2 秒，输出时长约 2 秒。
+func TestTrimCutsToRequestedSeconds(t *testing.T) {
 	requireFFmpeg(t)
 	dir := t.TempDir()
 	clip := filepath.Join(dir, "a.mp4")
 	makeAVClip(t, clip)
-	ts := newTestServer(t, Config{})
-
-	// 探测：原始体
-	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/v1/probe", bytes.NewReader(mustRead(t, clip)))
-	req.Header.Set("Content-Type", "video/mp4")
-	resp := send(t, req, testToken)
-	var probe ProbeResult
-	_ = json.NewDecoder(resp.Body).Decode(&probe)
-	if resp.StatusCode != http.StatusOK || probe.Width != 320 {
-		t.Fatalf("probe status=%d %+v", resp.StatusCode, probe)
-	}
-
-	// 抽帧：count 越界
-	req, _ = http.NewRequest(http.MethodPost, ts.URL+"/v1/frames?count=99", bytes.NewReader(mustRead(t, clip)))
-	req.Header.Set("Content-Type", "video/mp4")
-	assertError(t, send(t, req, testToken), http.StatusUnprocessableEntity, "bad_input")
-
-	// 音轨拼接：multipart，params + audio0/audio1
-	mp3 := filepath.Join(dir, "audio.mp3")
-	if err := newAVService(t).ExtractAudio(context.Background(), clip, mp3); err != nil {
+	svc := newAVService(t)
+	out := filepath.Join(dir, "trimmed.mp4")
+	if err := svc.Trim(context.Background(), clip, 2, out); err != nil {
 		t.Fatal(err)
 	}
-	body, ctype := multipartBody(t, map[string]string{
-		"params": `{"starts":[0,1],"total_duration":4,"sample_rate":44100,"channels":1}`,
-	}, map[string]string{"audio0": mp3, "audio1": mp3})
-	req, _ = http.NewRequest(http.MethodPost, ts.URL+"/v1/audio/timeline", body)
-	req.Header.Set("Content-Type", ctype)
-	resp = send(t, req, testToken)
-	if resp.StatusCode != http.StatusOK || resp.Header.Get("Content-Type") != "audio/mp4" {
-		t.Fatalf("timeline status=%d type=%q", resp.StatusCode, resp.Header.Get("Content-Type"))
+	if !near(durationOf(t, out), 2, 0.2) {
+		t.Fatalf("截剪后时长 = %v，期望约 2", durationOf(t, out))
 	}
-
-	// 缺文件：明确报错而不是 500
-	body, ctype = multipartBody(t, map[string]string{
-		"params": `{"starts":[0,1],"total_duration":4}`,
-	}, map[string]string{"audio0": mp3})
-	req, _ = http.NewRequest(http.MethodPost, ts.URL+"/v1/audio/timeline", body)
-	req.Header.Set("Content-Type", ctype)
-	assertError(t, send(t, req, testToken), http.StatusUnprocessableEntity, "bad_input")
-
-	// 替换音轨：multipart video + audio
-	body, ctype = multipartBody(t, nil, map[string]string{"video": clip, "audio": mp3})
-	req, _ = http.NewRequest(http.MethodPost, ts.URL+"/v1/video/replace-audio", body)
-	req.Header.Set("Content-Type", ctype)
-	resp = send(t, req, testToken)
-	if resp.StatusCode != http.StatusOK || resp.Header.Get("Content-Type") != "video/mp4" {
-		t.Fatalf("replace status=%d", resp.StatusCode)
-	}
-
-	// 字幕：multipart video + subtitle
-	if !hasSubtitlesFilter() {
-		t.Log("跳过字幕路由：本机 ffmpeg 没有 subtitles 滤镜")
-		return
-	}
-	srt := filepath.Join(dir, "sub.srt")
-	if err := os.WriteFile(srt, []byte("1\n00:00:00,000 --> 00:00:02,000\nhi\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	body, ctype = multipartBody(t, nil, map[string]string{"video": clip, "subtitle": srt})
-	req, _ = http.NewRequest(http.MethodPost, ts.URL+"/v1/video/burn-subtitles", body)
-	req.Header.Set("Content-Type", ctype)
-	resp = send(t, req, testToken)
-	if resp.StatusCode != http.StatusOK {
-		b, _ := io.ReadAll(resp.Body)
-		t.Fatalf("burn status=%d body=%s", resp.StatusCode, b)
-	}
-
-	// 字段名含路径字符必须拒绝
-	body, ctype = multipartBody(t, nil, map[string]string{"../evil": clip})
-	req, _ = http.NewRequest(http.MethodPost, ts.URL+"/v1/video/replace-audio", body)
-	req.Header.Set("Content-Type", ctype)
-	assertError(t, send(t, req, testToken), http.StatusUnprocessableEntity, "bad_input")
-}
-
-func mustRead(t *testing.T, path string) []byte {
-	t.Helper()
-	b, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return b
-}
-
-// multipartBody 组装 multipart：fields 是普通字段，files 是 字段名 → 本地文件路径。
-func multipartBody(t *testing.T, fields map[string]string, files map[string]string) (io.Reader, string) {
-	t.Helper()
-	var buf bytes.Buffer
-	w := multipart.NewWriter(&buf)
-	for k, v := range fields {
-		if err := w.WriteField(k, v); err != nil {
-			t.Fatal(err)
-		}
-	}
-	for name, path := range files {
-		part, err := w.CreateFormFile(name, filepath.Base(path))
-		if err != nil {
-			t.Fatal(err)
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := part.Write(data); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := w.Close(); err != nil {
-		t.Fatal(err)
-	}
-	return &buf, w.FormDataContentType()
 }

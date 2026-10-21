@@ -3,25 +3,45 @@ package media
 import (
 	"crypto/sha256"
 	"crypto/subtle"
-	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
-	"os"
-	"strconv"
-	"strings"
+	"time"
 )
 
 // TokenHeader 调用方鉴权头。
 const TokenHeader = "X-Media-Token"
 
-const maxRequestBody = 1 << 20 // 请求体只有 URL 列表，1M 足够
+// apiPrefix 契约路径前缀（media.api）。/healthz 不带前缀。
+const apiPrefix = "/v1/mediasvc"
 
-// Server 媒体服务的 HTTP 入口。契约见 docs/api/media-service.md。
+// Server 媒体服务的 HTTP 入口，契约见 app/media/api/media.api 与 docs/api/media-service.md。
 type Server struct {
-	svc   *Service
-	token string
-	mux   *http.ServeMux
+	svc     *Service
+	objects ObjectStore
+	idem    *idemStore
+	id      *identity
+	// opCeiling 单次请求超时的上限（来自 OpTimeoutSeconds）；deadline_ms 超过它时截到它
+	opCeiling time.Duration
+	token     string
+	opsToken  string
+	mux       *http.ServeMux
+	// owners 为新资源选择所属实例（按幂等键 rendezvous 哈希，候选是注册中心里存活的实例）
+	owners *ownerPicker
+	// closers 关闭时释放的资源（注册中心客户端）
+	closers []func()
+	// now 时钟（测试注入）；软删除的宽限期与清理都以它为准
+	now func() time.Time
+	// grace 软删除宽限期；sweepEvery 清理间隔
+	grace      time.Duration
+	sweepEvery time.Duration
+}
+
+// Close 释放服务持有的注册中心客户端。
+func (s *Server) Close() {
+	for _, c := range s.closers {
+		c()
+	}
 }
 
 // NewServer token 为空直接报错：这是能让人把任意地址拉下来处理的服务，不允许无鉴权启动。
@@ -29,17 +49,69 @@ func NewServer(cfg Config) (*Server, error) {
 	if cfg.Token == "" {
 		return nil, errors.New("media: 必须配置 Token，拒绝无鉴权启动")
 	}
-	s := &Server{svc: NewService(cfg), token: cfg.Token, mux: http.NewServeMux()}
+	id, err := newIdentity(cfg.InstanceID, cfg.IdentitySecret)
+	if err != nil {
+		return nil, err
+	}
+	var objects ObjectStore
+	if cfg.OSS.Enabled {
+		store, err := NewOSSStore(cfg.OSS)
+		if err != nil {
+			return nil, err
+		}
+		objects = store
+	} else {
+		if cfg.ObjectDir == "" {
+			return nil, errors.New("media: 未启用 OSS 时必须配置 ObjectDir（本地对象目录）")
+		}
+		store, err := NewLocalStore(cfg.ObjectDir)
+		if err != nil {
+			return nil, err
+		}
+		objects = store
+	}
+	idemTTL := time.Duration(cfg.IdempotencyMinutes) * time.Minute
+	if cfg.DeleteGraceMinutes < 0 {
+		return nil, errors.New("media: DeleteGraceMinutes 不能为负")
+	}
+	sweepEvery := time.Duration(cfg.SweepIntervalMinutes) * time.Minute
+	if sweepEvery <= 0 {
+		sweepEvery = time.Hour
+	}
+	s := &Server{svc: NewService(cfg), objects: objects, id: id, idem: newIdemStore(idemTTL), opCeiling: time.Duration(cfg.OpTimeoutSeconds) * time.Second, token: cfg.Token, opsToken: cfg.OpsToken, mux: http.NewServeMux(),
+		now: time.Now, grace: time.Duration(cfg.DeleteGraceMinutes) * time.Minute, sweepEvery: sweepEvery}
+	s.owners = newOwnerPicker(cfg, id.instanceID, &s.closers)
 	s.mux.HandleFunc("GET /healthz", s.healthz)
-	s.mux.HandleFunc("GET /v1/capabilities", s.auth(s.capabilities))
-	s.registerAV()
-	s.mux.HandleFunc("POST /v1/cover", s.auth(s.cover))
-	s.mux.HandleFunc("POST /v1/watermark", s.auth(s.watermark))
-	s.mux.HandleFunc("POST /v1/compose", s.auth(s.compose))
+	s.mux.HandleFunc("GET "+apiPrefix+"/capabilities", s.auth(s.capabilities))
+	s.mux.HandleFunc("POST "+apiPrefix+"/ingest/upload", s.auth(s.uploadBytes))
+	s.mux.HandleFunc("POST "+apiPrefix+"/ingest", s.auth(s.withDeadline(s.idempotent("ingest", s.ingest))))
+	s.mux.HandleFunc("POST "+apiPrefix+"/probe", s.auth(s.withDeadline(s.probe)))
+	s.mux.HandleFunc("POST "+apiPrefix+"/frames", s.auth(s.withDeadline(s.frames)))
+	s.mux.HandleFunc("POST "+apiPrefix+"/cover", s.auth(s.withDeadline(s.idempotent("cover", s.cover))))
+	s.mux.HandleFunc("POST "+apiPrefix+"/watermark", s.auth(s.withDeadline(s.idempotent("watermark", s.watermark))))
+	s.mux.HandleFunc("POST "+apiPrefix+"/video/trim", s.auth(s.withDeadline(s.idempotent("video/trim", s.trim))))
+	s.mux.HandleFunc("POST "+apiPrefix+"/video/conform", s.auth(s.withDeadline(s.idempotent("video/conform", s.conform))))
+	s.mux.HandleFunc("POST "+apiPrefix+"/resources/upload-target", s.auth(s.withDeadline(s.uploadTarget)))
+	s.mux.HandleFunc("POST "+apiPrefix+"/resources/register", s.auth(s.withDeadline(s.register)))
+	s.mux.HandleFunc("POST "+apiPrefix+"/resources/urls", s.auth(s.withDeadline(s.resourceURL)))
+	if s.opsToken != "" {
+		s.mux.HandleFunc("POST "+apiPrefix+"/ops/locate", s.opsAuth(s.locate))
+	}
+	s.mux.HandleFunc("POST "+apiPrefix+"/resources/copy", s.auth(s.withDeadline(s.idempotent("resources/copy", s.copyResource))))
+	s.mux.HandleFunc("POST "+apiPrefix+"/image/conform", s.auth(s.withDeadline(s.idempotent("image/conform", s.imageConform))))
+	s.mux.HandleFunc("POST "+apiPrefix+"/image/resize", s.auth(s.withDeadline(s.idempotent("image/resize", s.imageResize))))
+	s.mux.HandleFunc("POST "+apiPrefix+"/compose", s.auth(s.withDeadline(s.idempotent("compose", s.compose))))
+	s.mux.HandleFunc("POST "+apiPrefix+"/audio/extract", s.auth(s.withDeadline(s.idempotent("audio/extract", s.extractAudio))))
+	s.mux.HandleFunc("POST "+apiPrefix+"/audio/timeline", s.auth(s.withDeadline(s.idempotent("audio/timeline", s.audioTimeline))))
+	s.mux.HandleFunc("POST "+apiPrefix+"/video/replace-audio", s.auth(s.withDeadline(s.idempotent("video/replace-audio", s.replaceAudio))))
+	s.mux.HandleFunc("POST "+apiPrefix+"/video/burn-subtitles", s.auth(s.withDeadline(s.idempotent("video/burn-subtitles", s.burnSubtitles))))
+	s.mux.HandleFunc("POST "+apiPrefix+"/video/adjust-duration", s.auth(s.withDeadline(s.idempotent("video/adjust-duration", s.adjustDuration))))
+	s.mux.HandleFunc("POST "+apiPrefix+"/resources/restore", s.auth(s.withDeadline(s.restore)))
+	s.mux.HandleFunc("POST "+apiPrefix+"/delete", s.auth(s.withDeadline(s.idempotent("delete", s.delete))))
 	return s, nil
 }
 
-func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) { s.mux.ServeHTTP(w, r) }
+func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) { withTrace(s.mux).ServeHTTP(w, r) }
 
 func (s *Server) healthz(w http.ResponseWriter, _ *http.Request) {
 	w.WriteHeader(http.StatusOK)
@@ -50,135 +122,11 @@ func (s *Server) healthz(w http.ResponseWriter, _ *http.Request) {
 func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
 	want := sha256.Sum256([]byte(s.token))
 	return func(w http.ResponseWriter, r *http.Request) {
-		got := sha256.Sum256([]byte(r.Header.Get(TokenHeader)))
+		got := sha256.Sum256([]byte(bearerOrToken(r)))
 		if subtle.ConstantTimeCompare(got[:], want[:]) != 1 {
-			writeError(w, http.StatusUnauthorized, "unauthorized", "鉴权失败")
+			writeAPIError(w, newAPIError(codeUnauthorized, "auth.token"))
 			return
 		}
 		next(w, r)
 	}
-}
-
-// capabilities 告诉调用方服务端现在能做什么（水印依赖 logo 是否已配置）。
-func (s *Server) capabilities(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]bool{
-		"cover":     true,
-		"compose":   true,
-		"av":        true,
-		"watermark": s.svc.logoAvailable(),
-	})
-}
-
-type videoRequest struct {
-	VideoURL string `json:"video_url"`
-}
-
-type composeRequest struct {
-	VideoURLs []string `json:"video_urls"`
-}
-
-func (s *Server) cover(w http.ResponseWriter, r *http.Request) {
-	in, ok := s.source(w, r)
-	if !ok {
-		return
-	}
-	data, err := s.svc.Cover(r.Context(), in)
-	if err != nil {
-		writeOpError(w, err)
-		return
-	}
-	w.Header().Set("Content-Type", "image/jpeg")
-	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
-	_, _ = w.Write(data)
-}
-
-func (s *Server) watermark(w http.ResponseWriter, r *http.Request) {
-	in, ok := s.source(w, r)
-	if !ok {
-		return
-	}
-	out, err := s.svc.Watermark(r.Context(), in)
-	if err != nil {
-		writeOpError(w, err)
-		return
-	}
-	defer out.Cleanup()
-	streamVideo(w, out.Path)
-}
-
-func (s *Server) compose(w http.ResponseWriter, r *http.Request) {
-	var req composeRequest
-	if !decode(w, r, &req) {
-		return
-	}
-	out, err := s.svc.Compose(r.Context(), req.VideoURLs)
-	if err != nil {
-		writeOpError(w, err)
-		return
-	}
-	defer out.Cleanup()
-	streamVideo(w, out.Path)
-}
-
-// source 输入二选一：JSON 里给公网地址（服务端下载），或直接把视频文件作为请求体（Content-Type 非 JSON）。
-// 后者让调用方不必为本地临时文件另外发布地址。
-func (s *Server) source(w http.ResponseWriter, r *http.Request) (Source, bool) {
-	if strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
-		var req videoRequest
-		if !decode(w, r, &req) {
-			return nil, false
-		}
-		return s.svc.FromURL(req.VideoURL), true
-	}
-	return s.svc.FromBody(r.Body), true
-}
-
-func decode(w http.ResponseWriter, r *http.Request, v any) bool {
-	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBody)
-	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
-		writeError(w, http.StatusUnprocessableEntity, "bad_input", "请求体不是合法 JSON")
-		return false
-	}
-	return true
-}
-
-func streamVideo(w http.ResponseWriter, path string) {
-	f, err := os.Open(path)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal", "服务内部错误")
-		return
-	}
-	defer f.Close()
-	st, err := f.Stat()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal", "服务内部错误")
-		return
-	}
-	w.Header().Set("Content-Type", "video/mp4")
-	w.Header().Set("Content-Length", strconv.FormatInt(st.Size(), 10))
-	_, _ = io.Copy(w, f)
-}
-
-func writeOpError(w http.ResponseWriter, err error) {
-	status, code := statusOf(err)
-	if status == http.StatusServiceUnavailable {
-		w.Header().Set("Retry-After", "5")
-	}
-	writeError(w, status, code, errMessage(err))
-}
-
-// errMessage 对外只给分类说明，ffmpeg 的原始输出只进服务日志。
-func errMessage(err error) string {
-	var oe *opError
-	if errors.As(err, &oe) {
-		return oe.msg
-	}
-	return "服务内部错误"
-}
-
-func writeError(w http.ResponseWriter, status int, code, msg string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]string{"code": code, "message": msg})
 }

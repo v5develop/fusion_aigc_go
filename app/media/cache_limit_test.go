@@ -80,3 +80,79 @@ func TestRemoveOrphanCachesKeepsLiveOwners(t *testing.T) {
 		t.Fatal("recently created directory must be kept")
 	}
 }
+
+// 空 TempDir 时清扫的必须是系统临时目录，绝不能是当前工作目录。
+func TestRemoveOrphanCachesEmptyRootUsesTempDirNotCWD(t *testing.T) {
+	tmp := t.TempDir()
+	cwd := t.TempDir()
+	t.Setenv("TMPDIR", tmp)
+	t.Chdir(cwd)
+
+	mk := func(base, owner string, age time.Duration) string {
+		dir := filepath.Join(base, "media-cache-x")
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if owner != "" {
+			if err := os.WriteFile(filepath.Join(dir, ownerFile), []byte(owner), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		old := time.Now().Add(-age)
+		if err := os.Chtimes(dir, old, old); err != nil {
+			t.Fatal(err)
+		}
+		return dir
+	}
+	inCWD := mk(cwd, "999999", 2*time.Minute)
+	inTmp := mk(tmp, "999999", 2*time.Minute)
+
+	removeOrphanCaches("")
+
+	if _, err := os.Stat(inCWD); err != nil {
+		t.Fatal("orphan-looking directory in the working directory must not be touched")
+	}
+	if _, err := os.Stat(inTmp); !os.IsNotExist(err) {
+		t.Fatal("orphan cache in os.TempDir() should be removed when TempDir is empty")
+	}
+}
+
+// 只删带前缀的目录：同名普通文件、无前缀的目录、符号链接都不动。
+func TestRemoveOrphanCachesOnlyTouchesPrefixedDirectories(t *testing.T) {
+	root := t.TempDir()
+	old := time.Now().Add(-2 * time.Minute)
+
+	file := filepath.Join(root, "media-cache-file")
+	if err := os.WriteFile(file, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.Chtimes(file, old, old)
+
+	other := filepath.Join(root, "other-dir")
+	if err := os.MkdirAll(other, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.WriteFile(filepath.Join(other, ownerFile), []byte("999999"), 0o600)
+	_ = os.Chtimes(other, old, old)
+
+	target := filepath.Join(root, "target")
+	if err := os.MkdirAll(target, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.WriteFile(filepath.Join(target, ownerFile), []byte("999999"), 0o600)
+	link := filepath.Join(root, "media-cache-link")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+
+	removeOrphanCaches(root)
+
+	for _, p := range []string{file, other, target} {
+		if _, err := os.Stat(p); err != nil {
+			t.Fatalf("%s must not be removed: %v", p, err)
+		}
+	}
+	if _, err := os.Lstat(link); err != nil {
+		t.Fatal("symlink must not be removed")
+	}
+}
