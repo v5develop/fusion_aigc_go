@@ -17,7 +17,7 @@
 # 部署时由 compose 调用：command: ["bash", "/app/pkg/install.sh", "prepare"]
 # 成功退出后服务容器才启动；也可手工跑 check-billing / seed-templates / voices。
 # 固定到补丁版本（与本机工具链一致），避免上游发补丁时同一 tag 产出不同二进制
-ARG GO_VERSION=1.27.2
+ARG GO_VERSION=1.27.3
 
 # ---------- Stage 1：跨编译 linux/amd64（只编运维工具） ----------
 FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine AS build
