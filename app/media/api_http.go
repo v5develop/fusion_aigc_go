@@ -381,12 +381,16 @@ func (s *Server) delete(w http.ResponseWriter, r *http.Request) {
 	// 两种写法：{"rid": "..."}（系统内首选）或 {"object": {"store", "key"}}（历史兼容）
 	store, path := req.Object.Store, req.Object.Key
 	if req.Rid != "" {
-		_, class, err := ParseRID(req.Rid)
-		if err != nil {
-			writeAPIError(w, invalid("request.rid"))
+		st, p, err := s.objectPath(r.Context(), req.Rid)
+		if errors.Is(err, errObjectNotFound) {
+			writeJSON(w, http.StatusOK, deleteResp{Deleted: false, State: deleteStateAbsent})
 			return
 		}
-		store, path = storeForClass(class, ""), storePath(class, s.id.ObjectKey(req.Rid))
+		if err != nil {
+			writeAPIError(w, err)
+			return
+		}
+		store, path = st, p
 	}
 	if !validStore(store) {
 		writeAPIError(w, invalid("request.object_store"))
@@ -442,13 +446,12 @@ func (s *Server) restore(w http.ResponseWriter, r *http.Request) {
 	if !readJSON(w, r, &req) {
 		return
 	}
-	_, class, err := ParseRID(req.Rid)
+	ctx := r.Context()
+	store, path, err := s.objectPath(ctx, req.Rid)
 	if err != nil {
-		writeAPIError(w, invalid("request.rid"))
+		writeAPIError(w, ridNotFound(err))
 		return
 	}
-	ctx := r.Context()
-	store, path := storeForClass(class, ""), storePath(class, s.id.ObjectKey(req.Rid))
 	deadline, pending, err := s.objects.PendingDeadline(ctx, store, path)
 	if err != nil {
 		writeAPIError(w, err)

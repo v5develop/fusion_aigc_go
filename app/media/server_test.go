@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -18,6 +19,16 @@ func requireFFmpeg(t *testing.T) {
 		if _, err := exec.LookPath(b); err != nil {
 			t.Skipf("未安装 %s，跳过", b)
 		}
+	}
+}
+
+// requireFFmpegFilter 本机 ffmpeg 没有某个滤镜时跳过（例如 Homebrew 默认不带 drawtext，需要 libfreetype）。
+// 生产镜像用 Debian 的 ffmpeg，带该滤镜；这里只是让本地测试不因环境差异误报失败。
+func requireFFmpegFilter(t *testing.T, name string) {
+	t.Helper()
+	out, err := exec.Command("ffmpeg", "-hide_banner", "-filters").CombinedOutput()
+	if err != nil || !strings.Contains(string(out), " "+name+" ") {
+		t.Skipf("本机 ffmpeg 不带 %s 滤镜，跳过（生产镜像带有）", name)
 	}
 }
 

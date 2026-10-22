@@ -48,7 +48,12 @@ func (s *Server) locate(w http.ResponseWriter, r *http.Request) {
 	}
 	store := storeForClass(class, "")
 	objectKey := s.id.ObjectKey(req.RID)
-	resp := locateResp{RID: req.RID, Class: class, Store: store, ObjectKey: objectKey, Path: storePath(class, objectKey)}
+	_, locPath, err := s.objectPath(r.Context(), req.RID)
+	if err != nil {
+		writeAPIError(w, ridNotFound(err))
+		return
+	}
+	resp := locateResp{RID: req.RID, Class: class, Store: store, ObjectKey: objectKey, Path: locPath}
 	if oss, ok := s.objects.(*OSSStore); ok {
 		if b, err := oss.bucket(store); err == nil {
 			resp.Bucket = b.Bucket

@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // 契约校验与公共步骤。写操作的输出都经 storeFile 落桶。
@@ -113,9 +114,12 @@ func (s *Server) sourceFn(src SourceRef) Source {
 	}
 	if src.Rid != "" {
 		_, class, _ := ParseRID(src.Rid)
-		path := storePath(class, s.id.ObjectKey(src.Rid))
 		store := storeForClass(class, src.Store)
 		return func(ctx context.Context, dir string) (string, error) {
+			_, path, err := s.objectPath(ctx, src.Rid)
+			if err != nil {
+				return "", err
+			}
 			if err := s.checkReadable(ctx, store, path); err != nil {
 				return "", err
 			}
@@ -202,7 +206,10 @@ func (s *Server) storeWithMeta(ctx context.Context, purpose, path string, meta M
 	if err != nil {
 		return MediaResult{}, err
 	}
-	objPath := storePath(class, s.id.ObjectKey(rid))
+	objPath, err := s.placeObject(ctx, rid, class, store, s.id.ObjectKey(rid), meta.Mime, time.Now())
+	if err != nil {
+		return MediaResult{}, err
+	}
 	obj, err := s.objects.Put(ctx, store, objPath, path, meta.Mime)
 	if err != nil {
 		return MediaResult{}, err

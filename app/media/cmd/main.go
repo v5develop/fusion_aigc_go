@@ -18,12 +18,13 @@ import (
 )
 
 func main() {
-	cfgFile := flag.String("f", "deploy/etc/media-svc.yaml", "配置文件")
+	cfgFile := flag.String("f", "deploy/etc/media-svc.dev.yaml", "配置文件（默认是本地开发配置；容器用 /app/etc/media-svc.yaml）")
 	retire := flag.String("retire", "", "下线实例 ID：写入墓碑列表后退出，此后该 ID 永不能再注册")
 	flag.Parse()
 
 	var c media.Config
-	// UseEnv：展开配置里的 ${VAR}（容器里 Listen / Token 靠它注入）。不开的话 Token 会被当成字面量 "${…}"
+	// UseEnv：展开配置里的 ${VAR}（容器里 Listen / Token 靠它注入）。不开的话 Token 会被当成字面量 "${…}"。
+	// 启动校验（Config.Validate）由 go-zero 在加载时自动调用：配置不合法时这里直接退出。
 	conf.MustLoad(*cfgFile, &c, conf.UseEnv())
 	// 内网放行只能显式开：环境变量为 true 才打开（SSRF 防护的唯一开关，不进 yaml 的 ${…} 展开）
 	if os.Getenv("MEDIA_ALLOW_PRIVATE_HOSTS") == "true" {

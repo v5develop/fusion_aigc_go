@@ -19,7 +19,7 @@ func TestRewriteClearsPendingDeleteMark(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	path := "v1/work/abcdefghijklmnopqrstuvwxyz"
+	path := "v1/work/2026/10/abcdefghijklmnopqrstuvwxyz"
 	if _, err := st.Put(ctx, storePrivate, path, src, "video/mp4"); err != nil {
 		t.Fatal(err)
 	}

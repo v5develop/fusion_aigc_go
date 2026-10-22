@@ -2,7 +2,10 @@ package media
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"log"
+	"os"
 	"time"
 )
 
@@ -23,6 +26,7 @@ type sweepReport struct {
 	Deleted int
 	Pending int // 仍在宽限期内、本轮未处理
 	Failed  int
+	Orphans int // 对象已不存在、超过保留期而删掉的索引
 }
 
 // RunSweeper 按 sweepEvery 周期清理，直到 ctx 结束。
@@ -77,6 +81,13 @@ func (s *Server) sweepOnce(ctx context.Context) (sweepReport, error) {
 					rep.Failed++
 					continue
 				}
+				// 对象删除后同步删索引：不留残留。任一步失败标记保留，下一轮重做（两步都幂等）
+				if key, ok := objectKeyOfPath(m.Path); ok {
+					if err := s.objects.DeleteIndex(ctx, key); err != nil {
+						rep.Failed++
+						continue
+					}
+				}
 				if err := s.objects.ClearPending(ctx, m.Store, m.Path); err != nil {
 					rep.Failed++
 					continue
@@ -89,5 +100,94 @@ func (s *Server) sweepOnce(ctx context.Context) (sweepReport, error) {
 			marker = next
 		}
 	}
+	// 孤儿索引：对象已不存在、超过保留期（直传未完成或入库中途失败留下的），删掉索引，不留残留
+	orphans, err := s.sweepOrphanIndexes(ctx, s.now())
+	rep.Orphans = orphans
+	if err != nil {
+		rep.Failed++
+		log.Printf("media: 清理孤儿索引失败（下一轮重试）: %v", err)
+	}
 	return rep, nil
+}
+
+// orphanIndexTTL 索引超过这段时间仍然没有对应对象，即视为孤儿（直传未完成、入库中途失败）。
+const orphanIndexTTL = 24 * time.Hour
+
+// sweepOrphanIndexes 删除孤儿索引。返回删除的条数。
+func (s *Server) sweepOrphanIndexes(ctx context.Context, now time.Time) (int, error) {
+	removed := 0
+	marker := ""
+	for {
+		entries, next, err := s.objects.ListIndexes(ctx, marker, sweepPageSize)
+		if err != nil {
+			return removed, err
+		}
+		for _, e := range entries {
+			// 修改时间不可知（解析失败）或未到保留期：保留，宁可多留一轮
+			if e.Modified.IsZero() || now.Sub(e.Modified) < orphanIndexTTL {
+				continue
+			}
+			orphan, err := s.indexOrphaned(ctx, e.ObjectKey)
+			if err != nil {
+				return removed, err
+			}
+			if !orphan {
+				continue
+			}
+			if err := s.objects.DeleteIndex(ctx, e.ObjectKey); err != nil {
+				return removed, err
+			}
+			removed++
+		}
+		if next == "" {
+			return removed, nil
+		}
+		marker = next
+	}
+}
+
+// indexOrphaned 索引指向的对象在它可能所在的每个存储里都不存在。索引本身不存在（已被删）视为非孤儿，留给别的路径处理。
+func (s *Server) indexOrphaned(ctx context.Context, objectKey string) (bool, error) {
+	dir, err := os.MkdirTemp("", "media-orphan-")
+	if err != nil {
+		return false, err
+	}
+	defer os.RemoveAll(dir)
+	local, err := s.objects.Fetch(ctx, storePrivate, indexKeyOf(objectKey), dir)
+	if errors.Is(err, errObjectNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	raw, err := os.ReadFile(local)
+	if err != nil {
+		return false, err
+	}
+	var idx objectIndex
+	if err := json.Unmarshal(raw, &idx); err != nil || classOfPath(idx.Path) == "" {
+		return false, nil // 内容损坏：保留并由人工排查，不擅自删
+	}
+	for _, store := range candidateStores(classOfPath(idx.Path)) {
+		_, err := s.objects.Head(ctx, store, idx.Path)
+		if err == nil {
+			return false, nil
+		}
+		if !errors.Is(err, errObjectNotFound) {
+			return false, err
+		}
+	}
+	return true, nil
+}
+
+// candidateStores 类别的对象可能所在的存储（交付物可能在私有桶或第三方桶）。
+func candidateStores(class string) []string {
+	switch class {
+	case classAsset:
+		return []string{storeAsset}
+	case classDeliver:
+		return []string{storePrivate, storeThirdParty}
+	default:
+		return []string{storePrivate}
+	}
 }

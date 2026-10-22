@@ -148,9 +148,9 @@ func writeFixture(t *testing.T, data string) string {
 	return p
 }
 
-const ossWorkPath = "v1/work/abcdefghijklmnopqrstuvwxyz"
-const ossUserPath = "v1/user/abcdefghijklmnopqrstuvwxyz"
-const ossAssetPath = "v1/asset/abcdefghijklmnopqrstuvwxyz"
+const ossWorkPath = "v1/work/2026/10/abcdefghijklmnopqrstuvwxyz"
+const ossUserPath = "v1/user/2026/10/abcdefghijklmnopqrstuvwxyz"
+const ossAssetPath = "v1/asset/2026/10/abcdefghijklmnopqrstuvwxyz"
 
 // 中间产物：写私有桶，签名读取，删除后不可再读。
 func TestOSSPutFetchDeleteRoundTrip(t *testing.T) {

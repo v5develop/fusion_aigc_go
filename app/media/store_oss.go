@@ -203,6 +203,66 @@ func (o *OSSStore) URL(_ context.Context, obj StoredObject) (StoredURL, error) {
 }
 
 // Delete 删除对象。只允许 work、deliver、asset 类别；user 与历史路径拒绝。
+// ListIndexes 按 prefix=idx/ 列举私有桶的索引对象，LastModified 取自列举结果。
+func (o *OSSStore) ListIndexes(ctx context.Context, marker string, limit int) ([]IndexEntry, string, error) {
+	b, err := o.bucket(storePrivate)
+	if err != nil {
+		return nil, "", err
+	}
+	q := url.Values{}
+	q.Set("prefix", "idx/")
+	q.Set("max-keys", strconv.Itoa(limit))
+	if marker != "" {
+		q.Set("marker", marker)
+	}
+	resp, err := o.signedReq(ctx, http.MethodGet, b, "", q.Encode(), nil)
+	if err != nil {
+		return nil, "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		return nil, "", fmt.Errorf("media: OSS 列举索引返回 %d: %s", resp.StatusCode, raw)
+	}
+	var lr ossListResult
+	if err := xml.NewDecoder(resp.Body).Decode(&lr); err != nil {
+		return nil, "", fmt.Errorf("media: OSS 列举索引解析失败: %w", err)
+	}
+	out := make([]IndexEntry, 0, len(lr.Contents))
+	for _, c := range lr.Contents {
+		key, ok := objectKeyOfIndexName(strings.TrimPrefix(c.Key, "idx/"))
+		if !ok {
+			continue
+		}
+		at, _ := time.Parse(time.RFC3339Nano, c.LastModified)
+		out = append(out, IndexEntry{ObjectKey: key, Modified: at})
+	}
+	next := ""
+	if lr.IsTruncated && len(lr.Contents) > 0 {
+		next = lr.Contents[len(lr.Contents)-1].Key
+	}
+	return out, next, nil
+}
+
+// DeleteIndex 删除索引对象（私有桶）。不存在视为成功。
+func (o *OSSStore) DeleteIndex(ctx context.Context, objectKey string) error {
+	b, err := o.bucket(storePrivate)
+	if err != nil {
+		return err
+	}
+	resp, err := o.do(ctx, http.MethodDelete, storePrivate, b, indexKeyOf(objectKey), "", nil, -1)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	switch resp.StatusCode {
+	case http.StatusNoContent, http.StatusOK, http.StatusNotFound:
+		return nil
+	default:
+		return fmt.Errorf("media: OSS 删除索引返回 %d", resp.StatusCode)
+	}
+}
+
 func (o *OSSStore) Delete(ctx context.Context, store, path string) (bool, error) {
 	if !deletable(path) {
 		return false, errUserInputProtected
@@ -524,7 +584,8 @@ func (o *OSSStore) ClearPending(ctx context.Context, store, path string) error {
 type ossListResult struct {
 	IsTruncated bool `xml:"IsTruncated"`
 	Contents    []struct {
-		Key string `xml:"Key"`
+		Key          string `xml:"Key"`
+		LastModified string `xml:"LastModified"`
 	} `xml:"Contents"`
 }
 

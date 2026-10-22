@@ -2,7 +2,7 @@
 
 媒体服务统一负责视频和音频的读取与加工：下载来源、完整解码校验、探测、截剪、规整、抽帧、封面、水印、合成、变速、删除中间产物，以及按用途落桶。**调用方只发指令，不碰字节。** 契约以 `app/media/api/media.api`（go-zero .api）为准，本文档是它的说明。
 
-当前状态：落桶已接入 OSS（`app/media/store_oss.go`），未启用 OSS 时退回本地目录，只用于开发。对象按 **rid** 定位：rid 形如 `<所属实例 6 位>-<类别>-<26 位编码>`（例如 `tst001-work-…`），桶内路径为 `v1/<类别>/<对象键>`，对象键由 rid 经 HMAC 派生，不含业务域、用户、任务信息。类别为 `user`、`work`、`deliver`、`asset`，与存储的对应见下文「资源寻址（rid）」。删除只允许 `work`、`deliver`、`asset`，`user` 类别（用户输入）与历史 `sha256/` 路径一律拒绝（403 `forbidden_purpose`）。
+当前状态：落桶已接入 OSS（`app/media/store_oss.go`），未启用 OSS 时退回本地目录，只用于开发。对象按 **rid** 定位：rid 形如 `<所属实例 6 位>-<类别>-<26 位编码>`（例如 `tst001-work-…`），桶内路径为 `v1/<类别>/<yyyy>/<mm>/<对象键>[.<后缀>]`（日期取首次写入时间，后缀由内容类型决定；直传目标的后缀由声明的 `mime` 决定），rid → 路径由私有桶索引对象 `idx/<对象键>.json` 给出。对象键由 rid 经 HMAC 派生，不含业务域、用户、任务信息。类别为 `user`、`work`、`deliver`、`asset`，与存储的对应见下文「资源寻址（rid）」。删除只允许 `work`、`deliver`、`asset`，`user` 类别（用户输入）与历史 `sha256/` 路径一律拒绝（403 `forbidden_purpose`）。
 
 新增的音频与字幕接口已落地（`audio/timeline`、`video/replace-audio`、`video/burn-subtitles`），与既有接口一样走 `Idempotency-Key`。
 
@@ -24,10 +24,10 @@
 |---|---|---|
 | `MEDIA_MAX_INPUT_BYTES` | 1073741824（1 GiB） | 单个输入（下载、字节上传 `purpose=user_input`）的体积上限，超过返回 422 |
 | `MEDIA_STORE_LOCAL_MAX_BYTES` | 2147483648（2 GiB） | 我方产物字节上传（`purpose` 非 `user_input`，如 Java 本地加工的文件）的体积上限，与 Java 的 `GATEWAY_RESULT_MAX_BYTES` 对齐；超过返回 400 `invalid_request`（check=`request.body_too_large`），不判为素材被拒 |
-| `MEDIA_FETCH_TIMEOUT_SECONDS` | 1800 | 单个输入下载的总时长上限（大视频下载可能很慢） |
-| `MEDIA_OP_TIMEOUT_SECONDS` | 1800 | 单次请求（下载之外的处理，含 ffmpeg 与校验）的时长上限，也是请求 `deadline_ms` 的上限 |
+| `MEDIA_FETCH_TIMEOUT_SECONDS` | 1800 | 单个输入下载的总时长上限（大视频下载可能很慢）。必须为正数，留空或 0 启动即拒绝 |
+| `MEDIA_OP_TIMEOUT_SECONDS` | 1800 | 单次请求（下载之外的处理，含 ffmpeg 与校验）的时长上限，也是请求 `deadline_ms` 的上限。必须为正数，留空或 0 启动即拒绝 |
 
-调用方（Java 的 `app.media-service.timeout-seconds`，环境变量 `MEDIA_SERVICE_TIMEOUT_SECONDS`，默认 1800）的 HTTP 超时必须**大于** `MEDIA_OP_TIMEOUT_SECONDS`，否则会先于媒体服务超时。
+调用方（Java 的 `app.media-service.timeout-seconds`，环境变量 `MEDIA_SERVICE_TIMEOUT_SECONDS`，默认 3600）的 HTTP 超时必须**大于** `MEDIA_OP_TIMEOUT_SECONDS`（fusion-aigc 的 `deploy.sh` 据此拒绝倒置的配置），否则会先于媒体服务超时、媒体侧仍在处理，产生重复提交。推荐至少为 2 倍：排队等名额也计在内。
 
 ## 部署（容器，推荐）
 
@@ -114,7 +114,7 @@ Content-Type: <可选，仅作提示>
 {"url": "https://example.com/a.mp4"}
 ```
 ```json
-{"key": "v1/work/xxxxxxxxxxxxxxxxxxxxxxxxxx", "store": "private"}
+{"key": "v1/work/2026/10/xxxxxxxxxxxxxxxxxxxxxxxxxx.png", "store": "private"}
 ```
 
 - `rid`：系统内资源。类别从 rid 推导，调用方不传 class。`store` 只对 `deliver` 类别有意义（`third_party` 读第三方桶，缺省读私有桶），其它类别忽略。
@@ -165,8 +165,8 @@ Content-Type: <可选，仅作提示>
 | POST | `/v1/mediasvc/video/adjust-duration` | 变速 | `MediaResult` |
 | POST | `/v1/mediasvc/delete` | 软删除：登记待删除标记，宽限期后由清理物理删除。请求体 `{"rid": "..."}`（首选）或 `{"object": {...}}`；`user` 类别与历史 `sha256/` 路径一律拒绝（403）。必须带 `Idempotency-Key` | `DeleteResp` |
 | POST | `/v1/mediasvc/resources/restore` | 宽限期内撤销待删除，对象恢复可用。请求体 `{"rid": "..."}`；不在待删除状态时返回 `restored: false`（幂等）；宽限期已过返回 `409 grace_expired` | `RestoreResp` |
-| POST | `/v1/mediasvc/resources/upload-target` | 申请直传目标（只允许用户输入）：返回 rid 与签名 PUT 地址；目标对象已存在时返回 `409 conflict`，不覆盖已登记的用户对象 | `UploadTargetResp` |
-| POST | `/v1/mediasvc/resources/register` | 直传完成后凭 rid 确认：完整解码校验，返回 `mime`、大小、摘要与媒体属性；内容不合法返回 `422 source_rejected`（对象保留，由调用方决定如何处理），对象不存在返回 404 | `MediaResult` |
+| POST | `/v1/mediasvc/resources/upload-target` | 申请直传目标（只允许用户输入）：返回 rid 与签名 PUT 地址；路径后缀由声明的 `mime` 决定；目标对象已存在、或同一幂等键改了声明类型时返回 `409 conflict`，不覆盖已登记的用户对象 | `UploadTargetResp` |
+| POST | `/v1/mediasvc/resources/register` | 直传完成后凭 rid 确认：完整解码校验，返回 `mime`、大小、摘要与媒体属性；内容不合法，或实际内容类型与声明类型不一致（`upload.type_mismatch`），返回 `422 source_rejected`（对象保留，由调用方决定如何处理），对象不存在返回 404 | `MediaResult` |
 | POST | `/v1/mediasvc/audio/timeline` | 配音时间线：多段音频按起点拼成整条音轨（m4a） | `MediaResult` |
 | POST | `/v1/mediasvc/video/replace-audio` | 换音轨：视频流拷贝，按短的一方截断 | `MediaResult` |
 | POST | `/v1/mediasvc/video/burn-subtitles` | 烧录字幕（固定样式，请求体带 srt 文本） | `MediaResult` |

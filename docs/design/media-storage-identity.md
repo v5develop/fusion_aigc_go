@@ -2,7 +2,7 @@
 
 状态：**已确认方案，部分已实施**。范围：fusion-aigc（Java）、fusion_aigc_go（媒体服务）、ai-gateway 三个子系统。
 
-已实施：rid 寻址与桶内路径（`v1/<类别>/<对象键>`）、类别与删除规则、`resources/urls`、直传两步接口、音频与字幕接口、按 rid 路由到所属实例（§4）、owner 按幂等键选择（§5）、实例 ID 启动查重与墓碑、下线命令（§8.1）。待实施：软删除（§8.5）。下文标注「待实施」或「待确认」的地方以此为准。
+已实施：rid 寻址与桶内路径（`v1/<类别>/<yyyy>/<mm>/<对象键>[.<后缀>]`，rid → 路径靠私有桶索引对象 `idx/<对象键>.json`；删除对象时同步删索引）、类别与删除规则、`resources/urls`、直传两步接口、音频与字幕接口、按 rid 路由到所属实例（§4）、owner 按幂等键选择（§5）、实例 ID 启动查重与墓碑、下线命令（§8.1）。待实施：软删除（§8.5）。下文标注「待实施」或「待确认」的地方以此为准。
 
 ## 0. 目标与原则
 
@@ -222,7 +222,7 @@ POST /v1/mediasvc/resources/urls
 ```
 object.rid      资源 ID（内部身份，后续所有操作都用它）
 object.class   user | work | deliver | asset
-object.key      桶内路径 v1/<class>/<object_key>（仅媒体服务内部与运维使用，业务层不解析）
+object.key      桶内路径 v1/<class>/<yyyy>/<mm>/<object_key>[.<ext>]（仅媒体服务内部与运维使用，业务层不解析）
 object.store    private | asset_library | third_party
 object.sha256, size, mime, duration_s, width, height, fps, has_audio
 ```

@@ -94,8 +94,11 @@ func (s *Server) resourceURL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
-	key := s.id.ObjectKey(req.RID)
-	path := storePath(req.Class, key)
+	_, path, err := s.objectPath(ctx, req.RID)
+	if err != nil {
+		writeAPIError(w, ridNotFound(err))
+		return
+	}
 
 	if err := s.checkReadable(ctx, req.Store, path); err != nil {
 		writeAPIError(w, err)

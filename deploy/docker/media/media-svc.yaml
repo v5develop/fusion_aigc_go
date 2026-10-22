@@ -20,7 +20,7 @@ Registry:
   Advertise: ${MEDIA_ADVERTISE_URL}
 FFmpeg: ffmpeg
 FFprobe: ffprobe
-# 水印 logo 路径：镜像默认 /app/logo.png（挂载提供）；为空则水印接口返回 logo_unavailable
+# 水印 logo 路径：镜像 ENV 固定为 /app/logo.png（挂载提供，见 Dockerfile.media）；为空则水印接口返回 logo_unavailable
 LogoPath: ${MEDIA_LOGO_PATH}
 # 单个输入的体积上限（字节）。大视频下载慢，默认 1 GiB；由 compose 的 MEDIA_MAX_INPUT_BYTES 提供默认值
 MaxInputBytes: ${MEDIA_MAX_INPUT_BYTES}
@@ -30,8 +30,8 @@ MaxComposeInputs: 50
 MaxConcurrent: 4
 # 单个输入下载的总时长上限（秒）：大视频下载会慢，由 MEDIA_FETCH_TIMEOUT_SECONDS 配置
 FetchTimeoutSeconds: ${MEDIA_FETCH_TIMEOUT_SECONDS}
-# 单次操作（ffmpeg、校验、下载之外的处理）与单次请求的时长上限（秒）：由 MEDIA_OP_TIMEOUT_SECONDS 配置
-# 调用方（Java）的 HTTP 超时必须大于它，否则会先于媒体服务超时
+# 单次请求（下载之外的处理，含 ffmpeg 与校验）的时长上限（秒）：由 MEDIA_OP_TIMEOUT_SECONDS 配置，必须为正数（启动校验）。
+# 调用方（Java app.media-service.timeout-seconds，默认 3600）的 HTTP 超时必须大于它，推荐至少 2 倍（排队等名额也计在内）。
 OpTimeoutSeconds: ${MEDIA_OP_TIMEOUT_SECONDS}
 # 允许接收调用方请求头（凭证）的素材主机，逗号分隔；留空则拒绝所有带 headers 的 ingest
 IngestHeaderHosts: ${MEDIA_INGEST_HEADER_HOSTS}

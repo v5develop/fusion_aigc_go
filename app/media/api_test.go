@@ -93,7 +93,7 @@ func TestIngestStoresValidatedClipLocally(t *testing.T) {
 	if res.Url.Kind != "none" {
 		t.Fatalf("本地实现 url.kind = %s", res.Url.Kind)
 	}
-	if got := fileSHA(t, filepath.Join(f.objects, o.Store, filepath.FromSlash(pathOfRID(t, o.RID)))); got != o.Sha256 {
+	if got := fileSHA(t, filepath.Join(f.objects, o.Store, filepath.FromSlash(storedPathOf(t, f.objects, o.RID)))); got != o.Sha256 {
 		t.Fatal("落桶内容与 sha256 不一致")
 	}
 	// 以不同用途再次引用：类别不同，身份（rid）也不同，不会与用户输入混在一起
@@ -399,7 +399,7 @@ func TestDeleteRejectsBadObjectRefs(t *testing.T) {
 	resp := postWithKey(t, f.ts.URL, "/v1/mediasvc/delete", map[string]any{"object": map[string]any{"store": "local", "key": "../../etc/passwd"}}, testToken, "k1")
 	assertAPIError(t, resp, http.StatusBadRequest, "invalid_request")
 	// 用户输入路径：永不可删，返回 403
-	resp = postWithKey(t, f.ts.URL, "/v1/mediasvc/delete", map[string]any{"object": map[string]any{"store": "private", "key": "v1/user/" + strings.Repeat("a", 26)}}, testToken, "k2")
+	resp = postWithKey(t, f.ts.URL, "/v1/mediasvc/delete", map[string]any{"object": map[string]any{"store": "private", "key": "v1/user/2026/10/" + strings.Repeat("a", 26)}}, testToken, "k2")
 	assertAPIError(t, resp, http.StatusForbidden, "forbidden_purpose")
 }
 
@@ -438,8 +438,8 @@ func TestLocalStorePathsAndDeleteProtection(t *testing.T) {
 	if err := os.WriteFile(src, []byte("same content"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	const user = "v1/user/abcdefghijklmnopqrstuvwxyz"
-	const work = "v1/work/abcdefghijklmnopqrstuvwxyz"
+	const user = "v1/user/2026/10/abcdefghijklmnopqrstuvwxyz"
+	const work = "v1/work/2026/10/abcdefghijklmnopqrstuvwxyz"
 	obj, err := st.Put(t.Context(), storePrivate, work, src, "video/mp4")
 	if err != nil || obj.Key != work || obj.Size != int64(len("same content")) {
 		t.Fatalf("Put = %+v %v", obj, err)
@@ -448,12 +448,12 @@ func TestLocalStorePathsAndDeleteProtection(t *testing.T) {
 		t.Fatalf("Fetch 写入的对象: %v", err)
 	}
 	// 路径校验：拒绝路径穿越、非法类别与非法键
-	for _, p := range []string{"../etc/passwd", "v1/video/abcdefghijklmnopqrstuvwxyz", "/abs", "v1/work/XYZ"} {
+	for _, p := range []string{"../etc/passwd", "v1/video/abcdefghijklmnopqrstuvwxyz", "/abs", "v1/work/2026/10/XYZ"} {
 		if _, err := st.Fetch(t.Context(), storePrivate, p, ""); err == nil {
 			t.Fatalf("路径 %q 应被拒", p)
 		}
 	}
-	if _, err := st.Fetch(t.Context(), storePrivate, "v1/work/"+strings.Repeat("a", 26), ""); err != errObjectNotFound {
+	if _, err := st.Fetch(t.Context(), storePrivate, "v1/work/2026/10/"+strings.Repeat("a", 26), ""); err != errObjectNotFound {
 		t.Fatalf("缺失对象 err = %v", err)
 	}
 	// 删除：work 可删；user 与历史路径不可删
@@ -519,16 +519,20 @@ func TestIngestFromRidCopiesToThirdPartyStore(t *testing.T) {
 	assertAPIError(t, resp, http.StatusForbidden, "forbidden_purpose")
 }
 
-// pathOfRID 由 rid 推导桶内路径（业务响应不返回对象键，测试按同样的规则算出来）。
-func pathOfRID(t *testing.T, rid string) string {
+// storedPathOf 测试用：读取本地对象目录里 rid 的索引，得到对象的实际存放路径。没有索引即测试失败。
+func storedPathOf(t *testing.T, objects, rid string) string {
 	t.Helper()
 	id, err := newIdentity("tst001", testSecret)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, class, err := ParseRID(rid)
+	raw, err := os.ReadFile(filepath.Join(objects, storePrivate, filepath.FromSlash(id.IndexKey(rid))))
 	if err != nil {
+		t.Fatalf("rid 没有索引: %v", err)
+	}
+	var idx objectIndex
+	if err := json.Unmarshal(raw, &idx); err != nil {
 		t.Fatal(err)
 	}
-	return storePath(class, id.ObjectKey(rid))
+	return idx.Path
 }

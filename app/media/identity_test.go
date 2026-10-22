@@ -91,7 +91,4 @@ func TestStorePathClasses(t *testing.T) {
 	if validClass("video") || validClass("") {
 		t.Fatal("非法类别必须拒绝")
 	}
-	if got := storePath("asset", "abcdefghijklmnopqrstuvwxyz"); got != "v1/asset/abcdefghijklmnopqrstuvwxyz" {
-		t.Fatalf("storePath = %s", got)
-	}
 }

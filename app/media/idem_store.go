@@ -9,7 +9,9 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -102,6 +104,9 @@ func newIdemStoreFromConfig(cfg IdempotencyConfig, ttl, lease time.Duration) (id
 	case "", IdemStoreRedis:
 		if strings.TrimSpace(cfg.Redis.Addr) == "" {
 			return nil, nil, errors.New("media: Idempotency.Store=redis（默认）时必须配置 Idempotency.Redis.Addr；单机开发可显式设 Idempotency.Store=memory")
+		}
+		if err := checkRedisAddr(cfg.Redis.Addr); err != nil {
+			return nil, nil, err
 		}
 		rdb := redis.NewClient(&redis.Options{
 			Addr:         cfg.Redis.Addr,
@@ -395,4 +400,17 @@ func newIdemToken() (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(b[:]), nil
+}
+
+// checkRedisAddr 校验 Redis 地址必须是 host:port，端口为 1–65535 的整数。
+// 缺端口（如只写了 host.docker.internal）时 go-redis 会在首次拨号时才报错，而且每次写请求都 503，启动时就拒绝更清楚。
+func checkRedisAddr(addr string) error {
+	_, port, err := net.SplitHostPort(strings.TrimSpace(addr))
+	if err != nil {
+		return fmt.Errorf("media: Idempotency.Redis.Addr 必须是 host:port（如 127.0.0.1:46379），当前 %q: %w", addr, err)
+	}
+	if n, err := strconv.Atoi(port); err != nil || n < 1 || n > 65535 {
+		return fmt.Errorf("media: Idempotency.Redis.Addr 的端口无效（须为 1–65535），当前 %q", addr)
+	}
+	return nil
 }

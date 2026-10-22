@@ -1,8 +1,19 @@
 package media
 
+import (
+	"errors"
+	"fmt"
+	"strings"
+)
+
 // Config 媒体服务配置。服务只做视频的封面、水印、合成三种无状态处理，不碰业务表与存储：
 // 输入是公网地址，输出是字节流，由调用方自己落库、自己转存。
+//
+// 默认值（json:",default=…"）与生产部署一致：deploy/docker/docker-compose.media.yml、
+// deploy/docker/media.env.example、fusion-aigc 的 compose 都以同样的数值为默认。
+// 只有 yaml 里完全不出现的键才会用这里的默认值；yaml 里的 ${VAR} 留空会得到空字符串，见 Validate。
 type Config struct {
+	// Listen 监听地址。必填：留空时 Go 会监听 :80（全部网卡），因此 Validate 拒绝空值
 	Listen string `json:",default=0.0.0.0:18090"`
 	// Registry 注册中心：配置后启动时自注册，退出时注销（调用方据此发现实例）
 	Registry RegistryConfig `json:",optional"`
@@ -22,12 +33,12 @@ type Config struct {
 	LogoPath string `json:",optional"`
 	// TempDir 工作目录根，留空用系统临时目录
 	TempDir string `json:",optional"`
-	// MaxInputBytes 单个输入视频的体积上限
 	// OSS 对象存储（生产）。Enabled 为 true 时落桶走 OSS，否则走 ObjectDir 下的本地目录（只用于开发）
 	OSS OSSConfig `json:",optional"`
 	// ObjectDir 本地对象目录（OSS 未启用时的落桶位置，内容寻址）
-	ObjectDir     string `json:",default=./data/media-objects"`
-	MaxInputBytes int64  `json:",default=209715200"` // 200M
+	ObjectDir string `json:",default=./data/media-objects"`
+	// MaxInputBytes 单个输入（下载或 purpose=user_input 的字节上传）的体积上限，默认 1 GiB（与 MEDIA_MAX_INPUT_BYTES 默认值一致）
+	MaxInputBytes int64 `json:",default=1073741824"`
 	// StoreLocalMaxBytes 我方产物经字节入口上传（purpose 非 user_input，如 Java 本地加工的文件）的体积上限。
 	// 默认 2 GiB，与 Java 侧 GATEWAY_RESULT_MAX_BYTES 对齐；用户输入仍受 MaxInputBytes 约束。
 	StoreLocalMaxBytes int64 `json:",default=2147483648"`
@@ -41,10 +52,11 @@ type Config struct {
 	// MaxConcurrent 同时执行的计算（ffmpeg / ffprobe / 图像运算）数；下载与上传另有输入名额（4 倍）。
 	// 排队超过 min(OpTimeoutSeconds, 120s) 返回 503 让调用方稍后重试
 	MaxConcurrent int `json:",default=4"`
-	// FetchTimeoutSeconds 单个输入下载的总时长上限
-	FetchTimeoutSeconds int `json:",default=300"`
-	// OpTimeoutSeconds 单次 ffmpeg 处理的时长上限
-	OpTimeoutSeconds int `json:",default=900"`
+	// FetchTimeoutSeconds 单个输入下载的总时长上限，默认 1800（生产值，大视频下载慢）。必须为正数：0 会让下载不设时限（Validate 拒绝）
+	FetchTimeoutSeconds int `json:",default=1800"`
+	// OpTimeoutSeconds 单次请求（下载之外的处理，含 ffmpeg 与校验）的时长上限，也是 deadline_ms 的上限，默认 1800（生产值）。
+	// 必须为正数（Validate 拒绝）。调用方（Java app.media-service.timeout-seconds，默认 3600）必须大于它，推荐至少 2 倍：排队等名额也计在内
+	OpTimeoutSeconds int `json:",default=1800"`
 	// AllowPrivateHosts 允许访问内网 / 回环地址。仅本地联调用，线上必须关闭（防 SSRF）
 	AllowPrivateHosts bool `json:",optional"`
 	// InputCacheMinutes 下载下来的输入视频最后一次使用后保留多久（分钟），期间同一 URL 不再重复下载
@@ -66,4 +78,26 @@ type Config struct {
 	// SubtitleFontName / SubtitleFontSize 烧录字幕的样式（容器里需装对应的 CJK 字体）
 	SubtitleFontName string `json:",optional"` // 留空用 Noto Sans CJK SC
 	SubtitleFontSize int    `json:",default=12"`
+}
+
+// Validate 启动前校验：只查「留空或为 0 时会静默出错」且没有合法空值含义的项。
+//
+// 注意 go-zero v1.10.3 的行为：yaml 里 ${VAR} 展开为空时，int / bool 字段直接加载失败（type mismatch），
+// 所以这里不重复检查它们；string 字段留空会得到 ""，这正是需要这里兜底的地方。
+// 不在这里检查的项：IdentitySecret / InstanceID / Token 由 NewServer 校验；
+// OSS 各桶由 NewOSSStore 校验；Registry.Advertise 留空按设计只跳过注册（不致命）；OpsToken / IngestHeaderHosts /
+// LogoPath / Idempotency.Store（留空即 redis）/ Redis 密码留空都有明确的「关闭」含义。
+//
+// go-zero 的 conf.Load 会在解析后调用它，所以 cmd/main.go 的 MustLoad 即是启动时的拒绝点。
+func (c Config) Validate() error {
+	if strings.TrimSpace(c.Listen) == "" {
+		return errors.New("media: Listen 为空（MEDIA_LISTEN 未设置）：空地址会监听 :80，拒绝启动")
+	}
+	if c.OpTimeoutSeconds <= 0 {
+		return fmt.Errorf("media: OpTimeoutSeconds 必须为正数（当前 %d，对应 MEDIA_OP_TIMEOUT_SECONDS）：为 0 时每个请求都会立刻超时", c.OpTimeoutSeconds)
+	}
+	if c.FetchTimeoutSeconds <= 0 {
+		return fmt.Errorf("media: FetchTimeoutSeconds 必须为正数（当前 %d，对应 MEDIA_FETCH_TIMEOUT_SECONDS）：为 0 时下载不设时限", c.FetchTimeoutSeconds)
+	}
+	return nil
 }

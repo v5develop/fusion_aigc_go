@@ -284,3 +284,18 @@ func TestRedisIdemRealRedisIntegration(t *testing.T) {
 		t.Fatalf("结果 TTL = %v", ttl)
 	}
 }
+
+// 回归：Redis 地址缺端口（MEDIA_REDIS_ADDR=host.docker.internal）必须在启动时拒绝，不能静默地每次写请求 503。
+func TestRedisAddrMustIncludePort(t *testing.T) {
+	for _, addr := range []string{"host.docker.internal", "127.0.0.1:", "127.0.0.1:0", "127.0.0.1:99999", "127.0.0.1:abc"} {
+		if err := checkRedisAddr(addr); err == nil {
+			t.Errorf("checkRedisAddr(%q) = nil, want error", addr)
+		}
+		if _, _, err := newIdemStoreFromConfig(IdempotencyConfig{Store: IdemStoreRedis, Redis: IdemRedisConfig{Addr: addr}}, time.Minute, time.Second); err == nil {
+			t.Errorf("newIdemStoreFromConfig(addr=%q) = nil error, want refusal to start", addr)
+		}
+	}
+	if err := checkRedisAddr("127.0.0.1:46379"); err != nil {
+		t.Errorf("checkRedisAddr(valid) = %v", err)
+	}
+}

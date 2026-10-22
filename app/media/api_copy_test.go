@@ -58,7 +58,7 @@ func TestCopyToAssetLibraryReturnsNewRidWithParents(t *testing.T) {
 	if res.Object.Sha256 != src.Object.Sha256 {
 		t.Fatal("复制后的 sha256 与源不一致")
 	}
-	if got := fileSHA(t, filepath.Join(f.objects, storeAsset, filepath.FromSlash(pathOfRID(t, res.Object.RID)))); got != src.Object.Sha256 {
+	if got := fileSHA(t, filepath.Join(f.objects, storeAsset, filepath.FromSlash(storedPathOf(t, f.objects, res.Object.RID)))); got != src.Object.Sha256 {
 		t.Fatal("落桶内容与源内容不一致")
 	}
 	if len(res.Parents) != 1 || res.Parents[0] != src.Object.RID {

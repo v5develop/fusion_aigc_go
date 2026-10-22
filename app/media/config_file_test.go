@@ -81,4 +81,7 @@ func TestDeployConfigLoads(t *testing.T) {
 	if _, err := NewOSSStore(cfg.OSS); err != nil {
 		t.Fatalf("部署配置生成的 OSS 配置无效: %v", err)
 	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("部署配置未通过启动校验: %v", err)
+	}
 }

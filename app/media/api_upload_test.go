@@ -5,16 +5,19 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
-// 直传的用户对象：按 rid 推出落桶路径，模拟客户端已经把字节直传到该位置。
+// 直传的用户对象：先按直传目标的规则写入索引（日期路径），再把字节放到该路径，模拟客户端直传完成。
 func putUserObject(t *testing.T, f *apiFixture, rid string, content []byte) {
 	t.Helper()
 	id, err := newIdentity("tst001", testSecret)
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := filepath.Join(f.objects, storePrivate, filepath.FromSlash(storePath(classUser, id.ObjectKey(rid))))
+	path := datedPath(classUser, time.Now(), id.ObjectKey(rid), "")
+	writeIndexFile(t, f.objects, id.IndexKey(rid), path)
+	p := filepath.Join(f.objects, storePrivate, filepath.FromSlash(path))
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -78,8 +81,7 @@ func TestRegisterRejectsInvalidBytesAndKeepsObject(t *testing.T) {
 	resp := post(t, f.ts.URL, "/v1/mediasvc/resources/register", map[string]any{"rid": rid}, testToken)
 	assertAPIError(t, resp, http.StatusUnprocessableEntity, "source_rejected")
 
-	id, _ := newIdentity("tst001", testSecret)
-	p := filepath.Join(f.objects, storePrivate, filepath.FromSlash(storePath(classUser, id.ObjectKey(rid))))
+	p := filepath.Join(f.objects, storePrivate, filepath.FromSlash(storedPathOf(t, f.objects, rid)))
 	if _, err := os.Stat(p); err != nil {
 		t.Fatal("非法对象必须保留，由调用方决定是否删除")
 	}
@@ -103,4 +105,25 @@ func TestUploadTargetExistingObjectIs409(t *testing.T) {
 		"class": classUser, "store": storePrivate, "idem_key": key, "mime": "video/mp4", "size": 16,
 	}, testToken, "")
 	assertAPIError(t, resp, http.StatusConflict, codeConflict)
+}
+
+// 直传声明的类型与实际内容不一致：注册拒绝（422），对象保留由调用方决定。
+func TestRegisterRejectsDeclaredTypeMismatch(t *testing.T) {
+	f := newAPIFixture(t)
+	id, err := newIdentity("tst001", testSecret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rid, _ := id.RID("", classUser, "decl-mismatch-1")
+	path := datedPath(classUser, time.Now(), id.ObjectKey(rid), "jpg")
+	writeIndexFile(t, f.objects, id.IndexKey(rid), path)
+	// 声明 jpg，实际放的是 PNG
+	target := filepath.Join(f.objects, storePrivate, filepath.FromSlash(path))
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writePNGFile(t, target, 16, 16, solid(cBlue))
+
+	resp := post(t, f.ts.URL, "/v1/mediasvc/resources/register", map[string]any{"rid": rid}, testToken)
+	assertAPIError(t, resp, http.StatusUnprocessableEntity, "source_rejected")
 }

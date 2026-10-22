@@ -17,6 +17,7 @@ const apiPrefix = "/v1/mediasvc"
 
 // Server 媒体服务的 HTTP 入口，契约见 app/media/api/media.api 与 docs/api/media-service.md。
 type Server struct {
+	paths   *pathCache
 	svc     *Service
 	objects ObjectStore
 	idem    idemStore
@@ -82,7 +83,7 @@ func NewServer(cfg Config) (*Server, error) {
 	if sweepEvery <= 0 {
 		sweepEvery = time.Hour
 	}
-	s := &Server{svc: NewService(cfg), objects: objects, id: id, idem: idem, opCeiling: time.Duration(cfg.OpTimeoutSeconds) * time.Second, token: cfg.Token, opsToken: cfg.OpsToken, mux: http.NewServeMux(),
+	s := &Server{svc: NewService(cfg), objects: objects, id: id, idem: idem, opCeiling: time.Duration(cfg.OpTimeoutSeconds) * time.Second, token: cfg.Token, opsToken: cfg.OpsToken, mux: http.NewServeMux(), paths: newPathCache(),
 		now: time.Now, grace: time.Duration(cfg.DeleteGraceMinutes) * time.Minute, sweepEvery: sweepEvery}
 	s.closers = append(s.closers, closeIdem)
 	s.owners = newOwnerPicker(cfg, id.instanceID, &s.closers)

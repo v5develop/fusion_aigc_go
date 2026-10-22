@@ -18,13 +18,13 @@ import (
 
 // 落桶接口（契约 /v1/mediasvc）。所有写操作的输出都只经过这里。
 //
-// 路径（path）是桶内路径：v1/<类别>/<对象键>。路径由调用方（storeFile）根据 rid 派生，存储层只负责按路径读写。
+// 路径（path）是桶内路径：v1/<类别>/<yyyy>/<mm>/<对象键>[.<ext>]。路径由调用方通过索引解析（placeObject / objectPath），存储层只负责按路径读写。
 // 实现：OSSStore（store_oss.go，生产）与 LocalStore（本地开发）。
 
 var (
 	errObjectNotFound     = errors.New("media: object not found")
 	errInvalidObjectKey   = errors.New("media: invalid object key")
-	errUserInputProtected = errors.New("media: object cannot be deleted (user input or read-only legacy)")
+	errUserInputProtected = errors.New("media: object cannot be deleted (user input)")
 )
 
 // localStoreName 本地实现的默认存储名（只用于开发）。
@@ -33,12 +33,18 @@ const localStoreName = storePrivate
 // StoredObject 落桶后的对象。
 type StoredObject struct {
 	Store  string
-	Key    string // 桶内路径 v1/<类别>/<对象键>
+	Key    string // 桶内路径 v1/<类别>/<yyyy>/<mm>/<对象键>[.<ext>]
 	Sha256 string
 	Size   int64
 	Mime   string
 	RID    string
 	Class  string
+}
+
+// IndexEntry 索引对象的列举结果：对象键与最后修改时间。
+type IndexEntry struct {
+	ObjectKey string
+	Modified  time.Time
 }
 
 // StoredURL 对象的访问地址。Kind: public | signed | none（没有可访问地址，如本地实现）。
@@ -56,6 +62,10 @@ type ObjectStore interface {
 	Fetch(ctx context.Context, store, path, dir string) (string, error)
 	// URL 返回对象的默认访问地址（私有存储签名、公有存储公开）。
 	URL(ctx context.Context, obj StoredObject) (StoredURL, error)
+	// ListIndexes 列举私有桶里的索引对象（按对象键与修改时间）。marker 为空从头开始；next 为空表示已到末尾。
+	ListIndexes(ctx context.Context, marker string, limit int) ([]IndexEntry, string, error)
+	// DeleteIndex 删除对象键对应的索引（私有桶）。索引只随对象一起物理删除，不经过用户可删除的路径校验；不存在视为成功。
+	DeleteIndex(ctx context.Context, objectKey string) error
 	// Head 返回对象的字节数。不存在返回 errObjectNotFound。
 	Head(ctx context.Context, store, path string) (int64, error)
 	// SignedURL 签发有效期为 ttl 的 GET 签名地址。
@@ -175,6 +185,44 @@ func (l *LocalStore) SignedURL(_ context.Context, _, _ string, _ time.Duration) 
 }
 
 // SignedPutURL 本地实现没有直传地址。
+// ListIndexes 本地实现：一次返回全部索引（开发用，不分页）。
+func (l *LocalStore) ListIndexes(_ context.Context, _ string, _ int) ([]IndexEntry, string, error) {
+	root := filepath.Join(l.dir, storePrivate, "idx")
+	var out []IndexEntry
+	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		key, ok := objectKeyOfIndexName(d.Name())
+		if ok {
+			out = append(out, IndexEntry{ObjectKey: key, Modified: info.ModTime()})
+		}
+		return nil
+	})
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, "", nil
+	}
+	return out, "", err
+}
+
+func (l *LocalStore) DeleteIndex(_ context.Context, objectKey string) error {
+	target, err := l.full(storePrivate, indexKeyOf(objectKey))
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(target); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
 func (l *LocalStore) SignedPutURL(_ context.Context, _, _ string, _ time.Duration) (StoredURL, error) {
 	return StoredURL{Kind: "none"}, nil
 }

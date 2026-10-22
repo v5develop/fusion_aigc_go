@@ -12,9 +12,9 @@ import (
 // 一条时间戳损坏的待删除标记，不能让整页列举失败，也不能阻止同页其它标记被清理。
 // 标记按键排序：损坏的排在最前，后面的仍要被处理。
 var corruptScenarioPaths = []string{
-	"v1/work/" + strings.Repeat("a", 26), // 损坏
-	"v1/work/" + strings.Repeat("b", 26),
-	"v1/work/" + strings.Repeat("c", 26),
+	"v1/work/2026/10/" + strings.Repeat("a", 26), // 损坏
+	"v1/work/2026/10/" + strings.Repeat("b", 26),
+	"v1/work/2026/10/" + strings.Repeat("c", 26),
 }
 
 func TestLocalCorruptPendingMarkerDoesNotBlockSweep(t *testing.T) {

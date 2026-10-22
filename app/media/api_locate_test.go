@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 const testOpsToken = "ops-token-0123456789abcdef"
@@ -31,8 +32,11 @@ func postLocate(t *testing.T, base, token, rid string) *http.Response {
 
 // 运维定位：凭运维令牌返回类别、存储位置、对象键与路径，与 rid 推导的结果一致。
 func TestOpsLocateReturnsPathForRID(t *testing.T) {
-	ts := newTestServer(t, Config{AllowPrivateHosts: true, ObjectDir: t.TempDir(), OpsToken: testOpsToken})
+	objects := t.TempDir()
+	ts := newTestServer(t, Config{AllowPrivateHosts: true, ObjectDir: objects, OpsToken: testOpsToken})
 	rid := "tst001-work-abcdefghijklmnopqrstuvwxyz"
+	id := testIdentity(t)
+	writeIndexFile(t, objects, id.IndexKey(rid), datedPath(classWork, time.Date(2026, 10, 22, 0, 0, 0, 0, time.UTC), id.ObjectKey(rid), "png"))
 	resp := postLocate(t, ts.URL, testOpsToken, rid)
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(resp.Body)
@@ -42,10 +46,10 @@ func TestOpsLocateReturnsPathForRID(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		t.Fatal(err)
 	}
-	if out.Class != classWork || out.Store != storePrivate || out.Path != pathOfRID(t, rid) {
+	if out.Class != classWork || out.Store != storePrivate || out.Path != storedPathOf(t, objects, rid) {
 		t.Fatalf("定位结果 = %+v", out)
 	}
-	if out.ObjectKey == "" || !strings.HasPrefix(out.Path, "v1/work/") {
+	if out.ObjectKey == "" || !strings.HasPrefix(out.Path, "v1/work/2026/10/") {
 		t.Fatalf("对象键或路径不对: %+v", out)
 	}
 }

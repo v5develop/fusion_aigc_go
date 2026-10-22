@@ -107,6 +107,7 @@ func whitePixels(img image.Image, x0, y0, x1, y1 int) int {
 // 水印：logo 在左上 (margin, margin)、宽 = 图宽 × 15%；文字在右下角；其余区域不变。
 func TestImageWatermarkLogoTopLeftTextBottomRight(t *testing.T) {
 	requireFFmpeg(t)
+	requireFFmpegFilter(t, "drawtext")
 	f := newAPIFixture(t)
 	writePNGFile(t, filepath.Join(f.dir, "base.png"), 400, 300, solid(cBlue))
 	writePNGFile(t, filepath.Join(f.dir, "logo.png"), 100, 50, solid(cGreen))
@@ -146,6 +147,7 @@ func TestImageWatermarkLogoTopLeftTextBottomRight(t *testing.T) {
 // 只有文字时不画 logo；不透明度 0 等于没画；输出格式跟随输入（JPEG 进 JPEG 出）。
 func TestImageWatermarkTextOnlyJPEGAndOpacity(t *testing.T) {
 	requireFFmpeg(t)
+	requireFFmpegFilter(t, "drawtext")
 	f := newAPIFixture(t)
 	writePNGFile(t, filepath.Join(f.dir, "b.png"), 400, 300, solid(cBlue))
 	if out, err := exec.Command("ffmpeg", "-y", "-loglevel", "error", "-i", filepath.Join(f.dir, "b.png"), filepath.Join(f.dir, "b.jpg")).CombinedOutput(); err != nil {

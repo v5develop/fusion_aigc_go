@@ -42,7 +42,7 @@ func pngColorType(t *testing.T, path string) byte {
 // storedObjectPath 落桶后对象在本地对象目录中的路径。
 func storedObjectPath(t *testing.T, objects string, res MediaResult) string {
 	t.Helper()
-	return filepath.Join(objects, res.Object.Store, filepath.FromSlash(pathOfRID(t, res.Object.RID)))
+	return filepath.Join(objects, res.Object.Store, filepath.FromSlash(storedPathOf(t, objects, res.Object.RID)))
 }
 
 func resizeBody(f *apiFixture, name string, w, h int, format string) map[string]any {

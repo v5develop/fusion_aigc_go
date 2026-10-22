@@ -38,7 +38,11 @@ func (s *Server) copyResource(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, newAPIError(codeForbiddenPurpose, "purpose.user_input_not_public"))
 		return
 	}
-	srcPath := storePath(srcClass, s.id.ObjectKey(req.Rid))
+	_, srcPath, err := s.objectPath(r.Context(), req.Rid)
+	if err != nil {
+		writeAPIError(w, ridNotFound(err))
+		return
+	}
 
 	s.withJob(w, r, func(ctx context.Context, dir string) (any, error) {
 		srcStore, err := s.resolveSourceStore(ctx, srcClass, srcPath)

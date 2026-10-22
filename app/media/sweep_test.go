@@ -51,7 +51,10 @@ func (f *softDeleteFixture) putObject(t *testing.T, class, store, content string
 	if err != nil {
 		t.Fatal(err)
 	}
-	path := storePath(class, f.srv.id.ObjectKey(rid))
+	path, err := f.srv.placeObject(context.Background(), rid, class, store, f.srv.id.ObjectKey(rid), "video/mp4", f.clk.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := f.srv.objects.Put(context.Background(), store, path, writeFixture(t, content), "video/mp4"); err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +214,7 @@ func TestSoftDeleteAbsentObjectDoesNotMark(t *testing.T) {
 	if out.Deleted || out.State != deleteStateAbsent {
 		t.Fatalf("不存在的对象 delete = %+v, want absent", out)
 	}
-	path := storePath(classWork, f.srv.id.ObjectKey(rid))
+	path := datedPath(classWork, f.clk.Now(), f.srv.id.ObjectKey(rid), "")
 	if _, ok, _ := f.srv.objects.PendingDeadline(context.Background(), storePrivate, path); ok {
 		t.Fatal("不存在的对象不应登记标记")
 	}
@@ -265,9 +268,9 @@ func TestLocalPendingListPaginates(t *testing.T) {
 	}
 	ctx := context.Background()
 	paths := []string{
-		"v1/work/" + strings.Repeat("a", 26),
-		"v1/work/" + strings.Repeat("b", 26),
-		"v1/deliver/" + strings.Repeat("c", 26),
+		"v1/work/2026/10/" + strings.Repeat("a", 26),
+		"v1/work/2026/10/" + strings.Repeat("b", 26),
+		"v1/deliver/2026/10/" + strings.Repeat("c", 26),
 	}
 	at := time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)
 	for _, p := range paths {

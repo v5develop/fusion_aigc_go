@@ -14,7 +14,7 @@ import (
 //
 //   rid        = <所属实例 ID 6 位> "-" <类别> "-" <HMAC(密钥, "rid|"+类别+"|"+幂等键) 的 26 位编码>
 //   object_key = <HMAC(密钥, "key|"+rid) 的 26 位编码>      对外可见，不含 rid、不含实例 ID
-//   桶内路径   = v1/<class>/<object_key>，class ∈ user | work | deliver | asset
+//   桶内路径   = v1/<class>/<yyyy>/<mm>/<object_key>[.<ext>]，class ∈ user | work | deliver | asset（见 object_path.go）
 //
 // rid 由幂等键派生：同一个幂等键的重试得到同一个 rid 与同一个对象键，天然不产生重复对象。
 
@@ -100,29 +100,44 @@ func validClass(c string) bool {
 	return c == classUser || c == classWork || c == classDeliver || c == classAsset
 }
 
-// storePath 桶内路径：v1/<class>/<object_key>。
-func storePath(class, objectKey string) string {
-	return "v1/" + class + "/" + objectKey
-}
-
 // validObjectKey 对象键格式校验。
 func validObjectKey(key string) bool {
 	return objectKeyPattern2.MatchString(strings.TrimSpace(key))
 }
 
-// objectPathPattern 桶内路径的合法形式：v1/<类别>/<对象键>。
-var objectPathPattern = regexp.MustCompile(`^v1/(user|work|deliver|asset)/([a-z2-7]{26})$`)
+// datedPathPattern 新路径：v1/<类别>/<yyyy>/<mm>/<对象键>[.<后缀>]（见 object_path.go）。
+var datedPathPattern = regexp.MustCompile(`^v1/(user|work|deliver|asset)/\d{4}/(0[1-9]|1[0-2])/[a-z2-7]{26}(\.[a-z0-9]{1,8})?$`)
 
-// legacyPathPattern 历史路径（只读）：sha256/<64 位十六进制>[.ext]。
-var legacyPathPattern = regexp.MustCompile(`^sha256/([0-9a-f]{64})(\.[a-z0-9]{1,8})?$`)
+// indexPathPattern 索引对象：idx/<派生键>.json。
+var indexPathPattern = regexp.MustCompile(`^idx/[a-z2-7]{26}\.json$`)
 
-// classOfPath 返回路径所属类别；历史路径返回 legacy。非法路径返回空串。
+// IndexKey rid 的索引对象键（私有桶）。索引键由对象键派生：对象键由密钥派生、不可猜测，
+// 删除对象时从路径就能算出索引键，不需要 rid。
+func (id *identity) IndexKey(rid string) string {
+	return indexKeyOf(id.ObjectKey(rid))
+}
+
+// objectKeyOfIndexName 索引对象文件名（<对象键>.json）→ 对象键。
+func objectKeyOfIndexName(name string) (string, bool) {
+	if !strings.HasSuffix(name, ".json") {
+		return "", false
+	}
+	key := strings.TrimSuffix(name, ".json")
+	return key, validObjectKey(key)
+}
+
+// indexKeyOf 对象键 → 索引对象键。
+func indexKeyOf(objectKey string) string {
+	return "idx/" + objectKey + ".json"
+}
+
+// classOfPath 返回路径所属类别（新路径或索引）。非法路径返回空串。
 func classOfPath(path string) string {
-	if m := objectPathPattern.FindStringSubmatch(path); m != nil {
+	if m := datedPathPattern.FindStringSubmatch(path); m != nil {
 		return m[1]
 	}
-	if legacyPathPattern.MatchString(path) {
-		return "legacy"
+	if indexPathPattern.MatchString(path) {
+		return classIndex
 	}
 	return ""
 }

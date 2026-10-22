@@ -17,6 +17,20 @@ import (
 type fakeResourceStore struct {
 	objects map[string]int64 // store|path -> size
 	pending map[string]time.Time
+	indexes map[string][]byte // 索引对象键 -> 内容
+}
+
+// putIndexed 测试用：按直传/入库的规则为 key 写入索引（日期路径），并在 store 下放一个对象。
+func (f *fakeResourceStore) putIndexed(store, class, key string, size int64) {
+	if f.objects == nil {
+		f.objects = map[string]int64{}
+	}
+	if f.indexes == nil {
+		f.indexes = map[string][]byte{}
+	}
+	path := datedPath(class, time.Date(2026, 10, 22, 0, 0, 0, 0, time.UTC), key, "")
+	f.indexes[indexKeyOf(key)] = []byte(`{"path":"` + path + `"}`)
+	f.objects[store+"|"+path] = size
 }
 
 func (f *fakeResourceStore) CreatePending(_ context.Context, store, path string, at time.Time) (time.Time, bool, error) {
@@ -44,13 +58,22 @@ func (f *fakeResourceStore) ListPending(context.Context, string, string, int) ([
 func (f *fakeResourceStore) Put(context.Context, string, string, string, string) (StoredObject, error) {
 	return StoredObject{}, nil
 }
-func (f *fakeResourceStore) Fetch(context.Context, string, string, string) (string, error) {
-	return "", errObjectNotFound
+func (f *fakeResourceStore) Fetch(_ context.Context, _, path, dir string) (string, error) {
+	raw, ok := f.indexes[path]
+	if !ok {
+		return "", errObjectNotFound
+	}
+	local := filepath.Join(dir, "index.json")
+	return local, os.WriteFile(local, raw, 0o600)
 }
 func (f *fakeResourceStore) URL(context.Context, StoredObject) (StoredURL, error) {
 	return StoredURL{Kind: "none"}, nil
 }
 func (f *fakeResourceStore) Delete(context.Context, string, string) (bool, error) { return false, nil }
+func (f *fakeResourceStore) DeleteIndex(context.Context, string) error            { return nil }
+func (f *fakeResourceStore) ListIndexes(context.Context, string, int) ([]IndexEntry, string, error) {
+	return nil, "", nil
+}
 func (f *fakeResourceStore) SignedPutURL(context.Context, string, string, time.Duration) (StoredURL, error) {
 	return StoredURL{Kind: "none"}, nil
 }
@@ -106,7 +129,7 @@ func TestResourceURLSignedHidesIdentity(t *testing.T) {
 	ts, fake := newResourceFixture(t, s)
 	rid, _ := s.id.RID("", "deliver", "job-1")
 	key := s.id.ObjectKey(rid)
-	fake.objects[storePrivate+"|"+storePath(classDeliver, key)] = 1234
+	fake.putIndexed(storePrivate, classDeliver, key, 1234)
 
 	resp := postResourceURL(t, ts.URL, map[string]any{"rid": rid, "class": "deliver", "store": "private", "mode": "signed", "ttl_seconds": 600})
 	if resp.StatusCode != http.StatusOK {
@@ -131,13 +154,13 @@ func TestResourceURLPublicNeedsPublicLocation(t *testing.T) {
 	ts, fake := newResourceFixture(t, s)
 	rid, _ := s.id.RID("", "deliver", "job-2")
 	key := s.id.ObjectKey(rid)
-	fake.objects[storePrivate+"|"+storePath(classDeliver, key)] = 10
+	fake.putIndexed(storePrivate, classDeliver, key, 10)
 
 	resp := postResourceURL(t, ts.URL, map[string]any{"rid": rid, "class": "deliver", "store": "private", "mode": "public"})
 	if resp.StatusCode != http.StatusConflict {
 		t.Fatalf("私有资源要公有地址 status = %d, want 409", resp.StatusCode)
 	}
-	fake.objects[storeThirdParty+"|"+storePath(classDeliver, key)] = 10
+	fake.putIndexed(storeThirdParty, classDeliver, key, 10)
 	resp = postResourceURL(t, ts.URL, map[string]any{"rid": rid, "class": "deliver", "store": "third_party", "mode": "public"})
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("公有交付桶的资源 status = %d", resp.StatusCode)
