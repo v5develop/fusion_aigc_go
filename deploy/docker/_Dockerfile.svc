@@ -11,7 +11,7 @@
 # SERVICE：app/ 下的服务目录，如 copywriting/rpc、gateway/api
 # BIN：产物二进制名，同时决定默认配置文件名 <BIN>.yaml
 # 固定到补丁版本（与本机工具链一致），避免上游发补丁时同一 tag 产出不同二进制
-ARG GO_VERSION=1.27.2
+ARG GO_VERSION=1.27.3
 
 # ---------- Stage 1：跨编译 linux/amd64 ----------
 # 构建镜像用 alpine（~250MB，比 bookworm 拉取快）；本项目 go.mod 没有 replace 本地路径，alpine 完全够用

@@ -5,7 +5,7 @@
 #
 # 构建上下文是仓库根目录。配置直接打进镜像（deploy/docker/media/media-svc.yaml），
 # 里面的 Token、Listen 由环境变量注入（go-zero 会展开 ${VAR}）；水印 logo 用挂载提供。
-ARG GO_VERSION=1.26
+ARG GO_VERSION=1.27.3
 
 FROM golang:${GO_VERSION}-bookworm AS build
 WORKDIR /src
@@ -29,6 +29,8 @@ RUN groupadd --system --gid 10001 app \
  && useradd --system --uid 10001 --gid 10001 --home-dir /app --shell /usr/sbin/nologin app
 WORKDIR /app
 COPY --from=build /out/media /app/media
+# 服务启动时会在 /app 下建 ./data（本地存储目录）：目录交给运行用户，否则 mkdir 权限被拒
+RUN mkdir -p /app/data && chown -R app:app /app
 COPY deploy/docker/media/media-svc.yaml /app/etc/media-svc.yaml
 USER app
 HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=6 \
