@@ -140,6 +140,7 @@ func NewServer(cfg Config) (*Server, error) {
 	s.mux.HandleFunc("POST "+apiPrefix+"/video/adjust-duration", s.auth(s.withDeadline(s.idempotent("video/adjust-duration", s.adjustDuration))))
 	s.mux.HandleFunc("POST "+apiPrefix+"/resources/restore", s.auth(s.withDeadline(s.restore)))
 	s.mux.HandleFunc("POST "+apiPrefix+"/delete", s.auth(s.withDeadline(s.idempotent("delete", s.delete))))
+	s.mux.HandleFunc("POST "+apiPrefix+"/resources/retention/delete", s.auth(s.withDeadline(s.idempotent("resources/retention/delete", s.retentionDelete))))
 	return s, nil
 }
 

@@ -165,6 +165,11 @@ type deleteResp struct {
 	DeleteAfter string `json:"delete_after,omitempty"`
 }
 
+// retentionDeleteReq 用户输入保留期删除：只收 user 类别的 rid。响应沿用 deleteResp。
+type retentionDeleteReq struct {
+	Rid string `json:"rid"`
+}
+
 type restoreReq struct {
 	Rid string `json:"rid"`
 }

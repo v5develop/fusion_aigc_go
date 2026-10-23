@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"time"
@@ -427,7 +428,13 @@ type softDeleteResult struct {
 // softDelete 软删除（设计文档 §8.5）：只登记待删除标记，不删字节。宽限期过后由清理任务物理删除。
 // 用户输入与历史路径永不删（403）。对象不存在返回 absent。已有标记时幂等，沿用原到期时间。
 func (s *Server) softDelete(ctx context.Context, store, path string) (softDeleteResult, error) {
-	if !deletable(path) {
+	return s.softDeleteIf(ctx, store, path, deletable)
+}
+
+// softDeleteIf 软删除的唯一实现：allowed 决定哪些路径可以登记待删除，其余返回 errUserInputProtected。
+// 通用删除用 deletable（不含 user）；只有保留期删除（retentionDelete）放行 user 类别。
+func (s *Server) softDeleteIf(ctx context.Context, store, path string, allowed func(string) bool) (softDeleteResult, error) {
+	if !allowed(path) {
 		return softDeleteResult{}, errUserInputProtected
 	}
 	_, err := s.objects.Head(ctx, store, path)
@@ -443,6 +450,56 @@ func (s *Server) softDelete(ctx context.Context, store, path string) (softDelete
 		return softDeleteResult{}, err
 	}
 	return softDeleteResult{state: deleteStatePending, deleteAfter: at}, nil
+}
+
+// retentionDeletable 保留期删除只放行 user 类别的日期路径；work、asset、deliver 与历史路径一律不收。
+func retentionDeletable(path string) bool { return classOfPath(path) == classUser }
+
+// retentionDelete 用户输入的保留期删除（POST /resources/retention/delete）。是否删、保留多少天由调用方（Java）决定，
+// 这里只提供门禁：rid 必须是 user 类别（否则 403 purpose.not_user_class），且只做与 delete 相同的软删除
+// （待删除标记、宽限期内可 restore、期间读取 410）。通用 delete 对 user 类别的拒绝不变。
+func (s *Server) retentionDelete(w http.ResponseWriter, r *http.Request) {
+	if err := checkKey(r.Header.Get(idempotencyHeader)); err != nil {
+		writeAPIError(w, err)
+		return
+	}
+	var req retentionDeleteReq
+	if !readJSON(w, r, &req) {
+		return
+	}
+	_, class, err := ParseRID(req.Rid)
+	if err != nil {
+		writeAPIError(w, invalid("request.rid"))
+		return
+	}
+	if class != classUser {
+		writeAPIError(w, newAPIError(codeForbiddenPurpose, "purpose.not_user_class"))
+		return
+	}
+	ctx := r.Context()
+	out := deleteResp{State: deleteStateAbsent}
+	store, path, err := s.objectPath(ctx, req.Rid)
+	switch {
+	case errors.Is(err, errObjectNotFound):
+	case err != nil:
+		writeAPIError(w, err)
+		return
+	default:
+		res, err := s.softDeleteIf(ctx, store, path, retentionDeletable)
+		if err != nil {
+			writeAPIError(w, err)
+			return
+		}
+		s.objCache.forget(req.Rid)
+		out = deleteResp{Deleted: res.state != deleteStateAbsent, State: res.state}
+		if !res.deleteAfter.IsZero() {
+			out.DeleteAfter = res.deleteAfter.Format(time.RFC3339)
+		}
+	}
+	// 审计：只记 rid、结果与追踪号，不记内容与地址
+	log.Printf("media retention delete trace_id=%s check=retention.delete rid=%s state=%s delete_after=%s",
+		TraceIDFromContext(ctx), req.Rid, out.State, out.DeleteAfter)
+	writeJSON(w, http.StatusOK, out)
 }
 
 // restore 在宽限期内撤销软删除（设计文档 §8.5）。宽限期已过返回 409 grace_expired，清理任务随后会删除它。

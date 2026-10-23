@@ -279,6 +279,11 @@ type (
 		State       string `json:"state"`
 		DeleteAfter string `json:"delete_after,optional"`
 	}
+	// RetentionDeleteReq 用户输入保留期删除：POST /v1/mediasvc/resources/retention/delete，只收 user 类别 rid，返回 DeleteResp。
+	RetentionDeleteReq {
+		IdempotencyKey string `header:"Idempotency-Key"`
+		Rid            string `json:"rid"`
+	}
 	RestoreReq {
 		Rid string `json:"rid"`
 	}
@@ -387,5 +392,9 @@ service media {
 
 	@handler Delete
 	post /delete (DeleteReq) returns (DeleteResp)
+
+	@doc "用户输入保留期删除：只收 user 类别 rid（其余 403 purpose.not_user_class），软删除语义同 delete"
+	@handler RetentionDelete
+	post /resources/retention/delete (RetentionDeleteReq) returns (DeleteResp)
 }
 
