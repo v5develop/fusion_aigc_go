@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"sync"
 	"time"
 )
 
@@ -17,11 +18,13 @@ const apiPrefix = "/v1/mediasvc"
 
 // Server 媒体服务的 HTTP 入口，契约见 app/media/api/media.api 与 docs/api/media-service.md。
 type Server struct {
-	paths   *pathCache
-	svc     *Service
-	objects ObjectStore
-	idem    idemStore
-	id      *identity
+	paths *pathCache
+	// objCache 按 rid 的对象字节缓存（object_cache.go）；nil 表示关闭
+	objCache *objectCache
+	svc      *Service
+	objects  ObjectStore
+	idem     idemStore
+	id       *identity
 	// opCeiling 单次请求超时的上限（来自 OpTimeoutSeconds）；deadline_ms 超过它时截到它
 	opCeiling time.Duration
 	token     string
@@ -86,11 +89,30 @@ func NewServer(cfg Config) (*Server, error) {
 	s := &Server{svc: NewService(cfg), objects: objects, id: id, idem: idem, opCeiling: time.Duration(cfg.OpTimeoutSeconds) * time.Second, token: cfg.Token, opsToken: cfg.OpsToken, mux: http.NewServeMux(), paths: newPathCache(),
 		now: time.Now, grace: time.Duration(cfg.DeleteGraceMinutes) * time.Minute, sweepEvery: sweepEvery}
 	s.closers = append(s.closers, closeIdem)
+	if cfg.ObjectCacheMaxBytes > 0 && cfg.ObjectCacheMinutes > 0 {
+		s.objCache = newObjectCache(cfg.TempDir, time.Duration(cfg.ObjectCacheMinutes)*time.Minute,
+			effectiveCacheCapShare(cfg.ObjectCacheMaxBytes, cfg.TempDir, objectCacheDiskShare))
+		stop := make(chan struct{})
+		go func() {
+			t := time.NewTicker(30 * time.Second)
+			defer t.Stop()
+			for {
+				select {
+				case <-stop:
+					return
+				case now := <-t.C:
+					s.objCache.sweep(now)
+				}
+			}
+		}()
+		var once sync.Once
+		s.closers = append(s.closers, func() { once.Do(func() { close(stop) }) })
+	}
 	s.owners = newOwnerPicker(cfg, id.instanceID, &s.closers)
 	s.mux.HandleFunc("GET /healthz", s.healthz)
 	s.mux.HandleFunc("GET "+apiPrefix+"/capabilities", s.auth(s.capabilities))
 	s.mux.HandleFunc("POST "+apiPrefix+"/ingest/upload", s.auth(s.uploadBytes))
-	s.mux.HandleFunc("POST "+apiPrefix+"/ingest", s.auth(s.withDeadline(s.idempotent("ingest", s.ingest))))
+	s.mux.HandleFunc("POST "+apiPrefix+"/ingest", s.auth(s.withDeadline(s.stageTimed(s.idempotent("ingest", s.ingest)))))
 	s.mux.HandleFunc("POST "+apiPrefix+"/probe", s.auth(s.withDeadline(s.probe)))
 	s.mux.HandleFunc("POST "+apiPrefix+"/frames", s.auth(s.withDeadline(s.frames)))
 	s.mux.HandleFunc("POST "+apiPrefix+"/cover", s.auth(s.withDeadline(s.idempotent("cover", s.cover))))
@@ -103,7 +125,7 @@ func NewServer(cfg Config) (*Server, error) {
 	if s.opsToken != "" {
 		s.mux.HandleFunc("POST "+apiPrefix+"/ops/locate", s.opsAuth(s.locate))
 	}
-	s.mux.HandleFunc("POST "+apiPrefix+"/resources/copy", s.auth(s.withDeadline(s.idempotent("resources/copy", s.copyResource))))
+	s.mux.HandleFunc("POST "+apiPrefix+"/resources/copy", s.auth(s.withDeadline(s.stageTimed(s.idempotent("resources/copy", s.copyResource)))))
 	s.mux.HandleFunc("POST "+apiPrefix+"/image/conform", s.auth(s.withDeadline(s.idempotent("image/conform", s.imageConform))))
 	s.mux.HandleFunc("POST "+apiPrefix+"/image/resize", s.auth(s.withDeadline(s.idempotent("image/resize", s.imageResize))))
 	s.mux.HandleFunc("POST "+apiPrefix+"/image/watermark", s.auth(s.withDeadline(s.idempotent("image/watermark", s.imageWatermark))))

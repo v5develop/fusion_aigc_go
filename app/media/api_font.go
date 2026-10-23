@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"os"
+	"time"
 )
 
 // 字体入口（ingest / ingest/upload）：字体不是媒体，不走 ffmpeg 解码，只按文件头（魔数）识别。
@@ -59,8 +60,10 @@ func (s *Server) ingestLocal(ctx context.Context, purpose, path string) (MediaRe
 	if mime, ok := fontMime(path); ok {
 		return s.storeFontFile(ctx, purpose, path, mime)
 	}
+	validateStart := time.Now()
 	if err := s.svc.Validate(ctx, path); err != nil {
 		return MediaResult{}, err
 	}
+	logStage(ctx, "validate", validateStart)
 	return s.storeFile(ctx, purpose, path)
 }

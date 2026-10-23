@@ -57,7 +57,7 @@ docker compose -f docker-compose.media.yml --env-file media.env up -d
 - **实例 ID**：每个实例的注册元数据带 `instance_id`（部署时持久化的 6 位 ID，见 `InstanceID`）。启动前注册中心里若有存活实例使用同一 ID 且地址不同，实例**拒绝启动**；墓碑列表（配置项 `media-instance-tombstones`）里的 ID 同样拒绝启动。下线用 `media-svc -f <配置> -retire <id>`，它把 ID 写入墓碑列表，可重复执行。
 - **路由**：请求按视频 URL（或内容 SHA-256）做 rendezvous 哈希排序，同一个视频固定打到同一实例，让它的输入缓存生效；实例增减时只有映射到变动实例的视频会换节点。资源 ID（rid）键先路由到它的**所属实例**（rid 里的实例 ID，在注册元数据里找地址）；所属实例不在线时按哈希顺序兜底，结果不变（共享桶保证可读）。首选实例连不上或返回 503 时转到下一个实例；整轮都是 503 时按 `Retry-After` 等待后重试。
 - **所属实例的选择**：新资源的所属实例由服务端按幂等键在存活实例的 ID 集合上做 rendezvous 哈希选出（与路由同一算法）。成员不变时重试得到同一个 rid；成员增减的窗口内重试可能得到新 rid，见设计文档 §5。
-- **缓存**：下载的输入按 URL 缓存在本实例，最后一次使用后保留 `InputCacheMinutes`（默认 5 分钟）再清理，使用中的文件不会被清。缓存只在本实例内有效，实例之间不共享。
+- **缓存**：下载的输入按 URL 缓存在本实例，最后一次使用后保留 `InputCacheMinutes`（默认 5 分钟）再清理，使用中的文件不会被清。缓存只在本实例内有效，实例之间不共享。按 `rid` 读取已落桶的对象（`rid` 输入、`register`、`resources/copy`）另有对象缓存：本实例写入或读过的对象留在本地（上限 `ObjectCacheMaxBytes`，默认 10 GiB 且不超过磁盘可用空间 20%；空闲保留 `ObjectCacheMinutes`，默认 30 分钟），每次使用前都核对待删除标记（410 不变）与存储里的对象版本，不一致或已删除即回落从存储下载，所以结果与不缓存时相同。
 - **客户端版本**：Go 使用 `nacos-sdk-go/v2` v2.2.5，Java 使用 `com.alibaba.nacos:nacos-client` 2.1.0，均为 r-nacos 验证过的版本。
 
 ## 鉴权与安全
@@ -174,7 +174,7 @@ Content-Type: <可选，仅作提示>
 
 参数细节以 `media.api` 为准。例如 `seconds` 的范围是 `(0, 600]`，`factor` 的范围是 `(0, 100]`。
 
-**显式复制（`resources/copy`）**：`POST /v1/mediasvc/resources/copy`，请求体 `{"rid": "<源 rid>", "purpose": "asset_library" | "third_party"}`，必须带 `Idempotency-Key`。源已在私有桶而服务商要公有地址时，Java 显式发复制指令：源被复制到 `asset`（素材库桶）或 `deliver`（第三方桶）类别下的新 rid，新 rid 由幂等键派生，同键重放得到同一个 rid；返回的 `MediaResult` 中 `parents` 为 `["<源 rid>"]`，用于溯源。源不存在返回 `404 not_found`；`purpose` 为 `user_input` 或 `intermediate`（即目标为 user/work 类别）返回 `400 invalid_request`。
+**显式复制（`resources/copy`）**：`POST /v1/mediasvc/resources/copy`，请求体 `{"rid": "<源 rid>", "purpose": "asset_library" | "third_party"}`，必须带 `Idempotency-Key`。源已在私有桶而服务商要公有地址时，Java 显式发复制指令：源被复制到 `asset`（素材库桶）或 `deliver`（第三方桶）类别下的新 rid，新 rid 由幂等键派生，同键重放得到同一个 rid；返回的 `MediaResult` 中 `parents` 为 `["<源 rid>"]`，用于溯源。源不存在返回 `404 not_found`；`purpose` 为 `user_input` 或 `intermediate`（即目标为 user/work 类别）返回 `400 invalid_request`。源在本实例的对象缓存里且版本与存储一致时直接用本地字节，不再从存储下载（目标桶仍要写入一次）；源进入待删除返回 `410 resource_deleted`。要进素材库的产物优先在生产时就用 `purpose=asset_library` 直接落素材库桶，不必事后复制。
 
 ### 图像四件套（`image/watermark`、`image/grid`、`image/crop`、`image/mark`）
 
@@ -268,6 +268,8 @@ Content-Type: <可选，仅作提示>
 ```
 
 `probe` 返回 `MediaMeta`（同 `object` 的元数据字段，不含 `key`）；`frames` 返回 `frames[]`，每帧是 `timestamp_s` 加一个对象。
+
+**阶段耗时（可选，只增字段）**：`ingest`、`ingest/upload`、`resources/copy` 本次实际执行的成功响应在 `MediaResult` 上多一个 `"timings": [{"stage": "probe", "dur_ms": 22}, ...]`，按发生顺序列出服务端各阶段耗时（`read_body`、`idem_begin`、`validate`、`probe`、`hash`、`place_object`、`ingest_local`、`idem_finish`，按路由取其中实际经过的）。幂等重放（`Idempotent-Replayed: true`）与其它路由不带该字段；调用方不认识可以忽略。
 
 ## 错误
 

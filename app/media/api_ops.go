@@ -123,7 +123,8 @@ func (s *Server) sourceFn(src SourceRef) Source {
 			if err := s.checkReadable(ctx, store, path); err != nil {
 				return "", err
 			}
-			return s.fetchObject(ctx, store, path, dir)
+			// 待删除标记已对照过；本机缓存命中前还会向存储核对版本（object_cache.go）
+			return s.readObject(ctx, src.Rid, store, path, dir)
 		}
 	}
 	key, store := src.Key, src.Store
@@ -183,19 +184,31 @@ func (s *Server) probeMeta(ctx context.Context, path string) (MediaMeta, error) 
 
 // storeFile 把本地文件落桶，返回契约的 MediaResult。
 func (s *Server) storeFile(ctx context.Context, purpose, path string) (MediaResult, error) {
+	probeStart := time.Now()
 	meta, err := s.probeMeta(ctx, path)
+	logStage(ctx, "probe", probeStart)
 	if err != nil {
 		return MediaResult{}, err
 	}
-	return s.storeWithMeta(ctx, purpose, path, meta)
+	return s.storeMeta(ctx, purpose, path, meta, true)
 }
 
 // storeWithMeta 落桶的公共部分：元数据由调用方给（媒体用 probe，字体用文件头识别）。
 func (s *Server) storeWithMeta(ctx context.Context, purpose, path string, meta MediaMeta) (MediaResult, error) {
-	sum, _, err := hashFile(path)
+	return s.storeMeta(ctx, purpose, path, meta, false)
+}
+
+// storeMeta probed=true 表示 meta 来自对这份字节的 probeMeta：写穿透条目上一并登记（复制命中时免 probe）。
+func (s *Server) storeMeta(ctx context.Context, purpose, path string, meta MediaMeta, probed bool) (MediaResult, error) {
+	hashStart := time.Now()
+	// 字节上传读请求体时已算过摘要（withKnownDigest）则直接用；其余调用方在这里整读一次
+	sum, size, err := hashFileKnown(ctx, path)
+	logStage(ctx, "hash", hashStart)
 	if err != nil {
 		return MediaResult{}, err
 	}
+	// 摘要交给下面的 Put：存储层不再为了大小与 sha256 把文件再整读一遍
+	ctx = withKnownDigest(ctx, path, sum, size)
 	class, store := classFor(purpose), storeFor(purpose)
 	// rid 由幂等键派生；没有幂等键（如抽帧）时由内容摘要派生，同内容同类别得到同一个 rid
 	source := idemKeyOf(ctx)
@@ -206,18 +219,23 @@ func (s *Server) storeWithMeta(ctx context.Context, purpose, path string, meta M
 	if err != nil {
 		return MediaResult{}, err
 	}
-	objPath, err := s.placeObject(ctx, rid, class, store, s.id.ObjectKey(rid), meta.Mime, time.Now())
+	placeStart := time.Now()
+	objPath, reused, err := s.placeObjectReused(ctx, rid, class, store, s.id.ObjectKey(rid), meta.Mime, time.Now())
+	logStage(ctx, "place_object", placeStart)
 	if err != nil {
 		return MediaResult{}, err
 	}
-	obj, err := s.objects.Put(ctx, store, objPath, path, meta.Mime)
+	obj, err := s.putAndClearPending(ctx, store, objPath, path, meta.Mime, reused)
 	if err != nil {
 		return MediaResult{}, err
 	}
-	// 同一幂等键重新写入：若对象之前被标记为待删除，写入即恢复为可用，否则宽限期结束会被误删
-	if err := s.objects.ClearPending(ctx, store, objPath); err != nil {
-		return MediaResult{}, err
+	// 写穿透：生产者手里本来就有字节，之后同机按 rid 读取（复制、水印……）直接用本地文件。版本取自本次写入的响应。
+	// meta 来自 probe 时连同 sha256 一起登记，同机复制命中时不再 probe、不再 hash
+	var facts *cachedFacts
+	if probed {
+		facts = &cachedFacts{sum: sum, meta: meta}
 	}
+	s.objCache.insertFacts(rid, store, objPath, obj.Version, path, facts)
 	obj.RID, obj.Class = rid, class
 	u, err := s.objects.URL(ctx, obj)
 	if err != nil {
@@ -231,6 +249,40 @@ func (s *Server) storeWithMeta(ctx context.Context, purpose, path string, meta M
 		},
 		Url: URLRef{Kind: u.Kind, Value: u.Value, ExpiresAt: u.ExpiresAt},
 	}, nil
+}
+
+// putAndClearPending 写对象并撤销该路径上可能存在的待删除标记。两步都必须成功才算写入成功。
+//
+// 沿用已有索引（reused）：同一 rid 之前写过，路径上可能是被软删除的旧对象及其标记（软删除不删索引）。
+// 必须先写新字节、再撤销标记：Put 失败时标记仍在，旧对象照常 410 并由清理删掉，不会被"复活"。
+//
+// 新写的索引（!reused）：不能省掉撤销——路径由 rid 确定性派生（同月同后缀即同一路径），清理任务按
+// 删对象 → 删索引 → 清标记的顺序走，删索引后清标记失败或进程退出，标记会留在一个已无索引的路径上（sweep.go），
+// 之后同一 rid 重新入库正好写到这个路径；不清掉的话新对象读取 410，并在下一轮清理被物理删除。
+// 这时路径上没有需要保护的旧字节（对象已被清理删除），所以撤销与 Put 并发发出：省掉一次串行往返，结果与先后执行相同。
+func (s *Server) putAndClearPending(ctx context.Context, store, objPath, local, mime string, reused bool) (StoredObject, error) {
+	if reused {
+		obj, err := s.objects.Put(ctx, store, objPath, local, mime)
+		if err != nil {
+			return StoredObject{}, err
+		}
+		// 同一幂等键重新写入：若对象之前被标记为待删除，写入即恢复为可用，否则宽限期结束会被误删
+		if err := s.objects.ClearPending(ctx, store, objPath); err != nil {
+			return StoredObject{}, err
+		}
+		return obj, nil
+	}
+	cleared := make(chan error, 1)
+	go func() { cleared <- s.objects.ClearPending(ctx, store, objPath) }()
+	obj, putErr := s.objects.Put(ctx, store, objPath, local, mime)
+	clearErr := <-cleared
+	if putErr != nil {
+		return StoredObject{}, putErr
+	}
+	if clearErr != nil {
+		return StoredObject{}, clearErr
+	}
+	return obj, nil
 }
 
 // ffmpegFailure 转码失败：外部中断或进程被杀死是暂时的（与 classifyFFmpeg 同一判据）；缺 ffmpeg 是内部错误；

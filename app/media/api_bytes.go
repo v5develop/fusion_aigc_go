@@ -3,6 +3,7 @@ package media
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -39,7 +40,8 @@ func (s *Server) uploadBytes(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, err)
 		return
 	}
-	ctx := r.Context()
+	// 阶段收集器：本次执行的各阶段耗时写进响应的 timings（契约 C1）
+	ctx, timings := withStageTimings(r.Context())
 	if d := bytesDeadline(r, s.opCeiling); d > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, d)
@@ -59,11 +61,13 @@ func (s *Server) uploadBytes(w http.ResponseWriter, r *http.Request) {
 	var digest [32]byte
 	var size int64
 	// 读请求体是 I/O，占输入名额，不占计算名额
+	readStart := time.Now()
 	err = s.svc.withIO(jobCtx, func() error {
 		var err error
 		digest, size, err = copyWithDigest(path, r.Body)
 		return err
 	})
+	logStage(ctx, "read_body", readStart)
 	if err != nil {
 		var oe *opError
 		var tooLarge *http.MaxBytesError
@@ -84,7 +88,9 @@ func (s *Server) uploadBytes(w http.ResponseWriter, r *http.Request) {
 
 	// 摘要算出后再做幂等检查：重放直接返回已存的结果，同键不同体拒绝
 	idemKey := "ingest/upload|" + key
+	idemStart := time.Now()
 	hold, ok := s.beginIdem(ctx, w, idemKey, digest)
+	logStage(ctx, "idem_begin", idemStart)
 	if !ok {
 		return
 	}
@@ -93,7 +99,11 @@ func (s *Server) uploadBytes(w http.ResponseWriter, r *http.Request) {
 	defer settleIdem(ctx, w, s.idem, hold, &succeeded)
 
 	jobCtx = withIdemKey(jobCtx, key)
+	// 摘要在读请求体时已经算过：交给落桶（storeWithMeta 与存储的 Put）复用，这个文件不再整读重算
+	jobCtx = withKnownDigest(jobCtx, path, hex.EncodeToString(digest[:]), size)
+	ingestStart := time.Now()
 	out, err := s.ingestLocal(jobCtx, purpose, path)
+	logStage(ctx, "ingest_local", ingestStart)
 	if err != nil {
 		writeAPIError(w, err)
 		return
@@ -103,11 +113,14 @@ func (s *Server) uploadBytes(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, err)
 		return
 	}
+	finishStart := time.Now()
 	s.finishIdem(ctx, hold, http.StatusOK, http.Header{"Content-Type": {"application/json"}}, body)
+	logStage(ctx, "idem_finish", finishStart)
 	succeeded = true
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(body)
+	// 幂等记录里是不带 timings 的结果（回放不带耗时）；本次响应附上各阶段耗时
+	_, _ = w.Write(appendTimings(body, timings.snapshot()))
 }
 
 // defaultStoreLocalMaxBytes 我方产物字节上传的默认上限（2 GiB），与 Java 侧 GATEWAY_RESULT_MAX_BYTES 一致。

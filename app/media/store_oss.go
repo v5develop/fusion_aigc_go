@@ -123,7 +123,8 @@ func host(b OSSBucket) string {
 
 // Put 把本地文件写到 store 的 path 下。覆盖写，同路径同内容结果一致。
 func (o *OSSStore) Put(ctx context.Context, store, path, localPath, mime string) (StoredObject, error) {
-	sum, size, err := hashFile(localPath)
+	// 调用方已算过摘要（storeWithMeta / 字节上传）时复用，不再整读一遍文件
+	sum, size, err := hashFileKnown(ctx, localPath)
 	if err != nil {
 		return StoredObject{}, fmt.Errorf("media: 读取源文件: %w", err)
 	}
@@ -135,10 +136,11 @@ func (o *OSSStore) Put(ctx context.Context, store, path, localPath, mime string)
 		return StoredObject{}, fmt.Errorf("media: 打开源文件: %w", err)
 	}
 	defer f.Close()
-	if err := o.putStream(ctx, store, path, mime, f, size); err != nil {
+	etag, err := o.putStream(ctx, store, path, mime, f, size)
+	if err != nil {
 		return StoredObject{}, err
 	}
-	return StoredObject{Store: store, Key: path, Sha256: sum, Size: size, Mime: mime}, nil
+	return StoredObject{Store: store, Key: path, Sha256: sum, Size: size, Mime: mime, Version: normalizeETag(etag)}, nil
 }
 
 // Fetch 把对象下载到 dir 下的临时文件并返回路径（只读，调用方不得修改或删除）。
@@ -287,24 +289,26 @@ func (o *OSSStore) Delete(ctx context.Context, store, path string) (bool, error)
 }
 
 func (o *OSSStore) putBytes(ctx context.Context, store, key, contentType string, data []byte) error {
-	return o.putStream(ctx, store, key, contentType, bytes.NewReader(data), int64(len(data)))
+	_, err := o.putStream(ctx, store, key, contentType, bytes.NewReader(data), int64(len(data)))
+	return err
 }
 
-func (o *OSSStore) putStream(ctx context.Context, store, key, contentType string, body io.Reader, size int64) error {
+// putStream 写入对象，返回响应里的 ETag（对象缓存用作版本；没有则为空）。
+func (o *OSSStore) putStream(ctx context.Context, store, key, contentType string, body io.Reader, size int64) (string, error) {
 	b, err := o.bucket(store)
 	if err != nil {
-		return err
+		return "", err
 	}
 	resp, err := o.do(ctx, http.MethodPut, store, b, key, contentType, body, size)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		return fmt.Errorf("media: OSS 写入返回 %d: %s", resp.StatusCode, raw)
+		return "", fmt.Errorf("media: OSS 写入返回 %d: %s", resp.StatusCode, raw)
 	}
-	return nil
+	return resp.Header.Get("ETag"), nil
 }
 
 func (o *OSSStore) exists(ctx context.Context, store, key string) (bool, error) {
@@ -386,6 +390,28 @@ func (o *OSSStore) Head(ctx context.Context, store, path string) (int64, error) 
 		return 0, errObjectNotFound
 	default:
 		return 0, fmt.Errorf("media: OSS 查询返回 %d", resp.StatusCode)
+	}
+}
+
+// Version HEAD 对象，返回字节数与 ETag（对象缓存的版本）。不存在返回 errObjectNotFound。
+// ETag 随内容变化（同内容覆盖写得到同一 ETag，字节也相同，命中仍然正确）。
+func (o *OSSStore) Version(ctx context.Context, store, path string) (int64, string, error) {
+	b, err := o.bucket(store)
+	if err != nil {
+		return 0, "", err
+	}
+	resp, err := o.do(ctx, http.MethodHead, store, b, path, "", nil, -1)
+	if err != nil {
+		return 0, "", err
+	}
+	defer resp.Body.Close()
+	switch resp.StatusCode {
+	case http.StatusOK:
+		return resp.ContentLength, normalizeETag(resp.Header.Get("ETag")), nil
+	case http.StatusNotFound:
+		return 0, "", errObjectNotFound
+	default:
+		return 0, "", fmt.Errorf("media: OSS 查询返回 %d", resp.StatusCode)
 	}
 }
 

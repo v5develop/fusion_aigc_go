@@ -195,16 +195,23 @@ func (s *Server) objectPath(ctx context.Context, rid string) (store, path string
 
 // placeObject 写入前决定对象路径：已有索引（同一幂等键的重试）沿用原路径；否则生成新路径并先写索引。
 func (s *Server) placeObject(ctx context.Context, rid, class, store, key, mime string, now time.Time) (string, error) {
+	p, _, err := s.placeObjectReused(ctx, rid, class, store, key, mime, now)
+	return p, err
+}
+
+// placeObjectReused 同 placeObject，另外报告路径是否沿用了已有索引（reused=true：同一 rid 之前写过，
+// 该路径上可能有对象与待删除标记；false：本次新写的索引）。
+func (s *Server) placeObjectReused(ctx context.Context, rid, class, store, key, mime string, now time.Time) (string, bool, error) {
 	if p, found, err := s.readIndex(ctx, rid, class); err != nil {
-		return "", err
+		return "", false, err
 	} else if found {
 		s.paths.put(rid, p)
-		return p, nil
+		return p, true, nil
 	}
 	p := datedPath(class, now, key, extForMime(mime))
 	if err := s.writeIndex(ctx, rid, p); err != nil {
-		return "", unavailable("对象索引写入失败，请稍后重试")
+		return "", false, unavailable("对象索引写入失败，请稍后重试")
 	}
 	s.paths.put(rid, p)
-	return p, nil
+	return p, false, nil
 }

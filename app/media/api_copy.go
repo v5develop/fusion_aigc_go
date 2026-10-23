@@ -13,7 +13,7 @@ type copyReq struct {
 }
 
 // copyResource 把源资源复制到目标类别，返回新 rid 的 MediaResult，parents 指向源 rid（设计文档 §3）。
-// 复制用已有的 Fetch（取源）与 Put（写目标，经 storeFile）；新 rid 由幂等键派生，同键重放得到同一个 rid。
+// 复制用 readObject（取源：本机缓存命中则不下载，否则 Fetch）与 Put（写目标，经 storeFile）；新 rid 由幂等键派生，同键重放得到同一个 rid。
 // 只允许 asset_library（asset 类别）与 third_party（deliver 类别）；不允许复制到 user 类别。
 func (s *Server) copyResource(w http.ResponseWriter, r *http.Request) {
 	if err := checkKey(r.Header.Get(idempotencyHeader)); err != nil {
@@ -45,7 +45,7 @@ func (s *Server) copyResource(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.withJob(w, r, func(ctx context.Context, dir string) (any, error) {
-		srcStore, err := s.resolveSourceStore(ctx, srcClass, srcPath)
+		srcStore, srcVer, err := s.resolveSourceStore(ctx, srcClass, srcPath)
 		if err != nil {
 			return nil, err
 		}
@@ -53,12 +53,20 @@ func (s *Server) copyResource(w http.ResponseWriter, r *http.Request) {
 		if err := s.checkReadable(ctx, srcStore, srcPath); err != nil {
 			return nil, err
 		}
-		local, err := s.objects.Fetch(ctx, srcStore, srcPath, dir)
+		// 源字节在本机对象缓存里（同机刚写入或刚读过）且版本与存储一致时直接用本地文件，不再下载。
+		// 版本用上面探测存在性时同一次 HEAD 拿到的，不再 HEAD 第二次
+		local, facts, err := s.readObjectAt(ctx, req.Rid, srcStore, srcPath, dir, srcVer)
 		if err != nil {
 			return nil, err
 		}
-		// storeFile 以请求上下文里的幂等键派生目标 rid，目标类别与存储由 purpose 决定
-		res, err := s.storeFile(ctx, req.Purpose, local)
+		// 以请求上下文里的幂等键派生目标 rid，目标类别与存储由 purpose 决定
+		var res MediaResult
+		if facts != nil {
+			// 命中写穿透条目：这份字节落桶时已 probe 过、hash 过（版本一致即字节一致），直接沿用，不再 probe 与 hash
+			res, err = s.storeMeta(withKnownDigest(ctx, local, facts.sum, facts.meta.Size), req.Purpose, local, facts.meta, true)
+		} else {
+			res, err = s.storeFile(ctx, req.Purpose, local)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -69,20 +77,30 @@ func (s *Server) copyResource(w http.ResponseWriter, r *http.Request) {
 
 // resolveSourceStore 找到源对象所在的桶。asset 只在素材库桶；user/work 只在私有桶；
 // deliver 先查私有桶，找不到再查第三方桶（第三方交付的产物可以再次复制）。两处都没有返回 404。
-// 只做存在性探测（Head），不读内容。
-func (s *Server) resolveSourceStore(ctx context.Context, class, path string) (string, error) {
+// 只做存在性探测（HEAD），不读内容。存储能给出版本（objectVersioner）时用同一次 HEAD 取版本一并返回，
+// 供对象缓存核对；否则版本为 nil，由 readObjectAt 自己查（不支持版本的存储本来也不启用缓存）。
+func (s *Server) resolveSourceStore(ctx context.Context, class, path string) (string, *sourceVersion, error) {
 	candidates := []string{storeForClass(class, "")}
 	if class == classDeliver {
 		candidates = []string{storePrivate, storeThirdParty}
 	}
+	v, versioned := s.objects.(objectVersioner)
 	for _, st := range candidates {
-		_, err := s.objects.Head(ctx, st, path)
+		var ver *sourceVersion
+		var err error
+		if versioned {
+			var version string
+			_, version, err = v.Version(ctx, st, path)
+			ver = &sourceVersion{version: version}
+		} else {
+			_, err = s.objects.Head(ctx, st, path)
+		}
 		if err == nil {
-			return st, nil
+			return st, ver, nil
 		}
 		if !errors.Is(err, errObjectNotFound) {
-			return "", err
+			return "", nil, err
 		}
 	}
-	return "", newAPIError(codeNotFound, "resource.object_missing")
+	return "", nil, newAPIError(codeNotFound, "resource.object_missing")
 }

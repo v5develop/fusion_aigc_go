@@ -68,6 +68,11 @@ type Config struct {
 	// InputCacheMaxBytes 输入缓存的配置上限（单实例，默认 10 GiB）。实际上限还要不超过磁盘可用空间的 30%（见 effectiveCacheCap）。
 	// 超过时淘汰空闲且最早过期的文件；正在使用的不删，可能暂时超出
 	InputCacheMaxBytes int64 `json:",default=10737418240"` // 10 GiB
+	// ObjectCacheMaxBytes 对象缓存（按 rid 缓存读到或刚写入的对象字节，见 object_cache.go）的配置上限（单实例，默认 10 GiB）。
+	// 实际上限还要不超过磁盘可用空间的 20%；0 关闭对象缓存（每次按 rid 读取都从对象存储下载）
+	ObjectCacheMaxBytes int64 `json:",default=10737418240"` // 10 GiB
+	// ObjectCacheMinutes 对象缓存的条目最后一次使用后保留多久（分钟），默认 30；0 关闭对象缓存
+	ObjectCacheMinutes int `json:",default=30"`
 	// FFmpegThreads 单个 ffmpeg 进程的线程数（与原 Java 的 FFMPEG_THREADS 同义）
 	FFmpegThreads int `json:",default=2"`
 	// DeleteGraceMinutes 软删除的宽限期（分钟），默认 10080（7 天）。delete 只打待删除标记，宽限期内 restore 可撤销，

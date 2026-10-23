@@ -39,6 +39,9 @@ type StoredObject struct {
 	Mime   string
 	RID    string
 	Class  string
+	// Version 写入后对象的版本标识（OSS 为 PUT 响应的 ETag，本地实现为大小+修改时间），与 objectVersioner 的结果可比。
+	// 为空表示不知道（不做写穿透缓存）。
+	Version string
 }
 
 // IndexEntry 索引对象的列举结果：对象键与最后修改时间。
@@ -126,24 +129,49 @@ func (l *LocalStore) full(store, path string) (string, error) {
 }
 
 // Put 写入 <dir>/<store>/<path>。同内容已存在且大小一致时复用，不重写。
-func (l *LocalStore) Put(_ context.Context, store, path, localPath, mime string) (StoredObject, error) {
+func (l *LocalStore) Put(ctx context.Context, store, path, localPath, mime string) (StoredObject, error) {
 	target, err := l.full(store, path)
 	if err != nil {
 		return StoredObject{}, err
 	}
-	sum, size, err := hashFile(localPath)
+	sum, size, err := hashFileKnown(ctx, localPath)
 	if err != nil {
 		return StoredObject{}, fmt.Errorf("media: 读取源文件: %w", err)
 	}
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return StoredObject{}, err
 	}
+	version := ""
 	if st, err := os.Stat(target); err != nil || st.Size() != size {
 		if err := copyAtomic(localPath, target); err != nil {
 			return StoredObject{}, fmt.Errorf("media: 写入对象: %w", err)
 		}
+		// 只有真正写入时才给版本：复用已有文件时其内容未经比对，不能把本次的字节当成它的内容去写穿透
+		if st, err := os.Stat(target); err == nil {
+			version = localVersion(st)
+		}
 	}
-	return StoredObject{Store: store, Key: path, Sha256: sum, Size: size, Mime: mime}, nil
+	return StoredObject{Store: store, Key: path, Sha256: sum, Size: size, Mime: mime, Version: version}, nil
+}
+
+// Version 本地实现的版本：大小 + 修改时间（纳秒）。copyAtomic 每次都是新文件，改写后版本必然变化。
+func (l *LocalStore) Version(_ context.Context, store, path string) (int64, string, error) {
+	target, err := l.full(store, path)
+	if err != nil {
+		return 0, "", err
+	}
+	st, err := os.Stat(target)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return 0, "", errObjectNotFound
+		}
+		return 0, "", err
+	}
+	return st.Size(), localVersion(st), nil
+}
+
+func localVersion(st fs.FileInfo) string {
+	return fmt.Sprintf("%d-%d", st.Size(), st.ModTime().UnixNano())
 }
 
 // Fetch 把对象复制到 dir 下返回路径（本地实现直接返回对象文件路径，只读）。
@@ -291,6 +319,31 @@ func copyAtomic(from, to string) error {
 		return err
 	}
 	return os.Rename(tmpName, to)
+}
+
+// knownDigest 某个本地文件已经算好的 sha256 与字节数（字节上传在读请求体时算出，落桶时算出），
+// 经 context 传给 storeWithMeta 与存储的 Put，同一个文件在一次写入里只整读一次。
+type knownDigest struct {
+	path string
+	sum  string
+	size int64
+}
+
+type knownDigestKey struct{}
+
+// withKnownDigest 登记 path 的摘要。只对这一个路径生效：别的文件（索引、其它产物）照常自己算。
+func withKnownDigest(ctx context.Context, path, sum string, size int64) context.Context {
+	return context.WithValue(ctx, knownDigestKey{}, knownDigest{path: path, sum: sum, size: size})
+}
+
+// hashFileKnown 优先用 context 里登记的摘要：路径一致且文件当前大小与登记的一致才用；否则整读计算（与 hashFile 相同）。
+func hashFileKnown(ctx context.Context, path string) (string, int64, error) {
+	if k, ok := ctx.Value(knownDigestKey{}).(knownDigest); ok && k.path == path && k.sum != "" {
+		if st, err := os.Stat(path); err == nil && st.Mode().IsRegular() && st.Size() == k.size {
+			return k.sum, k.size, nil
+		}
+	}
+	return hashFile(path)
 }
 
 func hashFile(path string) (string, int64, error) {

@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"runtime/debug"
+	"time"
 )
 
 // 写操作的幂等结果（契约 §2）。存储与语义见 idem_store.go：
@@ -75,7 +76,13 @@ func (s *Server) idempotent(route string, next http.HandlerFunc) http.HandlerFun
 		digest := sha256.Sum256(raw)
 		k := route + "|" + key
 
+		timings := stageTimingsOf(r.Context())
+		idemStart := time.Now()
 		hold, ok := s.beginIdem(r.Context(), w, k, digest)
+		if timings != nil {
+			// 只有装了收集器的路由（ingest、resources/copy）记这两个阶段，其它路由的日志不变
+			logStage(r.Context(), "idem_begin", idemStart)
+		}
 		if !ok {
 			return
 		}
@@ -92,8 +99,16 @@ func (s *Server) idempotent(route string, next http.HandlerFunc) http.HandlerFun
 			status = http.StatusOK
 		}
 		body := cw.body.Bytes()
+		finishStart := time.Now()
 		s.finishIdem(r.Context(), hold, status, cw.header, append([]byte(nil), body...))
 		finished = true
+		// 幂等记录存的是不带 timings 的响应体（回放不带耗时）；本次实际执行的响应附上各阶段耗时（契约 C1，只增字段）
+		if timings != nil {
+			logStage(r.Context(), "idem_finish", finishStart)
+			if status >= 200 && status < 300 {
+				body = appendTimings(body, timings.snapshot())
+			}
+		}
 
 		for name, values := range cw.header {
 			for _, v := range values {

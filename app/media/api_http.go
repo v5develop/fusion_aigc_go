@@ -401,6 +401,10 @@ func (s *Server) delete(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, err)
 		return
 	}
+	// 本机缓存里的副本不再需要（正确性不靠这里：读取时总会对照待删除标记与存储版本，别的实例删除同样生效）
+	if req.Rid != "" {
+		s.objCache.forget(req.Rid)
+	}
 	out := deleteResp{Deleted: res.state != deleteStateAbsent, State: res.state}
 	if !res.deleteAfter.IsZero() {
 		out.DeleteAfter = res.deleteAfter.Format(time.RFC3339)
