@@ -124,7 +124,8 @@ load_env() {
   resolve TOKEN_ACCESS_HOURS TOKEN_ACCESS_HOURS 2
   resolve TOKEN_REFRESH_DAYS TOKEN_REFRESH_DAYS 7
   # 共享媒体服务（aigc-media：封面/水印/合成/探测/抽帧）：imagegen 复刻时调用。
-  # token 与 Java 的 MEDIA_SERVICE_TOKEN 单一真相源一致（deploy.env 可覆盖）；地址/账密见 deploy.env。
+  # token 的唯一权威是 Java 的 env 文件（JAVA_ENV_FILE 里的 MEDIA_SERVICE_TOKEN）；deploy.env 写了则只用于校验（见 validate_release）。地址/账密见 deploy.env。
+  MEDIA_SVC_TOKEN_DEPLOY=${MEDIA_SVC_TOKEN:-}
   resolve MEDIA_SVC_TOKEN MEDIA_SERVICE_TOKEN ""
   MEDIA_SVC_BASE_URL=${MEDIA_SVC_BASE_URL:-http://127.0.0.1:18090}
   MEDIA_NACOS_ADDR=${MEDIA_NACOS_ADDR:-127.0.0.1:8848}
@@ -141,11 +142,23 @@ load_env() {
 # validate_release 正式版的硬规则。只在 install / prepare 时检查，
 # 这样老安装缺新配置项时，status / logs / stop / uninstall 仍然能用。
 validate_release() {
-  local java_db l
+  local java_db l java_tok
   # JAVA_ENV_FILE 指向不存在的宿主机路径时，Docker 会把它挂成空目录，后面只会报「缺 AIGC_ENDPOINT」，很难查
   # JAVA_ENV_FILE 必须是可读的普通文件。Docker 在宿主机路径不存在时会建一个空目录，这里要明确报出来
   if [[ -n ${JAVA_ENV_FILE:-} ]]; then
     [[ -f $JAVA_ENV_FILE && -r $JAVA_ENV_FILE ]] || die "JAVA_ENV_FILE=$JAVA_ENV_FILE 不是可读的文件（容器部署时多半是宿主机上这个路径不存在，Docker 会建成空目录）"
+  fi
+  # 媒体 token 单一真相源（裸机）：Java 的 env 文件是唯一权威。deploy.env 写了 MEDIA_SVC_TOKEN 时，
+  # 只能与 Java 的 MEDIA_SERVICE_TOKEN 相同，且 Java 文件里必须有；Java env 不可用（未设 JAVA_ENV_FILE）时才单独采用 deploy.env 的值。
+  # 不打印取值，只报不一致 / 缺失。容器形态不读 deploy.env，不在此检查。
+  if [[ ${AIGC_CONTAINER:-0} != 1 && -n ${MEDIA_SVC_TOKEN_DEPLOY:-} && -n ${JAVA_ENV_FILE:-} ]]; then
+    java_tok=$(env_get "$JAVA_ENV_FILE" MEDIA_SERVICE_TOKEN)
+    if [[ -z $java_tok ]]; then
+      die "deploy.env 里设了 MEDIA_SVC_TOKEN，但 JAVA_ENV_FILE（${JAVA_ENV_FILE}）里没有 MEDIA_SERVICE_TOKEN。媒体 token 只能有一个来源：请把该值写进 Java 的 env 文件的 MEDIA_SERVICE_TOKEN，并删除 deploy.env 里的 MEDIA_SVC_TOKEN。"
+    fi
+    if [[ $java_tok != "$MEDIA_SVC_TOKEN_DEPLOY" ]]; then
+      die "deploy.env 的 MEDIA_SVC_TOKEN 与 JAVA_ENV_FILE 里的 MEDIA_SERVICE_TOKEN 不一致（取值不回显）。以 Java 的 env 文件为准：删除 deploy.env 里的 MEDIA_SVC_TOKEN，或把两边改成同一个值。"
+    fi
   fi
   # 会话库号必须与 Java 一致：Java 的 REDIS_DB 与这里实际用的库号不同，两边的令牌互相找不到
   java_db=$(env_get "${JAVA_ENV_FILE:-}" REDIS_DB)
