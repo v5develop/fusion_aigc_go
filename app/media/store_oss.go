@@ -390,20 +390,47 @@ func (o *OSSStore) Head(ctx context.Context, store, path string) (int64, error) 
 }
 
 // SignedURL 签发有效期为 ttl 的 GET 签名地址（OSS v1 查询签名）。
-func (o *OSSStore) SignedURL(_ context.Context, store, path string, ttl time.Duration) (StoredURL, error) {
+func (o *OSSStore) SignedURL(ctx context.Context, store, path string, ttl time.Duration) (StoredURL, error) {
+	return o.signedGetURL(ctx, store, path, "", ttl)
+}
+
+// SignedProcessURL 签发带图片处理样式的 GET 签名地址：地址带 x-oss-process=<style>，签名的 canonical resource
+// 同时包含该子资源（OSS 只签子资源，x-oss-process 是子资源，因此改样式会改签名）。style 为空等同于 SignedURL。
+// style 必须是 validProcessStyle 允许的字符（字母数字与 _ . / -），不做 URL 编码：这些字符在查询串里原样合法，
+// 签名用的值与地址里的值完全一致。
+func (o *OSSStore) SignedProcessURL(ctx context.Context, store, path, style string, ttl time.Duration) (StoredURL, error) {
+	if style != "" && !validProcessStyle(style) {
+		return StoredURL{}, invalid("request.process_style")
+	}
+	return o.signedGetURL(ctx, store, path, style, ttl)
+}
+
+// signedGetURL 构造 GET 查询签名。canonical resource 为 "/<bucket>/<key>"，有样式时追加 "?x-oss-process=<style>"
+// （原始值，不编码）；查询串的参数名按字典序排列，签名参数不进 canonical resource。
+func (o *OSSStore) signedGetURL(_ context.Context, store, path, style string, ttl time.Duration) (StoredURL, error) {
 	b, err := o.bucket(store)
 	if err != nil {
 		return StoredURL{}, err
 	}
 	expires := o.now().Add(ttl).Unix()
-	sig := sign(b.SecretKey, "GET\n\n\n"+strconv.FormatInt(expires, 10)+"\n/"+b.Bucket+"/"+path)
+	exp := strconv.FormatInt(expires, 10)
+	resource := "/" + b.Bucket + "/" + path
+	if style != "" {
+		resource += "?x-oss-process=" + style
+	}
+	sig := sign(b.SecretKey, "GET\n\n\n"+exp+"\n"+resource)
 	q := url.Values{}
 	q.Set("OSSAccessKeyId", b.AccessKey)
-	q.Set("Expires", strconv.FormatInt(expires, 10))
+	q.Set("Expires", exp)
 	q.Set("Signature", sig)
+	query := q.Encode()
+	if style != "" {
+		// Encode 按键排序后 x-oss-process 排在最后，与 canonical resource 的子资源一致；style 不含需转义的字符。
+		query += "&x-oss-process=" + style
+	}
 	return StoredURL{
 		Kind:      "signed",
-		Value:     "https://" + host(b) + "/" + path + "?" + q.Encode(),
+		Value:     "https://" + host(b) + "/" + path + "?" + query,
 		ExpiresAt: time.Unix(expires, 0).Format(time.RFC3339),
 	}, nil
 }

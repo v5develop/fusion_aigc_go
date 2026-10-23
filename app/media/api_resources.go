@@ -22,6 +22,8 @@ type resourceURLReq struct {
 	Store      string `json:"store"`
 	Mode       string `json:"mode"`
 	TTLSeconds int64  `json:"ttl_seconds"`
+	// Process 可选的 OSS 图片处理样式（named style）。只允许 mode=signed；为空表示不加工。
+	Process string `json:"process"`
 }
 
 // resourceURLResp 响应：只返回地址与有效期，不返回字节。
@@ -56,6 +58,24 @@ func checkClassStore(class, store string) error {
 	return nil
 }
 
+// validProcessStyle 样式只允许 [A-Za-z0-9_./-]，且不能为空。OSS 的命名样式只用这些字符，
+// 因此不需要任何 URL 编码，也避免把任意字符带进签名或查询串。
+func validProcessStyle(style string) bool {
+	if style == "" {
+		return false
+	}
+	for i := 0; i < len(style); i++ {
+		c := style[i]
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9',
+			c == '_', c == '.', c == '/', c == '-':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 // resourceURL 签发资源的访问地址。
 func (s *Server) resourceURL(w http.ResponseWriter, r *http.Request) {
 	var req resourceURLReq
@@ -80,6 +100,16 @@ func (s *Server) resourceURL(w http.ResponseWriter, r *http.Request) {
 	if err := checkClassStore(req.Class, req.Store); err != nil {
 		writeAPIError(w, err)
 		return
+	}
+	if req.Process != "" {
+		if req.Mode != urlModeSigned {
+			writeAPIError(w, invalid("request.process_mode"))
+			return
+		}
+		if !validProcessStyle(req.Process) {
+			writeAPIError(w, invalid("request.process_style"))
+			return
+		}
 	}
 	if req.Mode != urlModeSigned && req.Mode != urlModePublic {
 		writeAPIError(w, invalid("request.mode"))
@@ -117,6 +147,8 @@ func (s *Server) resourceURL(w http.ResponseWriter, r *http.Request) {
 	var u StoredURL
 	if req.Mode == urlModePublic {
 		u, err = s.objects.PublicURL(ctx, req.Store, path)
+	} else if req.Process != "" {
+		u, err = s.objects.SignedProcessURL(ctx, req.Store, path, req.Process, time.Duration(ttl)*time.Second)
 	} else {
 		u, err = s.objects.SignedURL(ctx, req.Store, path, time.Duration(ttl)*time.Second)
 	}

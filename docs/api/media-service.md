@@ -130,7 +130,7 @@ Content-Type: <可选，仅作提示>
 
 - **写（产出）**：所有写操作在 `object` 里返回 `rid`、`class`、`key`（`key` 仅内部与运维使用）。rid 由类别与幂等键派生：`rid = <所属实例 6 位> - <类别> - HMAC(密钥, "rid|"+类别+"|"+幂等键) 的 26 位编码`。同一幂等键的重试得到同一 rid 与同一对象。所属实例由服务端按幂等键在注册中心的存活实例 ID 集合上做 rendezvous 哈希选出（见「实例发现与注册」）。没有幂等键的操作（如抽帧）以内容 sha256 代替幂等键。
 - **读（输入）**：`source` 传 `{"rid": …}`，类别与存储由 rid 推导，不传 class。
-- **地址（读侧现签）**：`POST /v1/mediasvc/resources/urls`，请求体 `{"rid", "store", "mode", "ttl_seconds"}`。`class` 可以省略；如果传了，必须与 rid 一致，否则 `400 class_mismatch`。`store` 必须与类别配对：`asset` → `asset_library`；`user`、`work` → `private`；`deliver` → `private` 或 `third_party`。地址每次现签，调用方不保存。
+- **地址（读侧现签）**：`POST /v1/mediasvc/resources/urls`，请求体 `{"rid", "store", "mode", "ttl_seconds", "process"}`。`process` 可选，为 OSS 命名样式（named style），只允许 `mode=signed`：其它模式返回 `400 request.process_mode`；字符超出 `[A-Za-z0-9_./-]` 返回 `400 request.process_style`。传入时地址带 `x-oss-process=<样式>`，且样式进入签名（OSS 把 `x-oss-process` 当子资源签名）；不传或为空时地址与原来一致。本地开发存储忽略样式。`class` 可以省略；如果传了，必须与 rid 一致，否则 `400 class_mismatch`。`store` 必须与类别配对：`asset` → `asset_library`；`user`、`work` → `private`；`deliver` → `private` 或 `third_party`。地址每次现签，调用方不保存。
 - **删除（软删除）**：`{"rid": …}` 或 `{"object": {…}}`。只登记待删除标记，字节保留到宽限期（默认 7 天）过后由清理任务物理删除。宽限期内可用 `resources/restore` 撤销。`user` 类别与历史 `sha256/` 路径返回 `403 forbidden_purpose`，且永不删除。
 - **待删除对象的读取**：处于待删除状态的对象，`source`（rid 或 key）输入、`resources/urls` 签发一律返回 `410 resource_deleted`（永久失败，不可重试；撤销后才可用）。未标记的对象照常。
 - **类别与存储**：`user`、`work` → 私有桶；`deliver` → 私有或第三方桶；`asset` → 素材库桶。
@@ -170,7 +170,7 @@ Content-Type: <可选，仅作提示>
 | POST | `/v1/mediasvc/audio/timeline` | 配音时间线：多段音频按起点拼成整条音轨（m4a） | `MediaResult` |
 | POST | `/v1/mediasvc/video/replace-audio` | 换音轨：视频流拷贝，按短的一方截断 | `MediaResult` |
 | POST | `/v1/mediasvc/video/burn-subtitles` | 烧录字幕（固定样式，请求体带 srt 文本） | `MediaResult` |
-| POST | `/v1/mediasvc/resources/urls` | 凭 rid 现签访问地址（`mode=signed|public`）；不传 class | `ResourceURL` |
+| POST | `/v1/mediasvc/resources/urls` | 凭 rid 现签访问地址（`mode=signed|public`）；可选 `process`（OSS 样式，仅 signed）；不传 class | `ResourceURL` |
 
 参数细节以 `media.api` 为准。例如 `seconds` 的范围是 `(0, 600]`，`factor` 的范围是 `(0, 100]`。
 

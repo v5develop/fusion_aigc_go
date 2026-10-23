@@ -70,6 +70,9 @@ type ObjectStore interface {
 	Head(ctx context.Context, store, path string) (int64, error)
 	// SignedURL 签发有效期为 ttl 的 GET 签名地址。
 	SignedURL(ctx context.Context, store, path string, ttl time.Duration) (StoredURL, error)
+	// SignedProcessURL 签发带图片处理样式（OSS named style，x-oss-process）的 GET 签名地址；style 为空等同 SignedURL。
+	// 样式会进入签名。本地实现忽略样式，返回与 SignedURL 相同的结果。
+	SignedProcessURL(ctx context.Context, store, path, style string, ttl time.Duration) (StoredURL, error)
 	// SignedPutURL 签发有效期为 ttl 的 PUT 签名地址，供客户端直传。本地实现返回 Kind=none。
 	SignedPutURL(ctx context.Context, store, path string, ttl time.Duration) (StoredURL, error)
 	// PublicURL 返回公有地址。私有存储或本地实现返回 Kind=none。
@@ -182,6 +185,11 @@ func (l *LocalStore) Head(_ context.Context, store, path string) (int64, error) 
 // SignedURL 本地实现没有可访问地址。
 func (l *LocalStore) SignedURL(_ context.Context, _, _ string, _ time.Duration) (StoredURL, error) {
 	return StoredURL{Kind: "none"}, nil
+}
+
+// SignedProcessURL 本地实现忽略处理样式（开发用），与 SignedURL 一致。
+func (l *LocalStore) SignedProcessURL(ctx context.Context, store, path, _ string, ttl time.Duration) (StoredURL, error) {
+	return l.SignedURL(ctx, store, path, ttl)
 }
 
 // SignedPutURL 本地实现没有直传地址。
