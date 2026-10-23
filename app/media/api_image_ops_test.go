@@ -128,7 +128,8 @@ func TestImageWatermarkLogoAndTextBottomRight(t *testing.T) {
 	if n := whitePixels(img, 150, 200, 265, 265); n < 30 {
 		t.Fatalf("logo 左侧白色文字像素 = %d, 期望 >= 30", n)
 	}
-	if n := whitePixels(img, 0, 150, 200, 300); n != 0 {
+	// 文字右对齐在 logo 左侧，左边界实测约 x=167；左下角 x<150 必须干净（不能回到左对齐）
+	if n := whitePixels(img, 0, 150, 150, 300); n != 0 {
 		t.Fatalf("左下角出现了 %d 个白色像素", n)
 	}
 	requireNear(t, img, 5, 5, cBlue, 6, "角落")
