@@ -77,6 +77,17 @@ func (s *Server) sweepOnce(ctx context.Context) (sweepReport, error) {
 					rep.Failed++
 					continue
 				}
+				// 列举到删除之间标记可能已被并发的重新入库清掉（ClearPending）或换了到期时间：
+				// 物理删除前再读一次标记，确认它仍在且仍已到期，否则跳过，不删刚重新入库的对象
+				current, err := s.markerStillDue(ctx, m)
+				if err != nil {
+					rep.Failed++
+					continue
+				}
+				if !current {
+					log.Printf("media: 清理跳过 check=sweep.marker_changed store=%s（列举后标记已清除或未到期）", m.Store)
+					continue
+				}
 				if _, err := s.objects.Delete(ctx, m.Store, m.Path); err != nil {
 					rep.Failed++
 					continue
@@ -108,6 +119,15 @@ func (s *Server) sweepOnce(ctx context.Context) (sweepReport, error) {
 		log.Printf("media: 清理孤儿索引失败（下一轮重试）: %v", err)
 	}
 	return rep, nil
+}
+
+// markerStillDue 物理删除前的复核：待删除标记仍然存在且到期时间仍已过去。
+func (s *Server) markerStillDue(ctx context.Context, m PendingMark) (bool, error) {
+	deadline, ok, err := s.objects.PendingDeadline(ctx, m.Store, m.Path)
+	if err != nil || !ok {
+		return false, err
+	}
+	return !s.now().Before(deadline), nil
 }
 
 // orphanIndexTTL 索引超过这段时间仍然没有对应对象，即视为孤儿（直传未完成、入库中途失败）。

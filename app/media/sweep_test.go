@@ -309,3 +309,35 @@ func TestLocalPendingListPaginates(t *testing.T) {
 		t.Fatalf("清空后列举 = %v, %v", marks, err)
 	}
 }
+
+// clearAfterListStore 列举标记后、清理删除前模拟并发的重新入库：列举一返回就清掉这些标记（ClearPending）。
+type clearAfterListStore struct {
+	ObjectStore
+}
+
+func (c *clearAfterListStore) ListPending(ctx context.Context, store, marker string, limit int) ([]PendingMark, string, error) {
+	marks, next, err := c.ObjectStore.ListPending(ctx, store, marker, limit)
+	for _, m := range marks {
+		if err := c.ObjectStore.ClearPending(ctx, m.Store, m.Path); err != nil {
+			return nil, "", err
+		}
+	}
+	return marks, next, err
+}
+
+// 列举后标记被并发清除（重新入库）：清理删除前复核标记，跳过，不删刚重新入库的对象。
+func TestSweepSkipsMarkerClearedAfterListing(t *testing.T) {
+	f := newSoftDeleteFixture(t)
+	rid, path := f.putObject(t, classWork, storePrivate, "re-ingested")
+	decodeDelete(t, f.delete(t, map[string]any{"rid": rid}, "k-race"))
+	f.clk.t = f.clk.t.Add(61 * time.Minute)
+	f.srv.objects = &clearAfterListStore{ObjectStore: f.srv.objects}
+
+	rep, err := f.srv.sweepOnce(context.Background())
+	if err != nil || rep.Deleted != 0 || rep.Failed != 0 {
+		t.Fatalf("标记已被清除时清理 = %+v, %v，want 删除 0 失败 0", rep, err)
+	}
+	if _, err := f.srv.objects.Head(context.Background(), storePrivate, path); err != nil {
+		t.Fatalf("标记已被清除，对象必须保留: %v", err)
+	}
+}

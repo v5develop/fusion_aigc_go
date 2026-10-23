@@ -17,6 +17,7 @@ import (
 type countingStore struct {
 	*LocalStore
 	fetches atomic.Int32
+	puts    atomic.Int32 // 数据对象的 Put 次数（索引写入不计），用来证明被拒的请求没有落桶
 
 	headMu sync.Mutex
 	heads  map[string]int // 数据对象的 HEAD 次数（Head 与 Version 都是一次 HEAD），按 store 计；待删除标记、索引不计
@@ -65,6 +66,13 @@ func (c *countingStore) Fetch(ctx context.Context, store, path, dir string) (str
 		c.fetches.Add(1)
 	}
 	return c.LocalStore.Fetch(ctx, store, path, dir)
+}
+
+func (c *countingStore) Put(ctx context.Context, store, path, localPath, mime string) (StoredObject, error) {
+	if classOfPath(path) != classIndex {
+		c.puts.Add(1)
+	}
+	return c.LocalStore.Put(ctx, store, path, localPath, mime)
 }
 
 // newCachedServer 一个媒体实例；多个实例传同一个 objectsDir 即共享"桶"（模拟多实例部署），各自有独立的本机缓存。

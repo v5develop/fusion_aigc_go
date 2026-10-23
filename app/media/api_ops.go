@@ -90,6 +90,26 @@ func checkSourceBase(src SourceRef) error {
 	return nil
 }
 
+// checkUserInputNotPublic 用户输入不能被发布到公有桶（素材库、第三方）：来源是 user 类别的 rid（或 user 类别路径的 key），
+// 目标用途落公有桶时拒绝（403 purpose.user_input_not_public）。只依据请求本身判断，不读不写任何对象。
+// 用于把来源原样落桶的写操作（copy、ingest）；隐私默认值，不因调用方指定而放开。
+func checkUserInputNotPublic(src SourceRef, purpose string) error {
+	if st := storeFor(purpose); st != storeAsset && st != storeThirdParty {
+		return nil
+	}
+	class := ""
+	switch {
+	case src.Rid != "":
+		_, class, _ = ParseRID(src.Rid)
+	case src.Key != "":
+		class = classOfPath(src.Key)
+	}
+	if class == classUser {
+		return newAPIError(codeForbiddenPurpose, "purpose.user_input_not_public")
+	}
+	return nil
+}
+
 func checkSeconds(v float64, lo, hi float64, strictLo bool) error {
 	if v > hi || v < lo || (strictLo && v <= lo) {
 		return invalid("request.seconds_range")

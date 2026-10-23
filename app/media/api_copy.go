@@ -33,9 +33,9 @@ func (s *Server) copyResource(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, invalid("request.rid"))
 		return
 	}
-	// 用户输入不能复制到公有桶：复制会让私有素材公开可读（隐私默认值，不因调用方指定而放开）
-	if srcClass == classUser {
-		writeAPIError(w, newAPIError(codeForbiddenPurpose, "purpose.user_input_not_public"))
+	// 用户输入不能复制到公有桶：复制会让私有素材公开可读（与 ingest 共用同一判据）
+	if err := checkUserInputNotPublic(SourceRef{Rid: req.Rid}, req.Purpose); err != nil {
+		writeAPIError(w, err)
 		return
 	}
 	_, srcPath, err := s.objectPath(r.Context(), req.Rid)

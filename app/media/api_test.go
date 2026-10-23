@@ -491,7 +491,7 @@ func TestWatermarkOverlaysLogoWhenConfigured(t *testing.T) {
 	}
 }
 
-// 从系统内 rid 复制到第三方桶：类别变为 deliver，rid 与原对象不同，原用户输入保持不变。
+// 从系统内 rid 复制到第三方桶：中间产物可以，类别变为 deliver、rid 与原对象不同；用户输入的 rid 被拒（403），原用户输入保持不变。
 func TestIngestFromRidCopiesToThirdPartyStore(t *testing.T) {
 	requireFFmpeg(t)
 	f := newAPIFixture(t)
@@ -503,16 +503,24 @@ func TestIngestFromRidCopiesToThirdPartyStore(t *testing.T) {
 		t.Fatalf("用户输入 class = %s, want user", user.Object.Class)
 	}
 
+	// 用户输入的 rid 不能原样发布到公有桶（与 copy 同一判据，见 privacy_public_test.go）
+	assertAPIError(t, postWithKey(t, f.ts.URL, "/v1/mediasvc/ingest", map[string]any{
+		"source": map[string]string{"rid": user.Object.RID}, "purpose": "third_party"}, testToken, "k-copy-user"),
+		http.StatusForbidden, "forbidden_purpose")
+
+	// 中间产物的 rid 可以复制到第三方桶
+	work := decodeMediaResult(t, postWithKey(t, f.ts.URL, "/v1/mediasvc/ingest", map[string]any{
+		"source": f.url("a.mp4"), "purpose": "intermediate"}, testToken, "k-work-src"))
 	out := decodeMediaResult(t, postWithKey(t, f.ts.URL, "/v1/mediasvc/ingest", map[string]any{
-		"source": map[string]string{"rid": user.Object.RID}, "purpose": "third_party"}, testToken, "k-copy"))
+		"source": map[string]string{"rid": work.Object.RID}, "purpose": "third_party"}, testToken, "k-copy"))
 	if out.Object.Class != classDeliver || out.Object.Store != storeThirdParty {
 		t.Fatalf("第三方副本 class=%s store=%s, want deliver/third_party", out.Object.Class, out.Object.Store)
 	}
-	if out.Object.RID == user.Object.RID {
+	if out.Object.RID == work.Object.RID {
 		t.Fatal("副本必须有独立的 rid")
 	}
-	if out.Object.Sha256 != user.Object.Sha256 {
-		t.Fatalf("副本内容 sha256 与原件不一致: %s vs %s", out.Object.Sha256, user.Object.Sha256)
+	if out.Object.Sha256 != work.Object.Sha256 {
+		t.Fatalf("副本内容 sha256 与原件不一致: %s vs %s", out.Object.Sha256, work.Object.Sha256)
 	}
 	// 原用户输入不受影响，仍然不可删
 	resp := postWithKey(t, f.ts.URL, "/v1/mediasvc/delete", map[string]any{"rid": user.Object.RID}, testToken, "k-del-user")

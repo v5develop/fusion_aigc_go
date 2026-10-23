@@ -63,7 +63,8 @@ func (s *Server) ingest(w http.ResponseWriter, r *http.Request) {
 	if !readJSON(w, r, &req) {
 		return
 	}
-	if err := firstErr(checkIngestSource(req.Source), checkPurpose(req.Purpose)); err != nil {
+	if err := firstErr(checkIngestSource(req.Source), checkPurpose(req.Purpose),
+		checkUserInputNotPublic(req.Source, req.Purpose)); err != nil {
 		writeAPIError(w, err)
 		return
 	}
