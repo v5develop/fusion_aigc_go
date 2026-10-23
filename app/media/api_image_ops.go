@@ -14,7 +14,7 @@ import (
 
 // 图像四件套（契约 /v1/mediasvc/image/{watermark,grid,crop,mark}）：把 Java 自研的 Java2D 图像计算迁到媒体服务。
 // 版式与取整逐项对齐 Java 现行实现：
-//   - watermark ← ImageWatermarkService.apply + WatermarkProperties（左上 logo、右下文字）；
+//   - watermark ← ImageWatermarkService.apply + WatermarkProperties（右下角一组：logo 与文字）；
 //   - grid      ← GridImageService.merge（自适应宫格：同行等高、整行居中、白底、最长边限制）；
 //   - crop      ← HitVideoCropHandler（像素整数切块；另给"按行列均分"的便捷写法）；
 //   - mark      ← IdentifyMarkedImage（红色圆 / 矩形 / 折线，JPEG 95）。
@@ -188,7 +188,7 @@ func checkWatermarkReq(req imageWatermarkReq) error {
 	return nil
 }
 
-// imageWatermark 给图片加展示水印：左上角 logo、右下角文字（带 2px 阴影）。输出格式与输入一致（PNG / JPEG）。
+// imageWatermark 给图片加展示水印：右下角一组——logo 贴右下、文字在 logo 左侧（带 2px 阴影）。输出格式与输入一致（PNG / JPEG）。
 func (s *Server) imageWatermark(w http.ResponseWriter, r *http.Request) {
 	if err := checkKey(r.Header.Get(idempotencyHeader)); err != nil {
 		writeAPIError(w, err)
@@ -289,8 +289,9 @@ func (w watermarkSpec) filter() string {
 		b.WriteString("[0:v:0]format=rgba[base]")
 	}
 	if w.hasLogo {
+		// logo 贴右下角（底部与右边都留 margin）；文字排在它左边，见下面 drawtext 的 x
 		lw, lh := w.logoSize()
-		fmt.Fprintf(&b, ";[1:v:0]format=rgba,scale=%d:%d:flags=bilinear[lg];[%s][lg]overlay=%d:%d:format=auto[wl]", lw, lh, cur, w.margin, w.margin)
+		fmt.Fprintf(&b, ";[1:v:0]format=rgba,scale=%d:%d:flags=bilinear[lg];[%s][lg]overlay=x=W-w-%d:y=H-h-%d:format=auto[wl]", lw, lh, cur, w.margin, w.margin)
 		cur = "wl"
 	}
 	if w.textFile != "" {
@@ -300,8 +301,14 @@ func (w watermarkSpec) filter() string {
 		// 文字先画在全透明画布上，再整层 over 到底图：直接在 rgba 底图上 drawtext 会把不透明像素的 alpha 也拉低（实测），
 		// 而 Java 是在不透明画布上 SRC_OVER，结果仍不透明。层内用满不透明的白字，不透明度最后整层乘一次
 		// （在层里写 fontcolor=white@0.85 会被 drawtext 的预乘与 overlay 各乘一遍，变成 0.72）。
+		// 文字右边界：有 logo 时让到 logo 左侧（logo 宽 + 间距 margin）；否则贴右边
+		rightInset := w.margin
+		if w.hasLogo {
+			lw, _ := w.logoSize()
+			rightInset = w.margin + lw + w.margin
+		}
 		fmt.Fprintf(&b, ";color=c=white@0:s=%dx%d,format=rgba,drawtext=textfile=%s:expansion=none:font=%s:fontsize=%d:fontcolor=white:shadowx=%d:shadowy=%d:shadowcolor=black@%.2f:x=max(%d\\,w-text_w-%d):y=max(0\\,h-%d-ascent),colorchannelmixer=aa=%.4f[tl];[%s][tl]overlay=format=auto[wt]",
-			w.width, w.height, filterQuote(w.textFile), filterQuote(wmFont), w.textSize, wmShadowOffset, wmShadowOffset, wmShadowAlpha, w.margin, w.margin, w.margin, op, cur)
+			w.width, w.height, filterQuote(w.textFile), filterQuote(wmFont), w.textSize, wmShadowOffset, wmShadowOffset, wmShadowAlpha, w.margin, rightInset, w.margin, op, cur)
 		cur = "wt"
 	}
 	if w.format == "jpeg" {

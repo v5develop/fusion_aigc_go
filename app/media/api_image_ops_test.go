@@ -105,7 +105,7 @@ func whitePixels(img image.Image, x0, y0, x1, y1 int) int {
 }
 
 // 水印：logo 在左上 (margin, margin)、宽 = 图宽 × 15%；文字在右下角；其余区域不变。
-func TestImageWatermarkLogoTopLeftTextBottomRight(t *testing.T) {
+func TestImageWatermarkLogoAndTextBottomRight(t *testing.T) {
 	requireFFmpeg(t)
 	requireFFmpegFilter(t, "drawtext")
 	f := newAPIFixture(t)
@@ -118,20 +118,21 @@ func TestImageWatermarkLogoTopLeftTextBottomRight(t *testing.T) {
 		t.Fatalf("object = %+v", res.Object)
 	}
 	img := loadStored(t, f, res)
-	// logo：宽 400×15% = 60，高 50×60/100 = 30，左上角 (40,40) → 占 x 40..99, y 40..69
-	requireNear(t, img, 70, 55, cGreen, 6, "logo 中心")
-	requireNear(t, img, 39, 55, cBlue, 6, "logo 左侧")
-	requireNear(t, img, 70, 71, cBlue, 6, "logo 下方")
-	requireNear(t, img, 100, 55, cBlue, 6, "logo 右侧")
-	// 文字：白字落在右下角（右、下各留 40），左下角没有
-	if n := whitePixels(img, 250, 160, 360, 262); n < 30 {
-		t.Fatalf("右下角白色文字像素 = %d, 期望 >= 30", n)
+	// logo：宽 400×15% = 60，高 50×60/100 = 30，贴右下角（右、下各留 40）→ 占 x 300..359, y 230..259
+	requireNear(t, img, 330, 245, cGreen, 6, "logo 中心")
+	requireNear(t, img, 299, 245, cBlue, 6, "logo 左侧")
+	requireNear(t, img, 330, 229, cBlue, 6, "logo 上方")
+	requireNear(t, img, 360, 245, cBlue, 6, "logo 右侧")
+	requireNear(t, img, 40, 40, cBlue, 6, "左上角不再有 logo")
+	// 文字：在 logo 左侧、底部对齐；白字落在 logo 左边一段（右边界 = 400-40-60-40 = 260）
+	if n := whitePixels(img, 150, 200, 265, 265); n < 30 {
+		t.Fatalf("logo 左侧白色文字像素 = %d, 期望 >= 30", n)
 	}
 	if n := whitePixels(img, 0, 150, 200, 300); n != 0 {
 		t.Fatalf("左下角出现了 %d 个白色像素", n)
 	}
 	requireNear(t, img, 5, 5, cBlue, 6, "角落")
-	// 文字落在右、下各留 40 像素之内；整张图保持不透明（Java 在不透明画布上 SRC_OVER）
+	// logo 与文字都在右、下各留 40 像素之内；整张图保持不透明（Java 在不透明画布上 SRC_OVER）
 	if n := whitePixels(img, 361, 0, 400, 300) + whitePixels(img, 150, 266, 400, 300); n != 0 {
 		t.Fatalf("文字越过了 40 像素边距：%d 个白色像素", n)
 	}

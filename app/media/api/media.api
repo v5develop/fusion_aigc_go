@@ -132,7 +132,7 @@ type (
 		Format         string `json:"format,options=png|jpeg"`
 		Purpose        string `json:"purpose,options=user_input|intermediate|asset_library|third_party"`
 	}
-	// ImageWatermarkReq 展示水印：左上角 logo、右下角文字（版式同 Java ImageWatermarkService）。logo 与 text 至少一个。
+	// ImageWatermarkReq 展示水印：右下角一组（logo 贴右下、文字在其左侧，版式同 Java ImageWatermarkService）。logo 与 text 至少一个。
 	ImageWatermarkReq {
 		IdempotencyKey     string  `header:"Idempotency-Key"`
 		Source             Source  `json:"source"`
@@ -337,7 +337,7 @@ service media {
 	@handler ImageResize
 	post /image/resize (ImageResizeReq) returns (MediaResult)
 
-	@doc "图片展示水印：左上角 logo、右下角文字（带阴影），版式同 Java ImageWatermarkService；仅 PNG/JPEG，输出格式同输入"
+	@doc "图片展示水印：右下角一组（logo 贴右下、文字在其左侧，带阴影），版式同 Java ImageWatermarkService；仅 PNG/JPEG，输出格式同输入"
 	@handler ImageWatermark
 	post /image/watermark (ImageWatermarkReq) returns (MediaResult)
 

@@ -154,7 +154,7 @@ Content-Type: <可选，仅作提示>
 | POST | `/v1/mediasvc/watermark` | 右下角叠加 logo | `MediaResult` |
 | POST | `/v1/mediasvc/video/trim` | 截到前 `seconds` 秒（重编码，切点精确） | `MediaResult` |
 | POST | `/v1/mediasvc/image/resize` | 图片精确尺寸缩放：输出严格为 `width×height`，不保比例。`format` 为 `png` 或 `jpeg`。PNG 仅在源图有 alpha 小于 255 的像素时保留透明通道，否则写 RGB；JPEG 先铺白底。`width`、`height` 各 1..16384，总像素不超过服务端 `MaxSourcePixels`（超过是 `422 source_rejected`，`check=image.target_pixels_exceeded`）。源必须是 PNG/JPEG/WebP，否则 `422`（`check=image.not_image`）；解码失败也是 `422`。必须带 `Idempotency-Key` | `MediaResult` |
-| POST | `/v1/mediasvc/image/watermark` | 图片展示水印：左上角 logo、右下角文字，版式同 Java `ImageWatermarkService`（见下"图像四件套"） | `MediaResult` |
+| POST | `/v1/mediasvc/image/watermark` | 图片展示水印：右下角一组（logo 贴右下、文字在其左侧），版式同 Java `ImageWatermarkService`（见下"图像四件套"） | `MediaResult` |
 | POST | `/v1/mediasvc/image/grid` | 1..9 张图合成自适应宫格图（PNG） | `MediaResult` |
 | POST | `/v1/mediasvc/image/crop` | 按像素矩形或行列均分裁出多张 PNG | `ImageCropResp` |
 | POST | `/v1/mediasvc/image/mark` | 在图上画红色标记（圆环 / 实心点 / 矩形 / 折线） | `MediaResult` |
