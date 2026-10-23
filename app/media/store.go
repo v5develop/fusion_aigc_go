@@ -82,16 +82,23 @@ type ObjectStore interface {
 	PublicURL(ctx context.Context, store, path string) (StoredURL, error)
 	// Delete 物理删除对象（只由清理任务在宽限期过后调用）。不存在返回 false, nil；用户输入与历史路径返回 errUserInputProtected。
 	Delete(ctx context.Context, store, path string) (bool, error)
+	// DeleteRetentionExpired 物理删除保留期到期的用户输入（只由清理任务在宽限期过后、且标记原因为 retention 时调用）。
+	// 只收 user 类别的日期路径，其它类别与历史路径返回 errUserInputProtected。不存在返回 false, nil。
+	DeleteRetentionExpired(ctx context.Context, store, path string) (bool, error)
 	// CreatePending 为 path 登记待删除标记（软删除，设计文档 §8.5）。标记是同桶的独立状态对象 pending-delete/<path>。
-	// 已有标记时不覆盖：返回已有的到期时间与 false；新建成功返回 deleteAfter 与 true。
-	CreatePending(ctx context.Context, store, path string, deleteAfter time.Time) (time.Time, bool, error)
+	// reason 记在标记上：保留期删除写 pendingReasonRetention，通用删除写 pendingReasonManual（空，不落原因）。
+	// 已有标记时不覆盖（原因也不改）：返回已有的到期时间与 false；新建成功返回 deleteAfter 与 true。
+	CreatePending(ctx context.Context, store, path string, deleteAfter time.Time, reason string) (time.Time, bool, error)
 	// PendingDeadline 返回 path 的待删除到期时间；没有标记返回 false。
 	PendingDeadline(ctx context.Context, store, path string) (time.Time, bool, error)
+	// PendingMarker 返回 path 的待删除标记（到期时间与原因）；没有标记返回 false。清理物理删除前的复核用它。
+	PendingMarker(ctx context.Context, store, path string) (PendingMark, bool, error)
 	// ClearPending 撤销待删除标记。标记不存在也返回成功。
 	ClearPending(ctx context.Context, store, path string) error
 	// ListPending 按键的字典序列出 store 里的待删除标记：返回 marker 之后的至多 limit 条。
+	// class 非空时只列该类别的标记（键前缀 pending-delete/v1/<class>/），为空列全部。
 	// next 非空表示后面还有，下次以 next 作为 marker 继续；为空表示已列完。
-	ListPending(ctx context.Context, store, marker string, limit int) (marks []PendingMark, next string, err error)
+	ListPending(ctx context.Context, store, class, marker string, limit int) (marks []PendingMark, next string, err error)
 }
 
 // pendingPrefix 待删除标记的键前缀。与数据对象的 v1/ 前缀不重叠。
@@ -100,12 +107,19 @@ const pendingPrefix = "pending-delete/"
 // errPendingCorrupt 待删除标记的时间戳格式损坏。列举时单条跳过（记日志），不影响同页其它标记。
 var errPendingCorrupt = errors.New("media: 待删除标记损坏")
 
-// PendingMark 一条待删除标记。Key 是标记在桶里的完整键，用作列举的 marker。
+// 待删除标记的原因。只有 retention 能让清理任务物理删除 user 类别的对象；其它原因（含空）一律不删用户输入。
+const (
+	pendingReasonManual    = ""
+	pendingReasonRetention = "retention"
+)
+
+// PendingMark 一条待删除标记。Key 是标记在桶里的完整键，用作列举的 marker。Reason 为空表示通用删除（manual）。
 type PendingMark struct {
 	Store       string
 	Path        string
 	Key         string
 	DeleteAfter time.Time
+	Reason      string
 }
 
 // LocalStore 写到本地目录的实现，仅用于开发。目录结构：<dir>/<store>/<path>。
@@ -273,6 +287,19 @@ func (l *LocalStore) Delete(_ context.Context, store, path string) (bool, error)
 	if !deletable(path) {
 		return false, errUserInputProtected
 	}
+	return l.remove(store, path)
+}
+
+// DeleteRetentionExpired 删除保留期到期的用户输入；只收 user 类别。
+func (l *LocalStore) DeleteRetentionExpired(_ context.Context, store, path string) (bool, error) {
+	if classOfPath(path) != classUser {
+		return false, errUserInputProtected
+	}
+	return l.remove(store, path)
+}
+
+// remove 物理删除本地对象；调用方已做类别校验。
+func (l *LocalStore) remove(store, path string) (bool, error) {
 	target, err := l.full(store, path)
 	if err != nil {
 		return false, err
@@ -379,7 +406,8 @@ func extOf(mime string) string {
 	return ""
 }
 
-// pendingFile 本地待删除标记的文件：<dir>/<store>/pending-delete/<path>，内容是到期时间（RFC3339）。
+// pendingFile 本地待删除标记的文件：<dir>/<store>/pending-delete/<path>。
+// 内容第一行是到期时间（RFC3339）；有原因时第二行是 reason=<原因>。只有一行的旧标记视为没有原因（manual）。
 func (l *LocalStore) pendingFile(store, path string) (string, error) {
 	if !validStore(store) || classOfPath(path) == "" {
 		return "", errInvalidObjectKey
@@ -388,7 +416,7 @@ func (l *LocalStore) pendingFile(store, path string) (string, error) {
 }
 
 // CreatePending 新建标记；文件已存在（O_EXCL）时读回已有的到期时间，不覆盖。
-func (l *LocalStore) CreatePending(ctx context.Context, store, path string, deleteAfter time.Time) (time.Time, bool, error) {
+func (l *LocalStore) CreatePending(ctx context.Context, store, path string, deleteAfter time.Time, reason string) (time.Time, bool, error) {
 	target, err := l.pendingFile(store, path)
 	if err != nil {
 		return time.Time{}, false, err
@@ -411,7 +439,11 @@ func (l *LocalStore) CreatePending(ctx context.Context, store, path string, dele
 	if err != nil {
 		return time.Time{}, false, err
 	}
-	_, werr := f.WriteString(at.Format(time.RFC3339))
+	content := at.Format(time.RFC3339)
+	if reason != pendingReasonManual {
+		content += "\n" + localReasonPrefix + reason
+	}
+	_, werr := f.WriteString(content)
 	cerr := f.Close()
 	if werr != nil {
 		return time.Time{}, false, werr
@@ -419,24 +451,42 @@ func (l *LocalStore) CreatePending(ctx context.Context, store, path string, dele
 	return at, true, cerr
 }
 
+// localReasonPrefix 本地标记文件里原因行的前缀。
+const localReasonPrefix = "reason="
+
 // PendingDeadline 读取本地待删除标记的到期时间。
-func (l *LocalStore) PendingDeadline(_ context.Context, store, path string) (time.Time, bool, error) {
+func (l *LocalStore) PendingDeadline(ctx context.Context, store, path string) (time.Time, bool, error) {
+	m, ok, err := l.PendingMarker(ctx, store, path)
+	return m.DeleteAfter, ok, err
+}
+
+// PendingMarker 读取本地待删除标记：第一行到期时间，可选的第二行 reason=<原因>。
+func (l *LocalStore) PendingMarker(_ context.Context, store, path string) (PendingMark, bool, error) {
 	target, err := l.pendingFile(store, path)
 	if err != nil {
-		return time.Time{}, false, err
+		return PendingMark{}, false, err
 	}
 	raw, err := os.ReadFile(target)
 	if errors.Is(err, fs.ErrNotExist) {
-		return time.Time{}, false, nil
+		return PendingMark{}, false, nil
 	}
 	if err != nil {
-		return time.Time{}, false, err
+		return PendingMark{}, false, err
 	}
-	at, err := time.Parse(time.RFC3339, strings.TrimSpace(string(raw)))
+	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
+	at, err := time.Parse(time.RFC3339, strings.TrimSpace(lines[0]))
 	if err != nil {
-		return time.Time{}, false, fmt.Errorf("%w: %v", errPendingCorrupt, err)
+		return PendingMark{}, false, fmt.Errorf("%w: %v", errPendingCorrupt, err)
 	}
-	return at, true, nil
+	reason := pendingReasonManual
+	if len(lines) > 1 {
+		line := strings.TrimSpace(lines[1])
+		if !strings.HasPrefix(line, localReasonPrefix) {
+			return PendingMark{}, false, fmt.Errorf("%w: 原因行格式错误", errPendingCorrupt)
+		}
+		reason = strings.TrimPrefix(line, localReasonPrefix)
+	}
+	return PendingMark{Store: store, Path: path, Key: pendingPrefix + path, DeleteAfter: at, Reason: reason}, true, nil
 }
 
 // ClearPending 删除本地待删除标记；不存在也成功。
@@ -451,8 +501,16 @@ func (l *LocalStore) ClearPending(_ context.Context, store, path string) error {
 	return nil
 }
 
+// pendingListPrefix 列举待删除标记的键前缀：class 为空时是全部标记，否则只取该类别的日期路径。
+func pendingListPrefix(class string) string {
+	if class == "" {
+		return pendingPrefix
+	}
+	return pendingPrefix + "v1/" + class + "/"
+}
+
 // ListPending 本地列举：遍历 <dir>/<store>/pending-delete，按键排序后分页。
-func (l *LocalStore) ListPending(ctx context.Context, store, marker string, limit int) ([]PendingMark, string, error) {
+func (l *LocalStore) ListPending(ctx context.Context, store, class, marker string, limit int) ([]PendingMark, string, error) {
 	if !validStore(store) {
 		return nil, "", errInvalidObjectKey
 	}
@@ -479,16 +537,17 @@ func (l *LocalStore) ListPending(ctx context.Context, store, marker string, limi
 		return nil, "", err
 	}
 	sort.Strings(keys)
+	prefix := pendingListPrefix(class)
 	var marks []PendingMark
 	for _, k := range keys {
-		if k <= marker {
+		if k <= marker || !strings.HasPrefix(k, prefix) {
 			continue
 		}
 		if len(marks) == limit {
 			return marks, marks[len(marks)-1].Key, nil
 		}
 		path := strings.TrimPrefix(k, pendingPrefix)
-		at, ok, err := l.PendingDeadline(ctx, store, path)
+		m, ok, err := l.PendingMarker(ctx, store, path)
 		if errors.Is(err, errPendingCorrupt) {
 			log.Printf("media: 跳过损坏的待删除标记 store=%s path=%s: %v", store, path, err)
 			continue
@@ -499,7 +558,8 @@ func (l *LocalStore) ListPending(ctx context.Context, store, marker string, limi
 		if !ok {
 			continue
 		}
-		marks = append(marks, PendingMark{Store: store, Path: path, Key: k, DeleteAfter: at})
+		m.Key = k
+		marks = append(marks, m)
 	}
 	return marks, "", nil
 }

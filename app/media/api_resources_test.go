@@ -17,6 +17,7 @@ import (
 type fakeResourceStore struct {
 	objects map[string]int64 // store|path -> size
 	pending map[string]time.Time
+	reasons map[string]string // store|path -> 标记原因
 	indexes map[string][]byte // 索引对象键 -> 内容
 }
 
@@ -33,25 +34,35 @@ func (f *fakeResourceStore) putIndexed(store, class, key string, size int64) {
 	f.objects[store+"|"+path] = size
 }
 
-func (f *fakeResourceStore) CreatePending(_ context.Context, store, path string, at time.Time) (time.Time, bool, error) {
+func (f *fakeResourceStore) CreatePending(_ context.Context, store, path string, at time.Time, reason string) (time.Time, bool, error) {
 	if f.pending == nil {
 		f.pending = map[string]time.Time{}
+		f.reasons = map[string]string{}
 	}
 	if old, ok := f.pending[store+"|"+path]; ok {
 		return old, false, nil
 	}
 	f.pending[store+"|"+path] = at
+	f.reasons[store+"|"+path] = reason
 	return at, true, nil
 }
 func (f *fakeResourceStore) PendingDeadline(_ context.Context, store, path string) (time.Time, bool, error) {
 	at, ok := f.pending[store+"|"+path]
 	return at, ok, nil
 }
+func (f *fakeResourceStore) PendingMarker(_ context.Context, store, path string) (PendingMark, bool, error) {
+	at, ok := f.pending[store+"|"+path]
+	if !ok {
+		return PendingMark{}, false, nil
+	}
+	return PendingMark{Store: store, Path: path, Key: pendingPrefix + path, DeleteAfter: at, Reason: f.reasons[store+"|"+path]}, true, nil
+}
 func (f *fakeResourceStore) ClearPending(_ context.Context, store, path string) error {
 	delete(f.pending, store+"|"+path)
+	delete(f.reasons, store+"|"+path)
 	return nil
 }
-func (f *fakeResourceStore) ListPending(context.Context, string, string, int) ([]PendingMark, string, error) {
+func (f *fakeResourceStore) ListPending(context.Context, string, string, string, int) ([]PendingMark, string, error) {
 	return nil, "", nil
 }
 
@@ -70,7 +81,10 @@ func (f *fakeResourceStore) URL(context.Context, StoredObject) (StoredURL, error
 	return StoredURL{Kind: "none"}, nil
 }
 func (f *fakeResourceStore) Delete(context.Context, string, string) (bool, error) { return false, nil }
-func (f *fakeResourceStore) DeleteIndex(context.Context, string) error            { return nil }
+func (f *fakeResourceStore) DeleteRetentionExpired(context.Context, string, string) (bool, error) {
+	return false, nil
+}
+func (f *fakeResourceStore) DeleteIndex(context.Context, string) error { return nil }
 func (f *fakeResourceStore) ListIndexes(context.Context, string, int) ([]IndexEntry, string, error) {
 	return nil, "", nil
 }

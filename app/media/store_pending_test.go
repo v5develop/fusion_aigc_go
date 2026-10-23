@@ -28,7 +28,7 @@ func TestLocalCorruptPendingMarkerDoesNotBlockSweep(t *testing.T) {
 		if _, err := st.Put(ctx, storePrivate, p, writeFixture(t, "data"), "video/mp4"); err != nil {
 			t.Fatal(err)
 		}
-		if _, _, err := st.CreatePending(ctx, storePrivate, p, t0); err != nil {
+		if _, _, err := st.CreatePending(ctx, storePrivate, p, t0, pendingReasonManual); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -43,7 +43,7 @@ func TestLocalCorruptPendingMarkerDoesNotBlockSweep(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	marks, _, err := st.ListPending(ctx, storePrivate, "", 10)
+	marks, _, err := st.ListPending(ctx, storePrivate, "", "", 10)
 	if err != nil {
 		t.Fatalf("损坏标记不应让列举失败: %v", err)
 	}
@@ -74,7 +74,7 @@ func TestOSSCorruptPendingMarkerDoesNotBlockSweep(t *testing.T) {
 		if _, err := st.Put(ctx, storePrivate, p, writeFixture(t, "data"), "video/mp4"); err != nil {
 			t.Fatal(err)
 		}
-		if _, _, err := st.CreatePending(ctx, storePrivate, p, t0); err != nil {
+		if _, _, err := st.CreatePending(ctx, storePrivate, p, t0, pendingReasonManual); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -85,7 +85,7 @@ func TestOSSCorruptPendingMarkerDoesNotBlockSweep(t *testing.T) {
 	fake.meta[badKey] = "not-a-timestamp"
 	fake.mu.Unlock()
 
-	marks, _, err := st.ListPending(ctx, storePrivate, "", 10)
+	marks, _, err := st.ListPending(ctx, storePrivate, "", "", 10)
 	if err != nil {
 		t.Fatalf("损坏标记不应让列举失败: %v", err)
 	}

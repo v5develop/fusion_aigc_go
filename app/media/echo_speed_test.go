@@ -56,7 +56,7 @@ func TestReingestOnFreshIndexClearsStaleMarker(t *testing.T) {
 		t.Fatal(err)
 	}
 	// 清理任务的前两步（删对象、删索引）完成，标记仍在且已过期
-	if _, _, err := srv.objects.CreatePending(ctx, store, path, time.Now().Add(-time.Hour)); err != nil {
+	if _, _, err := srv.objects.CreatePending(ctx, store, path, time.Now().Add(-time.Hour), pendingReasonManual); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := srv.objects.Delete(ctx, store, path); err != nil {

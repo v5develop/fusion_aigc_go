@@ -2,7 +2,7 @@
 
 媒体服务统一负责视频和音频的读取与加工：下载来源、完整解码校验、探测、截剪、规整、抽帧、封面、水印、合成、变速、删除中间产物，以及按用途落桶。**调用方只发指令，不碰字节。** 契约以 `app/media/api/media.api`（go-zero .api）为准，本文档是它的说明。
 
-当前状态：落桶已接入 OSS（`app/media/store_oss.go`），未启用 OSS 时退回本地目录，只用于开发。对象按 **rid** 定位：rid 形如 `<所属实例 6 位>-<类别>-<26 位编码>`（例如 `tst001-work-…`），桶内路径为 `v1/<类别>/<yyyy>/<mm>/<对象键>[.<后缀>]`（日期取首次写入时间，后缀由内容类型决定；直传目标的后缀由声明的 `mime` 决定），rid → 路径由私有桶索引对象 `idx/<对象键>.json` 给出。对象键由 rid 经 HMAC 派生，不含业务域、用户、任务信息。类别为 `user`、`work`、`deliver`、`asset`，与存储的对应见下文「资源寻址（rid）」。通用删除只允许 `work`、`deliver`、`asset`，`user` 类别（用户输入）与历史 `sha256/` 路径一律拒绝（403 `forbidden_purpose`）；用户输入只能经保留期删除接口 `resources/retention/delete` 软删除（见「用户输入保留期删除」）。
+当前状态：落桶已接入 OSS（`app/media/store_oss.go`），未启用 OSS 时退回本地目录，只用于开发。对象按 **rid** 定位：rid 形如 `<所属实例 6 位>-<类别>-<26 位编码>`（例如 `tst001-work-…`），桶内路径为 `v1/<类别>/<yyyy>/<mm>/<对象键>[.<后缀>]`（日期取首次写入时间，后缀由内容类型决定；直传目标的后缀由声明的 `mime` 决定），rid → 路径由私有桶索引对象 `idx/<对象键>.json` 给出。对象键由 rid 经 HMAC 派生，不含业务域、用户、任务信息。类别为 `user`、`work`、`deliver`、`asset`，与存储的对应见下文「资源寻址（rid）」。通用删除只允许 `work`、`deliver`、`asset`，`user` 类别（用户输入）与历史 `sha256/` 路径一律拒绝（403 `forbidden_purpose`）；用户输入只能经保留期删除接口 `resources/retention/delete` 软删除，宽限期过后由清理任务物理删除（见「用户输入保留期删除」）。
 
 新增的音频与字幕接口已落地（`audio/timeline`、`video/replace-audio`、`video/burn-subtitles`），与既有接口一样走 `Idempotency-Key`。
 
@@ -131,7 +131,7 @@ Content-Type: <可选，仅作提示>
 - **写（产出）**：所有写操作在 `object` 里返回 `rid`、`class`、`key`（`key` 仅内部与运维使用）。rid 由类别与幂等键派生：`rid = <所属实例 6 位> - <类别> - HMAC(密钥, "rid|"+类别+"|"+幂等键) 的 26 位编码`。同一幂等键的重试得到同一 rid 与同一对象。所属实例由服务端按幂等键在注册中心的存活实例 ID 集合上做 rendezvous 哈希选出（见「实例发现与注册」）。没有幂等键的操作（如抽帧）以内容 sha256 代替幂等键。
 - **读（输入）**：`source` 传 `{"rid": …}`，类别与存储由 rid 推导，不传 class。
 - **地址（读侧现签）**：`POST /v1/mediasvc/resources/urls`，请求体 `{"rid", "store", "mode", "ttl_seconds", "process"}`。`process` 可选，为 OSS 命名样式（named style），只允许 `mode=signed`：其它模式返回 `400 request.process_mode`；字符超出 `[A-Za-z0-9_./-]` 返回 `400 request.process_style`。传入时地址带 `x-oss-process=<样式>`，且样式进入签名（OSS 把 `x-oss-process` 当子资源签名）；不传或为空时地址与原来一致。本地开发存储忽略样式。`class` 可以省略；如果传了，必须与 rid 一致，否则 `400 class_mismatch`。`store` 必须与类别配对：`asset` → `asset_library`；`user`、`work` → `private`；`deliver` → `private` 或 `third_party`。地址每次现签，调用方不保存。
-- **删除（软删除）**：`{"rid": …}` 或 `{"object": {…}}`。只登记待删除标记，字节保留到宽限期（默认 7 天）过后由清理任务物理删除。宽限期内可用 `resources/restore` 撤销。`user` 类别与历史 `sha256/` 路径返回 `403 forbidden_purpose`，此接口永不删除它们（用户输入的保留期删除走 `resources/retention/delete`）。
+- **删除（软删除）**：`{"rid": …}` 或 `{"object": {…}}`。只登记待删除标记，字节保留到宽限期（默认 7 天）过后由清理任务物理删除。宽限期内可用 `resources/restore` 撤销。`user` 类别与历史 `sha256/` 路径返回 `403 forbidden_purpose`，此接口不删除它们（用户输入的保留期删除走 `resources/retention/delete`）。
 - **待删除对象的读取**：处于待删除状态的对象，`source`（rid 或 key）输入、`resources/urls` 签发一律返回 `410 resource_deleted`（永久失败，不可重试；撤销后才可用）。未标记的对象照常。
 - **类别与存储**：`user`、`work` → 私有桶；`deliver` → 私有或第三方桶；`asset` → 素材库桶。
 
@@ -240,7 +240,7 @@ Content-Type: <可选，仅作提示>
 
 - 具体桶名、对象键前缀由服务端配置决定，调用方不感知。
 - 用途对应的类别：`user_input` → `user`，`intermediate` → `work`，`asset_library` → `asset`，`third_party` → `deliver`。
-- **用户输入默认不删**：`delete` 对 `user` 类别（`user_input` 产生的对象）一律拒绝（`403 forbidden_purpose`）。唯一例外是调用方显式发起的保留期删除（`resources/retention/delete`，见下）；不调用它，用户输入永久保留。
+- **用户输入默认不删**：`delete` 对 `user` 类别（`user_input` 产生的对象）一律拒绝（`403 forbidden_purpose`）。唯一例外是调用方显式发起的保留期删除（`resources/retention/delete`，见下）：只有经它到期的用户输入会在宽限期过后被物理删除；不调用它，用户输入永久保留。
 
 ### 用户输入保留期删除
 
@@ -254,7 +254,9 @@ Content-Type: <可选，仅作提示>
 - **行为**：与 `delete` 共用同一个软删除实现：登记待删除标记，宽限期（配置项 `DeleteGraceMinutes`，默认 10080 分钟即 7 天）内字节保留，可用 `resources/restore` 撤销；待删除期间读取（`source` 输入、`resources/urls`）返回 `410 resource_deleted`。已有标记时幂等，沿用原到期时间；对象不存在返回 `absent`。
 - **响应**：`DeleteResp`，与 `delete` 相同：`{"deleted": true, "state": "pending_delete", "delete_after": "<RFC3339>"}`；对象不存在时 `{"deleted": false, "state": "absent"}`。同一 `Idempotency-Key` + 同一请求体回放首次结果（`Idempotent-Replayed: true`），不再登记；同键异体 `400 request.idempotency_key_reused`。
 - **审计**：每次执行（含 `absent`）打一行 `media retention delete trace_id=… check=retention.delete rid=… state=… delete_after=…`，不记对象内容与地址。
-- **宽限期之后（当前限制）**：清理任务（`sweep.go`）与存储层 `Delete` 仍只物理删除 `work`、`deliver`、`asset`；对 `user` 类别的到期标记计为失败、不删字节。因此用户输入在宽限期后保持不可读（`410`，`restore` 返回 `409 grace_expired`），但字节仍在桶里，直到清理任务支持保留期标记为止。
+- **标记原因**：本接口写的待删除标记带原因 `retention`（本地存储：标记文件第二行 `reason=retention`；OSS：标记对象的元数据 `x-oss-meta-delete-reason: retention`）。通用 `delete` 写的标记不带原因（视为 manual）。已有标记时不覆盖，原因也不改。
+- **宽限期之后**：清理任务（`sweep.go`）对 `user` 类别只物理删除原因为 `retention` 的标记：宽限期已过，且物理删除前复读标记确认它仍在、仍已到期、原因仍是 `retention`，然后删对象（存储层专用入口 `DeleteRetentionExpired`，只收 `user` 类别）、删索引、清标记。宽限期内、或列举后被 `restore`/重新入库清掉的标记一律跳过。
+- **仍然拒绝的情况**：通用 `delete` 对 `user` 类别返回 `403`；不带 `retention` 原因的 `user` 标记（手工写入或其它路径写入）到期后不删，计为失败并打日志 `check=sweep.user_marker_not_retention count=…`；存储层 `Delete` 仍拒绝 `user` 类别与历史路径。
 - 每个 store 对应一个桶配置（`OSS.Private`、`OSS.AssetLibrary`、`OSS.ThirdParty`）。`asset_library` 与 `third_party` 可以配成同一个桶，之后分开时只改配置，代码不动。
 - 调用方（如 imagegen 的封面）直接用媒体服务返回的地址，不下载、不再转存：存桶只发生在媒体服务里。
 
@@ -318,7 +320,7 @@ Content-Type: <可选，仅作提示>
 
 **删除响应**（`DeleteResp`）：`{"deleted": bool, "state": "pending_delete" | "absent", "delete_after": "<RFC3339>"}`。`state=pending_delete` 表示已进入待删除，`delete_after` 为物理删除的最早时间；对象不存在时 `state=absent`、`deleted=false`，不登记标记。`deleted=true` 表示对象已不可再读（待删除或已删除）。**注意**：旧版本的 `deleted=true` 表示"已物理删除"，现在改为"已进入待删除"，调用方如需物理删除时间以 `delete_after` 为准。
 
-**配置**（`app/media/config.go`）：`DeleteGraceMinutes`（默认 10080，即 7 天）、`SweepIntervalMinutes`（默认 60）。清理任务在每个实例内周期执行，只删宽限期已过的待删除对象，清理是幂等的，多实例并跑无害。
+**配置**（`app/media/config.go`）：`DeleteGraceMinutes`（默认 10080，即 7 天）、`SweepIntervalMinutes`（默认 60）。清理任务在每个实例内周期执行，只删宽限期已过的待删除对象，清理是幂等的，多实例并跑无害。待删除标记按类别分前缀列举，单轮预算分开计：`work`、`deliver`、`asset` 合用 5000 条（`sweepMaxPerRun`），`user` 类别单独 1000 条（`sweepMaxUserPerRun`），超出的留给下一轮；用户输入标记的积压不会挤占其它类别的清理。
 
 ## 语义约定
 

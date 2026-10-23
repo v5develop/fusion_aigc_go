@@ -23,7 +23,7 @@ func TestRewriteClearsPendingDeleteMark(t *testing.T) {
 	if _, err := st.Put(ctx, storePrivate, path, src, "video/mp4"); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := st.CreatePending(ctx, storePrivate, path, time.Now().Add(time.Hour)); err != nil {
+	if _, _, err := st.CreatePending(ctx, storePrivate, path, time.Now().Add(time.Hour), pendingReasonManual); err != nil {
 		t.Fatal(err)
 	}
 	if err := st.ClearPending(ctx, storePrivate, path); err != nil {

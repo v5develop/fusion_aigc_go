@@ -269,6 +269,19 @@ func (o *OSSStore) Delete(ctx context.Context, store, path string) (bool, error)
 	if !deletable(path) {
 		return false, errUserInputProtected
 	}
+	return o.remove(ctx, store, path)
+}
+
+// DeleteRetentionExpired 删除保留期到期的用户输入；只收 user 类别。
+func (o *OSSStore) DeleteRetentionExpired(ctx context.Context, store, path string) (bool, error) {
+	if classOfPath(path) != classUser {
+		return false, errUserInputProtected
+	}
+	return o.remove(ctx, store, path)
+}
+
+// remove 物理删除 OSS 对象；调用方已做类别校验。
+func (o *OSSStore) remove(ctx context.Context, store, path string) (bool, error) {
 	b, err := o.bucket(store)
 	if err != nil {
 		return false, err
@@ -503,6 +516,9 @@ func (o *OSSStore) SignedPutURL(_ context.Context, store, path string, ttl time.
 // ossDeleteAfterHeader 待删除标记的到期时间（对象元数据，RFC3339）。
 const ossDeleteAfterHeader = "x-oss-meta-delete-after"
 
+// ossDeleteReasonHeader 待删除标记的原因（对象元数据）。保留期删除写 retention；通用删除不写。
+const ossDeleteReasonHeader = "x-oss-meta-delete-reason"
+
 // signedReq 发起一次总是签名的请求，用于待删除标记与列举。与 do 不同：不看桶的读权限，写与读都签。
 // headers 的键必须是小写的 x-oss-* 头，会一并进入签名（OSS 的 CanonicalizedOSSHeaders）。
 // key 为空表示桶根（列举）。查询参数不进签名（OSS 只签子资源，prefix/marker 不是子资源）。
@@ -545,7 +561,7 @@ func pendingKey(path string) (string, error) {
 }
 
 // CreatePending 用 x-oss-forbid-overwrite 创建标记：已存在时 OSS 返回 409，读回已有的到期时间，不覆盖。
-func (o *OSSStore) CreatePending(ctx context.Context, store, path string, deleteAfter time.Time) (time.Time, bool, error) {
+func (o *OSSStore) CreatePending(ctx context.Context, store, path string, deleteAfter time.Time, reason string) (time.Time, bool, error) {
 	b, err := o.bucket(store)
 	if err != nil {
 		return time.Time{}, false, err
@@ -555,10 +571,14 @@ func (o *OSSStore) CreatePending(ctx context.Context, store, path string, delete
 		return time.Time{}, false, err
 	}
 	at := deleteAfter.UTC().Truncate(time.Second)
-	resp, err := o.signedReq(ctx, http.MethodPut, b, key, "", map[string]string{
+	headers := map[string]string{
 		"x-oss-forbid-overwrite": "true",
 		ossDeleteAfterHeader:     at.Format(time.RFC3339),
-	})
+	}
+	if reason != pendingReasonManual {
+		headers[ossDeleteReasonHeader] = reason
+	}
+	resp, err := o.signedReq(ctx, http.MethodPut, b, key, "", headers)
 	if err != nil {
 		return time.Time{}, false, err
 	}
@@ -583,30 +603,37 @@ func (o *OSSStore) CreatePending(ctx context.Context, store, path string, delete
 
 // PendingDeadline 读取标记的到期时间（HEAD 元数据）。
 func (o *OSSStore) PendingDeadline(ctx context.Context, store, path string) (time.Time, bool, error) {
+	m, ok, err := o.PendingMarker(ctx, store, path)
+	return m.DeleteAfter, ok, err
+}
+
+// PendingMarker 读取标记的到期时间与原因（HEAD 元数据 x-oss-meta-delete-after / x-oss-meta-delete-reason）。
+func (o *OSSStore) PendingMarker(ctx context.Context, store, path string) (PendingMark, bool, error) {
 	b, err := o.bucket(store)
 	if err != nil {
-		return time.Time{}, false, err
+		return PendingMark{}, false, err
 	}
 	key, err := pendingKey(path)
 	if err != nil {
-		return time.Time{}, false, err
+		return PendingMark{}, false, err
 	}
 	resp, err := o.signedReq(ctx, http.MethodHead, b, key, "", nil)
 	if err != nil {
-		return time.Time{}, false, err
+		return PendingMark{}, false, err
 	}
 	defer resp.Body.Close()
 	switch resp.StatusCode {
 	case http.StatusOK:
 		at, err := time.Parse(time.RFC3339, resp.Header.Get(ossDeleteAfterHeader))
 		if err != nil {
-			return time.Time{}, false, fmt.Errorf("%w: %v", errPendingCorrupt, err)
+			return PendingMark{}, false, fmt.Errorf("%w: %v", errPendingCorrupt, err)
 		}
-		return at, true, nil
+		return PendingMark{Store: store, Path: path, Key: key, DeleteAfter: at,
+			Reason: resp.Header.Get(ossDeleteReasonHeader)}, true, nil
 	case http.StatusNotFound:
-		return time.Time{}, false, nil
+		return PendingMark{}, false, nil
 	default:
-		return time.Time{}, false, fmt.Errorf("media: OSS 查询待删除标记返回 %d", resp.StatusCode)
+		return PendingMark{}, false, fmt.Errorf("media: OSS 查询待删除标记返回 %d", resp.StatusCode)
 	}
 }
 
@@ -644,13 +671,13 @@ type ossListResult struct {
 
 // ListPending 按 prefix=pending-delete/ 列举标记；到期时间逐条 HEAD 取（列举不返回元数据）。
 // 列举与 HEAD 之间被撤销的标记直接跳过。
-func (o *OSSStore) ListPending(ctx context.Context, store, marker string, limit int) ([]PendingMark, string, error) {
+func (o *OSSStore) ListPending(ctx context.Context, store, class, marker string, limit int) ([]PendingMark, string, error) {
 	b, err := o.bucket(store)
 	if err != nil {
 		return nil, "", err
 	}
 	q := url.Values{}
-	q.Set("prefix", pendingPrefix)
+	q.Set("prefix", pendingListPrefix(class))
 	q.Set("max-keys", strconv.Itoa(limit))
 	if marker != "" {
 		q.Set("marker", marker)
@@ -674,7 +701,7 @@ func (o *OSSStore) ListPending(ctx context.Context, store, marker string, limit 
 		if classOfPath(path) == "" {
 			continue
 		}
-		at, ok, err := o.PendingDeadline(ctx, store, path)
+		m, ok, err := o.PendingMarker(ctx, store, path)
 		if errors.Is(err, errPendingCorrupt) {
 			log.Printf("media: 跳过损坏的待删除标记 store=%s path=%s: %v", store, path, err)
 			continue
@@ -685,7 +712,8 @@ func (o *OSSStore) ListPending(ctx context.Context, store, marker string, limit 
 		if !ok {
 			continue
 		}
-		marks = append(marks, PendingMark{Store: store, Path: path, Key: c.Key, DeleteAfter: at})
+		m.Key = c.Key
+		marks = append(marks, m)
 	}
 	next := ""
 	if lr.IsTruncated && len(lr.Contents) > 0 {

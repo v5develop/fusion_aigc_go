@@ -22,9 +22,9 @@ type pendingCountingStore struct {
 	clears  atomic.Int32
 }
 
-func (c *pendingCountingStore) CreatePending(ctx context.Context, store, path string, at time.Time) (time.Time, bool, error) {
+func (c *pendingCountingStore) CreatePending(ctx context.Context, store, path string, at time.Time, reason string) (time.Time, bool, error) {
 	c.creates.Add(1)
-	return c.countingStore.CreatePending(ctx, store, path, at)
+	return c.countingStore.CreatePending(ctx, store, path, at, reason)
 }
 
 func (c *pendingCountingStore) ClearPending(ctx context.Context, store, path string) error {

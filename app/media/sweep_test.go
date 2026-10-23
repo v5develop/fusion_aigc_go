@@ -181,7 +181,7 @@ func TestSoftDeleteProtectsUserInputAndLegacyPaths(t *testing.T) {
 
 	// 手工登记标记（绕过 delete）：清理必须拦住，不删用户输入
 	ctx := context.Background()
-	if _, _, err := f.srv.objects.CreatePending(ctx, storePrivate, userPath, f.clk.t.Add(-time.Hour)); err != nil {
+	if _, _, err := f.srv.objects.CreatePending(ctx, storePrivate, userPath, f.clk.t.Add(-time.Hour), pendingReasonManual); err != nil {
 		t.Fatal(err)
 	}
 	rep, err := f.srv.sweepOnce(ctx)
@@ -228,16 +228,16 @@ func TestOSSPendingStateAndSweep(t *testing.T) {
 		t.Fatal(err)
 	}
 	t0 := time.Date(2030, 1, 8, 0, 0, 0, 0, time.UTC)
-	at, created, err := st.CreatePending(ctx, storePrivate, ossWorkPath, t0)
+	at, created, err := st.CreatePending(ctx, storePrivate, ossWorkPath, t0, pendingReasonManual)
 	if err != nil || !created || !at.Equal(t0) {
 		t.Fatalf("CreatePending = %v, %v, %v", at, created, err)
 	}
 	// 再登记一次：不覆盖，返回已有的到期时间
-	at, created, err = st.CreatePending(ctx, storePrivate, ossWorkPath, t0.Add(time.Hour))
+	at, created, err = st.CreatePending(ctx, storePrivate, ossWorkPath, t0.Add(time.Hour), pendingReasonManual)
 	if err != nil || created || !at.Equal(t0) {
 		t.Fatalf("重复 CreatePending = %v, %v, %v，want 原到期时间且 created=false", at, created, err)
 	}
-	marks, next, err := st.ListPending(ctx, storePrivate, "", 10)
+	marks, next, err := st.ListPending(ctx, storePrivate, "", "", 10)
 	if err != nil || next != "" || len(marks) != 1 || marks[0].Path != ossWorkPath || !marks[0].DeleteAfter.Equal(t0) {
 		t.Fatalf("ListPending = %+v next=%q err=%v", marks, next, err)
 	}
@@ -274,14 +274,14 @@ func TestLocalPendingListPaginates(t *testing.T) {
 	}
 	at := time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)
 	for _, p := range paths {
-		if _, _, err := st.CreatePending(ctx, storePrivate, p, at); err != nil {
+		if _, _, err := st.CreatePending(ctx, storePrivate, p, at, pendingReasonManual); err != nil {
 			t.Fatal(err)
 		}
 	}
 	var got []string
 	marker := ""
 	for {
-		marks, next, err := st.ListPending(ctx, storePrivate, marker, 2)
+		marks, next, err := st.ListPending(ctx, storePrivate, "", marker, 2)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -305,7 +305,7 @@ func TestLocalPendingListPaginates(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(st.dir, storePrivate, "pending-delete")); err != nil {
 		t.Fatalf("pending-delete 目录应仍在（只是空）: %v", err)
 	}
-	if marks, _, err := st.ListPending(ctx, storePrivate, "", 10); err != nil || len(marks) != 0 {
+	if marks, _, err := st.ListPending(ctx, storePrivate, "", "", 10); err != nil || len(marks) != 0 {
 		t.Fatalf("清空后列举 = %v, %v", marks, err)
 	}
 }
@@ -315,8 +315,8 @@ type clearAfterListStore struct {
 	ObjectStore
 }
 
-func (c *clearAfterListStore) ListPending(ctx context.Context, store, marker string, limit int) ([]PendingMark, string, error) {
-	marks, next, err := c.ObjectStore.ListPending(ctx, store, marker, limit)
+func (c *clearAfterListStore) ListPending(ctx context.Context, store, class, marker string, limit int) ([]PendingMark, string, error) {
+	marks, next, err := c.ObjectStore.ListPending(ctx, store, class, marker, limit)
 	for _, m := range marks {
 		if err := c.ObjectStore.ClearPending(ctx, m.Store, m.Path); err != nil {
 			return nil, "", err

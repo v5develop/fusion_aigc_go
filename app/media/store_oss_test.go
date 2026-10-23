@@ -22,6 +22,7 @@ type fakeOSS struct {
 	objs   map[string][]byte
 	signed map[string]bool
 	meta   map[string]string // 对象元数据 x-oss-meta-delete-after
+	reason map[string]string // 对象元数据 x-oss-meta-delete-reason
 }
 
 func (f *fakeOSS) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -48,6 +49,9 @@ func (f *fakeOSS) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if m := r.Header.Get("x-oss-meta-delete-after"); m != "" {
 			f.meta[k] = m
 		}
+		if m := r.Header.Get("x-oss-meta-delete-reason"); m != "" {
+			f.reason[k] = m
+		}
 		w.WriteHeader(http.StatusOK)
 	case http.MethodGet:
 		f.signed[k] = r.Header.Get("Authorization") != ""
@@ -65,6 +69,9 @@ func (f *fakeOSS) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if m, ok := f.meta[k]; ok {
 			w.Header().Set("X-Oss-Meta-Delete-After", m)
 		}
+		if m, ok := f.reason[k]; ok {
+			w.Header().Set("X-Oss-Meta-Delete-Reason", m)
+		}
 		w.WriteHeader(http.StatusOK)
 	case http.MethodDelete:
 		if _, ok := f.objs[k]; !ok {
@@ -73,6 +80,7 @@ func (f *fakeOSS) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		delete(f.objs, k)
 		delete(f.meta, k)
+		delete(f.reason, k)
 		w.WriteHeader(http.StatusNoContent)
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -122,7 +130,7 @@ func (rt rewriteTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 
 func newTestOSS(t *testing.T) (*OSSStore, *fakeOSS) {
 	t.Helper()
-	fake := &fakeOSS{objs: map[string][]byte{}, signed: map[string]bool{}, meta: map[string]string{}}
+	fake := &fakeOSS{objs: map[string][]byte{}, signed: map[string]bool{}, meta: map[string]string{}, reason: map[string]string{}}
 	srv := httptest.NewServer(fake)
 	t.Cleanup(srv.Close)
 	st, err := NewOSSStore(OSSConfig{

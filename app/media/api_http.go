@@ -426,14 +426,15 @@ type softDeleteResult struct {
 }
 
 // softDelete 软删除（设计文档 §8.5）：只登记待删除标记，不删字节。宽限期过后由清理任务物理删除。
-// 用户输入与历史路径永不删（403）。对象不存在返回 absent。已有标记时幂等，沿用原到期时间。
+// 通用删除拒绝用户输入与历史路径（403）。对象不存在返回 absent。已有标记时幂等，沿用原到期时间。
 func (s *Server) softDelete(ctx context.Context, store, path string) (softDeleteResult, error) {
-	return s.softDeleteIf(ctx, store, path, deletable)
+	return s.softDeleteIf(ctx, store, path, deletable, pendingReasonManual)
 }
 
 // softDeleteIf 软删除的唯一实现：allowed 决定哪些路径可以登记待删除，其余返回 errUserInputProtected。
-// 通用删除用 deletable（不含 user）；只有保留期删除（retentionDelete）放行 user 类别。
-func (s *Server) softDeleteIf(ctx context.Context, store, path string, allowed func(string) bool) (softDeleteResult, error) {
+// 通用删除用 deletable（不含 user）、原因 manual；只有保留期删除（retentionDelete）放行 user 类别，原因 retention。
+// 原因记在标记上：清理任务只对原因为 retention 的 user 类别标记做物理删除。
+func (s *Server) softDeleteIf(ctx context.Context, store, path string, allowed func(string) bool, reason string) (softDeleteResult, error) {
 	if !allowed(path) {
 		return softDeleteResult{}, errUserInputProtected
 	}
@@ -445,7 +446,7 @@ func (s *Server) softDeleteIf(ctx context.Context, store, path string, allowed f
 		return softDeleteResult{}, err
 	}
 	deadline := s.now().Add(s.grace).Truncate(time.Second)
-	at, _, err := s.objects.CreatePending(ctx, store, path, deadline)
+	at, _, err := s.objects.CreatePending(ctx, store, path, deadline, reason)
 	if err != nil {
 		return softDeleteResult{}, err
 	}
@@ -457,7 +458,8 @@ func retentionDeletable(path string) bool { return classOfPath(path) == classUse
 
 // retentionDelete 用户输入的保留期删除（POST /resources/retention/delete）。是否删、保留多少天由调用方（Java）决定，
 // 这里只提供门禁：rid 必须是 user 类别（否则 403 purpose.not_user_class），且只做与 delete 相同的软删除
-// （待删除标记、宽限期内可 restore、期间读取 410）。通用 delete 对 user 类别的拒绝不变。
+// （待删除标记、宽限期内可 restore、期间读取 410），标记原因记为 retention，宽限期过后清理任务物理删除。
+// 通用 delete 对 user 类别的拒绝不变。
 func (s *Server) retentionDelete(w http.ResponseWriter, r *http.Request) {
 	if err := checkKey(r.Header.Get(idempotencyHeader)); err != nil {
 		writeAPIError(w, err)
@@ -485,7 +487,7 @@ func (s *Server) retentionDelete(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, err)
 		return
 	default:
-		res, err := s.softDeleteIf(ctx, store, path, retentionDeletable)
+		res, err := s.softDeleteIf(ctx, store, path, retentionDeletable, pendingReasonRetention)
 		if err != nil {
 			writeAPIError(w, err)
 			return

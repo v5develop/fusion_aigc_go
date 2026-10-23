@@ -189,7 +189,7 @@ POST /v1/mediasvc/resources/urls
 
 | 位置 | 写 | 读 | 删 |
 |---|---|---|---|
-| 私有 `user/` | 用户直传（预签名）、`register` | 服务端签名 | 永不删（除非用户注销，走单独流程） |
+| 私有 `user/` | 用户直传（预签名）、`register` | 服务端签名 | 通用删除拒绝；只有经保留期删除（`resources/retention/delete`）到期的对象在宽限期过后物理删除（用户注销走单独流程） |
 | 私有 `work/` | 媒体服务 | 服务端签名 | 标签到期 |
 | 私有 `deliver/` | 媒体服务（按 signed 策略写入） | 按需签名 URL | 按服务商有效期 |
 | 公有 `asset/` | 媒体服务（素材库产物） | CDN 公开 | Java 决定，同步 CDN 刷新 |

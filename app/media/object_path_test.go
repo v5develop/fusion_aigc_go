@@ -131,7 +131,7 @@ func TestSweepRemovesIndexWithTheObject(t *testing.T) {
 	if _, err := st.Put(ctx, storePrivate, path, writeFixture(t, "sweep me"), "image/png"); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := st.CreatePending(ctx, storePrivate, path, t0.Add(-time.Minute)); err != nil {
+	if _, _, err := st.CreatePending(ctx, storePrivate, path, t0.Add(-time.Minute), pendingReasonManual); err != nil {
 		t.Fatal(err)
 	}
 
