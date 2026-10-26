@@ -7,12 +7,18 @@
 # 里面的 Token、Listen 由环境变量注入（go-zero 会展开 ${VAR}）；水印 logo 用挂载提供。
 ARG GO_VERSION=1.27.3
 
-FROM golang:${GO_VERSION}-bookworm AS build
+# 编译阶段跑在构建机本机架构，用 GOOS/GOARCH 交叉编译到目标平台（CGO_ENABLED=0）；运行时阶段仍是目标平台。
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-bookworm AS build
+ARG TARGETOS TARGETARCH
 WORKDIR /src
 COPY go.mod go.sum ./
-RUN go mod download
-COPY . .
-RUN CGO_ENABLED=0 go build -trimpath -ldflags '-s -w' -o /out/media ./app/media/cmd
+# 模块与编译缓存用 BuildKit 缓存挂载，跨次构建保留（缓存不进镜像层）
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
+# 只拷编译需要的源码
+COPY app/ app/
+COPY pkg/ pkg/
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS="$TARGETOS" GOARCH="$TARGETARCH" go build -trimpath -ldflags '-s -w' -o /out/media ./app/media/cmd
 
 FROM debian:bookworm-slim
 # ffmpeg 包内自带 ffprobe；curl 给健康检查用

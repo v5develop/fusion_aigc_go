@@ -6,13 +6,22 @@
 # 构建上下文是仓库根目录。配置不打进镜像：由 prepare 服务在启动时生成到挂载的 etc/。
 ARG GO_VERSION=1.26
 
-FROM golang:${GO_VERSION}-bookworm AS build
+# 编译阶段跑在构建机本机架构（Apple Silicon 上不走 QEMU 模拟），用 GOOS/GOARCH 交叉编译到目标平台；
+# 全部 CGO_ENABLED=0，交叉编译出的二进制与在目标架构上编译的一致。运行时阶段仍是目标平台。
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-bookworm AS build
+ARG TARGETOS TARGETARCH
 WORKDIR /src
 COPY go.mod go.sum ./
-RUN go mod download
-COPY . .
+# 模块与编译缓存用 BuildKit 缓存挂载，跨次构建保留（缓存不进镜像层）
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
+# 只拷编译需要的源码：deploy/ 等改动不会让编译层失效
+COPY app/ app/
+COPY pkg/ pkg/
+COPY tools/ tools/
 ARG INCLUDE_MOCKS=0
-RUN set -eux; mkdir -p /out; \
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    set -eux; mkdir -p /out; \
+    export GOOS="$TARGETOS" GOARCH="$TARGETARCH"; \
     for s in copywriting/rpc digitalhuman/rpc note/rpc imagegen/rpc gateway/api admin/api; do \
       n=$(echo "$s" | sed 's#/rpc#-rpc#; s#/api#-api#'); \
       CGO_ENABLED=0 go build -tags timetzdata -trimpath -ldflags '-s -w' -o "/out/$n" "./app/$s"; \
