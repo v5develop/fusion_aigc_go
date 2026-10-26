@@ -69,6 +69,12 @@ const queueWaitCap = 120 * time.Second
 // ioSlotFactor 输入名额数 = ioSlotFactor × MaxConcurrent。
 const ioSlotFactor = 4
 
+// 名额排队等待的阶段名（与 probe、place_object 等同为下划线风格）。
+const (
+	stageQueueCompute = "queue_compute"
+	stageQueueIO      = "queue_io"
+)
+
 // queueWait 排队上限 = min(OpTimeoutSeconds, 120s)；OpTimeoutSeconds 未配置时取 120s。
 func (s *Service) queueWait() time.Duration {
 	if s.cfg.OpTimeoutSeconds > 0 {
@@ -81,7 +87,11 @@ func (s *Service) queueWait() time.Duration {
 
 // takeSlot 占 ch 里的一个名额。满了就排队，但不超过 queueWait，也不超过 ctx 的截止时间。
 // 等不到返回 unavailable（503 transient，带 Retry-After），调用方可用同一键重试。
-func (s *Service) takeSlot(ctx context.Context, ch chan struct{}) (func(), error) {
+// 排队等待时长记成 stage 阶段（日志 + 响应 timings）：只记等到名额或超时为止，不含拿到名额后的执行；
+// 每次等待各记一条，超时也记。
+func (s *Service) takeSlot(ctx context.Context, ch chan struct{}, stage string) (func(), error) {
+	waitStart := time.Now()
+	defer logStage(ctx, stage, waitStart)
 	timer := time.NewTimer(s.queueWait())
 	defer timer.Stop()
 	select {
@@ -96,7 +106,7 @@ func (s *Service) takeSlot(ctx context.Context, ch chan struct{}) (func(), error
 
 // acquire 占一个计算名额。
 func (s *Service) acquire(ctx context.Context) (func(), error) {
-	return s.takeSlot(ctx, s.slots)
+	return s.takeSlot(ctx, s.slots, stageQueueCompute)
 }
 
 // compute 在计算名额内执行 fn。只用于叶子操作（单次 ffmpeg / ffprobe / 图像进程），叶子之间不嵌套，
@@ -112,7 +122,7 @@ func (s *Service) compute(ctx context.Context, fn func() error) error {
 
 // withIO 在输入名额内执行 fn（下载、读取请求体、读取对象存储）。与计算名额互不占用。
 func (s *Service) withIO(ctx context.Context, fn func() error) error {
-	release, err := s.takeSlot(ctx, s.ioSlots)
+	release, err := s.takeSlot(ctx, s.ioSlots, stageQueueIO)
 	if err != nil {
 		return err
 	}
