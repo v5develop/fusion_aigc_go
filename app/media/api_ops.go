@@ -383,7 +383,8 @@ func targetSize(w, h int, r RuleSpec) (int, int, error) {
 	if w <= 0 || h <= 0 {
 		return 0, 0, fmt.Errorf("video dimensions must be positive")
 	}
-	if r.MinSide == 0 && r.MaxSide == 0 && r.MinPixels == 0 && r.MaxPixels == 0 {
+	if r.MinSide == 0 && r.MaxSide == 0 && r.MinPixels == 0 && r.MaxPixels == 0 &&
+		r.MaxShortSide == 0 && r.MaxLongSide == 0 {
 		return w, h, nil
 	}
 	minSide := 2.0
@@ -413,12 +414,19 @@ func targetSize(w, h int, r RuleSpec) (int, int, error) {
 	if r.MaxPixels > 0 {
 		maxScale = math.Min(maxScale, math.Sqrt(float64(r.MaxPixels)/pixels))
 	}
+	if r.MaxShortSide > 0 {
+		maxScale = math.Min(maxScale, float64(r.MaxShortSide)/float64(min(w, h)))
+	}
+	if r.MaxLongSide > 0 {
+		maxScale = math.Min(maxScale, float64(r.MaxLongSide)/float64(max(w, h)))
+	}
 	scale := math.Min(math.Max(1.0, minScale), maxScale)
 	tw := evenAtLeast2(float64(w) * scale)
 	th := evenAtLeast2(float64(h) * scale)
 
 	for range 10_000 {
-		tooBig := (r.MaxPixels > 0 && float64(tw*th) > float64(r.MaxPixels)) || float64(tw) > maxSide || float64(th) > maxSide
+		tooBig := (r.MaxPixels > 0 && float64(tw*th) > float64(r.MaxPixels)) || float64(tw) > maxSide || float64(th) > maxSide ||
+			(r.MaxShortSide > 0 && min(tw, th) > r.MaxShortSide) || (r.MaxLongSide > 0 && max(tw, th) > r.MaxLongSide)
 		tooSmall := (r.MinPixels > 0 && float64(tw*th) < float64(r.MinPixels)) || float64(tw) < minSide || float64(th) < minSide
 		switch {
 		case tooBig:
@@ -467,15 +475,38 @@ func (s *Server) conformVideo(ctx context.Context, dir, in string, req conformRe
 	needAudio := req.Rule.StripAudio && p.HasAudio
 	needFps := req.Rule.TargetFps > 0 && (p.FPS == 0 || math.Abs(p.FPS-float64(req.Rule.TargetFps)) > fpsTolerance)
 	needScale := tw != p.Width || th != p.Height
-	if !needAudio && !needFps && !needScale && !needTrim {
+	// SDR 输出：HDR 片源做 tone mapping 到 bt709 SDR；色彩未知拒收（不能证明是 SDR）；已知 SDR 的片源输出时显式标注 bt709
+	needRetag := false
+	hdr := false
+	if req.Rule.Sdr {
+		switch strings.ToLower(strings.TrimSpace(p.ColorTransfer)) {
+		case "smpte2084", "arib-std-b67":
+			// HDR 片源：tone mapping 到 bt709 SDR（zscale + tonemap，镜像内 ffmpeg 自带）
+			hdr = true
+		case "bt709", "iec61966-2-1", "smpte170m", "bt470bg":
+			needRetag = !strings.EqualFold(p.ColorTransfer, "bt709") || !strings.EqualFold(p.ColorPrimaries, "bt709")
+		default:
+			return "", newAPIError(codeSourceRejected, "media.conform_colour_unknown")
+		}
+	}
+	if !needAudio && !needFps && !needScale && !needTrim && !needRetag && !hdr {
 		return in, nil
 	}
 
 	out := workFile(dir, "conform.mp4")
 	args := []string{"-hide_banner", "-loglevel", "error", "-y",
 		"-threads", strconv.Itoa(max(1, s.svc.cfg.FFmpegThreads)), "-i", in}
+	var filters []string
 	if needScale {
-		args = append(args, "-vf", fmt.Sprintf("scale=%d:%d", tw, th))
+		filters = append(filters, fmt.Sprintf("scale=%d:%d", tw, th))
+	}
+	if hdr {
+		// 线性光下做 tone mapping，再转回 bt709 与 8 位 SDR（标准 zscale 链路）
+		filters = append(filters, "zscale=t=linear:npl=100", "format=gbrpf32le", "zscale=p=bt709",
+			"tonemap=tonemap=hable:desat=0", "zscale=t=bt709:m=bt709:r=tv", "format=yuv420p")
+	}
+	if len(filters) > 0 {
+		args = append(args, "-vf", strings.Join(filters, ","))
 	}
 	if needFps {
 		args = append(args, "-r", strconv.Itoa(req.Rule.TargetFps))
@@ -488,7 +519,11 @@ func (s *Server) conformVideo(ctx context.Context, dir, in string, req conformRe
 	if needTrim {
 		args = append(args, "-t", strconv.FormatFloat(req.Seconds, 'f', -1, 64))
 	}
-	args = append(args, "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart", out)
+	args = append(args, "-c:v", "libx264", "-pix_fmt", "yuv420p")
+	if req.Rule.Sdr {
+		args = append(args, "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709")
+	}
+	args = append(args, "-movflags", "+faststart", out)
 	if err := s.svc.run(ctx, s.svc.ffmpeg(), args...); err != nil {
 		return "", ffmpegFailure(ctx, err, "media.conform_transcode")
 	}

@@ -23,6 +23,11 @@ type RuleSpec struct {
 	MaxPixels  int64   `json:"max_pixels"`
 	MinRatio   float64 `json:"min_ratio"`
 	MaxRatio   float64 `json:"max_ratio"`
+	// 短边 / 长边上限（像素）：同时约束两个方向，用于"短边 ≤ A 且长边 ≤ B"这类规则。0 即不限。
+	MaxShortSide int `json:"max_short_side"`
+	MaxLongSide  int `json:"max_long_side"`
+	// 输出为 SDR：HDR 片源拒收（本服务不做 tone mapping）；SDR 片源输出时显式标注 bt709 色彩。
+	Sdr bool `json:"sdr"`
 }
 
 // ObjectRef 落桶后的对象引用。
