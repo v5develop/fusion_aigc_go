@@ -523,6 +523,32 @@ wait_ok() { # wait_ok 名称 URL 请求头
   return 1
 }
 
+# check_nginx_routes：后台接口必须真的经 nginx 转到 Go，而不是落到 Java 的 /api/v1/ 规则上。
+# 站点配置是手工合并进宝塔的，模板改了不等于线上生效，所以这里从本机经 nginx 探一次。
+# 判据：Java 的统一信封带 requestId，Go 的信封没有。命中就说明后台路由没生效。
+# 只告警不拦截：第一次安装时站点可能还没合并，不该因此让整个安装失败。
+check_nginx_routes() {
+  local path="/api/v1/local-life/admin/copywriting?page=1&page_size=1" body="" code=""
+  if [[ -z ${PUBLIC_DOMAIN:-} ]]; then yellow "  ! PUBLIC_DOMAIN 未设，跳过 nginx 路由检查"; return 0; fi
+  body=$(curl -sk -m 5 --resolve "$PUBLIC_DOMAIN:443:127.0.0.1" -w '\n%{http_code}' "https://$PUBLIC_DOMAIN$path" 2>/dev/null || true)
+  code=$(printf '%s' "$body" | tail -n1)
+  if [[ -z $code || $code == 000 ]]; then
+    body=$(curl -s -m 5 -H "Host: $PUBLIC_DOMAIN" -w '\n%{http_code}' "http://127.0.0.1$path" 2>/dev/null || true)
+    code=$(printf '%s' "$body" | tail -n1)
+  fi
+  body=$(printf '%s' "$body" | sed '$d')
+  case "$code" in
+    ""|000|5*) yellow "  ! 无法经 nginx 验证后台路由（HTTP ${code:-无响应}），请手动确认 $path"; return 0 ;;
+    3*) yellow "  ! 站点把请求跳转了（HTTP $code），无法在 HTTP 上验证后台路由，请在 HTTPS 上手动确认"; return 0 ;;
+  esac
+  if [[ $body == *'"requestId"'* ]]; then
+    red "  ✗ 后台路由未生效：$path 被转到了 Java（响应带 requestId）"
+    echo "    把 $INSTALL_DIR/nginx/aigc-local-life.conf 里的 location ^~ /api/v1/local-life/admin 合并进线上站点配置，然后 nginx -t && nginx -s reload"
+    return 0
+  fi
+  green "  ✓ 后台路由生效（$path 由 Go 应答，HTTP $code）"
+}
+
 self_check() {
   local ok=0
   wait_check "App 网关（文案选项）" "http://127.0.0.1:$GATEWAY_PORT/api/v1/local-life/copywriting/options" "X-User-Id: 1" || ok=1
@@ -531,6 +557,7 @@ self_check() {
   wait_check "App 网关 → 数字人服务" "http://127.0.0.1:$GATEWAY_PORT/api/v1/local-life/voices/categories" "X-User-Id: 1" || ok=1
   wait_check "OSS 直传凭证（STS）" "http://127.0.0.1:$GATEWAY_PORT/api/v1/local-life/upload/credentials?kind=image" "X-User-Id: 1" || ok=1
   wait_check "运营后台" "http://127.0.0.1:$ADMIN_PORT/api/v1/local-life/admin/copywriting/model" "X-Admin-Id: 1" || ok=1
+  check_nginx_routes
   if [[ $ok != 0 ]]; then
     red "有检查没通过，看日志：bash install.sh logs <服务名>（日志目录 $INSTALL_DIR/logs）"
     return 1
