@@ -199,6 +199,7 @@ func (s *Server) probeMeta(ctx context.Context, path string) (MediaMeta, error) 
 	return MediaMeta{
 		Mime: mime, Size: size, DurationS: p.DurationSeconds, Width: p.Width, Height: p.Height,
 		Fps: p.FPS, HasAudio: p.HasAudio,
+		PixFmt: p.PixFmt, ColorSpace: p.ColorSpace, ColorTransfer: p.ColorTransfer, ColorPrimaries: p.ColorPrimaries,
 	}, nil
 }
 

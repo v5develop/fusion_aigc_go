@@ -64,6 +64,11 @@ type MediaMeta struct {
 	Height    int     `json:"height"`
 	Fps       float64 `json:"fps"`
 	HasAudio  bool    `json:"has_audio"`
+	// 视频色彩信息（追加字段，缺失时不出键）：下游判定 SDR / HDR 用
+	PixFmt         string `json:"pix_fmt,omitempty"`
+	ColorSpace     string `json:"color_space,omitempty"`
+	ColorTransfer  string `json:"color_transfer,omitempty"`
+	ColorPrimaries string `json:"color_primaries,omitempty"`
 }
 
 // FrameItem 一帧：时间点与落桶后的 JPEG 对象。

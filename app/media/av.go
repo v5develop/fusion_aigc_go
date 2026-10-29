@@ -24,6 +24,11 @@ type ProbeResult struct {
 	HasAudio        bool    `json:"has_audio"`
 	SampleRate      int     `json:"sample_rate"`
 	Channels        int     `json:"channels"`
+	// 视频流的色彩信息（ffprobe 原值，缺失为空串）：判定 SDR / HDR 用
+	PixFmt         string `json:"pix_fmt,omitempty"`
+	ColorSpace     string `json:"color_space,omitempty"`
+	ColorTransfer  string `json:"color_transfer,omitempty"`
+	ColorPrimaries string `json:"color_primaries,omitempty"`
 }
 
 // Frame 一张抽帧：时间点（秒）与 JPEG 字节。
@@ -44,14 +49,18 @@ func (s *Service) Probe(ctx context.Context, file string) (ProbeResult, error) {
 
 // probeStream ffprobe 输出的单条流（只取用到的字段）。
 type probeStream struct {
-	CodecType    string         `json:"codec_type"`
-	Width        int            `json:"width"`
-	Height       int            `json:"height"`
-	AvgFrameRate string         `json:"avg_frame_rate"`
-	SampleRate   string         `json:"sample_rate"`
-	Channels     int            `json:"channels"`
-	Tags         map[string]any `json:"tags"`
-	SideData     []struct {
+	CodecType      string         `json:"codec_type"`
+	Width          int            `json:"width"`
+	Height         int            `json:"height"`
+	AvgFrameRate   string         `json:"avg_frame_rate"`
+	PixFmt         string         `json:"pix_fmt"`
+	ColorSpace     string         `json:"color_space"`
+	ColorTransfer  string         `json:"color_transfer"`
+	ColorPrimaries string         `json:"color_primaries"`
+	SampleRate     string         `json:"sample_rate"`
+	Channels       int            `json:"channels"`
+	Tags           map[string]any `json:"tags"`
+	SideData       []struct {
 		Type     string   `json:"side_data_type"`
 		Rotation *float64 `json:"rotation"`
 	} `json:"side_data_list"`
@@ -105,6 +114,8 @@ func parseProbe(raw []byte) (ProbeResult, error) {
 					res.Width, res.Height = st.Height, st.Width
 				}
 				res.FPS = parseFPS(st.AvgFrameRate)
+				res.PixFmt, res.ColorSpace = st.PixFmt, st.ColorSpace
+				res.ColorTransfer, res.ColorPrimaries = st.ColorTransfer, st.ColorPrimaries
 			}
 		case "audio":
 			if !res.HasAudio {

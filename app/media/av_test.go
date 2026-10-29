@@ -253,3 +253,30 @@ func TestTrimCutsToRequestedSeconds(t *testing.T) {
 		t.Fatalf("截剪后时长 = %v，期望约 2", durationOf(t, out))
 	}
 }
+
+// 视频流的色彩信息原样带出（SDR / HDR 判定由调用方做）。
+func TestParseProbeCarriesColorInfo(t *testing.T) {
+	raw := []byte(`{"format":{"duration":"3.5"},"streams":[
+		{"codec_type":"video","width":1920,"height":1080,"avg_frame_rate":"30/1",
+		 "pix_fmt":"yuv420p10le","color_space":"bt2020nc","color_transfer":"smpte2084","color_primaries":"bt2020"}]}`)
+	p, err := parseProbe(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.PixFmt != "yuv420p10le" || p.ColorTransfer != "smpte2084" || p.ColorSpace != "bt2020nc" ||
+		p.ColorPrimaries != "bt2020" {
+		t.Fatalf("color = %+v", p)
+	}
+}
+
+// 没有色彩字段的旧容器：字段为空串，不影响既有读取。
+func TestParseProbeWithoutColorFieldsLeavesThemEmpty(t *testing.T) {
+	raw := []byte(`{"format":{"duration":"1"},"streams":[{"codec_type":"video","width":640,"height":360}]}`)
+	p, err := parseProbe(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.ColorTransfer != "" || p.PixFmt != "" || p.Width != 640 {
+		t.Fatalf("probe = %+v", p)
+	}
+}
