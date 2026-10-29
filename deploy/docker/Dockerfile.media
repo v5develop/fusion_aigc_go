@@ -20,7 +20,8 @@ COPY pkg/ pkg/
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS="$TARGETOS" GOARCH="$TARGETARCH" go build -trimpath -ldflags '-s -w' -o /out/media ./app/media/cmd
 
-FROM debian:bookworm-slim
+FROM debian:trixie-slim
+# 运行时基础镜像 debian trixie（ffmpeg 7.1.5，自带 zscale / tonemap，用于 HDR 转 SDR）。
 # ffmpeg 包内自带 ffprobe；curl 给健康检查用
 # fonts-noto-cjk：烧录字幕用的中文字体（字幕样式默认 Noto Sans CJK SC）
 RUN apt-get update \
