@@ -475,7 +475,8 @@ func (s *Server) conformVideo(ctx context.Context, dir, in string, req conformRe
 	needAudio := req.Rule.StripAudio && p.HasAudio
 	needFps := req.Rule.TargetFps > 0 && (p.FPS == 0 || math.Abs(p.FPS-float64(req.Rule.TargetFps)) > fpsTolerance)
 	needScale := tw != p.Width || th != p.Height
-	// SDR 输出：HDR 片源做 tone mapping 到 bt709 SDR；色彩未知拒收（不能证明是 SDR）；已知 SDR 的片源输出时显式标注 bt709
+	// SDR 输出：HDR 片源做 tone mapping 到 bt709 SDR；已知 SDR 与色彩未知的片源都按 SDR 处理，
+	// 输出时显式标注 bt709（未知色彩没有 HDR 证据，不拒收）
 	needRetag := false
 	hdr := false
 	if req.Rule.Sdr {
@@ -486,7 +487,8 @@ func (s *Server) conformVideo(ctx context.Context, dir, in string, req conformRe
 		case "bt709", "iec61966-2-1", "smpte170m", "bt470bg":
 			needRetag = !strings.EqualFold(p.ColorTransfer, "bt709") || !strings.EqualFold(p.ColorPrimaries, "bt709")
 		default:
-			return "", newAPIError(codeSourceRejected, "media.conform_colour_unknown")
+			// 色彩未知：按 SDR 处理，强制重打标为 bt709
+			needRetag = true
 		}
 	}
 	if !needAudio && !needFps && !needScale && !needTrim && !needRetag && !hdr {

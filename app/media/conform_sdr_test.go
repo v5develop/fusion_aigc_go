@@ -1,7 +1,6 @@
 package media
 
 import (
-	"net/http"
 	"os/exec"
 	"path/filepath"
 	"testing"
@@ -41,17 +40,17 @@ func TestConformSdrToneMapsHdrSource(t *testing.T) {
 	}
 }
 
-// 色彩未知：SDR 规整拒收（不能证明是 SDR）。
-func TestConformSdrRejectsUntaggedSource(t *testing.T) {
+// 色彩未知（无色彩标记）的片源：按 SDR 处理，规整通过，输出满足尺寸上限。
+func TestConformSdrAcceptsUntaggedAsSdr(t *testing.T) {
 	requireFFmpeg(t)
 	f := newAPIFixture(t)
 	makeAVClip(t, filepath.Join(f.dir, "plain.mp4"))
 
-	resp := postWithKey(t, f.ts.URL, "/v1/mediasvc/video/conform", map[string]any{
-		"source": f.url("plain.mp4"), "rule": map[string]any{"sdr": true}, "purpose": "intermediate"}, testToken, "k-plain")
-	body := assertAPIError(t, resp, http.StatusUnprocessableEntity, codeSourceRejected)
-	if body.Error.Check != "media.conform_colour_unknown" {
-		t.Fatalf("check = %s", body.Error.Check)
+	res := decodeMediaResult(t, postWithKey(t, f.ts.URL, "/v1/mediasvc/video/conform", map[string]any{
+		"source": f.url("plain.mp4"), "rule": map[string]any{"sdr": true, "max_short_side": 360, "max_long_side": 640},
+		"purpose": "intermediate"}, testToken, "k-plain"))
+	if res.Object.Width > 640 || res.Object.Height > 360 || res.Object.Width < res.Object.Height {
+		t.Fatalf("size = %dx%d", res.Object.Width, res.Object.Height)
 	}
 }
 
