@@ -141,6 +141,17 @@ func cleanHTTPURL(u string) bool {
 	return true
 }
 
+// normalizePrefix 白名单条目允许只写域名（或域名+路径），缺协议时按 https 处理：
+// "cdn.example.com" = "https://cdn.example.com"，"assets.example.com/lib" = "https://assets.example.com/lib"。
+// 已带 "://" 的条目原样保留（协议仍须与图片地址一致）。
+func normalizePrefix(p string) string {
+	p = strings.TrimSpace(p)
+	if p == "" || strings.Contains(p, "://") {
+		return p
+	}
+	return "https://" + p
+}
+
 // matchPrefixes u 命中任一前缀：scheme + host 完全相等，路径以前缀路径（补尾 /）开头。
 // 不能用字符串 HasPrefix：前缀没带尾部 / 时 https://cdn.example.com 会放过 https://cdn.example.com.evil.io。
 func matchPrefixes(prefixes []string, u string) bool {
@@ -149,7 +160,7 @@ func matchPrefixes(prefixes []string, u string) bool {
 	}
 	pu, _ := url.Parse(u)
 	for _, p := range prefixes {
-		p = strings.TrimSpace(p)
+		p = normalizePrefix(p)
 		if p == "" {
 			continue
 		}
