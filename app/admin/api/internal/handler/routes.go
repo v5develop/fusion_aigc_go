@@ -6,19 +6,44 @@ package handler
 import (
 	"net/http"
 
+	assetlib "aigc-local-life/app/admin/api/internal/handler/assetlib"
 	auth "aigc-local-life/app/admin/api/internal/handler/auth"
+	canvas "aigc-local-life/app/admin/api/internal/handler/canvas"
 	copywriting "aigc-local-life/app/admin/api/internal/handler/copywriting"
 	digitalhuman "aigc-local-life/app/admin/api/internal/handler/digitalhuman"
 	genoption "aigc-local-life/app/admin/api/internal/handler/genoption"
 	imagegen "aigc-local-life/app/admin/api/internal/handler/imagegen"
 	localtask "aigc-local-life/app/admin/api/internal/handler/localtask"
 	note "aigc-local-life/app/admin/api/internal/handler/note"
+	promptlib "aigc-local-life/app/admin/api/internal/handler/promptlib"
+	studio "aigc-local-life/app/admin/api/internal/handler/studio"
 	"aigc-local-life/app/admin/api/internal/svc"
 
 	"github.com/zeromicro/go-zero/rest"
 )
 
 func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
+	server.AddRoutes(
+		rest.WithMiddlewares(
+			[]rest.Middleware{serverCtx.AdminAuth},
+			[]rest.Route{
+				{
+					// 分类统计：按 kind × 来源计数
+					Method:  http.MethodGet,
+					Path:    "/kind-stats",
+					Handler: assetlib.KindStatsHandler(serverCtx),
+				},
+				{
+					// 标签字典（全部用户，分页）
+					Method:  http.MethodGet,
+					Path:    "/tags",
+					Handler: assetlib.ListTagsHandler(serverCtx),
+				},
+			}...,
+		),
+		rest.WithPrefix("/api/v1/asset-library/admin"),
+	)
+
 	server.AddRoutes(
 		[]rest.Route{
 			{
@@ -44,6 +69,57 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 			}...,
 		),
 		rest.WithPrefix("/api/v1/local-life/admin"),
+	)
+
+	server.AddRoutes(
+		rest.WithMiddlewares(
+			[]rest.Middleware{serverCtx.AdminAuth},
+			[]rest.Route{
+				{
+					// 成本汇总（按 kind 或 model_group）
+					Method:  http.MethodGet,
+					Path:    "/cost-summary",
+					Handler: canvas.CostSummaryHandler(serverCtx),
+				},
+				{
+					// 节点执行（run）列表
+					Method:  http.MethodGet,
+					Path:    "/runs",
+					Handler: canvas.ListRunsHandler(serverCtx),
+				},
+				{
+					// 强制失败未结束的 run（gateway 后端退款并取消上游）
+					Method:  http.MethodPost,
+					Path:    "/runs/:id/force-fail",
+					Handler: canvas.ForceFailRunHandler(serverCtx),
+				},
+				{
+					// 模板列表（官方 + 用户）
+					Method:  http.MethodGet,
+					Path:    "/templates",
+					Handler: canvas.ListTemplatesHandler(serverCtx),
+				},
+				{
+					// 新增官方模板
+					Method:  http.MethodPost,
+					Path:    "/templates",
+					Handler: canvas.CreateTemplateHandler(serverCtx),
+				},
+				{
+					// 编辑官方模板
+					Method:  http.MethodPut,
+					Path:    "/templates/:id",
+					Handler: canvas.UpdateTemplateHandler(serverCtx),
+				},
+				{
+					// 模板上下架
+					Method:  http.MethodPost,
+					Path:    "/templates/:id/toggle",
+					Handler: canvas.ToggleTemplateHandler(serverCtx),
+				},
+			}...,
+		),
+		rest.WithPrefix("/api/v1/canvas/admin"),
 	)
 
 	server.AddRoutes(
@@ -260,5 +336,83 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 			}...,
 		),
 		rest.WithPrefix("/api/v1/local-life/admin"),
+	)
+
+	server.AddRoutes(
+		rest.WithMiddlewares(
+			[]rest.Middleware{serverCtx.AdminAuth},
+			[]rest.Route{
+				{
+					// 提示词列表（默认官方）
+					Method:  http.MethodGet,
+					Path:    "/prompts",
+					Handler: promptlib.ListPromptsHandler(serverCtx),
+				},
+				{
+					// 新增官方提示词
+					Method:  http.MethodPost,
+					Path:    "/prompts",
+					Handler: promptlib.CreatePromptHandler(serverCtx),
+				},
+				{
+					// 编辑官方提示词
+					Method:  http.MethodPut,
+					Path:    "/prompts/:id",
+					Handler: promptlib.UpdatePromptHandler(serverCtx),
+				},
+				{
+					// 官方提示词启停
+					Method:  http.MethodPost,
+					Path:    "/prompts/:id/toggle",
+					Handler: promptlib.TogglePromptHandler(serverCtx),
+				},
+			}...,
+		),
+		rest.WithPrefix("/api/v1/prompt-library/admin"),
+	)
+
+	server.AddRoutes(
+		rest.WithMiddlewares(
+			[]rest.Middleware{serverCtx.AdminAuth},
+			[]rest.Route{
+				{
+					// 批次列表
+					Method:  http.MethodGet,
+					Path:    "/batches",
+					Handler: studio.ListBatchesHandler(serverCtx),
+				},
+				{
+					// 批次详情：切图框、组图、prompt、每步耗时与成本
+					Method:  http.MethodGet,
+					Path:    "/batches/:id",
+					Handler: studio.GetBatchHandler(serverCtx),
+				},
+				{
+					// 成本汇总（按类型或 model group）
+					Method:  http.MethodGet,
+					Path:    "/cost-summary",
+					Handler: studio.CostSummaryHandler(serverCtx),
+				},
+				{
+					// 依赖状态：反推 sidecar / ai-gateway / 媒体服务
+					Method:  http.MethodGet,
+					Path:    "/sidecar/status",
+					Handler: studio.SidecarStatusHandler(serverCtx),
+				},
+				{
+					// 强制失败子任务：封禁重做，点数已退回不动账
+					Method:  http.MethodPost,
+					Path:    "/tasks/:task_id/force-fail",
+					Handler: studio.ForceFailTaskHandler(serverCtx),
+				},
+				{
+					// 重做失败的子任务（task_id 为子任务号）
+					Method:  http.MethodPost,
+					Path:    "/tasks/:task_id/retry",
+					Handler: studio.RetryTaskHandler(serverCtx),
+				},
+			}...,
+		),
+		rest.WithPrefix("/api/v1/studio/admin"),
 	)
 }

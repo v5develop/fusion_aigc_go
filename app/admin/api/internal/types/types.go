@@ -50,6 +50,165 @@ type AdminVideoListResp struct {
 	Total int64                `json:"total"`
 }
 
+type AssetLibAdminTag struct {
+	Id         int64  `json:"id"`
+	UserId     int64  `json:"user_id"`
+	Name       string `json:"name"`
+	AssetCount int64  `json:"asset_count"`
+	CreatedAt  int64  `json:"created_at"`
+}
+
+type AssetLibAdminTagsReq struct {
+	Page     int64  `form:"page,optional,default=1"`
+	PageSize int64  `form:"page_size,optional,default=20"`
+	UserId   int64  `form:"user_id,optional"` // 0=全部用户
+	Q        string `form:"q,optional"`       // 标签名模糊
+}
+
+type AssetLibAdminTagsResp struct {
+	List  []AssetLibAdminTag `json:"list"`
+	Total int64              `json:"total"`
+}
+
+type AssetLibCountItem struct {
+	Key   string `json:"key"`
+	Label string `json:"label"`
+	Count int64  `json:"count"`
+}
+
+type AssetLibKindStat struct {
+	Kind   string `json:"kind"`   // 5 个 kind 或 uncategorized
+	Source string `json:"source"` // upload / generated / official
+	Count  int64  `json:"count"`
+}
+
+type AssetLibKindStatsReq struct {
+	UserId int64  `form:"user_id,optional"` // 0=全部用户
+	Media  string `form:"media,optional,options=|image|video"`
+}
+
+type AssetLibKindStatsResp struct {
+	Rows    []AssetLibKindStat  `json:"rows"`    // kind × source
+	Kinds   []AssetLibCountItem `json:"kinds"`   // 按 kind 汇总（含 all）
+	Sources []AssetLibCountItem `json:"sources"` // 按来源汇总
+}
+
+type CanvasAdminCostReq struct {
+	Start   int64  `form:"start,optional"`
+	End     int64  `form:"end,optional"`
+	GroupBy string `form:"group_by,optional,default=kind,options=kind|model_group"`
+}
+
+type CanvasAdminCostResp struct {
+	Rows []CanvasAdminCostRow `json:"rows"`
+}
+
+type CanvasAdminCostRow struct {
+	Key       string `json:"key"`
+	Runs      int64  `json:"runs"`
+	Succeeded int64  `json:"succeeded"`
+	Failed    int64  `json:"failed"`
+	Canceled  int64  `json:"canceled"`
+	CostCny   string `json:"cost_cny"`
+	Points    int64  `json:"points"`
+}
+
+type CanvasAdminForceFailReq struct {
+	Id     int64  `path:"id"`
+	Reason string `json:"reason,optional"`
+}
+
+type CanvasAdminRun struct {
+	Id               int64    `json:"id"` // = request_id
+	RunId            string   `json:"run_id"`
+	TaskId           string   `json:"task_id"`
+	UserId           int64    `json:"user_id"`
+	CanvasId         string   `json:"canvas_id"`
+	NodeId           string   `json:"node_id"`
+	Kind             string   `json:"kind"`
+	Status           string   `json:"status"`
+	Progress         int32    `json:"progress"`
+	Model            string   `json:"model"`
+	ModelGroup       string   `json:"model_group"`
+	Backend          string   `json:"backend"`
+	BackendRef       string   `json:"backend_ref"` // gateway call_id（逗号分隔）/ Java taskUid / studio batch_id
+	BillingRequestId string   `json:"billing_request_id"`
+	BillingStatus    string   `json:"billing_status"` // none/held/settled/refunded/shadow/java/studio/review
+	Credits          int64    `json:"credits"`
+	CostCny          string   `json:"cost_cny"`
+	Attempt          int32    `json:"attempt"`
+	Candidates       []string `json:"candidates"`
+	VideoUrl         string   `json:"video_url"`
+	Text             string   `json:"text"`
+	Error            string   `json:"error"`
+	ErrorCode        string   `json:"error_code"`
+	Request          string   `json:"request"` // RunNodeRequest JSON
+	CreatedAt        int64    `json:"created_at"`
+	StartedAt        int64    `json:"started_at"`
+	FinishedAt       int64    `json:"finished_at"`
+}
+
+type CanvasAdminRunsReq struct {
+	Page     int64  `form:"page,optional,default=1"`
+	PageSize int64  `form:"page_size,optional,default=20"` // 上限 100
+	UserId   int64  `form:"user_id,optional"`
+	CanvasId string `form:"canvas_id,optional"`
+	Kind     string `form:"kind,optional"`              // image / video / tool_crop / tool_upscale / tool_outpaint / tool_inpaint / tool_i2p / tool_tryon
+	Status   int32  `form:"status,optional,default=-1"` // -1 全部；0 排队 1 运行中 2 成功 3 失败 4 已取消
+	Backend  string `form:"backend,optional"`           // gateway / media / java / studio
+	Start    int64  `form:"start,optional"`             // unix 毫秒
+	End      int64  `form:"end,optional"`
+}
+
+type CanvasAdminRunsResp struct {
+	List  []CanvasAdminRun `json:"list"`
+	Total int64            `json:"total"`
+}
+
+type CanvasAdminTemplate struct {
+	Id          int64  `json:"id"`
+	Scope       string `json:"scope"`
+	UserId      int64  `json:"user_id"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	CoverUrl    string `json:"cover_url"`
+	Sort        int32  `json:"sort"`
+	Enabled     bool   `json:"enabled"`
+	NodeCount   int32  `json:"node_count"`
+	EdgeCount   int32  `json:"edge_count"`
+	Snapshot    string `json:"snapshot"` // JSON 文本 {nodes, edges}
+	CreatedAt   int64  `json:"created_at"`
+	UpdatedAt   int64  `json:"updated_at"`
+}
+
+type CanvasAdminTemplateUpsertReq struct {
+	Id          int64  `path:"id,optional"`
+	Title       string `json:"title"`
+	Description string `json:"description,optional"`
+	Snapshot    string `json:"snapshot"` // JSON 文本 {nodes, edges}，按连线规则校验
+	CoverUrl    string `json:"cover_url,optional"`
+	Sort        int32  `json:"sort,optional"`
+	Enabled     bool   `json:"enabled,optional"`
+}
+
+type CanvasAdminTemplatesReq struct {
+	Page     int64  `form:"page,optional,default=1"`
+	PageSize int64  `form:"page_size,optional,default=20"`
+	Scope    string `form:"scope,optional,options=|official|user"`
+	Enabled  int32  `form:"enabled,optional,default=-1"`
+	Q        string `form:"q,optional"`
+}
+
+type CanvasAdminTemplatesResp struct {
+	List  []CanvasAdminTemplate `json:"list"`
+	Total int64                 `json:"total"`
+}
+
+type CanvasAdminToggleReq struct {
+	Id      int64 `path:"id"`
+	Enabled bool  `json:"enabled"`
+}
+
 type Copywriting struct {
 	Id               int64  `json:"id"`
 	Source           string `json:"source"`
@@ -227,6 +386,56 @@ type OptionListResp struct {
 	List []Option `json:"list"`
 }
 
+type PromptLibAdminItem struct {
+	Id        int64    `json:"id"`
+	UserId    int64    `json:"user_id"` // 0 = 官方
+	Title     string   `json:"title"`
+	Prompt    string   `json:"prompt"`
+	Vertical  string   `json:"vertical"`
+	Group     string   `json:"group"`
+	Models    []string `json:"models"`
+	Tags      []string `json:"tags"`
+	Source    string   `json:"source"`
+	Owner     string   `json:"owner"`
+	Enabled   bool     `json:"enabled"`
+	Sort      int32    `json:"sort"`
+	CreatedAt int64    `json:"created_at"`
+	UpdatedAt int64    `json:"updated_at"`
+}
+
+type PromptLibAdminListReq struct {
+	Page     int64  `form:"page,optional,default=1"`
+	PageSize int64  `form:"page_size,optional,default=20"`
+	Scope    string `form:"scope,optional,default=official,options=official|user|all"`
+	Vertical string `form:"vertical,optional"`
+	Group    string `form:"group,optional"`
+	Enabled  int32  `form:"enabled,optional,default=-1"`
+	Q        string `form:"q,optional"`
+}
+
+type PromptLibAdminListResp struct {
+	List  []PromptLibAdminItem `json:"list"`
+	Total int64                `json:"total"`
+}
+
+type PromptLibAdminToggleReq struct {
+	Id      int64 `path:"id"`
+	Enabled bool  `json:"enabled"`
+}
+
+type PromptLibAdminUpsertReq struct {
+	Id       int64    `path:"id,optional"`
+	Title    string   `json:"title"`
+	Prompt   string   `json:"prompt"`
+	Vertical string   `json:"vertical,options=ecommerce|general"`
+	Group    string   `json:"group"`
+	Models   []string `json:"models,optional"`
+	Tags     []string `json:"tags,optional"`
+	Source   string   `json:"source,optional"`
+	Sort     int32    `json:"sort,optional"`
+	Enabled  bool     `json:"enabled,optional"`
+}
+
 type ResolveCopywritingReq struct {
 	Id   int64  `path:"id"`
 	Note string `json:"note"`
@@ -261,6 +470,117 @@ type SaveVoiceReq struct {
 	PreviewUrl string   `json:"preview_url,optional"`
 	SortOrder  int32    `json:"sort_order,optional"`
 	Status     int32    `json:"status,options=0|1"`
+}
+
+type StudioAdminBatch struct {
+	Id              int64  `json:"id"`
+	UserId          int64  `json:"user_id"`
+	WorkspaceId     int64  `json:"workspace_id"`
+	Kind            string `json:"kind"`
+	Status          int32  `json:"status"`
+	RequestId       string `json:"request_id"`
+	Payload         string `json:"payload"` // JSON 文本
+	TaskTotal       int32  `json:"task_total"`
+	TaskDone        int32  `json:"task_done"`
+	TaskFailed      int32  `json:"task_failed"`
+	EstimatedPoints int64  `json:"estimated_points"`
+	CostCny         string `json:"cost_cny"`
+	ModelGroup      string `json:"model_group"`
+	ErrorReason     string `json:"error_reason"`
+	CoverUrl        string `json:"cover_url"`
+	CreatedAt       int64  `json:"created_at"`
+	UpdatedAt       int64  `json:"updated_at"`
+}
+
+type StudioAdminBatchDetail struct {
+	Batch          StudioAdminBatch  `json:"batch"`
+	CropPlan       string            `json:"crop_plan"`       // 切图框（JSON 文本，0–1 归一化）
+	CropCheck      string            `json:"crop_check"`      // 切图质检（JSON 文本）
+	SelectedImages string            `json:"selected_images"` // 组图（JSON 文本）
+	StepLog        string            `json:"step_log"`        // 每步耗时与成本（JSON 文本）
+	Tasks          []StudioAdminTask `json:"tasks"`
+}
+
+type StudioAdminTask struct {
+	Id               int64  `json:"id"`
+	TaskId           string `json:"task_id"`
+	ModelIndex       int32  `json:"model_index"`
+	ShotIndex        int32  `json:"shot_index"`
+	PoseIndex        int32  `json:"pose_index"`
+	Status           int32  `json:"status"` // 0-排队 1-生成中 2-成功 3-失败 4-已取消
+	ResultUrl        string `json:"result_url"`
+	ResultWidth      int32  `json:"result_width"`
+	ResultHeight     int32  `json:"result_height"`
+	ErrorReason      string `json:"error_reason"`
+	ModelGroup       string `json:"model_group"`
+	PromptText       string `json:"prompt_text"`  // 完整提示词
+	PromptMeta       string `json:"prompt_meta"`  // JSON 文本
+	InputImages      string `json:"input_images"` // 送生图的图序（JSON 文本）
+	GatewayCallId    string `json:"gateway_call_id"`
+	GatewayStatus    string `json:"gateway_status"`
+	Attempt          int32  `json:"attempt"`
+	AdminLocked      bool   `json:"admin_locked"`
+	CostCny          string `json:"cost_cny"`
+	BillingRequestId string `json:"billing_request_id"`
+	BillingStatus    int32  `json:"billing_status"` // 0-未计费 1-已冻结 2-已结算 3-已退回 4-影子模式
+	DurationMs       int64  `json:"duration_ms"`
+	CreatedAt        int64  `json:"created_at"`
+	StartedAt        int64  `json:"started_at"`
+	FinishedAt       int64  `json:"finished_at"`
+}
+
+type StudioCostRow struct {
+	Key           string `json:"key"`
+	TaskTotal     int32  `json:"task_total"`
+	TaskSucceeded int32  `json:"task_succeeded"`
+	TaskFailed    int32  `json:"task_failed"`
+	CostCny       string `json:"cost_cny"`
+	Points        int64  `json:"points"`
+}
+
+type StudioCostSummaryReq struct {
+	StartAt int64  `form:"start_at,optional"`
+	EndAt   int64  `form:"end_at,optional"`
+	GroupBy string `form:"group_by,optional,default=kind,options=kind|model_group"`
+}
+
+type StudioCostSummaryResp struct {
+	Rows  []StudioCostRow `json:"rows"`
+	Total StudioCostRow   `json:"total"`
+}
+
+type StudioDependency struct {
+	Name      string `json:"name"` // sidecar / ai-gateway / media
+	Ok        bool   `json:"ok"`
+	BaseUrl   string `json:"base_url"`
+	LatencyMs int64  `json:"latency_ms"`
+	Version   string `json:"version"`
+	Detail    string `json:"detail"`
+}
+
+type StudioListBatchesReq struct {
+	Page     int64  `form:"page,optional,default=1"`
+	PageSize int64  `form:"page_size,optional,default=20"`
+	UserId   int64  `form:"user_id,optional"`
+	Kind     string `form:"kind,optional,options=|tryon|pose|imagegen"`
+	Status   int32  `form:"status,optional,default=-1"` // -1=全部；0-排队 1-切图中 2-反推中 3-生图中 4-全部成功 5-全部失败 6-部分成功 7-已取消
+	StartAt  int64  `form:"start_at,optional"`          // 创建时间起（unix 毫秒，含）
+	EndAt    int64  `form:"end_at,optional"`            // 创建时间止（unix 毫秒，不含）
+}
+
+type StudioListBatchesResp struct {
+	List  []StudioAdminBatch `json:"list"`
+	Total int64              `json:"total"`
+}
+
+type StudioSidecarStatusResp struct {
+	Deps          []StudioDependency `json:"deps"`
+	RunningTasks  int32              `json:"running_tasks"`
+	QueuedBatches int32              `json:"queued_batches"`
+}
+
+type StudioTaskPath struct {
+	TaskId string `path:"task_id"`
 }
 
 type UpdateGenKindReq struct {

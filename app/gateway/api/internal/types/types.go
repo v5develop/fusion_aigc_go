@@ -35,6 +35,411 @@ type AiWriteResp struct {
 	Text string `json:"text"`
 }
 
+type AssetLibAddVersionReq struct {
+	Id       int64  `path:"id"`
+	ImageUrl string `json:"image_url"`
+	Prompt   string `json:"prompt,optional"`
+	Model    string `json:"model,optional"`
+	Params   string `json:"params,optional"` // JSON 文本
+	ImageRid string `json:"image_rid,optional"`
+}
+
+type AssetLibAsset struct {
+	Id               int64              `json:"id"`
+	Kind             string             `json:"kind"` // model / scene / makeup / hair / accessory；空=未分类
+	Title            string             `json:"title"`
+	Prompt           string             `json:"prompt"`
+	Image            string             `json:"image"` // 当前版本图 > 原图（视频为封面）
+	Media            string             `json:"media"` // image / video
+	VideoUrl         string             `json:"video_url"`
+	Source           string             `json:"source"` // upload / generated / official
+	Tags             []string           `json:"tags"`
+	CreatedAt        int64              `json:"created_at"`
+	Favorite         bool               `json:"favorite"`
+	License          string             `json:"license"` // cleared / internal / unknown；空=未设置
+	Metadata         AssetLibMetadata   `json:"metadata"`
+	Provenance       AssetLibProvenance `json:"provenance"`
+	Versions         []AssetLibVersion  `json:"versions"`           // 仅详情带
+	CurrentVersionId int64              `json:"current_version_id"` // 0=原图
+	RelatedIds       []int64            `json:"related_ids"`        // 仅详情带
+	EntryCode        string             `json:"entry_code"`
+	Width            int32              `json:"width"`
+	Height           int32              `json:"height"`
+}
+
+type AssetLibAssetPage struct {
+	Items []AssetLibAsset `json:"items"`
+	Total int64           `json:"total"`
+}
+
+type AssetLibBatchTagReq struct {
+	AssetIds []int64 `json:"asset_ids"` // ≤100
+	TagIds   []int64 `json:"tag_ids"`   // ≤10
+}
+
+type AssetLibBatchTagResp struct {
+	Added int64 `json:"added"` // 新增的关联条数
+}
+
+type AssetLibCategoriesReq struct {
+	Source string `form:"source,optional,options=|input|generated|official|upload"`
+	Media  string `form:"media,optional,options=|image|video"`
+}
+
+type AssetLibCategoriesResp struct {
+	Items []AssetLibCategory `json:"items"`
+}
+
+type AssetLibCategory struct {
+	Key   string `json:"key"` // all / model / scene / makeup / hair / accessory / uncategorized
+	Label string `json:"label"`
+	Count int64  `json:"count"`
+}
+
+type AssetLibDetail struct {
+	Asset            AssetLibAsset       `json:"asset"`
+	Versions         AssetLibVersionPage `json:"versions"`
+	Related          AssetLibAssetPage   `json:"related"`           // reference（双向）+ 本资产的生成来源
+	GeneratedResults AssetLibAssetPage   `json:"generated_results"` // 由本资产生成的资产
+}
+
+type AssetLibGetReq struct {
+	Id          int64 `path:"id"`
+	VersionPage int64 `form:"version_page,optional,default=1"`
+	RelatedPage int64 `form:"related_page,optional,default=1"`
+	ResultPage  int64 `form:"result_page,optional,default=1"`
+	PageSize    int64 `form:"page_size,optional,default=6"` // 三组共用，上限 50
+}
+
+type AssetLibListReq struct {
+	Kind         string `form:"kind,optional,options=|model|scene|makeup|hair|accessory|uncategorized"`
+	Source       string `form:"source,optional,options=|input|generated|official|upload"` // input = official + upload
+	Media        string `form:"media,optional,options=|image|video"`
+	Tag          string `form:"tag,optional"` // 标签名
+	FavoriteOnly bool   `form:"favorite_only,optional"`
+	Q            string `form:"q,optional"` // 标题 / 提示词模糊
+	Page         int64  `form:"page,optional,default=1"`
+	PageSize     int64  `form:"page_size,optional,default=20"` // 上限 100
+}
+
+type AssetLibListResp struct {
+	Items []AssetLibAsset `json:"items"`
+	Total int64           `json:"total"`
+}
+
+type AssetLibMetadata struct {
+	Industry string `json:"industry,optional"` // 行业；PATCH 时缺省 = 空
+	Style    string `json:"style,optional"`    // 风格
+	Shot     string `json:"shot,optional"`     // 镜头
+	Color    string `json:"color,optional"`    // 色彩
+}
+
+type AssetLibProvenance struct {
+	RunId      string `json:"run_id"`
+	WorkflowId string `json:"workflow_id"`
+	NodeId     string `json:"node_id"`
+	Operator   string `json:"operator"`
+	Model      string `json:"model"`
+	Params     string `json:"params"` // JSON 文本；空=没有
+	CreatedAt  int64  `json:"created_at"`
+}
+
+type AssetLibRelationDelReq struct {
+	Id             int64  `path:"id"`
+	RelatedAssetId int64  `form:"related_asset_id"`
+	RelationType   string `form:"relation_type,options=reference|generated_from|version_of"`
+}
+
+type AssetLibRelationReq struct {
+	Id             int64  `path:"id"`
+	RelatedAssetId int64  `json:"related_asset_id"`
+	RelationType   string `json:"relation_type,options=reference|generated_from|version_of"`
+}
+
+type AssetLibTag struct {
+	Id         int64  `json:"id"`
+	Name       string `json:"name"`
+	AssetCount int64  `json:"asset_count"`
+	CreatedAt  int64  `json:"created_at"`
+}
+
+type AssetLibTagCreateReq struct {
+	Name string `json:"name"` // ≤20 字，每用户 ≤200 个
+}
+
+type AssetLibTagListResp struct {
+	Items []AssetLibTag `json:"items"`
+}
+
+type AssetLibTagRenameReq struct {
+	Id   int64  `path:"id"`
+	Name string `json:"name"`
+}
+
+type AssetLibUpdateReq struct {
+	Id               int64             `path:"id"`
+	Title            *string           `json:"title,optional"` // ≤100 字
+	Kind             *string           `json:"kind,optional"`  // 空串=改回未分类
+	Favorite         *bool             `json:"favorite,optional"`
+	Tags             *[]string         `json:"tags,optional"`               // 整组替换，≤10 个；字典里没有的自动建
+	Metadata         *AssetLibMetadata `json:"metadata,optional"`           // 整体替换
+	CurrentVersionId *int64            `json:"current_version_id,optional"` // 0=回到原图
+	License          *string           `json:"license,optional"`            // cleared / internal / unknown / 空
+}
+
+type AssetLibVersion struct {
+	Id        int64  `json:"id"`
+	VersionNo int32  `json:"version_no"` // 同资产从 1 起
+	Image     string `json:"image"`
+	Prompt    string `json:"prompt"`
+	Model     string `json:"model"`
+	Params    string `json:"params"` // JSON 文本
+	CreatedAt int64  `json:"created_at"`
+}
+
+type AssetLibVersionPage struct {
+	Items []AssetLibVersion `json:"items"`
+	Total int64             `json:"total"`
+}
+
+type CanvasCancelResp struct {
+	RequestId string `json:"request_id"`
+	Status    string `json:"status"`
+}
+
+type CanvasCandidate struct {
+	Url    string `json:"url"`
+	Width  int32  `json:"width"`
+	Height int32  `json:"height"`
+}
+
+type CanvasCapabilities struct {
+	Quality  bool `json:"quality"`
+	Count    bool `json:"count"`
+	Duration bool `json:"duration"`
+	Sound    bool `json:"sound"`
+}
+
+type CanvasCatalogModel struct {
+	Model              string             `json:"model"`
+	ModelId            string             `json:"model_id"`
+	Badge              string             `json:"badge"`
+	MaxImageRefs       int32              `json:"max_image_refs"` // gateway 模型组 feature_limits 为准
+	MaxReferenceVideos int32              `json:"max_reference_videos"`
+	Ratios             []string           `json:"ratios"`
+	Sizes              []string           `json:"sizes"`
+	Qualities          []string           `json:"qualities"`
+	Durations          []string           `json:"durations"`
+	Sound              bool               `json:"sound"`
+	CountMax           int32              `json:"count_max"`
+	Capabilities       CanvasCapabilities `json:"capabilities"`
+	Prices             []CanvasPrice      `json:"prices"`
+	Ready              bool               `json:"ready"`
+}
+
+type CanvasCatalogResp struct {
+	ImageModels      []CanvasCatalogModel `json:"image_models"`
+	VideoModels      []CanvasCatalogModel `json:"video_models"`
+	Tools            []CanvasCatalogTool  `json:"tools"`
+	JavaImageConfigs interface{}          `json:"java_image_configs"` // Java /api/v1/features/image-model-configs 原样透传（按用户报价）；取不到为 null
+	JavaVideoConfigs interface{}          `json:"java_video_configs"`
+}
+
+type CanvasCatalogTool struct {
+	Tool    string   `json:"tool"`
+	Label   string   `json:"label"`
+	Billing string   `json:"billing"` // free / java / gateway / studio
+	Scales  []int32  `json:"scales,omitempty"`
+	Ratios  []string `json:"ratios,omitempty"`
+	Ready   bool     `json:"ready"`
+}
+
+type CanvasCreateReq struct {
+	Title       string `json:"title,optional"` // 空 = 未命名画布
+	WorkspaceId int64  `json:"workspace_id,optional"`
+}
+
+type CanvasDetail struct {
+	Id        string      `json:"id"`
+	Title     string      `json:"title"`
+	Revision  string      `json:"revision"` // 下次保存原样带回 if_match_revision
+	NodeCount int32       `json:"node_count"`
+	CoverUrl  string      `json:"cover_url"`
+	CreatedAt int64       `json:"created_at"`
+	UpdatedAt int64       `json:"updated_at"`
+	Snapshot  interface{} `json:"snapshot"` // {nodes, edges}；运行态（status/progress/candidates/image/video/runId…）已按最近一次 run 回填
+}
+
+type CanvasFromTemplateReq struct {
+	TemplateId  int64  `json:"template_id"`
+	Title       string `json:"title,optional"` // 空 = 模板标题
+	WorkspaceId int64  `json:"workspace_id,optional"`
+}
+
+type CanvasIdPath struct {
+	Id string `path:"id"`
+}
+
+type CanvasListReq struct {
+	Page     int32 `form:"page,optional,default=1"`
+	PageSize int32 `form:"page_size,optional,default=20"` // 上限 50
+}
+
+type CanvasListResp struct {
+	Items []CanvasSummary `json:"items"`
+	Total int64           `json:"total"`
+}
+
+type CanvasPrice struct {
+	Size     string `json:"size,omitempty"`
+	Duration string `json:"duration,omitempty"`
+	Points   int64  `json:"points"`
+}
+
+type CanvasRunPath struct {
+	Id int64 `path:"id"`
+}
+
+type CanvasRunRef struct {
+	Handle         string `json:"handle"`         // prompt / image / video / audio（及别名 image1/image2/first/last/garment/models/image-in）
+	Index          int32  `json:"index,optional"` // 同 handle 内序号（连线 data.order），1 起
+	NodeId         string `json:"node_id,optional"`
+	Text           string `json:"text,optional"`
+	Image          string `json:"image,optional"`
+	Video          string `json:"video,optional"`
+	Audio          string `json:"audio,optional"`
+	AssetId        string `json:"asset_id,optional"`
+	MediaId        string `json:"media_id,optional"`
+	SourceHandle   string `json:"source_handle,optional"`   // image-out / candidate-N …
+	CandidateIndex *int32 `json:"candidate_index,optional"` // 引用上游第几个候选（0 起），服务端以记录的候选为准
+	Mime           string `json:"mime,optional"`
+}
+
+type CanvasRunReq struct {
+	Id         string         `path:"id"`
+	NodeId     string         `path:"node_id"`
+	Key        string         `header:"Idempotency-Key,optional"` // = run_id
+	RunId      string         `json:"run_id,optional"`
+	Kind       string         `json:"kind"` // image / video / tool
+	Model      string         `json:"model,optional"`
+	ModelId    string         `json:"model_id,optional"`
+	Prompt     string         `json:"prompt,optional"`
+	References []CanvasRunRef `json:"references,optional"`
+	Ratio      string         `json:"ratio,optional"`
+	Size       string         `json:"size,optional"`
+	Quality    string         `json:"quality,optional"`  // low / medium / high（低/中/高 也收）
+	Duration   string         `json:"duration,optional"` // 视频 4s / 6s / 8s
+	Sound      bool           `json:"sound,optional"`
+	Count      int32          `json:"count,optional"` // 1–4；视频固定 1
+	Cfg        float64        `json:"cfg,optional"`
+	Tool       string         `json:"tool,optional"`   // crop / upscale / outpaint / i2p / mask / tryon
+	Params     interface{}    `json:"params,optional"` // 工具参数（见 api-canvas.md 3.2）
+}
+
+type CanvasRunResp struct {
+	RequestId string   `json:"request_id"` // 轮询 / 取消用
+	RunId     string   `json:"run_id"`
+	Status    string   `json:"status"`
+	Replayed  bool     `json:"replayed"`
+	Credits   int64    `json:"credits"`  // 本 run 冻结的点数（Java / studio 工具由对方计费，为 0）
+	Warnings  []string `json:"warnings"` // 参数归一告警（如 Seedream 4K → 2K，按归一后的档位生成并计费）；没有为 []
+}
+
+type CanvasRunResult struct {
+	RequestId      string            `json:"request_id"`
+	RunId          string            `json:"run_id"`
+	CanvasId       string            `json:"canvas_id"`
+	NodeId         string            `json:"node_id"`
+	Kind           string            `json:"kind"`   // image / video / tool_crop / tool_upscale / tool_outpaint / tool_inpaint / tool_i2p / tool_tryon
+	Status         string            `json:"status"` // submitting / queued / running / succeeded / failed / cancelled
+	Progress       int32             `json:"progress"`
+	Model          string            `json:"model"`
+	Candidates     []CanvasCandidate `json:"candidates"`
+	SelectedIndex  int32             `json:"selected_index"`
+	VideoUrl       string            `json:"video_url"`
+	Text           string            `json:"text"` // 反推提示词结果
+	Credits        int64             `json:"credits"`
+	RequestedCount int32             `json:"requested_count"`
+	Error          string            `json:"error"`
+	ErrorCode      string            `json:"error_code"`
+	Retryable      bool              `json:"retryable"`
+	CreatedAt      int64             `json:"created_at"`
+	FinishedAt     int64             `json:"finished_at"`
+}
+
+type CanvasRunsReq struct {
+	Id     string `path:"id"`
+	NodeId string `form:"node_id,optional"`
+	Limit  int32  `form:"limit,optional,default=50"`
+}
+
+type CanvasRunsResp struct {
+	Items []CanvasRunResult `json:"items"`
+}
+
+type CanvasSaveAsReq struct {
+	Id    string `path:"id"`
+	Title string `json:"title,optional"` // 空 = 原标题 + 「 - 副本」
+}
+
+type CanvasSaveReq struct {
+	Id              string      `path:"id"`
+	Title           *string     `json:"title,optional"`             // 不传 = 不改标题
+	Snapshot        interface{} `json:"snapshot"`                   // 整段 {nodes, edges}，≤2MB
+	IfMatchRevision string      `json:"if_match_revision,optional"` // 版本不符 → code=4002，data={conflict:"revision", revision, updated_at}
+	Force           bool        `json:"force,optional"`             // true = 忽略版本强制覆盖
+}
+
+type CanvasSaveResp struct {
+	Revision  string `json:"revision"`
+	UpdatedAt int64  `json:"updated_at"`
+	NodeCount int32  `json:"node_count"`
+	CoverUrl  string `json:"cover_url"`
+}
+
+type CanvasSelectCandidateReq struct {
+	Id     string `path:"id"`
+	NodeId string `path:"node_id"`
+	RunId  string `json:"run_id"` // 该节点某次成功 run 的 run_id
+	Index  int32  `json:"index"`  // 候选下标（0 起）
+}
+
+type CanvasSummary struct {
+	Id        string `json:"id"` // 画布 id（原型 workflowId）
+	Title     string `json:"title"`
+	Revision  string `json:"revision"`
+	NodeCount int32  `json:"node_count"`
+	CoverUrl  string `json:"cover_url"` // 快照里第一张可用图；没有为空串
+	CreatedAt int64  `json:"created_at"`
+	UpdatedAt int64  `json:"updated_at"`
+}
+
+type CanvasTemplate struct {
+	Id          int64       `json:"id"`
+	Scope       string      `json:"scope"` // official / user
+	Title       string      `json:"title"`
+	Description string      `json:"description"`
+	CoverUrl    string      `json:"cover_url"`
+	NodeCount   int32       `json:"node_count"`
+	EdgeCount   int32       `json:"edge_count"`
+	Snapshot    interface{} `json:"snapshot"`
+	CreatedAt   int64       `json:"created_at"`
+}
+
+type CanvasTemplateCreateReq struct {
+	CanvasId    string `json:"canvas_id"`
+	Title       string `json:"title,optional"`
+	Description string `json:"description,optional"`
+}
+
+type CanvasTemplateListReq struct {
+	Scope string `form:"scope,optional,default=official,options=official|user|all"`
+}
+
+type CanvasTemplateListResp struct {
+	Items []CanvasTemplate `json:"items"`
+}
+
 type Copywriting struct {
 	Id               int64  `json:"id"`
 	Source           string `json:"source"`
@@ -456,6 +861,51 @@ type PresignUploadResp struct {
 	ExpiresAt   int64  `json:"expires_at"`   // put_url 过期时间（unix 毫秒），过期重新取
 }
 
+type PromptLibItem struct {
+	Id        int64    `json:"id"`
+	Title     string   `json:"title"`
+	Prompt    string   `json:"prompt"`
+	Vertical  string   `json:"vertical"` // ecommerce / general / mine
+	Group     string   `json:"group"`    // 二级分类英文 key
+	Models    []string `json:"models"`   // 通用 / GPT / Banana / Seedream
+	Tags      []string `json:"tags"`
+	Source    string   `json:"source"`
+	Owner     string   `json:"owner"` // official / mine
+	CreatedAt int64    `json:"created_at"`
+	UpdatedAt int64    `json:"updated_at"`
+}
+
+type PromptLibListReq struct {
+	Vertical string `form:"vertical,optional,options=|ecommerce|general|mine"`
+	Group    string `form:"group,optional"`
+	Model    string `form:"model,optional"`
+	Q        string `form:"q,optional"`
+	Page     int32  `form:"page,optional,default=1"`
+	PageSize int32  `form:"page_size,optional,default=20"`
+}
+
+type PromptLibListResp struct {
+	Items []PromptLibItem `json:"items"`
+	Total int64           `json:"total"`
+}
+
+type PromptLibUpdateReq struct {
+	Id     int64    `path:"id"`
+	Title  string   `json:"title"`
+	Prompt string   `json:"prompt"`
+	Models []string `json:"models,optional"`
+	Tags   []string `json:"tags,optional"`
+	Group  string   `json:"group,optional"`
+}
+
+type PromptLibUpsertReq struct {
+	Title  string   `json:"title"`           // ≤100 字
+	Prompt string   `json:"prompt"`          // ≤3000 字
+	Models []string `json:"models,optional"` // ≤10，缺省 ["通用"]
+	Tags   []string `json:"tags,optional"`   // ≤10
+	Group  string   `json:"group,optional"`  // 忽略：我的提示词固定 mine / favorite
+}
+
 type PublicDigitalHuman struct {
 	Id        int64  `json:"id"`
 	Name      string `json:"name"`
@@ -520,6 +970,123 @@ type ShopProfileListReq struct {
 type ShopProfileListResp struct {
 	List  []ShopProfile `json:"list"`
 	Total int64         `json:"total"`
+}
+
+type StudioBatch struct {
+	Id              int64  `json:"id"`
+	Kind            string `json:"kind"`    // tryon / pose / imagegen
+	Status          int32  `json:"status"`  // 0-排队 1-切图中 2-反推中 3-生图中 4-全部成功 5-全部失败 6-部分成功 7-已取消
+	Payload         string `json:"payload"` // 提交时的全量字段（JSON 文本），用于回填表单
+	TaskTotal       int32  `json:"task_total"`
+	TaskDone        int32  `json:"task_done"`
+	TaskFailed      int32  `json:"task_failed"`
+	EstimatedPoints int64  `json:"estimated_points"`
+	ErrorReason     string `json:"error_reason"`
+	CoverUrl        string `json:"cover_url"`
+	CreatedAt       int64  `json:"created_at"` // unix 毫秒
+	UpdatedAt       int64  `json:"updated_at"`
+}
+
+type StudioBatchDetail struct {
+	Batch StudioBatch  `json:"batch"`
+	Tasks []StudioTask `json:"tasks"`
+}
+
+type StudioCancelResp struct {
+	Batch         StudioBatch `json:"batch"`
+	CanceledTasks int32       `json:"canceled_tasks"`
+}
+
+type StudioGarmentImage struct {
+	Url   string `json:"url"`            // 只收 http(s) 地址；blob: 表示还没上传完，会被拒绝
+	Role  string `json:"role,optional"`  // 单品中文名（上衣 / 下装 / 连衣裙 …）或「整套」
+	Angle string `json:"angle,optional"` // front / back / side / detail / flat / unknown；空按 unknown
+}
+
+type StudioHistoryReq struct {
+	Kind   string `form:"kind,optional,options=|tryon|pose|imagegen"`
+	Cursor string `form:"cursor,optional"`           // 上一页的 next_cursor；空=第一页
+	Limit  int32  `form:"limit,optional,default=20"` // 上限 50
+}
+
+type StudioHistoryResp struct {
+	List       []StudioBatchDetail `json:"list"`
+	NextCursor string              `json:"next_cursor"` // 空=没有下一页
+}
+
+type StudioImageGenSubmitReq struct {
+	RequestId     string   `header:"Idempotency-Key"`
+	WorkspaceId   int64    `json:"workspace_id,optional"`
+	Prompt        string   `json:"prompt"`              // ≤3000 字
+	ImageUrls     []string `json:"image_urls,optional"` // 参考图 ≤9 张
+	Model         string   `json:"model,optional"`
+	Resolution    string   `json:"resolution,optional"`
+	AspectRatio   string   `json:"aspect_ratio,optional"`   // 空=1:1
+	Count         int32    `json:"count"`                   // 1–9，一张一个任务
+	RewritePrompt bool     `json:"rewrite_prompt,optional"` // 先润色提示词
+}
+
+type StudioPoseSubmitReq struct {
+	RequestId      string            `header:"Idempotency-Key"`
+	WorkspaceId    int64             `json:"workspace_id,optional"`
+	SourceImageUrl string            `json:"source_image_url"`       // 人物图（图 1）
+	PoseImageUrls  []string          `json:"pose_image_urls"`        // 姿势图 1–9 张，每张一个任务
+	GlobalPrompt   string            `json:"global_prompt,optional"` // 全局补充说明，≤3000 字
+	PosePrompts    map[string]string `json:"pose_prompts,optional"`  // 单张补充说明 {"0": "…", "2": "…"}，键为姿势下标（从 0 起）
+	Model          string            `json:"model,optional"`
+	Resolution     string            `json:"resolution,optional"`
+	AspectRatio    string            `json:"aspect_ratio,optional"` // 空=3:4
+}
+
+type StudioSubmitResp struct {
+	BatchId         int64    `json:"batch_id"`
+	TaskTotal       int32    `json:"task_total"`
+	EstimatedPoints int64    `json:"estimated_points"`
+	TaskIds         []string `json:"task_ids"`
+	Replayed        bool     `json:"replayed"` // 同一 Idempotency-Key 重复提交：返回的是原批次
+	Warnings        []string `json:"warnings"` // 参数归一告警（如 Seedream 4K → 2K，按归一后的档位生成并计费）；没有为 []
+}
+
+type StudioTask struct {
+	Id            int64  `json:"id"`
+	TaskId        string `json:"task_id"`
+	BatchId       int64  `json:"batch_id"`
+	Kind          string `json:"kind"`
+	ModelIndex    int32  `json:"model_index"`
+	ShotIndex     int32  `json:"shot_index"`
+	PoseIndex     int32  `json:"pose_index"`
+	Status        int32  `json:"status"`   // 0-排队 1-生成中 2-成功 3-失败 4-已取消
+	Progress      int32  `json:"progress"` // 0–100（估算）
+	ResultUrl     string `json:"result_url"`
+	ResultWidth   int32  `json:"result_width"`
+	ResultHeight  int32  `json:"result_height"`
+	ErrorReason   string `json:"error_reason"`
+	PromptSummary string `json:"prompt_summary"`
+	CreatedAt     int64  `json:"created_at"`
+	StartedAt     int64  `json:"started_at"`  // 0=未开始
+	FinishedAt    int64  `json:"finished_at"` // 0=未结束
+}
+
+type StudioTaskPath struct {
+	TaskId string `path:"task_id"`
+}
+
+type StudioTryonSubmitReq struct {
+	RequestId      string               `header:"Idempotency-Key"`
+	WorkspaceId    int64                `json:"workspace_id,optional"`    // 工作空间；不传=个人空间
+	ModelImageUrls []string             `json:"model_image_urls"`         // 模特图 1–9 张，每张一位模特
+	GarmentImages  []StudioGarmentImage `json:"garment_images,optional"`  // 服装图 ≤9 张，每件 ≤6 张
+	Items          []string             `json:"items"`                    // 单品 1–3 件：top/bottom/dress/outer/shoes/accessory/bra/panties（裙↔上衣/下装、文胸↔上衣/裙、内裤↔下装/裙 互斥）
+	SetMode        string               `json:"set_mode,optional"`        // one / two（1 件也传）；空按 one
+	Lengths        map[string]string    `json:"lengths,optional"`         // {单品: 长度}，只认 items 里有的键
+	Sleeves        map[string]string    `json:"sleeves,optional"`         // {单品: 袖长}，只认 items 里有的键
+	Fabric         string               `json:"fabric,optional"`          // 按件写：「上衣：真丝；鞋子：皮革」
+	Prompt         string               `json:"prompt,optional"`          // 补充说明，≤3000 字
+	Model          string               `json:"model,optional"`           // 通用 / GPT / Banana / Seedream；空=通用
+	Resolution     string               `json:"resolution,optional"`      // 1k / 2k / 4k（大小写均可）；空=1k
+	AspectRatio    string               `json:"aspect_ratio,optional"`    // 空=3:4
+	CountPerModel  int32                `json:"count_per_model"`          // 每位模特张数 1–9
+	ClothImageUrl  string               `json:"cloth_image_url,optional"` // 旧版兼容位，新前端不要传
 }
 
 type UpdateNoteReq struct {

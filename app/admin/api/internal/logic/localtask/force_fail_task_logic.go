@@ -3,11 +3,14 @@ package localtask
 import (
 	"context"
 
+	"aigc-local-life/app/admin/api/internal/middleware"
 	"aigc-local-life/app/admin/api/internal/svc"
 	"aigc-local-life/app/admin/api/internal/types"
 	"aigc-local-life/app/digitalhuman/rpc/digitalhuman"
 	"aigc-local-life/app/imagegen/rpc/imagegen"
 	"aigc-local-life/app/note/rpc/note"
+	"aigc-local-life/app/studio/model"
+	"aigc-local-life/app/studio/rpc/studio_client"
 	"aigc-local-life/pkg/ctxdata"
 	"aigc-local-life/pkg/xerr"
 
@@ -47,7 +50,14 @@ func (l *ForceFailTaskLogic) ForceFailTask(req *types.ForceFailTaskReq) (resp *t
 	case "dh":
 		_, err = l.svcCtx.DigitalHumanRpc.AdminForceFail(l.ctx, &digitalhuman.IdReq{Id: id})
 	default:
-		return nil, xerr.Param("未知的任务来源")
+		if !model.IsDefaultPrefix(prefix) {
+			return nil, xerr.Param("未知的任务来源")
+		}
+		// studio：商拍换装 / 姿态复刻 / 图片生成（afv_studio_task 主键）。入口按 local_life 鉴权，studio 任务另要 studio:update
+		if err := middleware.Require(l.ctx, studioUpdatePerm); err != nil {
+			return nil, err
+		}
+		_, err = l.svcCtx.StudioRpc.AdminForceFail(l.ctx, &studio_client.AdminTaskReq{Id: id, OperatorId: operator})
 	}
 	if err != nil {
 		l.Errorw("admin force-fail local life task failed", logx.Field("origin_ref", req.OriginRef),

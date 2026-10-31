@@ -37,6 +37,12 @@ type Config struct {
 	DigitalHumanRpc zrpc.RpcClientConf
 	NoteRpc         zrpc.RpcClientConf
 	ImageGenRpc     zrpc.RpcClientConf
+	// StudioRpc 商拍换装 / 姿态复刻 / 图片生成（/api/v1/studio）
+	StudioRpc zrpc.RpcClientConf
+	// AssetLibRpc 资产库增强（/api/v1/asset-library）
+	AssetLibRpc zrpc.RpcClientConf
+	// CanvasRpc 画布 + 提示词库（/api/v1/canvas、/api/v1/prompt-library）
+	CanvasRpc zrpc.RpcClientConf
 	// DataSource 仅 Storage.Mode=oss 时使用（从 afv_system_config 读公有桶配置）
 	DataSource string `json:",optional"`
 	// Storage 须与 digitalhuman-rpc 一致：rpc 只接受本存储签发的上传地址

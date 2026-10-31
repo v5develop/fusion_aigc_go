@@ -29,4 +29,10 @@ type Config struct {
 	DigitalHumanRpc zrpc.RpcClientConf
 	NoteRpc         zrpc.RpcClientConf
 	ImageGenRpc     zrpc.RpcClientConf
+	// StudioRpc studio 运营后台（/api/v1/studio/admin）与 origin_ref 前缀 tyo/pse/simg 的重做、强制失败
+	StudioRpc zrpc.RpcClientConf
+	// AssetLibRpc 资产库后台（/api/v1/asset-library/admin）：标签字典、分类统计
+	AssetLibRpc zrpc.RpcClientConf
+	// CanvasRpc 画布 / 提示词库后台（/api/v1/canvas/admin、/api/v1/prompt-library/admin）
+	CanvasRpc zrpc.RpcClientConf
 }

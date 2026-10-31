@@ -6,13 +6,17 @@ package handler
 import (
 	"net/http"
 
+	assetlib "aigc-local-life/app/gateway/api/internal/handler/assetlib"
 	auth "aigc-local-life/app/gateway/api/internal/handler/auth"
+	canvas "aigc-local-life/app/gateway/api/internal/handler/canvas"
 	common "aigc-local-life/app/gateway/api/internal/handler/common"
 	copywriting "aigc-local-life/app/gateway/api/internal/handler/copywriting"
 	digitalhuman "aigc-local-life/app/gateway/api/internal/handler/digitalhuman"
 	imagegen "aigc-local-life/app/gateway/api/internal/handler/imagegen"
 	note "aigc-local-life/app/gateway/api/internal/handler/note"
+	promptlib "aigc-local-life/app/gateway/api/internal/handler/promptlib"
 	shopprofile "aigc-local-life/app/gateway/api/internal/handler/shopprofile"
+	studio "aigc-local-life/app/gateway/api/internal/handler/studio"
 	videogen "aigc-local-life/app/gateway/api/internal/handler/videogen"
 	"aigc-local-life/app/gateway/api/internal/svc"
 
@@ -20,6 +24,87 @@ import (
 )
 
 func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
+	server.AddRoutes(
+		rest.WithMiddlewares(
+			[]rest.Middleware{serverCtx.Auth},
+			[]rest.Route{
+				{
+					// 资产列表（kind / source / media / tag / 收藏 / 关键字，page 分页）
+					Method:  http.MethodGet,
+					Path:    "/assets",
+					Handler: assetlib.ListAssetsHandler(serverCtx),
+				},
+				{
+					// 资产详情：版本 / 相关资产 / 生成结果，各自分页默认 6
+					Method:  http.MethodGet,
+					Path:    "/assets/:id",
+					Handler: assetlib.GetAssetHandler(serverCtx),
+				},
+				{
+					// 改标题 / 分类 / 收藏 / 标签 / 元数据 / 授权 / 当前版本（只改带了的字段）
+					Method:  http.MethodPatch,
+					Path:    "/assets/:id",
+					Handler: assetlib.UpdateAssetHandler(serverCtx),
+				},
+				{
+					// 建立资产关系
+					Method:  http.MethodPost,
+					Path:    "/assets/:id/relations",
+					Handler: assetlib.AddRelationHandler(serverCtx),
+				},
+				{
+					// 删除资产关系（reference 两个方向都删）
+					Method:  http.MethodDelete,
+					Path:    "/assets/:id/relations",
+					Handler: assetlib.RemoveRelationHandler(serverCtx),
+				},
+				{
+					// 追加版本（版本号自增），并设为当前版本
+					Method:  http.MethodPost,
+					Path:    "/assets/:id/versions",
+					Handler: assetlib.AddVersionHandler(serverCtx),
+				},
+				{
+					// 批量给资产加标签（追加）
+					Method:  http.MethodPost,
+					Path:    "/assets/batch-tag",
+					Handler: assetlib.BatchTagHandler(serverCtx),
+				},
+				{
+					// 分类条计数：all + 5 个 kind + uncategorized，随 source / media
+					Method:  http.MethodGet,
+					Path:    "/assets/categories",
+					Handler: assetlib.CategoriesHandler(serverCtx),
+				},
+				{
+					// 我的标签字典（含每个标签的资产数）
+					Method:  http.MethodGet,
+					Path:    "/tags",
+					Handler: assetlib.ListTagsHandler(serverCtx),
+				},
+				{
+					// 新建标签
+					Method:  http.MethodPost,
+					Path:    "/tags",
+					Handler: assetlib.CreateTagHandler(serverCtx),
+				},
+				{
+					// 删除标签（同时解除与资产的关联）
+					Method:  http.MethodDelete,
+					Path:    "/tags/:id",
+					Handler: assetlib.DeleteTagHandler(serverCtx),
+				},
+				{
+					// 重命名标签
+					Method:  http.MethodPut,
+					Path:    "/tags/:id",
+					Handler: assetlib.RenameTagHandler(serverCtx),
+				},
+			}...,
+		),
+		rest.WithPrefix("/api/v1/asset-library"),
+	)
+
 	server.AddRoutes(
 		[]rest.Route{
 			{
@@ -45,6 +130,117 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 			}...,
 		),
 		rest.WithPrefix("/api/v1/local-life"),
+	)
+
+	server.AddRoutes(
+		rest.WithMiddlewares(
+			[]rest.Middleware{serverCtx.Auth, serverCtx.CanvasBearer},
+			[]rest.Route{
+				{
+					// 画布列表（updated_at 倒序）
+					Method:  http.MethodGet,
+					Path:    "/canvases",
+					Handler: canvas.ListCanvasesHandler(serverCtx),
+				},
+				{
+					// 新建画布（空快照）
+					Method:  http.MethodPost,
+					Path:    "/canvases",
+					Handler: canvas.CreateCanvasHandler(serverCtx),
+				},
+				{
+					// 取画布：快照 + revision，运行态按最近一次 run 回填
+					Method:  http.MethodGet,
+					Path:    "/canvases/:id",
+					Handler: canvas.GetCanvasHandler(serverCtx),
+				},
+				{
+					// 保存（乐观锁 if_match_revision，冲突 code=4002 data.conflict=revision；force=true 覆盖）
+					Method:  http.MethodPut,
+					Path:    "/canvases/:id",
+					Handler: canvas.SaveCanvasHandler(serverCtx),
+				},
+				{
+					// 删除（逻辑删除）
+					Method:  http.MethodDelete,
+					Path:    "/canvases/:id",
+					Handler: canvas.DeleteCanvasHandler(serverCtx),
+				},
+				{
+					// 执行单个节点；必须带 Idempotency-Key（= run_id）
+					Method:  http.MethodPost,
+					Path:    "/canvases/:id/nodes/:node_id/run",
+					Handler: canvas.RunNodeHandler(serverCtx),
+				},
+				{
+					// 选中候选：写回 run.selected_index，刷新后 selectedCandidate 仍是它
+					Method:  http.MethodPost,
+					Path:    "/canvases/:id/nodes/:node_id/select-candidate",
+					Handler: canvas.SelectCandidateHandler(serverCtx),
+				},
+				{
+					// 画布的执行记录（新的在前）
+					Method:  http.MethodGet,
+					Path:    "/canvases/:id/runs",
+					Handler: canvas.ListRunsHandler(serverCtx),
+				},
+				{
+					// 另存为：复制已保存的快照（运行态剥离）
+					Method:  http.MethodPost,
+					Path:    "/canvases/:id/save-as",
+					Handler: canvas.SaveAsCanvasHandler(serverCtx),
+				},
+				{
+					// 从模板建画布（节点 / 连线 id 重新生成）
+					Method:  http.MethodPost,
+					Path:    "/canvases/from-template",
+					Handler: canvas.CreateFromTemplateHandler(serverCtx),
+				},
+				{
+					// 模型 / 参数 / 工具目录（替代前端写死）
+					Method:  http.MethodGet,
+					Path:    "/catalog",
+					Handler: canvas.CatalogHandler(serverCtx),
+				},
+				{
+					// 查询一次执行（轮询，1.2s）
+					Method:  http.MethodGet,
+					Path:    "/runs/:id",
+					Handler: canvas.GetRunHandler(serverCtx),
+				},
+				{
+					// 取消执行：gateway 退回点数并取消上游、studio 取消批次、Java 工具调 Java 取消接口（由 Java 退款；取消时已成功则交付；无有效登录态时退化为停止跟踪）
+					Method:  http.MethodPost,
+					Path:    "/runs/:id/cancel",
+					Handler: canvas.CancelRunHandler(serverCtx),
+				},
+				{
+					// 模板列表（official / user / all）
+					Method:  http.MethodGet,
+					Path:    "/templates",
+					Handler: canvas.ListTemplatesHandler(serverCtx),
+				},
+				{
+					// 把画布存为我的模板
+					Method:  http.MethodPost,
+					Path:    "/templates",
+					Handler: canvas.CreateTemplateHandler(serverCtx),
+				},
+				{
+					// 模板详情
+					Method:  http.MethodGet,
+					Path:    "/templates/:id",
+					Handler: canvas.GetTemplateHandler(serverCtx),
+				},
+				{
+					// 删除我的模板（官方模板不可删）
+					Method:  http.MethodDelete,
+					Path:    "/templates/:id",
+					Handler: canvas.DeleteTemplateHandler(serverCtx),
+				},
+			}...,
+		),
+		rest.WithPrefix("/api/v1/canvas"),
 	)
 
 	server.AddRoutes(
@@ -355,6 +551,39 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 			[]rest.Middleware{serverCtx.Auth},
 			[]rest.Route{
 				{
+					// 提示词列表：官方（启用）+ 我的
+					Method:  http.MethodGet,
+					Path:    "/prompts",
+					Handler: promptlib.ListPromptsHandler(serverCtx),
+				},
+				{
+					// 新增我的提示词（每人 ≤500 条）
+					Method:  http.MethodPost,
+					Path:    "/prompts",
+					Handler: promptlib.CreatePromptHandler(serverCtx),
+				},
+				{
+					// 修改我的提示词（官方 4002）
+					Method:  http.MethodPut,
+					Path:    "/prompts/:id",
+					Handler: promptlib.UpdatePromptHandler(serverCtx),
+				},
+				{
+					// 删除我的提示词（官方 4002）
+					Method:  http.MethodDelete,
+					Path:    "/prompts/:id",
+					Handler: promptlib.DeletePromptHandler(serverCtx),
+				},
+			}...,
+		),
+		rest.WithPrefix("/api/v1/prompt-library"),
+	)
+
+	server.AddRoutes(
+		rest.WithMiddlewares(
+			[]rest.Middleware{serverCtx.Auth},
+			[]rest.Route{
+				{
 					// 店铺档案列表
 					Method:  http.MethodGet,
 					Path:    "/shop-profiles",
@@ -387,6 +616,63 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 			}...,
 		),
 		rest.WithPrefix("/api/v1/local-life"),
+	)
+
+	server.AddRoutes(
+		rest.WithMiddlewares(
+			[]rest.Middleware{serverCtx.Auth},
+			[]rest.Route{
+				{
+					// 批次详情 + 子任务（生成中轮询此接口）
+					Method:  http.MethodGet,
+					Path:    "/batches/:id",
+					Handler: studio.GetBatchHandler(serverCtx),
+				},
+				{
+					// 删除批次（生成中不能删）
+					Method:  http.MethodDelete,
+					Path:    "/batches/:id",
+					Handler: studio.DeleteBatchHandler(serverCtx),
+				},
+				{
+					// 取消批次：停止跟踪，未开始的任务退款
+					Method:  http.MethodPost,
+					Path:    "/batches/:id/cancel",
+					Handler: studio.CancelBatchHandler(serverCtx),
+				},
+				{
+					// 历史（游标分页），含提交快照供回填
+					Method:  http.MethodGet,
+					Path:    "/history",
+					Handler: studio.HistoryHandler(serverCtx),
+				},
+				{
+					// 图片生成（count 张拆任务）；必须带 Idempotency-Key
+					Method:  http.MethodPost,
+					Path:    "/image-generate/submit",
+					Handler: studio.SubmitImageGenHandler(serverCtx),
+				},
+				{
+					// 姿态复刻整批提交（人物 1 张 + 姿势 1–9 张）；必须带 Idempotency-Key
+					Method:  http.MethodPost,
+					Path:    "/pose/submit",
+					Handler: studio.SubmitPoseHandler(serverCtx),
+				},
+				{
+					// 单个子任务
+					Method:  http.MethodGet,
+					Path:    "/tasks/:task_id",
+					Handler: studio.GetTaskHandler(serverCtx),
+				},
+				{
+					// 商拍换装整批提交（模特 × 每位张数，服务端拆任务）；必须带 Idempotency-Key
+					Method:  http.MethodPost,
+					Path:    "/tryon/submit",
+					Handler: studio.SubmitTryonHandler(serverCtx),
+				},
+			}...,
+		),
+		rest.WithPrefix("/api/v1/studio"),
 	)
 
 	server.AddRoutes(

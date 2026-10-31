@@ -1,8 +1,10 @@
 package middleware
 
 import (
+	"context"
 	"errors"
 	"net/http"
+	"path"
 	"strconv"
 	"strings"
 
@@ -20,6 +22,71 @@ const (
 	permView   = "local_life:view"
 	permUpdate = "local_life:update"
 )
+
+// prefixPerms 按路由前缀单独取权限码的模块；没列出的前缀用本地生活的码。
+var prefixPerms = []struct{ prefix, view, update string }{
+	{"/api/v1/asset-library/admin", "asset_library:view", "asset_library:update"}, // Go_V1.0.24
+	{"/api/v1/studio/admin", "studio:view", "studio:update"},                      // Go_V1.0.22（GET 列表/详情/依赖/成本 = view；POST 重做/强制失败 = update）
+	{"/api/v1/canvas/admin", "canvas:view", "canvas:update"},                      // Go_V1.0.26（GET = view；POST/PUT 强制失败、模板 / 提示词维护 = update）
+	{"/api/v1/prompt-library/admin", "canvas:view", "canvas:update"},              // Go_V1.0.26（提示词库与画布共用一组权限）
+}
+
+// permFor 当前请求需要的权限码：GET / HEAD 要 view，其它要 update。
+// 先 path.Clean 再匹配（go-zero 路由按清理后的路径分发；用原始路径会被 `//`、`..` 绕到别的模块的权限上），
+// 前缀按整段匹配：等于前缀或以「前缀/」开头。
+func permFor(r *http.Request) string {
+	view, update := permView, permUpdate
+	p := cleanPath(r.URL.Path)
+	for _, x := range prefixPerms {
+		if p == x.prefix || strings.HasPrefix(p, x.prefix+"/") {
+			view, update = x.view, x.update
+			break
+		}
+	}
+	if r.Method == http.MethodGet || r.Method == http.MethodHead {
+		return view
+	}
+	return update
+}
+
+// cleanPath 与路由同口径的路径清理：path.Clean，并保证以 / 开头。
+func cleanPath(p string) string {
+	if p == "" || p[0] != '/' {
+		p = "/" + p
+	}
+	return path.Clean(p)
+}
+
+// permCheckerKey 请求 ctx 里的权限判断函数（共享模式下由中间件放入）。
+type permCheckerKey struct{}
+
+// WithPermChecker 把权限判断函数放进 ctx（中间件共享模式下调用；单测也用它模拟）。
+func WithPermChecker(ctx context.Context, fn func(context.Context, string) (bool, error)) context.Context {
+	return context.WithValue(ctx, permCheckerKey{}, fn)
+}
+
+// Allowed 当前管理员是否有某权限码：与中间件同一套判断（session.AllowAdmin，Java RBAC 表）。
+// 独立模式（没配会话 Redis，仅开发）没有 RBAC，返回 true，与中间件放行口径一致。
+// 给 handler / logic 做「同一接口按数据再细分权限」用，如本地生活任务入口里的 studio 任务要 studio:update。
+func Allowed(ctx context.Context, code string) (bool, error) {
+	fn, ok := ctx.Value(permCheckerKey{}).(func(context.Context, string) (bool, error))
+	if !ok {
+		return true, nil
+	}
+	return fn(ctx, code)
+}
+
+// Require Allowed 的报错版：没有权限返回 Forbidden（文案同中间件）。
+func Require(ctx context.Context, code string) error {
+	ok, err := Allowed(ctx, code)
+	if err != nil {
+		return xerr.New(xerr.ServerError, "权限校验失败")
+	}
+	if !ok {
+		return xerr.New(xerr.Forbidden, "没有权限："+code)
+	}
+	return nil
+}
 
 // AdminAuthMiddleware 解析当前管理员。
 //
@@ -82,11 +149,11 @@ func (m *AdminAuthMiddleware) handleShared(w http.ResponseWriter, r *http.Reques
 		result.Error(w, r, xerr.ServerError, "后台会话校验失败")
 		return
 	}
-	code := permUpdate
-	if r.Method == http.MethodGet || r.Method == http.MethodHead {
-		code = permView
+	allow := func(ctx context.Context, code string) (bool, error) {
+		return session.AllowAdmin(ctx, m.conn, a.AdminID, code)
 	}
-	ok, err := session.AllowAdmin(r.Context(), m.conn, a.AdminID, code)
+	code := permFor(r)
+	ok, err := allow(r.Context(), code)
 	if err != nil {
 		result.Error(w, r, xerr.ServerError, "权限校验失败")
 		return
@@ -95,7 +162,8 @@ func (m *AdminAuthMiddleware) handleShared(w http.ResponseWriter, r *http.Reques
 		result.Error(w, r, xerr.Forbidden, "没有权限："+code)
 		return
 	}
-	next(w, r.WithContext(ctxdata.WithAdminID(r.Context(), a.AdminID)))
+	ctx := WithPermChecker(ctxdata.WithAdminID(r.Context(), a.AdminID), allow)
+	next(w, r.WithContext(ctx))
 }
 
 // bearer 取 Authorization 头里的令牌。

@@ -17,6 +17,1144 @@
   },
   "basePath": "/",
   "paths": {
+    "/api/v1/asset-library/admin/kind-stats": {
+      "get": {
+        "security": [
+          {
+            "auth": []
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "资产库"
+        ],
+        "summary": "分类统计：按 kind × 来源计数",
+        "operationId": "assetlibKindStats",
+        "parameters": [
+          {
+            "type": "integer",
+            "description": "0=全部用户",
+            "name": "user_id",
+            "in": "query",
+            "allowEmptyValue": true
+          },
+          {
+            "enum": [
+              "image",
+              "video"
+            ],
+            "type": "string",
+            "name": "media",
+            "in": "query",
+            "allowEmptyValue": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
+                  "type": "integer",
+                  "example": 0
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "kinds": {
+                      "description": "按 kind 汇总（含 all）",
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "key",
+                          "label",
+                          "count"
+                        ],
+                        "properties": {
+                          "count": {
+                            "type": "integer"
+                          },
+                          "key": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "rows": {
+                      "description": "kind × source",
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "kind",
+                          "source",
+                          "count"
+                        ],
+                        "properties": {
+                          "count": {
+                            "type": "integer"
+                          },
+                          "kind": {
+                            "description": "5 个 kind 或 uncategorized",
+                            "type": "string"
+                          },
+                          "source": {
+                            "description": "upload / generated / official",
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "sources": {
+                      "description": "按来源汇总",
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "key",
+                          "label",
+                          "count"
+                        ],
+                        "properties": {
+                          "count": {
+                            "type": "integer"
+                          },
+                          "key": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "msg": {
+                  "description": "business message",
+                  "type": "string",
+                  "example": "ok"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/asset-library/admin/tags": {
+      "get": {
+        "security": [
+          {
+            "auth": []
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "资产库"
+        ],
+        "summary": "标签字典（全部用户，分页）",
+        "operationId": "assetlibListTags",
+        "parameters": [
+          {
+            "type": "integer",
+            "default": 1,
+            "example": 1,
+            "name": "page",
+            "in": "query",
+            "allowEmptyValue": true
+          },
+          {
+            "type": "integer",
+            "default": 20,
+            "example": 20,
+            "name": "page_size",
+            "in": "query",
+            "allowEmptyValue": true
+          },
+          {
+            "type": "integer",
+            "description": "0=全部用户",
+            "name": "user_id",
+            "in": "query",
+            "allowEmptyValue": true
+          },
+          {
+            "type": "string",
+            "description": "标签名模糊",
+            "name": "q",
+            "in": "query",
+            "allowEmptyValue": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
+                  "type": "integer",
+                  "example": 0
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "list": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "user_id",
+                          "name",
+                          "asset_count",
+                          "created_at"
+                        ],
+                        "properties": {
+                          "asset_count": {
+                            "type": "integer"
+                          },
+                          "created_at": {
+                            "type": "integer"
+                          },
+                          "id": {
+                            "type": "integer"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "user_id": {
+                            "type": "integer"
+                          }
+                        }
+                      }
+                    },
+                    "total": {
+                      "type": "integer"
+                    }
+                  }
+                },
+                "msg": {
+                  "description": "business message",
+                  "type": "string",
+                  "example": "ok"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/canvas/admin/cost-summary": {
+      "get": {
+        "security": [
+          {
+            "auth": []
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "画布"
+        ],
+        "summary": "成本汇总（按 kind 或 model_group）",
+        "operationId": "canvasCostSummary",
+        "parameters": [
+          {
+            "type": "integer",
+            "name": "start",
+            "in": "query",
+            "allowEmptyValue": true
+          },
+          {
+            "type": "integer",
+            "name": "end",
+            "in": "query",
+            "allowEmptyValue": true
+          },
+          {
+            "enum": [
+              "kind",
+              "model_group"
+            ],
+            "type": "string",
+            "default": "kind",
+            "example": "kind",
+            "name": "group_by",
+            "in": "query",
+            "allowEmptyValue": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
+                  "type": "integer",
+                  "example": 0
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "rows": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "key",
+                          "runs",
+                          "succeeded",
+                          "failed",
+                          "canceled",
+                          "cost_cny",
+                          "points"
+                        ],
+                        "properties": {
+                          "canceled": {
+                            "type": "integer"
+                          },
+                          "cost_cny": {
+                            "type": "string"
+                          },
+                          "failed": {
+                            "type": "integer"
+                          },
+                          "key": {
+                            "type": "string"
+                          },
+                          "points": {
+                            "type": "integer"
+                          },
+                          "runs": {
+                            "type": "integer"
+                          },
+                          "succeeded": {
+                            "type": "integer"
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "msg": {
+                  "description": "business message",
+                  "type": "string",
+                  "example": "ok"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/canvas/admin/runs": {
+      "get": {
+        "security": [
+          {
+            "auth": []
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "画布"
+        ],
+        "summary": "节点执行（run）列表",
+        "operationId": "canvasListRuns",
+        "parameters": [
+          {
+            "type": "integer",
+            "default": 1,
+            "example": 1,
+            "name": "page",
+            "in": "query",
+            "allowEmptyValue": true
+          },
+          {
+            "type": "integer",
+            "default": 20,
+            "example": 20,
+            "description": "上限 100",
+            "name": "page_size",
+            "in": "query",
+            "allowEmptyValue": true
+          },
+          {
+            "type": "integer",
+            "name": "user_id",
+            "in": "query",
+            "allowEmptyValue": true
+          },
+          {
+            "type": "string",
+            "name": "canvas_id",
+            "in": "query",
+            "allowEmptyValue": true
+          },
+          {
+            "type": "string",
+            "description": "image / video / tool_crop / tool_upscale / tool_outpaint / tool_inpaint / tool_i2p / tool_tryon",
+            "name": "kind",
+            "in": "query",
+            "allowEmptyValue": true
+          },
+          {
+            "type": "integer",
+            "default": -1,
+            "example": -1,
+            "description": "-1 全部；0 排队 1 运行中 2 成功 3 失败 4 已取消",
+            "name": "status",
+            "in": "query",
+            "allowEmptyValue": true
+          },
+          {
+            "type": "string",
+            "description": "gateway / media / java / studio",
+            "name": "backend",
+            "in": "query",
+            "allowEmptyValue": true
+          },
+          {
+            "type": "integer",
+            "description": "unix 毫秒",
+            "name": "start",
+            "in": "query",
+            "allowEmptyValue": true
+          },
+          {
+            "type": "integer",
+            "name": "end",
+            "in": "query",
+            "allowEmptyValue": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
+                  "type": "integer",
+                  "example": 0
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "list": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "run_id",
+                          "task_id",
+                          "user_id",
+                          "canvas_id",
+                          "node_id",
+                          "kind",
+                          "status",
+                          "progress",
+                          "model",
+                          "model_group",
+                          "backend",
+                          "backend_ref",
+                          "billing_request_id",
+                          "billing_status",
+                          "credits",
+                          "cost_cny",
+                          "attempt",
+                          "candidates",
+                          "video_url",
+                          "text",
+                          "error",
+                          "error_code",
+                          "request",
+                          "created_at",
+                          "started_at",
+                          "finished_at"
+                        ],
+                        "properties": {
+                          "attempt": {
+                            "type": "integer"
+                          },
+                          "backend": {
+                            "type": "string"
+                          },
+                          "backend_ref": {
+                            "description": "gateway call_id（逗号分隔）/ Java taskUid / studio batch_id",
+                            "type": "string"
+                          },
+                          "billing_request_id": {
+                            "type": "string"
+                          },
+                          "billing_status": {
+                            "description": "none/held/settled/refunded/shadow/java/studio/review",
+                            "type": "string"
+                          },
+                          "candidates": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "canvas_id": {
+                            "type": "string"
+                          },
+                          "cost_cny": {
+                            "type": "string"
+                          },
+                          "created_at": {
+                            "type": "integer"
+                          },
+                          "credits": {
+                            "type": "integer"
+                          },
+                          "error": {
+                            "type": "string"
+                          },
+                          "error_code": {
+                            "type": "string"
+                          },
+                          "finished_at": {
+                            "type": "integer"
+                          },
+                          "id": {
+                            "description": "= request_id",
+                            "type": "integer"
+                          },
+                          "kind": {
+                            "type": "string"
+                          },
+                          "model": {
+                            "type": "string"
+                          },
+                          "model_group": {
+                            "type": "string"
+                          },
+                          "node_id": {
+                            "type": "string"
+                          },
+                          "progress": {
+                            "type": "integer"
+                          },
+                          "request": {
+                            "description": "RunNodeRequest JSON",
+                            "type": "string"
+                          },
+                          "run_id": {
+                            "type": "string"
+                          },
+                          "started_at": {
+                            "type": "integer"
+                          },
+                          "status": {
+                            "type": "string"
+                          },
+                          "task_id": {
+                            "type": "string"
+                          },
+                          "text": {
+                            "type": "string"
+                          },
+                          "user_id": {
+                            "type": "integer"
+                          },
+                          "video_url": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "total": {
+                      "type": "integer"
+                    }
+                  }
+                },
+                "msg": {
+                  "description": "business message",
+                  "type": "string",
+                  "example": "ok"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/canvas/admin/runs/{id}/force-fail": {
+      "post": {
+        "security": [
+          {
+            "auth": []
+          }
+        ],
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "画布"
+        ],
+        "summary": "强制失败未结束的 run（gateway 后端退款并取消上游）",
+        "operationId": "canvasForceFailRun",
+        "parameters": [
+          {
+            "type": "integer",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "reason": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
+                  "type": "integer",
+                  "example": 0
+                },
+                "data": {
+                  "type": "object"
+                },
+                "msg": {
+                  "description": "business message",
+                  "type": "string",
+                  "example": "ok"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/canvas/admin/templates": {
+      "get": {
+        "security": [
+          {
+            "auth": []
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "画布"
+        ],
+        "summary": "模板列表（官方 + 用户）",
+        "operationId": "canvasListTemplates",
+        "parameters": [
+          {
+            "type": "integer",
+            "default": 1,
+            "example": 1,
+            "name": "page",
+            "in": "query",
+            "allowEmptyValue": true
+          },
+          {
+            "type": "integer",
+            "default": 20,
+            "example": 20,
+            "name": "page_size",
+            "in": "query",
+            "allowEmptyValue": true
+          },
+          {
+            "enum": [
+              "official",
+              "user"
+            ],
+            "type": "string",
+            "name": "scope",
+            "in": "query",
+            "allowEmptyValue": true
+          },
+          {
+            "type": "integer",
+            "default": -1,
+            "example": -1,
+            "name": "enabled",
+            "in": "query",
+            "allowEmptyValue": true
+          },
+          {
+            "type": "string",
+            "name": "q",
+            "in": "query",
+            "allowEmptyValue": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
+                  "type": "integer",
+                  "example": 0
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "list": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "scope",
+                          "user_id",
+                          "title",
+                          "description",
+                          "cover_url",
+                          "sort",
+                          "enabled",
+                          "node_count",
+                          "edge_count",
+                          "snapshot",
+                          "created_at",
+                          "updated_at"
+                        ],
+                        "properties": {
+                          "cover_url": {
+                            "type": "string"
+                          },
+                          "created_at": {
+                            "type": "integer"
+                          },
+                          "description": {
+                            "type": "string"
+                          },
+                          "edge_count": {
+                            "type": "integer"
+                          },
+                          "enabled": {
+                            "type": "boolean"
+                          },
+                          "id": {
+                            "type": "integer"
+                          },
+                          "node_count": {
+                            "type": "integer"
+                          },
+                          "scope": {
+                            "type": "string"
+                          },
+                          "snapshot": {
+                            "description": "JSON 文本 {nodes, edges}",
+                            "type": "string"
+                          },
+                          "sort": {
+                            "type": "integer"
+                          },
+                          "title": {
+                            "type": "string"
+                          },
+                          "updated_at": {
+                            "type": "integer"
+                          },
+                          "user_id": {
+                            "type": "integer"
+                          }
+                        }
+                      }
+                    },
+                    "total": {
+                      "type": "integer"
+                    }
+                  }
+                },
+                "msg": {
+                  "description": "business message",
+                  "type": "string",
+                  "example": "ok"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "security": [
+          {
+            "auth": []
+          }
+        ],
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "画布"
+        ],
+        "summary": "新增官方模板",
+        "operationId": "canvasCreateTemplate",
+        "parameters": [
+          {
+            "type": "integer",
+            "name": "id",
+            "in": "path"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "required": [
+                "title",
+                "snapshot"
+              ],
+              "properties": {
+                "cover_url": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "enabled": {
+                  "type": "boolean"
+                },
+                "snapshot": {
+                  "description": "JSON 文本 {nodes, edges}，按连线规则校验",
+                  "type": "string"
+                },
+                "sort": {
+                  "type": "integer"
+                },
+                "title": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
+                  "type": "integer",
+                  "example": 0
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "cover_url": {
+                      "type": "string"
+                    },
+                    "created_at": {
+                      "type": "integer"
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "edge_count": {
+                      "type": "integer"
+                    },
+                    "enabled": {
+                      "type": "boolean"
+                    },
+                    "id": {
+                      "type": "integer"
+                    },
+                    "node_count": {
+                      "type": "integer"
+                    },
+                    "scope": {
+                      "type": "string"
+                    },
+                    "snapshot": {
+                      "description": "JSON 文本 {nodes, edges}",
+                      "type": "string"
+                    },
+                    "sort": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "updated_at": {
+                      "type": "integer"
+                    },
+                    "user_id": {
+                      "type": "integer"
+                    }
+                  }
+                },
+                "msg": {
+                  "description": "business message",
+                  "type": "string",
+                  "example": "ok"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/canvas/admin/templates/{id}": {
+      "put": {
+        "security": [
+          {
+            "auth": []
+          }
+        ],
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "画布"
+        ],
+        "summary": "编辑官方模板",
+        "operationId": "canvasUpdateTemplate",
+        "parameters": [
+          {
+            "type": "integer",
+            "name": "id",
+            "in": "path"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "required": [
+                "title",
+                "snapshot"
+              ],
+              "properties": {
+                "cover_url": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "enabled": {
+                  "type": "boolean"
+                },
+                "snapshot": {
+                  "description": "JSON 文本 {nodes, edges}，按连线规则校验",
+                  "type": "string"
+                },
+                "sort": {
+                  "type": "integer"
+                },
+                "title": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
+                  "type": "integer",
+                  "example": 0
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "cover_url": {
+                      "type": "string"
+                    },
+                    "created_at": {
+                      "type": "integer"
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "edge_count": {
+                      "type": "integer"
+                    },
+                    "enabled": {
+                      "type": "boolean"
+                    },
+                    "id": {
+                      "type": "integer"
+                    },
+                    "node_count": {
+                      "type": "integer"
+                    },
+                    "scope": {
+                      "type": "string"
+                    },
+                    "snapshot": {
+                      "description": "JSON 文本 {nodes, edges}",
+                      "type": "string"
+                    },
+                    "sort": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "updated_at": {
+                      "type": "integer"
+                    },
+                    "user_id": {
+                      "type": "integer"
+                    }
+                  }
+                },
+                "msg": {
+                  "description": "business message",
+                  "type": "string",
+                  "example": "ok"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/canvas/admin/templates/{id}/toggle": {
+      "post": {
+        "security": [
+          {
+            "auth": []
+          }
+        ],
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "画布"
+        ],
+        "summary": "模板上下架",
+        "operationId": "canvasToggleTemplate",
+        "parameters": [
+          {
+            "type": "integer",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "required": [
+                "enabled"
+              ],
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
+                  "type": "integer",
+                  "example": 0
+                },
+                "data": {
+                  "type": "object"
+                },
+                "msg": {
+                  "description": "business message",
+                  "type": "string",
+                  "example": "ok"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/local-life/admin/auth/login": {
       "post": {
         "consumes": [
@@ -2831,6 +3969,1341 @@
           }
         }
       }
+    },
+    "/api/v1/prompt-library/admin/prompts": {
+      "get": {
+        "security": [
+          {
+            "auth": []
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "提示词库"
+        ],
+        "summary": "提示词列表（默认官方）",
+        "operationId": "promptlibListPrompts",
+        "parameters": [
+          {
+            "type": "integer",
+            "default": 1,
+            "example": 1,
+            "name": "page",
+            "in": "query",
+            "allowEmptyValue": true
+          },
+          {
+            "type": "integer",
+            "default": 20,
+            "example": 20,
+            "name": "page_size",
+            "in": "query",
+            "allowEmptyValue": true
+          },
+          {
+            "enum": [
+              "official",
+              "user",
+              "all"
+            ],
+            "type": "string",
+            "default": "official",
+            "example": "official",
+            "name": "scope",
+            "in": "query",
+            "allowEmptyValue": true
+          },
+          {
+            "type": "string",
+            "name": "vertical",
+            "in": "query",
+            "allowEmptyValue": true
+          },
+          {
+            "type": "string",
+            "name": "group",
+            "in": "query",
+            "allowEmptyValue": true
+          },
+          {
+            "type": "integer",
+            "default": -1,
+            "example": -1,
+            "name": "enabled",
+            "in": "query",
+            "allowEmptyValue": true
+          },
+          {
+            "type": "string",
+            "name": "q",
+            "in": "query",
+            "allowEmptyValue": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
+                  "type": "integer",
+                  "example": 0
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "list": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "user_id",
+                          "title",
+                          "prompt",
+                          "vertical",
+                          "group",
+                          "models",
+                          "tags",
+                          "source",
+                          "owner",
+                          "enabled",
+                          "sort",
+                          "created_at",
+                          "updated_at"
+                        ],
+                        "properties": {
+                          "created_at": {
+                            "type": "integer"
+                          },
+                          "enabled": {
+                            "type": "boolean"
+                          },
+                          "group": {
+                            "type": "string"
+                          },
+                          "id": {
+                            "type": "integer"
+                          },
+                          "models": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "owner": {
+                            "type": "string"
+                          },
+                          "prompt": {
+                            "type": "string"
+                          },
+                          "sort": {
+                            "type": "integer"
+                          },
+                          "source": {
+                            "type": "string"
+                          },
+                          "tags": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "title": {
+                            "type": "string"
+                          },
+                          "updated_at": {
+                            "type": "integer"
+                          },
+                          "user_id": {
+                            "description": "0 = 官方",
+                            "type": "integer"
+                          },
+                          "vertical": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "total": {
+                      "type": "integer"
+                    }
+                  }
+                },
+                "msg": {
+                  "description": "business message",
+                  "type": "string",
+                  "example": "ok"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "security": [
+          {
+            "auth": []
+          }
+        ],
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "提示词库"
+        ],
+        "summary": "新增官方提示词",
+        "operationId": "promptlibCreatePrompt",
+        "parameters": [
+          {
+            "type": "integer",
+            "name": "id",
+            "in": "path"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "required": [
+                "title",
+                "prompt",
+                "vertical",
+                "group"
+              ],
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "group": {
+                  "type": "string"
+                },
+                "models": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "prompt": {
+                  "type": "string"
+                },
+                "sort": {
+                  "type": "integer"
+                },
+                "source": {
+                  "type": "string"
+                },
+                "tags": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "title": {
+                  "type": "string"
+                },
+                "vertical": {
+                  "type": "string",
+                  "enum": [
+                    "ecommerce",
+                    "general"
+                  ]
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
+                  "type": "integer",
+                  "example": 0
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "created_at": {
+                      "type": "integer"
+                    },
+                    "enabled": {
+                      "type": "boolean"
+                    },
+                    "group": {
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "integer"
+                    },
+                    "models": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "owner": {
+                      "type": "string"
+                    },
+                    "prompt": {
+                      "type": "string"
+                    },
+                    "sort": {
+                      "type": "integer"
+                    },
+                    "source": {
+                      "type": "string"
+                    },
+                    "tags": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "updated_at": {
+                      "type": "integer"
+                    },
+                    "user_id": {
+                      "description": "0 = 官方",
+                      "type": "integer"
+                    },
+                    "vertical": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "msg": {
+                  "description": "business message",
+                  "type": "string",
+                  "example": "ok"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/prompt-library/admin/prompts/{id}": {
+      "put": {
+        "security": [
+          {
+            "auth": []
+          }
+        ],
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "提示词库"
+        ],
+        "summary": "编辑官方提示词",
+        "operationId": "promptlibUpdatePrompt",
+        "parameters": [
+          {
+            "type": "integer",
+            "name": "id",
+            "in": "path"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "required": [
+                "title",
+                "prompt",
+                "vertical",
+                "group"
+              ],
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "group": {
+                  "type": "string"
+                },
+                "models": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "prompt": {
+                  "type": "string"
+                },
+                "sort": {
+                  "type": "integer"
+                },
+                "source": {
+                  "type": "string"
+                },
+                "tags": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "title": {
+                  "type": "string"
+                },
+                "vertical": {
+                  "type": "string",
+                  "enum": [
+                    "ecommerce",
+                    "general"
+                  ]
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
+                  "type": "integer",
+                  "example": 0
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "created_at": {
+                      "type": "integer"
+                    },
+                    "enabled": {
+                      "type": "boolean"
+                    },
+                    "group": {
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "integer"
+                    },
+                    "models": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "owner": {
+                      "type": "string"
+                    },
+                    "prompt": {
+                      "type": "string"
+                    },
+                    "sort": {
+                      "type": "integer"
+                    },
+                    "source": {
+                      "type": "string"
+                    },
+                    "tags": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "updated_at": {
+                      "type": "integer"
+                    },
+                    "user_id": {
+                      "description": "0 = 官方",
+                      "type": "integer"
+                    },
+                    "vertical": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "msg": {
+                  "description": "business message",
+                  "type": "string",
+                  "example": "ok"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/prompt-library/admin/prompts/{id}/toggle": {
+      "post": {
+        "security": [
+          {
+            "auth": []
+          }
+        ],
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "提示词库"
+        ],
+        "summary": "官方提示词启停",
+        "operationId": "promptlibTogglePrompt",
+        "parameters": [
+          {
+            "type": "integer",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "required": [
+                "enabled"
+              ],
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
+                  "type": "integer",
+                  "example": 0
+                },
+                "data": {
+                  "type": "object"
+                },
+                "msg": {
+                  "description": "business message",
+                  "type": "string",
+                  "example": "ok"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/studio/admin/batches": {
+      "get": {
+        "security": [
+          {
+            "auth": []
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "studio（商拍 / 姿态 / 图片生成）"
+        ],
+        "summary": "批次列表",
+        "operationId": "studioListBatches",
+        "parameters": [
+          {
+            "type": "integer",
+            "default": 1,
+            "example": 1,
+            "name": "page",
+            "in": "query",
+            "allowEmptyValue": true
+          },
+          {
+            "type": "integer",
+            "default": 20,
+            "example": 20,
+            "name": "page_size",
+            "in": "query",
+            "allowEmptyValue": true
+          },
+          {
+            "type": "integer",
+            "name": "user_id",
+            "in": "query",
+            "allowEmptyValue": true
+          },
+          {
+            "enum": [
+              "tryon",
+              "pose",
+              "imagegen"
+            ],
+            "type": "string",
+            "name": "kind",
+            "in": "query",
+            "allowEmptyValue": true
+          },
+          {
+            "type": "integer",
+            "default": -1,
+            "example": -1,
+            "description": "-1=全部；0-排队 1-切图中 2-反推中 3-生图中 4-全部成功 5-全部失败 6-部分成功 7-已取消",
+            "name": "status",
+            "in": "query",
+            "allowEmptyValue": true
+          },
+          {
+            "type": "integer",
+            "description": "创建时间起（unix 毫秒，含）",
+            "name": "start_at",
+            "in": "query",
+            "allowEmptyValue": true
+          },
+          {
+            "type": "integer",
+            "description": "创建时间止（unix 毫秒，不含）",
+            "name": "end_at",
+            "in": "query",
+            "allowEmptyValue": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
+                  "type": "integer",
+                  "example": 0
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "list": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "user_id",
+                          "workspace_id",
+                          "kind",
+                          "status",
+                          "request_id",
+                          "payload",
+                          "task_total",
+                          "task_done",
+                          "task_failed",
+                          "estimated_points",
+                          "cost_cny",
+                          "model_group",
+                          "error_reason",
+                          "cover_url",
+                          "created_at",
+                          "updated_at"
+                        ],
+                        "properties": {
+                          "cost_cny": {
+                            "type": "string"
+                          },
+                          "cover_url": {
+                            "type": "string"
+                          },
+                          "created_at": {
+                            "type": "integer"
+                          },
+                          "error_reason": {
+                            "type": "string"
+                          },
+                          "estimated_points": {
+                            "type": "integer"
+                          },
+                          "id": {
+                            "type": "integer"
+                          },
+                          "kind": {
+                            "type": "string"
+                          },
+                          "model_group": {
+                            "type": "string"
+                          },
+                          "payload": {
+                            "description": "JSON 文本",
+                            "type": "string"
+                          },
+                          "request_id": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "integer"
+                          },
+                          "task_done": {
+                            "type": "integer"
+                          },
+                          "task_failed": {
+                            "type": "integer"
+                          },
+                          "task_total": {
+                            "type": "integer"
+                          },
+                          "updated_at": {
+                            "type": "integer"
+                          },
+                          "user_id": {
+                            "type": "integer"
+                          },
+                          "workspace_id": {
+                            "type": "integer"
+                          }
+                        }
+                      }
+                    },
+                    "total": {
+                      "type": "integer"
+                    }
+                  }
+                },
+                "msg": {
+                  "description": "business message",
+                  "type": "string",
+                  "example": "ok"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/studio/admin/batches/{id}": {
+      "get": {
+        "security": [
+          {
+            "auth": []
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "studio（商拍 / 姿态 / 图片生成）"
+        ],
+        "summary": "批次详情：切图框、组图、prompt、每步耗时与成本",
+        "operationId": "studioGetBatch",
+        "parameters": [
+          {
+            "type": "integer",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
+                  "type": "integer",
+                  "example": 0
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "batch": {
+                      "type": "object",
+                      "required": [
+                        "id",
+                        "user_id",
+                        "workspace_id",
+                        "kind",
+                        "status",
+                        "request_id",
+                        "payload",
+                        "task_total",
+                        "task_done",
+                        "task_failed",
+                        "estimated_points",
+                        "cost_cny",
+                        "model_group",
+                        "error_reason",
+                        "cover_url",
+                        "created_at",
+                        "updated_at"
+                      ],
+                      "properties": {
+                        "cost_cny": {
+                          "type": "string"
+                        },
+                        "cover_url": {
+                          "type": "string"
+                        },
+                        "created_at": {
+                          "type": "integer"
+                        },
+                        "error_reason": {
+                          "type": "string"
+                        },
+                        "estimated_points": {
+                          "type": "integer"
+                        },
+                        "id": {
+                          "type": "integer"
+                        },
+                        "kind": {
+                          "type": "string"
+                        },
+                        "model_group": {
+                          "type": "string"
+                        },
+                        "payload": {
+                          "description": "JSON 文本",
+                          "type": "string"
+                        },
+                        "request_id": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "integer"
+                        },
+                        "task_done": {
+                          "type": "integer"
+                        },
+                        "task_failed": {
+                          "type": "integer"
+                        },
+                        "task_total": {
+                          "type": "integer"
+                        },
+                        "updated_at": {
+                          "type": "integer"
+                        },
+                        "user_id": {
+                          "type": "integer"
+                        },
+                        "workspace_id": {
+                          "type": "integer"
+                        }
+                      }
+                    },
+                    "crop_check": {
+                      "description": "切图质检（JSON 文本）",
+                      "type": "string"
+                    },
+                    "crop_plan": {
+                      "description": "切图框（JSON 文本，0–1 归一化）",
+                      "type": "string"
+                    },
+                    "selected_images": {
+                      "description": "组图（JSON 文本）",
+                      "type": "string"
+                    },
+                    "step_log": {
+                      "description": "每步耗时与成本（JSON 文本）",
+                      "type": "string"
+                    },
+                    "tasks": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "task_id",
+                          "model_index",
+                          "shot_index",
+                          "pose_index",
+                          "status",
+                          "result_url",
+                          "result_width",
+                          "result_height",
+                          "error_reason",
+                          "model_group",
+                          "prompt_text",
+                          "prompt_meta",
+                          "input_images",
+                          "gateway_call_id",
+                          "gateway_status",
+                          "attempt",
+                          "admin_locked",
+                          "cost_cny",
+                          "billing_request_id",
+                          "billing_status",
+                          "duration_ms",
+                          "created_at",
+                          "started_at",
+                          "finished_at"
+                        ],
+                        "properties": {
+                          "admin_locked": {
+                            "type": "boolean"
+                          },
+                          "attempt": {
+                            "type": "integer"
+                          },
+                          "billing_request_id": {
+                            "type": "string"
+                          },
+                          "billing_status": {
+                            "description": "0-未计费 1-已冻结 2-已结算 3-已退回 4-影子模式",
+                            "type": "integer"
+                          },
+                          "cost_cny": {
+                            "type": "string"
+                          },
+                          "created_at": {
+                            "type": "integer"
+                          },
+                          "duration_ms": {
+                            "type": "integer"
+                          },
+                          "error_reason": {
+                            "type": "string"
+                          },
+                          "finished_at": {
+                            "type": "integer"
+                          },
+                          "gateway_call_id": {
+                            "type": "string"
+                          },
+                          "gateway_status": {
+                            "type": "string"
+                          },
+                          "id": {
+                            "type": "integer"
+                          },
+                          "input_images": {
+                            "description": "送生图的图序（JSON 文本）",
+                            "type": "string"
+                          },
+                          "model_group": {
+                            "type": "string"
+                          },
+                          "model_index": {
+                            "type": "integer"
+                          },
+                          "pose_index": {
+                            "type": "integer"
+                          },
+                          "prompt_meta": {
+                            "description": "JSON 文本",
+                            "type": "string"
+                          },
+                          "prompt_text": {
+                            "description": "完整提示词",
+                            "type": "string"
+                          },
+                          "result_height": {
+                            "type": "integer"
+                          },
+                          "result_url": {
+                            "type": "string"
+                          },
+                          "result_width": {
+                            "type": "integer"
+                          },
+                          "shot_index": {
+                            "type": "integer"
+                          },
+                          "started_at": {
+                            "type": "integer"
+                          },
+                          "status": {
+                            "description": "0-排队 1-生成中 2-成功 3-失败 4-已取消",
+                            "type": "integer"
+                          },
+                          "task_id": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "msg": {
+                  "description": "business message",
+                  "type": "string",
+                  "example": "ok"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/studio/admin/cost-summary": {
+      "get": {
+        "security": [
+          {
+            "auth": []
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "studio（商拍 / 姿态 / 图片生成）"
+        ],
+        "summary": "成本汇总（按类型或 model group）",
+        "operationId": "studioCostSummary",
+        "parameters": [
+          {
+            "type": "integer",
+            "name": "start_at",
+            "in": "query",
+            "allowEmptyValue": true
+          },
+          {
+            "type": "integer",
+            "name": "end_at",
+            "in": "query",
+            "allowEmptyValue": true
+          },
+          {
+            "enum": [
+              "kind",
+              "model_group"
+            ],
+            "type": "string",
+            "default": "kind",
+            "example": "kind",
+            "name": "group_by",
+            "in": "query",
+            "allowEmptyValue": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
+                  "type": "integer",
+                  "example": 0
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "rows": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "key",
+                          "task_total",
+                          "task_succeeded",
+                          "task_failed",
+                          "cost_cny",
+                          "points"
+                        ],
+                        "properties": {
+                          "cost_cny": {
+                            "type": "string"
+                          },
+                          "key": {
+                            "type": "string"
+                          },
+                          "points": {
+                            "type": "integer"
+                          },
+                          "task_failed": {
+                            "type": "integer"
+                          },
+                          "task_succeeded": {
+                            "type": "integer"
+                          },
+                          "task_total": {
+                            "type": "integer"
+                          }
+                        }
+                      }
+                    },
+                    "total": {
+                      "type": "object",
+                      "required": [
+                        "key",
+                        "task_total",
+                        "task_succeeded",
+                        "task_failed",
+                        "cost_cny",
+                        "points"
+                      ],
+                      "properties": {
+                        "cost_cny": {
+                          "type": "string"
+                        },
+                        "key": {
+                          "type": "string"
+                        },
+                        "points": {
+                          "type": "integer"
+                        },
+                        "task_failed": {
+                          "type": "integer"
+                        },
+                        "task_succeeded": {
+                          "type": "integer"
+                        },
+                        "task_total": {
+                          "type": "integer"
+                        }
+                      }
+                    }
+                  }
+                },
+                "msg": {
+                  "description": "business message",
+                  "type": "string",
+                  "example": "ok"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/studio/admin/sidecar/status": {
+      "get": {
+        "security": [
+          {
+            "auth": []
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "studio（商拍 / 姿态 / 图片生成）"
+        ],
+        "summary": "依赖状态：反推 sidecar / ai-gateway / 媒体服务",
+        "operationId": "studioSidecarStatus",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
+                  "type": "integer",
+                  "example": 0
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "deps": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "name",
+                          "ok",
+                          "base_url",
+                          "latency_ms",
+                          "version",
+                          "detail"
+                        ],
+                        "properties": {
+                          "base_url": {
+                            "type": "string"
+                          },
+                          "detail": {
+                            "type": "string"
+                          },
+                          "latency_ms": {
+                            "type": "integer"
+                          },
+                          "name": {
+                            "description": "sidecar / ai-gateway / media",
+                            "type": "string"
+                          },
+                          "ok": {
+                            "type": "boolean"
+                          },
+                          "version": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "queued_batches": {
+                      "type": "integer"
+                    },
+                    "running_tasks": {
+                      "type": "integer"
+                    }
+                  }
+                },
+                "msg": {
+                  "description": "business message",
+                  "type": "string",
+                  "example": "ok"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/studio/admin/tasks/{task_id}/force-fail": {
+      "post": {
+        "security": [
+          {
+            "auth": []
+          }
+        ],
+        "consumes": [
+          "application/x-www-form-urlencoded"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "studio（商拍 / 姿态 / 图片生成）"
+        ],
+        "summary": "强制失败子任务：封禁重做，点数已退回不动账",
+        "operationId": "studioForceFailTask",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "task_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
+                  "type": "integer",
+                  "example": 0
+                },
+                "data": {
+                  "type": "object"
+                },
+                "msg": {
+                  "description": "business message",
+                  "type": "string",
+                  "example": "ok"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/studio/admin/tasks/{task_id}/retry": {
+      "post": {
+        "security": [
+          {
+            "auth": []
+          }
+        ],
+        "consumes": [
+          "application/x-www-form-urlencoded"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "studio（商拍 / 姿态 / 图片生成）"
+        ],
+        "summary": "重做失败的子任务（task_id 为子任务号）",
+        "operationId": "studioRetryTask",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "task_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
+                  "type": "integer",
+                  "example": 0
+                },
+                "data": {
+                  "type": "object"
+                },
+                "msg": {
+                  "description": "business message",
+                  "type": "string",
+                  "example": "ok"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "securityDefinitions": {
@@ -2841,7 +5314,7 @@
       "in": "header"
     }
   },
-  "x-date": "2026-10-19 22:01:23",
+  "x-date": "2026-10-31 00:59:15",
   "x-description": "This is a goctl generated swagger file.",
   "x-github": "https://github.com/zeromicro/go-zero",
   "x-go-zero-doc": "https://go-zero.dev/",

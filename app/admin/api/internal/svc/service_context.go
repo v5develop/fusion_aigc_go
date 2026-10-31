@@ -3,10 +3,13 @@ package svc
 import (
 	"aigc-local-life/app/admin/api/internal/config"
 	"aigc-local-life/app/admin/api/internal/middleware"
+	assetlib "aigc-local-life/app/assetlib/rpc/assetlib_client"
+	canvas "aigc-local-life/app/canvas/rpc/canvas_client"
 	"aigc-local-life/app/copywriting/rpc/copywriting"
 	"aigc-local-life/app/digitalhuman/rpc/digitalhuman"
 	"aigc-local-life/app/imagegen/rpc/imagegen"
 	"aigc-local-life/app/note/rpc/note"
+	studio "aigc-local-life/app/studio/rpc/studio_client"
 	"aigc-local-life/pkg/adminuser"
 	"aigc-local-life/pkg/session"
 
@@ -23,6 +26,9 @@ type ServiceContext struct {
 	DigitalHumanRpc digitalhuman.DigitalHuman
 	NoteRpc         note.Note
 	ImageGenRpc     imagegen.ImageGen
+	StudioRpc       studio.Studio
+	AssetLibRpc     assetlib.Assetlib
+	CanvasRpc       canvas.Canvas
 	AdminUser       *adminuser.Model
 	Session         *session.Store
 }
@@ -39,6 +45,9 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		DigitalHumanRpc: digitalhuman.NewDigitalHuman(zrpc.MustNewClient(c.DigitalHumanRpc)),
 		NoteRpc:         note.NewNote(zrpc.MustNewClient(c.NoteRpc)),
 		ImageGenRpc:     imagegen.NewImageGen(zrpc.MustNewClient(c.ImageGenRpc)),
+		StudioRpc:       studio.NewStudio(zrpc.MustNewClient(c.StudioRpc)),
+		AssetLibRpc:     assetlib.NewAssetlib(zrpc.MustNewClient(c.AssetLibRpc)),
+		CanvasRpc:       canvas.NewCanvas(zrpc.MustNewClient(c.CanvasRpc)),
 		AdminUser:       adminuser.New(conn),
 		Session:         session.New(c.Auth.Session),
 	}
