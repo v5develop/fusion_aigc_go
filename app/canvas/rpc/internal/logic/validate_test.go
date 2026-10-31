@@ -187,3 +187,16 @@ func TestValidateRun(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// 工具节点（裁剪 / 反推等）的图片输入口：可连一条图片类来源，只接 image 口，每个工具 1 条。
+func TestToolInputEdge(t *testing.T) {
+	if err := ValidateDoc(doc(t, edges(e("e9", "i2", "image", "c1", "image"))), 0, nil); err != nil {
+		t.Fatalf("crop with one image edge should be valid: %v", err)
+	}
+	if err := ValidateDoc(doc(t, edges(e("e9", "c1", "image-out", "p1", "image"))), 0, nil); err != nil {
+		t.Fatalf("tool output into i2p image should be valid: %v", err)
+	}
+	wantParam(t, ValidateDoc(doc(t, edges(e("e9", "i2", "image", "c1", "image"), e("e10", "i3", "image", "c1", "image"))), 0, nil), "工具输入图")
+	wantParam(t, ValidateDoc(doc(t, edges(e("e9", "i2", "image", "c1", "prompt"))), 0, nil), "工具节点只有一个图片输入口")
+	wantParam(t, ValidateDoc(doc(t, edges(e("e9", "t1", "text", "c1", "image"))), 0, nil), "参考图端口只收")
+}

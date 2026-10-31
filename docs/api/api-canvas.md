@@ -397,7 +397,7 @@ Idempotency-Key: <run_id>
 
 ### 3.2 工具节点
 
-工具节点走同一个接口，`kind="tool"`，用 `tool` 指明哪一个，`params` 放该工具的参数。输入图通过 `references`（`handle=image`）给，**不要把图片放进 params**。
+工具节点走同一个接口，`kind="tool"`，用 `tool` 指明哪一个，`params` 放该工具的参数。输入图通过 `references`（`handle=image`）给，**不要把图片放进 params**。工具的输入图有两种来源，执行时都会核对：一是从上游连一条线到工具的 `image` 口（每个工具 1 条）；二是在工具节点的 `data.sourceNodeId` 里指向上游节点，不需要连线。
 
 | `tool` | `params` | 结果 |
 |---|---|---|
@@ -717,10 +717,11 @@ POST /api/v1/canvas/canvases/from-template
 | `garment`（试穿服装） | 图片类来源 | 1 |
 | `models`（试穿模特） | 图片类来源 | 9 |
 | `image-in`（结果图片节点） | 图片类来源 | 1 |
+| `image`（工具的输入图：裁剪、高清放大、扩图、局部重绘、反推） | `image`、`model`、`video`、`tool` 节点 | 1 |
 
 另外：
 
-- 目标只能是 `model` 节点、试穿 `tool` 节点、结果图片节点（`image` 且 `kind=result`）；其它节点没有输入口。
+- 目标只能是 `model` 节点、工具节点（试穿用 `garment` / `models`，其它工具只有 `image` 口）、结果图片节点（`image` 且 `kind=result`）；文字节点、分组框没有输入口。
 - 不能连自己，不能成环（从目标出发能走回来源就是环）。
 - 同一对 `(source, sourceHandle, target, targetHandle)` 不重复。
 - 候选单独连线：`sourceHandle=candidate-N` 只引用上游第 N 个候选，运行时 `references[]` 里带 `candidate_index`。

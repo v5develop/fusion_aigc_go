@@ -17,7 +17,8 @@ import (
 //	image1 / image2（视频模型的首图 / 次图口）各 1 条
 //	garment 1 条、models ≤9 条（试穿工具）；image-in 1 条（结果图片节点）
 //	audio   暂不接入
-//	目标只能是 model 节点、试穿 tool 节点、结果图片节点；不能连自己，不能成环；同一对口不重复连。
+//	tool（裁剪 / 放大 / 扩图 / 重绘 / 反推）← 图片口 image，1 条（工具输入图；也可用 data.sourceNodeId 指向上游）
+//	目标只能是 model 节点、工具节点、结果图片节点；不能连自己，不能成环；同一对口不重复连。
 
 // 目标口（归一后）。
 const (
@@ -69,7 +70,10 @@ func DefaultImageLimit(n *Node) int {
 
 func isTryon(n *Node) bool       { return n.Type == "tool" && n.Tool() == "tryon" }
 func isResultImage(n *Node) bool { return n.Type == "image" && n.Kind() == "result" }
-func isVideoModel(n *Node) bool  { return n.Type == "model" && n.Kind() == "video" }
+
+// isInputTool 有图片输入口的工具（试穿除外）：裁剪、放大、扩图、重绘、反推。
+func isInputTool(n *Node) bool  { return n.Type == "tool" && n.Tool() != "tryon" }
+func isVideoModel(n *Node) bool { return n.Type == "model" && n.Kind() == "video" }
 
 // accepts 归一口接受的来源节点类型。
 func accepts(handle string, src *Node) error {
@@ -102,8 +106,12 @@ func checkTarget(src, dst *Node, raw string) (string, error) {
 		return "", xerr.Param("不能连到自己")
 	}
 	tryon, result := isTryon(dst), isResultImage(dst)
-	if dst.Type != "model" && !tryon && !result {
-		return "", xerr.Param(fmt.Sprintf("节点 %s 没有输入口，只能连到模型节点", dst.ID))
+	toolIn := isInputTool(dst)
+	if dst.Type != "model" && !tryon && !result && !toolIn {
+		return "", xerr.Param(fmt.Sprintf("节点 %s 没有输入口，只能连到模型节点、工具节点或结果图片", dst.ID))
+	}
+	if toolIn && raw != "image" {
+		return "", xerr.Param("工具节点只有一个图片输入口 image")
 	}
 	if result && raw != "image-in" {
 		return "", xerr.Param("结果图片只有一个输入口")
@@ -121,6 +129,8 @@ func checkTarget(src, dst *Node, raw string) (string, error) {
 // portLimit 某个（目标节点, 计数键）的上限。key 为原始口（试穿 / 结果图 / 视频首次图）或归一口。
 func portLimit(dst *Node, key string, imageLimit ImageLimitFunc) (int, string) {
 	switch {
+	case isInputTool(dst) && key == HandleImage:
+		return 1, "工具输入图"
 	case isResultImage(dst):
 		return 1, "结果图片输入"
 	case isTryon(dst) && key == "garment":
