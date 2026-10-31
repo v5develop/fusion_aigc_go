@@ -1,0 +1,497 @@
+syntax = "proto3";
+
+package canvas;
+option go_package = "./canvas";
+
+// canvas：画布文档（Vue Flow 快照整段存）+ 单节点执行（node run）+ 模板 + 提示词库。
+// 接口约定见 docs/api/api-canvas.md；设计见 docs/design/xiaoqi-2026-10-30/00-需求分流与设计方案.md §6。
+// 快照、工具参数、Java 目录这类前端私有 / 透传 JSON 一律用 JSON 文本（string）承接，服务端只校验不翻译。
+// 时间字段一律 unix 毫秒。
+//
+// 用户 Bearer 透传：网关把请求的 Authorization 原文放进 gRPC metadata「x-user-authorization」，
+// 调 Java 兼容工具（放大 / 扩图 / 重绘）与 Java 价目接口时原样带上。
+service Canvas {
+  // ---- 画布 ----
+  rpc ListCanvases(ListCanvasesReq) returns (ListCanvasesResp);
+  rpc CreateCanvas(CreateCanvasReq) returns (CanvasDoc);
+  // 取画布：快照 + revision，运行态按每个节点最近一次 run 回填进 data
+  rpc GetCanvas(CanvasIdReq) returns (CanvasDoc);
+  // 保存：if_match_revision 不符且非 force → conflict=true（网关转 4002，data 带服务端 revision）
+  rpc SaveCanvas(SaveCanvasReq) returns (SaveCanvasResp);
+  rpc DeleteCanvas(CanvasIdReq) returns (Empty);
+  rpc SaveAsCanvas(SaveAsCanvasReq) returns (CanvasDoc);
+
+  // ---- 执行 ----
+  rpc RunNode(RunNodeReq) returns (RunNodeResp);
+  rpc GetRun(RunIdReq) returns (RunResult);
+  rpc CancelRun(RunIdReq) returns (RunResult);
+  rpc ListRuns(ListRunsReq) returns (ListRunsResp);
+  // 选中候选：写回 run.selected_index（GET 画布回填 selectedCandidate 以它为准）
+  rpc SelectCandidate(SelectCandidateReq) returns (RunResult);
+
+  // ---- 目录 ----
+  rpc Catalog(CatalogReq) returns (CatalogResp);
+
+  // ---- 模板 ----
+  rpc ListTemplates(ListTemplatesReq) returns (ListTemplatesResp);
+  rpc GetTemplate(TemplateIdReq) returns (TemplateInfo);
+  rpc CreateTemplateFromCanvas(CreateTemplateFromCanvasReq) returns (TemplateInfo);
+  rpc CreateCanvasFromTemplate(CreateCanvasFromTemplateReq) returns (CanvasDoc);
+  rpc DeleteTemplate(TemplateIdReq) returns (Empty);
+
+  // ---- 提示词库 ----
+  rpc ListPrompts(ListPromptsReq) returns (ListPromptsResp);
+  rpc CreatePrompt(UpsertPromptReq) returns (PromptItem);
+  rpc UpdatePrompt(UpsertPromptReq) returns (PromptItem);
+  rpc DeletePrompt(PromptIdReq) returns (Empty);
+
+  // ---- 运营后台 ----
+  rpc AdminListRuns(AdminListRunsReq) returns (AdminListRunsResp);
+  rpc AdminForceFailRun(AdminRunReq) returns (Empty);
+  rpc AdminListTemplates(AdminListTemplatesReq) returns (AdminListTemplatesResp);
+  rpc AdminUpsertOfficialTemplate(AdminUpsertTemplateReq) returns (TemplateInfo);
+  rpc AdminToggleTemplate(AdminToggleReq) returns (Empty);
+  rpc AdminListPrompts(AdminListPromptsReq) returns (AdminListPromptsResp);
+  rpc AdminUpsertOfficialPrompt(AdminUpsertPromptReq) returns (PromptItem);
+  rpc AdminTogglePrompt(AdminToggleReq) returns (Empty);
+  rpc AdminCostSummary(AdminCostSummaryReq) returns (AdminCostSummaryResp);
+}
+
+message Empty {}
+
+// ---------------- 画布 ----------------
+
+message CanvasSummary {
+  string id = 1;
+  string title = 2;
+  string revision = 3;
+  int32 node_count = 4;
+  string cover_url = 5;
+  int64 created_at = 6;
+  int64 updated_at = 7;
+}
+
+message ListCanvasesReq {
+  int64 user_id = 1;
+  int32 page = 2;       // 从 1 起
+  int32 page_size = 3;  // 默认 20，上限 50
+}
+
+message ListCanvasesResp {
+  repeated CanvasSummary list = 1;
+  int64 total = 2;
+}
+
+message CreateCanvasReq {
+  int64 user_id = 1;
+  int64 workspace_id = 2;
+  string title = 3;     // 空=未命名画布
+}
+
+// 画布文档。snapshot 为 JSON 文本 {nodes,edges}（GetCanvas 已回填运行态）
+message CanvasDoc {
+  string id = 1;
+  string title = 2;
+  string revision = 3;
+  string snapshot = 4;
+  int32 node_count = 5;
+  string cover_url = 6;
+  int64 created_at = 7;
+  int64 updated_at = 8;
+}
+
+message CanvasIdReq {
+  int64 user_id = 1;
+  string id = 2;
+}
+
+message SaveCanvasReq {
+  int64 user_id = 1;
+  string id = 2;
+  string snapshot = 3;           // JSON 文本 {nodes,edges}，≤2MB
+  string if_match_revision = 4;  // 空且非 force：不带锁
+  bool force = 5;
+  bool has_title = 6;            // true 才改标题
+  string title = 7;
+}
+
+message SaveCanvasResp {
+  bool conflict = 1;             // true：版本冲突，未保存；revision / updated_at 为服务端当前值
+  string revision = 2;
+  int64 updated_at = 3;
+  int32 node_count = 4;
+  string cover_url = 5;
+}
+
+message SaveAsCanvasReq {
+  int64 user_id = 1;
+  string src_id = 2;
+  string title = 3;
+}
+
+// ---------------- 执行 ----------------
+
+message RunReference {
+  string handle = 1;           // prompt / image / video / audio，及别名 first/last/image1/image2/garment/models/image-in
+  int32 index = 2;             // 同 handle 内序号（连线 data.order），1 起
+  string node_id = 3;
+  string text = 4;
+  string image = 5;
+  string video = 6;
+  string audio = 7;
+  string asset_id = 8;
+  string media_id = 9;
+  string source_handle = 10;
+  optional int32 candidate_index = 11;
+  string mime = 12;
+}
+
+// RunNodeRequest 全字段（原型 RunNodeRequest 下划线化）
+message RunNodeRequest {
+  string model = 1;
+  string model_id = 2;
+  string kind = 3;             // image / video / tool（tool 时看 tool）；也接受 tool_crop 等完整写法
+  string prompt = 4;
+  repeated RunReference references = 5;
+  string ratio = 6;
+  string size = 7;
+  string quality = 8;
+  string duration = 9;
+  bool sound = 10;
+  int32 count = 11;
+  double cfg = 12;
+  string tool = 13;            // crop / upscale / outpaint / i2p / mask(inpaint) / tryon
+  string tool_params = 14;     // JSON 文本（接口字段 params）
+}
+
+message RunNodeReq {
+  int64 user_id = 1;
+  string canvas_id = 2;
+  string node_id = 3;
+  string run_id = 4;           // = Idempotency-Key
+  RunNodeRequest request = 5;
+}
+
+message RunNodeResp {
+  string request_id = 1;
+  string run_id = 2;
+  string status = 3;
+  bool replayed = 4;
+  int64 credits = 5;
+  repeated string warnings = 6; // 参数归一告警（如 Seedream 4K → 2K，按归一后的档位生成并计费）；没有为空
+}
+
+message Candidate {
+  string url = 1;
+  int32 width = 2;
+  int32 height = 3;
+}
+
+// RunNodeResult
+message RunResult {
+  string request_id = 1;
+  string run_id = 2;
+  string canvas_id = 3;
+  string node_id = 4;
+  string kind = 5;
+  string status = 6;           // queued / running / succeeded / failed / cancelled
+  int32 progress = 7;
+  string model = 8;
+  repeated Candidate candidates = 9;
+  int32 selected_index = 10;
+  string video_url = 11;
+  string text = 12;            // tool_i2p 反推文本
+  int64 credits = 13;
+  int32 requested_count = 14;
+  string error = 15;
+  string error_code = 16;
+  bool retryable = 17;
+  int64 created_at = 18;
+  int64 finished_at = 19;
+  string task_id = 20;
+}
+
+message RunIdReq {
+  int64 user_id = 1;
+  int64 id = 2;
+}
+
+message SelectCandidateReq {
+  int64 user_id = 1;
+  string canvas_id = 2;
+  string node_id = 3;
+  string run_id = 4;           // 该节点某次成功 run 的 run_id
+  int32 index = 5;             // 候选下标（0 起）
+}
+
+message ListRunsReq {
+  int64 user_id = 1;
+  string canvas_id = 2;
+  string node_id = 3;          // 空=全部节点
+  int32 limit = 4;             // 默认 50，上限 200
+}
+
+message ListRunsResp {
+  repeated RunResult list = 1;
+}
+
+// ---------------- 目录 ----------------
+
+message CatalogReq {
+  int64 user_id = 1;
+}
+
+message CatalogPrice {
+  string size = 1;
+  string duration = 2;
+  int64 points = 3;
+}
+
+message CatalogModel {
+  string model = 1;              // 显示名（前端 data.model）
+  string model_id = 2;
+  string kind = 3;               // image / video
+  string badge = 4;
+  string model_group = 5;        // gateway model group
+  int32 max_image_refs = 6;      // 参考图上限：配置值与 gateway feature_limits.max_reference_images 取小
+  repeated string ratios = 7;
+  repeated string sizes = 8;
+  repeated string qualities = 9;
+  repeated string durations = 10;
+  bool sound = 11;
+  int32 count_max = 12;
+  bool cap_quality = 13;
+  bool cap_count = 14;
+  bool cap_duration = 15;
+  bool cap_sound = 16;
+  repeated CatalogPrice prices = 17;
+  bool ready = 18;               // gateway 模型组启用且存在
+  int32 max_reference_videos = 19;
+}
+
+message CatalogTool {
+  string tool = 1;
+  string label = 2;
+  string billing = 3;            // free / java / gateway / studio
+  repeated int32 scales = 4;     // upscale
+  repeated string ratios = 5;    // outpaint
+  bool ready = 6;
+}
+
+message CatalogResp {
+  repeated CatalogModel image_models = 1;
+  repeated CatalogModel video_models = 2;
+  repeated CatalogTool tools = 3;
+  string java_image_configs = 4; // Java /api/v1/features/image-model-configs 的 data 原文（JSON；取不到为空）
+  string java_video_configs = 5;
+}
+
+// ---------------- 模板 ----------------
+
+message TemplateInfo {
+  int64 id = 1;
+  string scope = 2;
+  string title = 3;
+  string description = 4;
+  string cover_url = 5;
+  int32 sort = 6;
+  bool enabled = 7;
+  string snapshot = 8;           // JSON 文本
+  int32 node_count = 9;
+  int32 edge_count = 10;
+  int64 user_id = 11;
+  int64 created_at = 12;
+  int64 updated_at = 13;
+}
+
+message ListTemplatesReq {
+  int64 user_id = 1;
+  string scope = 2;              // official（默认）/ user / all
+}
+
+message ListTemplatesResp {
+  repeated TemplateInfo list = 1;
+}
+
+message TemplateIdReq {
+  int64 user_id = 1;
+  int64 id = 2;
+}
+
+message CreateTemplateFromCanvasReq {
+  int64 user_id = 1;
+  string canvas_id = 2;
+  string title = 3;
+  string description = 4;
+}
+
+message CreateCanvasFromTemplateReq {
+  int64 user_id = 1;
+  int64 workspace_id = 2;
+  int64 template_id = 3;
+  string title = 4;
+}
+
+// ---------------- 提示词库 ----------------
+
+message PromptItem {
+  int64 id = 1;
+  string title = 2;
+  string prompt = 3;
+  string vertical = 4;
+  string group = 5;
+  repeated string models = 6;
+  repeated string tags = 7;
+  string source = 8;
+  string owner = 9;              // official / mine
+  bool enabled = 10;
+  int32 sort = 11;
+  int64 user_id = 12;
+  int64 created_at = 13;
+  int64 updated_at = 14;
+}
+
+message ListPromptsReq {
+  int64 user_id = 1;
+  string vertical = 2;
+  string group = 3;
+  string model = 4;
+  string q = 5;
+  int32 page = 6;
+  int32 page_size = 7;
+}
+
+message ListPromptsResp {
+  repeated PromptItem list = 1;
+  int64 total = 2;
+}
+
+message UpsertPromptReq {
+  int64 user_id = 1;
+  int64 id = 2;                  // 更新时必填
+  string title = 3;
+  string prompt = 4;
+  repeated string models = 5;
+  repeated string tags = 6;
+}
+
+message PromptIdReq {
+  int64 user_id = 1;
+  int64 id = 2;
+}
+
+// ---------------- 运营后台 ----------------
+
+message AdminListRunsReq {
+  int64 page = 1;
+  int64 page_size = 2;
+  int64 user_id = 3;
+  string canvas_id = 4;
+  string kind = 5;
+  int32 status = 6;              // -1=全部
+  string backend = 7;
+  int64 start = 8;               // unix 毫秒，0=不限
+  int64 end = 9;
+}
+
+message AdminRun {
+  RunResult run = 1;
+  int64 id = 2;
+  int64 user_id = 3;
+  string backend = 4;
+  string backend_ref = 5;
+  string model_group = 6;
+  string billing_request_id = 7;
+  string billing_status = 8;
+  string cost_cny = 9;
+  int32 attempt = 10;
+  string request = 11;           // RunNodeRequest JSON
+  int64 started_at = 12;
+}
+
+message AdminListRunsResp {
+  repeated AdminRun list = 1;
+  int64 total = 2;
+}
+
+message AdminRunReq {
+  int64 id = 1;
+  string reason = 2;
+  int64 admin_id = 3;
+}
+
+message AdminListTemplatesReq {
+  int64 page = 1;
+  int64 page_size = 2;
+  string scope = 3;              // 空=全部
+  int32 enabled = 4;             // -1=全部
+  string q = 5;
+}
+
+message AdminListTemplatesResp {
+  repeated TemplateInfo list = 1;
+  int64 total = 2;
+}
+
+message AdminUpsertTemplateReq {
+  int64 id = 1;                  // 0=新增（官方）
+  string title = 2;
+  string description = 3;
+  string snapshot = 4;
+  string cover_url = 5;
+  int32 sort = 6;
+  bool enabled = 7;
+}
+
+message AdminToggleReq {
+  int64 id = 1;
+  bool enabled = 2;
+}
+
+message AdminListPromptsReq {
+  int64 page = 1;
+  int64 page_size = 2;
+  string scope = 3;              // official（默认）/ user / all
+  string vertical = 4;
+  string group = 5;
+  int32 enabled = 6;             // -1=全部
+  string q = 7;
+}
+
+message AdminListPromptsResp {
+  repeated PromptItem list = 1;
+  int64 total = 2;
+}
+
+message AdminUpsertPromptReq {
+  int64 id = 1;                  // 0=新增（官方）
+  string title = 2;
+  string prompt = 3;
+  string vertical = 4;
+  string group = 5;
+  repeated string models = 6;
+  repeated string tags = 7;
+  string source = 8;
+  int32 sort = 9;
+  bool enabled = 10;
+}
+
+message AdminCostSummaryReq {
+  int64 start = 1;
+  int64 end = 2;
+  string group_by = 3;           // kind（默认）/ model_group
+}
+
+message CostRow {
+  string key = 1;
+  int64 runs = 2;
+  int64 succeeded = 3;
+  int64 failed = 4;
+  int64 canceled = 5;
+  string cost_cny = 6;
+  int64 points = 7;
+}
+
+message AdminCostSummaryResp {
+  repeated CostRow rows = 1;
+}
