@@ -1,0 +1,287 @@
+syntax = "proto3";
+
+package studio;
+option go_package = "./studio";
+
+// studio：商拍换装（tryon）/ 姿态复刻（pose）/ 图片生成（imagegen）共用一条生图链路。
+// 一次提交 = 一个批次（afv_studio_batch），服务端拆成每张图一个子任务（afv_studio_task）；
+// 切图 / 反推走内部 sidecar，生图走 ai-gateway，结果经轮询器转存、结算、入素材库、同步任务中心。
+// 时间字段一律 unix 毫秒。
+service Studio {
+  // ---- 用户侧 ----
+  // 商拍换装整批提交：模特 × 每位张数，一张图一个子任务
+  rpc SubmitTryon(SubmitTryonReq) returns (SubmitResp);
+  // 姿态复刻整批提交：人物 1 张 + 姿势 1–9 张，一个姿势一个子任务
+  rpc SubmitPose(SubmitPoseReq) returns (SubmitResp);
+  // 图片生成：count 张，一张一个子任务
+  rpc SubmitImageGen(SubmitImageGenReq) returns (SubmitResp);
+  // 批次详情 + 全部子任务（生成中轮询此接口）
+  rpc GetBatch(GetBatchReq) returns (BatchDetail);
+  // 单个子任务
+  rpc GetTask(GetTaskReq) returns (TaskInfo);
+  // 本链路历史（游标分页），含完整请求快照供回填
+  rpc ListHistory(ListHistoryReq) returns (ListHistoryResp);
+  // 取消批次：停止跟踪，未开始的子任务退款（gateway cancel 尽力而为）
+  rpc CancelBatch(BatchUserReq) returns (CancelBatchResp);
+  // 删除批次（软删）：进行中的批次拒绝删除
+  rpc DeleteBatch(BatchUserReq) returns (Empty);
+
+  // ---- 运营后台 ----
+  rpc AdminListBatches(AdminListBatchesReq) returns (AdminListBatchesResp);
+  // 批次详情：含切图框、切图质检、组图、每步耗时与成本、每个子任务的完整 prompt
+  rpc AdminGetBatch(AdminGetBatchReq) returns (AdminBatchDetail);
+  // 运营重做失败的子任务：重新冻结点数、重新提交 gateway（attempt+1）
+  rpc AdminRetryTask(AdminTaskReq) returns (Empty);
+  // 运营强制失败：只收失败态子任务，置封禁重做；点数在失败时已退回，不动账
+  rpc AdminForceFail(AdminTaskReq) returns (Empty);
+  // 依赖健康：反推 sidecar / ai-gateway / 媒体服务
+  rpc AdminSidecarStatus(Empty) returns (SidecarStatusResp);
+  // 成本汇总（按类型或 model group）
+  rpc AdminCostSummary(AdminCostSummaryReq) returns (AdminCostSummaryResp);
+}
+
+message Empty {}
+
+// ---------------- 提交 ----------------
+
+// 服装图
+message GarmentImage {
+  string url = 1;    // 图片地址，只收 http(s)；blob: / data: 一律拒绝
+  string role = 2;   // 单品中文名（上衣 / 下装 / 连衣裙 …）或「整套」
+  string angle = 3;  // 角度：front / back / side / detail / flat / unknown；空按 unknown
+}
+
+// 商拍换装（前端 s1.1 aiModelTryon 全量字段，改为整批一次提交）
+message SubmitTryonReq {
+  int64 user_id = 1;
+  int64 workspace_id = 2;                // 工作空间；0=个人
+  string request_id = 3;                 // 幂等键（Idempotency-Key），必填
+  repeated string model_image_urls = 4;  // 模特图 1–9 张，每张一个模特
+  repeated GarmentImage garment_images = 5; // 服装图 ≤9 张，每件单品 ≤6 张
+  repeated string items = 6;             // 单品 1–3 件：top/bottom/dress/outer/shoes/accessory/bra/panties；互斥：裙↔上衣/下装、文胸↔上衣/裙、内裤↔下装/裙
+  string set_mode = 7;                   // 成套方式：one / two（1 件也传）；空按 one
+  map<string, string> lengths = 8;       // 单品长度 {item: 文本}，只认 items 里有的键
+  map<string, string> sleeves = 9;       // 单品袖长 {item: 文本}，只认 items 里有的键
+  string fabric = 10;                    // 面料，按件写：「上衣：真丝；鞋子：皮革」
+  string prompt = 11;                    // 补充说明（→ sidecar notes），≤3000 字
+  string model = 12;                     // 模型档：通用 / GPT / Banana / Seedream；空=通用
+  string resolution = 13;                // 分辨率：1k / 2k / 4k（大小写不敏感，服务端归一为小写）；空=1k
+  string aspect_ratio = 14;              // 比例，如 3:4；空=3:4
+  int32 count_per_model = 15;            // 每位模特生成张数 1–9
+  string cloth_image_url = 16;           // 旧版兼容位（首张服装图），新前端不要传；有 garment_images 时忽略
+}
+
+// 姿态复刻（前端 s1.1 aiPostureFission，改为整批一次提交）
+message SubmitPoseReq {
+  int64 user_id = 1;
+  int64 workspace_id = 2;
+  string request_id = 3;                 // 幂等键，必填
+  string source_image_url = 4;           // 人物图（图 1），必填
+  repeated string pose_image_urls = 5;   // 姿势图 1–9 张，每张一个子任务
+  string global_prompt = 6;              // 全局补充说明，≤3000 字
+  map<int32, string> pose_prompts = 7;   // 单张补充说明 {姿势下标(从 0 起): 文本}，≤3000 字
+  string model = 8;                      // 模型档：通用 / GPT / Banana / Seedream；空=通用
+  string resolution = 9;                 // 1k / 2k / 4k；空=1k
+  string aspect_ratio = 10;              // 空=3:4
+}
+
+// 图片生成（tool:image-generate）
+message SubmitImageGenReq {
+  int64 user_id = 1;
+  int64 workspace_id = 2;
+  string request_id = 3;                 // 幂等键，必填
+  string prompt = 4;                     // 提示词，必填，≤3000 字
+  repeated string image_urls = 5;        // 参考图 ≤9 张
+  string model = 6;                      // 模型档：通用 / GPT / Banana / Seedream；空=通用
+  string resolution = 7;                 // 1k / 2k / 4k；空=1k
+  string aspect_ratio = 8;               // 空=1:1
+  int32 count = 9;                       // 生成张数 1–9，一张一个子任务
+  bool rewrite_prompt = 10;              // 先经 gateway chat.completion 润色一次提示词
+}
+
+message SubmitResp {
+  int64 batch_id = 1;
+  int32 task_total = 2;
+  int64 estimated_points = 3;            // 预估消耗点数（单价 × 任务数）
+  repeated string task_ids = 4;          // 子任务号，顺序同拆分顺序（模特→张数 / 姿势 / 张数）
+  bool replayed = 5;                     // 幂等命中：同 request_id 已提交过，返回的是原批次
+  repeated string warnings = 6;          // 参数归一告警（如 Seedream 不支持 4K、1K 只支持 1:1 → 按 2K 生成并计费）；幂等重放不回
+}
+
+// ---------------- 查询 ----------------
+
+message GetBatchReq {
+  int64 batch_id = 1;
+  int64 user_id = 2;
+}
+
+message GetTaskReq {
+  string task_id = 1;
+  int64 user_id = 2;
+}
+
+message BatchUserReq {
+  int64 batch_id = 1;
+  int64 user_id = 2;
+}
+
+// 批次
+message BatchInfo {
+  int64 id = 1;
+  string kind = 2;                       // tryon / pose / imagegen
+  int32 status = 3;                      // 0-排队 1-切图中 2-反推中 3-生图中 4-全部成功 5-全部失败 6-部分成功 7-已取消 8-提交中
+  string request_id = 4;
+  string payload = 5;                    // 提交时的全量字段快照（JSON 文本），前端回填用
+  int32 task_total = 6;
+  int32 task_done = 7;
+  int32 task_failed = 8;
+  int64 estimated_points = 9;
+  string error_reason = 10;
+  string cover_url = 11;                 // 首张成功的成品，列表封面
+  int64 created_at = 12;
+  int64 updated_at = 13;
+}
+
+// 子任务
+message TaskInfo {
+  int64 id = 1;
+  string task_id = 2;
+  int64 batch_id = 3;
+  string kind = 4;
+  int32 model_index = 5;                 // 商拍：第几位模特（从 0 起）
+  int32 shot_index = 6;                  // 商拍 / 图片生成：第几张（从 0 起）
+  int32 pose_index = 7;                  // 姿态：第几个姿势（从 0 起）
+  int32 status = 8;                      // 0-排队 1-生成中 2-成功 3-失败 4-已取消 5-交付中
+  int32 progress = 9;                    // 进度 0–100（按批次阶段 + 子任务状态估算，不是厂商真实进度）
+  string result_url = 10;
+  int32 result_width = 11;
+  int32 result_height = 12;
+  string error_reason = 13;
+  string prompt_summary = 14;            // 提示词摘要（前 200 字，不含图序声明）
+  string model_group = 15;               // 实际使用的 gateway model group
+  int64 created_at = 16;
+  int64 started_at = 17;                 // 0=未开始
+  int64 finished_at = 18;                // 0=未结束
+}
+
+message BatchDetail {
+  BatchInfo batch = 1;
+  repeated TaskInfo tasks = 2;
+}
+
+message ListHistoryReq {
+  int64 user_id = 1;
+  string kind = 2;                       // 空=全部；tryon / pose / imagegen
+  string cursor = 3;                     // 游标：上一页 next_cursor 原样回传（格式 <created_at 毫秒>_<id>）；空=第一页
+  int32 limit = 4;                       // 每页条数，默认 20，上限 50
+}
+
+message ListHistoryResp {
+  repeated BatchDetail items = 1;
+  string next_cursor = 2;                // 空=没有下一页
+}
+
+message CancelBatchResp {
+  BatchInfo batch = 1;
+  int32 canceled_tasks = 2;              // 本次取消的子任务数（未开始的退款；已提交的尽力取消）
+}
+
+// ---------------- 运营后台 ----------------
+
+// 时间范围（unix 毫秒，左闭右开；0=不限）
+message DateRange {
+  int64 start = 1;
+  int64 end = 2;
+}
+
+message AdminListBatchesReq {
+  int64 page = 1;                        // 从 1 起
+  int64 page_size = 2;                   // 默认 20，上限 100
+  int64 user_id = 3;                     // 0=不限
+  string kind = 4;                       // 空=全部
+  int32 status = 5;                      // -1=全部；同 BatchInfo.status
+  DateRange date_range = 6;              // 按创建时间
+}
+
+message AdminBatch {
+  BatchInfo batch = 1;
+  int64 user_id = 2;
+  int64 workspace_id = 3;
+  string cost_cny = 4;                   // 子任务上游成本合计（人民币，DECIMAL 文本）
+  string model_group = 5;                // 本批使用的 model group
+}
+
+message AdminListBatchesResp {
+  repeated AdminBatch list = 1;
+  int64 total = 2;
+}
+
+message AdminGetBatchReq {
+  int64 batch_id = 1;
+}
+
+// 后台子任务：在用户侧字段之外带排查用的全部信息
+message AdminTask {
+  TaskInfo task = 1;
+  string prompt_text = 2;                // 完整提示词
+  string prompt_meta = 3;                // JSON 文本
+  string input_images = 4;               // 实际送生图的图序（JSON 文本）
+  string gateway_call_id = 5;
+  string gateway_status = 6;
+  int32 attempt = 7;                     // 第几次生成（运营重做 +1）
+  bool admin_locked = 8;                 // 已强制失败，封禁重做
+  string cost_cny = 9;
+  string billing_request_id = 10;
+  int32 billing_status = 11;             // 0-未计费 1-已冻结 2-已结算 3-已退回 4-影子模式
+  int64 duration_ms = 12;                // finished_at - started_at
+}
+
+message AdminBatchDetail {
+  AdminBatch batch = 1;
+  string crop_plan = 2;                  // 切图方案（JSON 文本，框 0–1 归一化）
+  string crop_check = 3;                 // 切图质检（JSON 文本）
+  string selected_images = 4;            // 组图结果（JSON 文本）
+  string step_log = 5;                   // 每步耗时与成本 [{step,ms,images,crops,degraded,cost_cny,at}]（JSON 文本）
+  repeated AdminTask tasks = 6;
+}
+
+// 后台操作子任务：id（afv_studio_task 主键，来自 origin_ref 如 tyo:123）与 task_id 二选一，id 优先
+message AdminTaskReq {
+  int64 id = 1;
+  string task_id = 2;
+  int64 operator_id = 3;                 // 操作的管理员，记日志
+}
+
+message DependencyStatus {
+  string name = 1;                       // sidecar / ai-gateway / media
+  bool ok = 2;
+  string base_url = 3;
+  int64 latency_ms = 4;
+  string version = 5;                    // 对方上报的版本（sidecar /api/status）
+  string detail = 6;                     // 失败原因或附加信息
+}
+
+message SidecarStatusResp {
+  repeated DependencyStatus deps = 1;
+  int32 running_tasks = 2;               // 当前生成中的子任务数
+  int32 queued_batches = 3;              // 排队 / 切图 / 反推中的批次数
+}
+
+message AdminCostSummaryReq {
+  DateRange date_range = 1;              // 按子任务创建时间
+  string group_by = 2;                   // kind / model_group；空=kind
+}
+
+message CostRow {
+  string key = 1;                        // 分组值
+  int32 task_total = 2;
+  int32 task_succeeded = 3;
+  int32 task_failed = 4;
+  string cost_cny = 5;                   // DECIMAL 文本
+  int64 points = 6;                      // 已结算点数（取预留单）
+}
+
+message AdminCostSummaryResp {
+  repeated CostRow rows = 1;
+  CostRow total = 2;
+}
