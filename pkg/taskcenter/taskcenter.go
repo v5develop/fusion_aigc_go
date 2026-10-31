@@ -64,6 +64,26 @@ type Source struct {
 	Cover          string // 封面；空=用 Result
 	Fail           string // 失败原因
 	Prompt         string // 提示词 / 文案，放进 request_params.prompt 供列表展示
+
+	// CreateTimeCol / UpdateTimeCol 源表的创建、更新时间列名；空=create_time / update_time（老表）。
+	// 新模块（bun 模型，如 afv_studio_task）用 created_at / updated_at，在这里改名即可，同步语义不变。
+	CreateTimeCol string
+	UpdateTimeCol string
+}
+
+// createCol / updateCol 源表时间列（带 s. 别名）。
+func (s Source) createCol() string {
+	if c := strings.TrimSpace(s.CreateTimeCol); c != "" {
+		return "s." + c
+	}
+	return "s.create_time"
+}
+
+func (s Source) updateCol() string {
+	if c := strings.TrimSpace(s.UpdateTimeCol); c != "" {
+		return "s." + c
+	}
+	return "s.update_time"
 }
 
 // Ref 一条源表记录在任务中心里的 task_id：AiCreation_LF_ + md5("<Prefix>:<id>") 的 32 位小写十六进制。
@@ -147,10 +167,10 @@ func (s Source) requestSQL() string {
 
 // where 同步的筛选条件（窗口 + 类型 + 包含条件），sql 与 textSQL 共用，占位符参数见 args。
 func (s Source) where() []string {
-	where := []string{"(? = 0 OR s.update_time >= NOW() - INTERVAL ? SECOND)"}
+	where := []string{"(? = 0 OR " + s.updateCol() + " >= NOW() - INTERVAL ? SECOND)"}
 	if strings.TrimSpace(s.BillingRequest) != "" {
 		// 预留状态会独立变化（冻结→结算→过期），源记录没动也要同步：预留单在窗口内更新过也纳入
-		where[0] = "(? = 0 OR s.update_time >= NOW() - INTERVAL ? SECOND OR EXISTS (SELECT 1 FROM afv_billing_reservation r " +
+		where[0] = "(? = 0 OR " + s.updateCol() + " >= NOW() - INTERVAL ? SECOND OR EXISTS (SELECT 1 FROM afv_billing_reservation r " +
 			"WHERE r.biz_type = 'LOCALLIFE' AND r.deleted = 0 AND r.biz_id = " + s.billingKeySQL() +
 			" AND r.update_time >= NOW() - INTERVAL ? SECOND))"
 	}
@@ -167,7 +187,7 @@ func (s Source) where() []string {
 // 任务主表不放正文：列表查询是 SELECT *，大字段会拖慢所有任务的列表。只有有正文（非空）的行才写。
 func (s Source) textSQL() string {
 	return "INSERT INTO " + TextTable + " (task_id, content, create_time, update_time) " +
-		"SELECT " + s.refSQL() + ", " + s.ResultText + ", s.create_time, s.update_time FROM " + s.Table + " s " +
+		"SELECT " + s.refSQL() + ", " + s.ResultText + ", " + s.createCol() + ", " + s.updateCol() + " FROM " + s.Table + " s " +
 		"WHERE " + strings.Join(s.where(), " AND ") + " AND COALESCE(" + s.ResultText + ", '') <> '' " +
 		"ON DUPLICATE KEY UPDATE content = VALUES(content), update_time = VALUES(update_time)"
 }
@@ -187,7 +207,7 @@ func (s Source) sql() string {
 		s.requestSQL() + ", " + orNull(s.ExecTaskID) + ", " + s.execParamsSQL() + ", " +
 		strings.Join(s.billingColumns(), ", ") + ", " +
 		orNull(s.Result) + ", " + orNull(s.Results) + ", " + orNull(cover) + ", " + orNull(s.Fail) + ", " +
-		"1, s.deleted, s.create_time, s.update_time, '" + OriginLocalLife + "', " + s.originRefSQL() + " FROM " + s.Table + " s WHERE " + strings.Join(where, " AND ") + " " +
+		"1, s.deleted, " + s.createCol() + ", " + s.updateCol() + ", '" + OriginLocalLife + "', " + s.originRefSQL() + " FROM " + s.Table + " s WHERE " + strings.Join(where, " AND ") + " " +
 		"ON DUPLICATE KEY UPDATE status = VALUES(status), result_url = VALUES(result_url), result_urls = VALUES(result_urls), " +
 		"cover_url = VALUES(cover_url), error_msg = VALUES(error_msg), request_params = VALUES(request_params), " +
 		// 没有提交快照的行（上线前提交的）不覆盖已有的执行参数，免得同步一次就被清空

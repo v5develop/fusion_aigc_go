@@ -92,3 +92,25 @@ func TestOriginRef(t *testing.T) {
 		t.Fatalf("originRefSQL = %q", got)
 	}
 }
+
+// 新模块（bun）的时间列是 created_at / updated_at：配了列名就全部改用它，老表不配保持 create_time / update_time。
+func TestTimeColumnsOverride(t *testing.T) {
+	s := Source{Table: "afv_studio_task", Prefix: "tyo", Kind: "tryon", EntryCode: "studio_tryon", Type: "image",
+		Status: "1", Result: "result_url", BillingRequest: "s.`billing_request_id`", ResultText: "prompt_text",
+		CreateTimeCol: "created_at", UpdateTimeCol: "updated_at"}
+	for _, q := range []string{s.sql(), s.textSQL()} {
+		if strings.Contains(q, "s.update_time") || strings.Contains(q, "s.create_time") {
+			t.Fatalf("配了列名仍引用老列: %s", q)
+		}
+		if !strings.Contains(q, "s.created_at") || !strings.Contains(q, "s.updated_at") {
+			t.Fatalf("没用上新列名: %s", q)
+		}
+	}
+	if !strings.Contains(s.sql(), "kind = 'tryon'") {
+		t.Fatal("按 kind 分源的筛选丢了")
+	}
+	old := Source{Table: "t", Prefix: "x", EntryCode: "e", Type: "image", Status: "1"}
+	if !strings.Contains(old.sql(), "s.update_time >= NOW()") || !strings.Contains(old.sql(), "s.create_time, s.update_time") {
+		t.Fatalf("老表的默认列名变了: %s", old.sql())
+	}
+}

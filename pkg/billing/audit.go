@@ -36,6 +36,15 @@ var Targets = []Target{
 	{"exploreShop", "探店视频", []string{TierCloud, TierLite}, KindVideo},
 	{"shortDrama", "带货短剧", []string{TierCloud, TierLite}, KindVideo},
 	{"videoRemake", "爆款视频复刻", []string{TierCloud, TierLite}, KindVideo},
+	// studio（ai-gateway 生图）：每张图一张预留单。按分辨率分档时在这里补 Tiers（与 Java 后台的档位码一致）。
+	{"studio_tryon", "商拍换装", nil, KindQuick},
+	{"studio_pose", "姿态复刻", nil, KindQuick},
+	{"studio_imagegen", "图片生成", nil, KindQuick},
+	// canvas（画布）：每个 node run 一张预留单。只登记 Go 计费的三个：图片生成、视频生成、反推提示词；
+	// 裁剪不计费，放大 / 扩图 / 局部重绘由 Java 兼容工具计费，试穿走 studio_tryon。
+	{"canvas_image", "画布生图", nil, KindQuick},
+	{"canvas_video", "画布视频", nil, KindVideo},
+	{"canvas_tool_i2p", "画布反推提示词", nil, KindQuick},
 }
 
 // Level 问题级别。ERROR：这个入口现在提交会被拒或会错扣，必须修；WARN：能算出价，但看着不对，需要人看一眼。
