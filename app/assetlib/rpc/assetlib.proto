@@ -1,0 +1,267 @@
+syntax = "proto3";
+
+package assetlib;
+option go_package = "./assetlib";
+
+// assetlib：资产库增强（设计方案 §5）。
+// Java 的 afv_asset / afv_asset_item 不改，Go 用旁表（afv_asset_ext / version / relation / tag / tag_link）挂接，
+// 读接口把 Java 资产 + 旁表拼成前端 Asset 形状。
+// 归属一律按 afv_asset.user_id = 当前用户、deleted = 0；不属于当前用户的资产统一按「不存在」（4001）。
+// 时间字段一律 unix 毫秒。
+service Assetlib {
+  // ---- 用户侧 ----
+  // 资产列表：kind / source / media / tag / 收藏 / 关键字筛选，page 分页
+  rpc List(ListReq) returns (ListResp);
+  // 分类条计数：all + 5 个 kind + uncategorized（kind 为空），随 source / media 条件
+  rpc Categories(CategoriesReq) returns (CategoriesResp);
+  // 详情：资产 + 版本 + 相关资产 + 生成结果（各自分页，默认每页 6）
+  rpc Get(GetReq) returns (GetResp);
+  // 改标题（写 Java afv_asset.name）/ 分类 / 收藏 / 标签（整组替换）/ 元数据 / 授权 / 当前版本
+  rpc Update(UpdateReq) returns (Asset);
+  // 追加版本（version_no 取 MAX+1），并设为当前版本
+  rpc AddVersion(AddVersionReq) returns (Version);
+  rpc AddRelation(RelationReq) returns (Empty);
+  rpc RemoveRelation(RelationReq) returns (Empty);
+  // 标签字典
+  rpc ListTags(UserReq) returns (ListTagsResp);
+  rpc CreateTag(CreateTagReq) returns (Tag);
+  rpc DeleteTag(TagIdReq) returns (Empty);
+  rpc RenameTag(RenameTagReq) returns (Tag);
+  // 批量给资产加标签（追加，不删已有）
+  rpc BatchTag(BatchTagReq) returns (BatchTagResp);
+
+  // ---- 运营后台 ----
+  rpc AdminListTags(AdminListTagsReq) returns (AdminListTagsResp);
+  // 按 kind × 来源计数（全量用户，或指定 user_id）
+  rpc AdminKindStats(AdminKindStatsReq) returns (AdminKindStatsResp);
+}
+
+message Empty {}
+
+message UserReq {
+  int64 user_id = 1;
+}
+
+// ---------------- 资产 ----------------
+
+message Metadata {
+  string industry = 1;
+  string style = 2;
+  string shot = 3;
+  string color = 4;
+}
+
+message Provenance {
+  string run_id = 1;
+  string workflow_id = 2;
+  string node_id = 3;
+  string operator = 4;
+  string model = 5;
+  string params = 6;      // JSON 文本；空=没有
+  int64 created_at = 7;
+}
+
+message Version {
+  int64 id = 1;
+  int32 version_no = 2;   // 同资产从 1 起
+  string image = 3;
+  string prompt = 4;
+  string model = 5;
+  string params = 6;      // JSON 文本；空=没有
+  int64 created_at = 7;
+}
+
+// 前端 Asset（07 文件 C.1 口径）
+message Asset {
+  int64 id = 1;
+  string kind = 2;              // model / scene / makeup / hair / accessory；空=未分类
+  string title = 3;             // afv_asset.name
+  string prompt = 4;            // afv_asset.ai_prompt
+  string image = 5;             // 展示图：当前版本图 > 原图（视频为封面）
+  string media = 6;             // image / video
+  string video_url = 7;         // media=video 时为 mp4 地址
+  string source = 8;            // upload / generated / official
+  repeated string tags = 9;     // 标签名
+  int64 created_at = 10;
+  bool favorite = 11;
+  string license = 12;          // cleared / internal / unknown；空=未设置
+  Metadata metadata = 13;
+  Provenance provenance = 14;
+  repeated Version versions = 15;  // 仅详情带（当前页）
+  int64 current_version_id = 16;   // 0=原图
+  repeated int64 related_ids = 17; // 仅详情带（相关资产当前页的 id）
+  string entry_code = 18;       // Java 创作入口编码
+  int32 width = 19;
+  int32 height = 20;
+}
+
+message ListReq {
+  int64 user_id = 1;
+  string kind = 2;          // 空=全部；uncategorized=未分类；其余为 5 个 kind
+  string source = 3;        // 空=全部；input（= official + upload）/ generated / official / upload
+  string media = 4;         // 空=全部；image / video
+  string tag = 5;           // 标签名
+  bool favorite_only = 6;
+  string q = 7;             // 标题 / 提示词模糊匹配
+  int64 page = 8;
+  int64 page_size = 9;
+}
+
+message ListResp {
+  repeated Asset items = 1;
+  int64 total = 2;
+}
+
+message CategoriesReq {
+  int64 user_id = 1;
+  string source = 2;
+  string media = 3;
+}
+
+message Category {
+  string key = 1;   // all / model / scene / makeup / hair / accessory / uncategorized
+  string label = 2;
+  int64 count = 3;
+}
+
+message CategoriesResp {
+  repeated Category items = 1;
+}
+
+message GetReq {
+  int64 id = 1;
+  int64 user_id = 2;
+  int64 version_page = 3;
+  int64 related_page = 4;
+  int64 result_page = 5;
+  int64 page_size = 6;      // 三组共用，默认 6，上限 50
+}
+
+message VersionPage {
+  repeated Version items = 1;
+  int64 total = 2;
+}
+
+message AssetPage {
+  repeated Asset items = 1;
+  int64 total = 2;
+}
+
+message GetResp {
+  Asset asset = 1;
+  VersionPage versions = 2;
+  AssetPage related = 3;            // reference（双向）+ 本资产的 generated_from 来源
+  AssetPage generated_results = 4;  // generated_from 指向本资产的资产
+}
+
+message TagNames {
+  repeated string names = 1;
+}
+
+// 只改带了的字段（optional / message 有无即「是否修改」）
+message UpdateReq {
+  int64 id = 1;
+  int64 user_id = 2;
+  optional string title = 3;              // ≤100 字，不能为空
+  optional string kind = 4;               // 空串=改回未分类
+  optional bool favorite = 5;
+  TagNames tags = 6;                      // 整组替换，≤10 个；字典里没有的自动建
+  Metadata metadata = 7;                  // 整体替换
+  optional int64 current_version_id = 8;  // 0=回到原图
+  optional string license = 9;            // cleared / internal / unknown / 空
+}
+
+message AddVersionReq {
+  int64 id = 1;
+  int64 user_id = 2;
+  string image_url = 3;
+  string prompt = 4;
+  string model = 5;
+  string params = 6;     // JSON 文本，可空
+  string image_rid = 7;  // 可空
+}
+
+message RelationReq {
+  int64 id = 1;
+  int64 user_id = 2;
+  int64 related_asset_id = 3;
+  string relation_type = 4;  // reference / generated_from / version_of
+}
+
+// ---------------- 标签 ----------------
+
+message Tag {
+  int64 id = 1;
+  string name = 2;
+  int64 asset_count = 3;
+  int64 created_at = 4;
+}
+
+message ListTagsResp {
+  repeated Tag items = 1;
+}
+
+message CreateTagReq {
+  int64 user_id = 1;
+  string name = 2;
+}
+
+message TagIdReq {
+  int64 user_id = 1;
+  int64 id = 2;
+}
+
+message RenameTagReq {
+  int64 user_id = 1;
+  int64 id = 2;
+  string name = 3;
+}
+
+message BatchTagReq {
+  int64 user_id = 1;
+  repeated int64 asset_ids = 2;  // ≤100
+  repeated int64 tag_ids = 3;    // ≤10
+}
+
+message BatchTagResp {
+  int64 added = 1;   // 新增的关联条数（已有的跳过）
+}
+
+// ---------------- 后台 ----------------
+
+message AdminListTagsReq {
+  int64 page = 1;
+  int64 page_size = 2;
+  int64 user_id = 3;  // 0=全部
+  string q = 4;       // 标签名模糊
+}
+
+message AdminTag {
+  int64 id = 1;
+  int64 user_id = 2;
+  string name = 3;
+  int64 asset_count = 4;
+  int64 created_at = 5;
+}
+
+message AdminListTagsResp {
+  repeated AdminTag items = 1;
+  int64 total = 2;
+}
+
+message AdminKindStatsReq {
+  int64 user_id = 1;  // 0=全部用户
+  string media = 2;   // 空=全部；image / video
+}
+
+message KindStat {
+  string kind = 1;    // 5 个 kind 或 uncategorized
+  string source = 2;  // upload / generated / official
+  int64 count = 3;
+}
+
+message AdminKindStatsResp {
+  repeated KindStat rows = 1;     // kind × source
+  repeated Category kinds = 2;    // 按 kind 汇总（含 all）
+  repeated Category sources = 3;  // 按来源汇总
+}
