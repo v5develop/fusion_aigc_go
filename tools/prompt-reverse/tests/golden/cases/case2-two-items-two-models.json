@@ -1,0 +1,67 @@
+{
+  "name": "case2-two-items-two-models",
+  "desc": "D1/D2/D3：上衣+下装各 front/side，2 模特，analyze-batch",
+  "placeholder_images": "占位：64x64 纯色 PNG，仅用于离线结构校验；有 Key 录制黄金前，请运营替换为真实样本图",
+  "endpoint": "analyze-batch",
+  "expect": {
+    "items": [
+      "top",
+      "bottom"
+    ],
+    "item_labels": [
+      "上衣",
+      "下装"
+    ],
+    "models": 2,
+    "fabric_by_item": {}
+  },
+  "request": {
+    "category": "compose",
+    "items": [
+      "top",
+      "bottom"
+    ],
+    "set_mode": "two",
+    "fabric": "",
+    "notes": "保持原背景",
+    "images": [
+      {
+        "role": "上衣",
+        "label": "上衣-正面",
+        "data": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAe0lEQVR4nO3PQQ0AIBDAsPviXw0KsIUIHg3JkgnoZp/1dcMFDWhBA1rQgBY0oAUNaEEDWtCAFjSgBQ1oQQNa0IAWNKAFDWhBA1rQgBY0oAUNaEEDWtCAFjSgBQ1oQQNa0IAWNKAFDWhBA1rQgBY0oAUNaEEDWtCAFjx2AetxkWlbx1TdAAAAAElFTkSuQmCC",
+        "angle": "front"
+      },
+      {
+        "role": "上衣",
+        "label": "上衣-侧面",
+        "data": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAe0lEQVR4nO3PUQkAIBTAwJfFIPZPYRZD+HEIgwW4zVn764YLGtCCBrSgAS1oQAsa0IIGtKABLWhACxrQgga0oAEtaEALGtCCBrSgAS1oQAsa0IIGtKABLWhACxrQgga0oAEtaEALGtCCBrSgAS1oQAsa0IIGtKABLXjsAkq+4R5fRDYDAAAAAElFTkSuQmCC",
+        "angle": "side"
+      },
+      {
+        "role": "下装",
+        "label": "下装-正面",
+        "data": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAeUlEQVR4nO3PwQkAIBDAsANH9u3uDuEjCIUOkM46++uGCxrQgga0oAEtaEALGtCCBrSgAS1oQAsa0IIGtKABLWhACxrQgga0oAEtaEALGtCCBrSgAS1oQAsa0IIGtKABLWhACxrQgga0oAEtaEALGtCCBrSgAS147AKpDDDiJMcgcgAAAABJRU5ErkJggg==",
+        "angle": "front"
+      },
+      {
+        "role": "下装",
+        "label": "下装-侧面",
+        "data": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAeklEQVR4nO3PUQkAIBTAwBfH6EYyjiH8OITBAtxmnf11wwUNaEEDWtCAFjSgBQ1oQQNa0IAWNKAFDWhBA1rQgBY0oAUNaEEDWtCAFjSgBQ1oQQNa0IAWNKAFDWhBA1rQgBY0oAUNaEEDWtCAFjSgBQ1oQQNa0IAWPHYBp6OBh5oQNX8AAAAASUVORK5CYII=",
+        "angle": "side"
+      }
+    ],
+    "models": [
+      {
+        "id": "m-0",
+        "label": "模特A",
+        "data": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAe0lEQVR4nO3PQQ0AIBDAsPOEDvy/8IIIHg3JkgnoZq/zdcMFDWhBA1rQgBY0oAUNaEEDWtCAFjSgBQ1oQQNa0IAWNKAFDWhBA1rQgBY0oAUNaEEDWtCAFjSgBQ1oQQNa0IAWNKAFDWhBA1rQgBY0oAUNaEEDWtCAFjx2AQbw0Tz19ESQAAAAAElFTkSuQmCC"
+      },
+      {
+        "id": "m-1",
+        "label": "模特B",
+        "data": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAeklEQVR4nO3PUQkAIBTAwJfBqAYxsyH8OITBAtxmn/V1wwUNaEEDWtCAFjSgBQ1oQQNa0IAWNKAFDWhBA1rQgBY0oAUNaEEDWtCAFjSgBQ1oQQNa0IAWNKAFDWhBA1rQgBY0oAUNaEEDWtCAFjSgBQ1oQQNa0IAWPHYBZx4hAPH3q0YAAAAASUVORK5CYII="
+      }
+    ],
+    "concurrency": 2
+  }
+}

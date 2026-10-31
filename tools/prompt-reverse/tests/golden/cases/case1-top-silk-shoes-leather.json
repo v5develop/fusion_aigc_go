@@ -1,0 +1,60 @@
+{
+  "name": "case1-top-silk-shoes-leather",
+  "desc": "E4 核心：按件面料，上衣真丝/鞋子皮革，1 模特",
+  "placeholder_images": "占位：64x64 纯色 PNG，仅用于离线结构校验；有 Key 录制黄金前，请运营替换为真实样本图",
+  "endpoint": "analyze",
+  "expect": {
+    "items": [
+      "top",
+      "shoes"
+    ],
+    "item_labels": [
+      "上衣",
+      "鞋子"
+    ],
+    "models": 1,
+    "fabric_by_item": {
+      "上衣": [
+        "真丝"
+      ],
+      "鞋子": [
+        "皮革"
+      ]
+    }
+  },
+  "request": {
+    "category": "compose",
+    "items": [
+      "top",
+      "shoes"
+    ],
+    "set_mode": "two",
+    "fabric": "上衣：真丝；鞋子：皮革",
+    "notes": "自然光，棚拍质感",
+    "images": [
+      {
+        "role": "上衣",
+        "label": "上衣-正面",
+        "data": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAe0lEQVR4nO3PUQkAIBTAwFfGCKaxfw9D+HEIgwW4zTr764YLGtCCBrSgAS1oQAsa0IIGtKABLWhACxrQgga0oAEtaEALGtCCBrSgAS1oQAsa0IIGtKABLWhACxrQgga0oAEtaEALGtCCBrSgAS1oQAsa0IIGtKABLXjsAi7XUKY0+pWmAAAAAElFTkSuQmCC",
+        "angle": "front"
+      },
+      {
+        "role": "上衣",
+        "label": "上衣-背面",
+        "data": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAeklEQVR4nO3PUQkAIBTAwJfPKAY0nyH8OITBAtxmnf11wwUNaEEDWtCAFjSgBQ1oQQNa0IAWNKAFDWhBA1rQgBY0oAUNaEEDWtCAFjSgBQ1oQQNa0IAWNKAFDWhBA1rQgBY0oAUNaEEDWtCAFjSgBQ1oQQNa0IAWPHYBLW6hS5FlhuIAAAAASUVORK5CYII=",
+        "angle": "back"
+      },
+      {
+        "role": "鞋子",
+        "label": "鞋子-正面",
+        "data": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAeklEQVR4nO3PUQkAIBTAwFfBpEayqiH8OITBAtxmr/N1wwUNaEEDWtCAFjSgBQ1oQQNa0IAWNKAFDWhBA1rQgBY0oAUNaEEDWtCAFjSgBQ1oQQNa0IAWNKAFDWhBA1rQgBY0oAUNaEEDWtCAFjSgBQ1oQQNa0IAWPHYBjKzxACBRtgMAAAAASUVORK5CYII=",
+        "angle": "front"
+      },
+      {
+        "role": "人物模特",
+        "label": "模特1",
+        "data": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAeklEQVR4nO3PUQkAIBTAwBfYOEYzkCH8OITBAtxmr/N1wwUNaEEDWtCAFjSgBQ1oQQNa0IAWNKAFDWhBA1rQgBY0oAUNaEEDWtCAFjSgBQ1oQQNa0IAWNKAFDWhBA1rQgBY0oAUNaEEDWtCAFjSgBQ1oQQNa0IAWPHYBi0NBtAHLF0cAAAAASUVORK5CYII="
+      }
+    ]
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "name": "case3-look-together",
+  "desc": "合影路径：setMode one，整套单图，连衣裙+配饰，1 模特",
+  "placeholder_images": "占位：64x64 纯色 PNG，仅用于离线结构校验；有 Key 录制黄金前，请运营替换为真实样本图",
+  "endpoint": "analyze",
+  "expect": {
+    "items": [
+      "dress",
+      "accessory"
+    ],
+    "item_labels": [
+      "连衣裙",
+      "配饰"
+    ],
+    "models": 1,
+    "fabric_by_item": {}
+  },
+  "request": {
+    "category": "compose",
+    "items": [
+      "dress",
+      "accessory"
+    ],
+    "set_mode": "one",
+    "fabric": "",
+    "notes": "",
+    "images": [
+      {
+        "role": "整套穿搭",
+        "label": "整套-合影",
+        "data": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAeklEQVR4nO3PUQkAIBTAwNfOiGa0hSH8OITBAtxmn/V1wwUNaEEDWtCAFjSgBQ1oQQNa0IAWNKAFDWhBA1rQgBY0oAUNaEEDWtCAFjSgBQ1oQQNa0IAWNKAFDWhBA1rQgBY0oAUNaEEDWtCAFjSgBQ1oQQNa0IAWPHYBZbVxpcLgOBsAAAAASUVORK5CYII=",
+        "angle": "front"
+      },
+      {
+        "role": "人物模特",
+        "label": "模特1",
+        "data": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAeklEQVR4nO3PUQkAIBTAwBfOWEYznCH8OITBAtzmrP11wwUNaEEDWtCAFjSgBQ1oQQNa0IAWNKAFDWhBA1rQgBY0oAUNaEEDWtCAFjSgBQ1oQQNa0IAWNKAFDWhBA1rQgBY0oAUNaEEDWtCAFjSgBQ1oQQNa0IAWPHYBxPPBWnl+BuYAAAAASUVORK5CYII="
+      }
+    ]
+  }
+}
