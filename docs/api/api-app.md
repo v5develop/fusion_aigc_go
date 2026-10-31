@@ -10,32 +10,31 @@
 
 联调环境（`Auth.Mode=dev`）没带 token 时仍然认 `X-User-Id: <用户ID>`，方便前端先跑通业务；**线上会关掉**。
 
-### 登录
+### 登录（Java 接口）
 
-一共两步，第一步前端自己做：
+登录和令牌全部由 Java 服务提供，前端直接调 Java，不经过本网关。
 
-1. **前端 → 联盟**：`GET {联盟}/api/v1/user/auth/token`，带用户的联盟 token（`Authorization: Bearer <联盟token>`），拿到 `tempToken`。
-   它 5 分钟有效、**用一次就失效**，所以每次登录都要重新换一个。
-2. **前端 → 我们**：`POST /auth/login`，body `{"temp_token":"<上一步的 tempToken>"}`，换我们的令牌。
-   （也可以改放在 `Authorization: Bearer <tempToken>` 请求头里，两种都收。）
-
-| 接口 | 说明 |
-|---|---|
-| `POST /auth/login` | 临时 token → 我们的令牌；库里没有的用户会自动建档 |
-| `GET /auth/me` | 当前登录用户（带我们的令牌） |
+1. **前端 → 联盟**：`GET {联盟}/api/v1/user/auth/token`，带用户的联盟 token，拿到 `tempToken`。
+   `tempToken` 5 分钟有效、**只能用一次**，每次登录都重新换。
+2. **前端 → Java**：`POST /api/v1/auth/union-token-login`，body `{"token": "<tempToken>"}`，注册或登录。
 
 ```json
-// POST /auth/login 返回
-{"code":0,"msg":"ok","data":{
-  "token":"9f3c1e7a4b8d42f0a1c6e5b7d9084321",   // 之后所有接口带 Authorization: Bearer <token>
-  "expires_at":1790755825451,                    // 过期时间（unix 毫秒）
-  "refresh_token":"5b2d7f1c8e3a49d6b0f4c2a1e7d93856",
-  "refresh_expires_at":1791360625451,
-  "user":{"id":2,"nickname":"小林","avatar":"https://…","phone":"130****7881"}
+// POST /api/v1/auth/union-token-login 返回（LoginRespVO）
+{"code": 0, "msg": "ok", "data": {
+  "accessToken": "…",
+  "refreshToken": "…",
+  "expiresIn": 7200,
+  "refreshExpiresIn": 604800,
+  "userId": 2,
+  "username": "xiaolin",
+  "nickname": "小林"
 }}
 ```
 
-**这个 token 和 AIGC 服务是同一套** —— 我们和它共用用户表与登录会话，所以拿它可以**直接调 AIGC 那边的接口**，不用再登录一次：
+- 之后所有接口（Java 与本网关）都带 `Authorization: Bearer <accessToken>`，两边是同一套会话。
+- `expiresIn`、`refreshExpiresIn` 单位是**秒**。访问令牌过期前用 `POST /api/v1/auth/refresh` 刷新；刷新失败就重新走上面两步。
+- 临时 token 失效、用过、乱写，或账号被禁用，按 Java 统一错误码返回，`msg` 直接展示。
+- 库里没有的用户由 Java 自动建档（同时建个人团队，口径与现有 Java 服务一致）。
 
 > 下面这些是现有 Java 服务的接口，路径是 `/api/v1/...`（没有 `local-life`）；我们网关的接口都在 `/api/v1/local-life/...` 下。两边同一个 `/api/v1` 根，只是我们多一段 `local-life`，转发时按 `/api/v1/local-life` 前缀分给我们的 18888。
 
@@ -46,19 +45,6 @@
 | `GET /api/v1/asset/all`、`/asset/categories` | 素材库（按任务成组、分类 tab、比例筛选） |
 | `GET /api/v1/auth/user-info` | 当前用户（含可用点数与创作能力） |
 | `POST /api/v1/auth/refresh` | **刷新令牌**（用 `refresh_token`，我们这边不用再实现） |
-
-> `refresh_token` / `refresh_expires_at` 只在共用会话时返回。如果服务端没配（回落到我们自己的 JWT），这两个字段为空，`token` 是 JWT 形状，也不能拿去调 AIGC 的接口。看 `token` 是不是 32 位 hex 就能区分。
-
-- 我们拿这个临时 token 去联盟换用户信息（`GET {联盟}/api/v1/auth/{tempToken}/user`），**库里没有的用户会自动建档**（同时建个人团队，口径和现有 Java 服务一致），有的就直接登录并同步资料（联盟返回空的字段不会覆盖已有资料）。
-- `user.id` 是本服务的用户 id，业务数据都按它隔离。手机号是**脱敏**的，联盟那边就不给真实号码。
-- 令牌有效期：共用会话时 **access 2 小时 / refresh 7 天**（过期先用 `refresh_token` 调 AIGC 的 `/auth/refresh`，刷不动了再重走上面两步）；回落 JWT 时是 **7 天、没有 refresh**。
-  两种情况下过期都返回 `1002`「登录已过期，请重新登录」。
-
-| 登录失败 | 返回 |
-|---|---|
-| 临时 token 失效/用过了/乱写的 | `1002`「登录已失效，请重新登录」 |
-| 账号被冻结 | `1004`「账号已被禁用」 |
-| 联盟服务不可用 | `1000`，提示稍后重试 |
 
 **响应**：统一包一层，业务数据在 `data` 里。
 
@@ -92,30 +78,22 @@ HTTP 状态码一律 200，用 `code` 判断：
 
 **命名**：请求与响应字段一律下划线，不会改成小驼峰。
 
-## 上传：前端直传 OSS
+## 上传：前端直传 OSS（Java 接口）
 
-**推荐：预签名直传**（前端不需要密钥、不用实现签名）
+1. **预签名**：`POST /api/v1/storage/direct/presign`，body：
+   ```json
+   {"subDir": "images", "fileName": "look.jpg", "contentType": "image/jpeg", "fileSize": 245760, "visibility": "public"}
+   ```
+   - `subDir`：`images` / `videos` / `uploads`（默认）/ `audios`。
+   - `contentType`：图片 `image/png|jpeg|webp|gif`；视频 `video/mp4|webm|quicktime`；音频 `audio/mpeg|wav|aac|ogg`。
+   - `visibility`：**用 `public`**（默认）。`private` 只返回对象键，本网关的业务接口收不了。
+   - 返回 `uploadUrl`、`method`（固定 `PUT`）、`headers`、`objectKey`、`url`、`expiresAt`（毫秒）。每用户每分钟 30 次。
+2. **直传**：把文件 `PUT` 到 `uploadUrl`，`headers` 原样带上（尤其 `Content-Type`）。HTTP 200 即成功。
+3. **确认**：`POST /api/v1/storage/direct/confirm`，body `{"objectKey": "<上一步的 objectKey>"}`，返回 `{"url": "…"}`。**之后只用这个 `url`** 传给业务接口。
 
-1. `POST /upload/presign`，body `{"kind":"image","content_type":"image/jpeg"}`，返回 `put_url`、`url`、`content_type`、`expires_at`。
-2. 把文件原样 PUT 到 `put_url`，**必须带 `Content-Type: <返回的 content_type>`**，HTTP 200 即成功。
-3. 把 `url` 传给业务接口（如 `image_url`）。
+预签名有时效，过期重新 presign。
 
-`kind`：`image` / `video`。`content_type`：`image/jpeg|png|webp|gif|heic`、`video/mp4|quicktime`。对象名由后端生成；地址 30 分钟有效，一个地址传一个文件。
-OSS 已允许跨域 PUT。文件大小与类型由前端控制；后端只校验地址是不是本服务签发的。详细见 `api-voiceover.md` 4.1。
-
-**兼容：STS 临时凭证**（前端自行签名上传）
-
-1. `GET /upload/credentials?kind=image|video` 取临时凭证：
-
-```json
-{"access_key_id":"STS.…","access_key_secret":"…","security_token":"…",
- "expiration":"2026-09-21T06:12:00Z","bucket":"xx-shop-img",
- "host":"xx-shop-img.oss-cn-hangzhou.aliyuncs.com",
- "dir":"aigc-local-life/image/123/20260921/","base_url":"https://xx-shop-img.oss-cn-hangzhou.aliyuncs.com"}
-```
-
-2. 用凭证把文件 PUT 到 `https://{host}/{dir}{随机文件名}`，**对象 key 必须在 `dir` 下**，否则 OSS 返回 403。
-3. 上传成功后，文件地址是 `{base_url}/{key}`，把它传给后续接口。凭证默认 30 分钟有效。
+> ⚠️ 本网关的 studio 与资产库只接受本服务签发的地址。Java 直传的公有桶地址需要加入 `STUDIO_INPUT_URL_PREFIXES`（两边共用），否则业务接口报「不是本服务上传的地址」。这一项由运维配置。
 
 ## 零、店铺档案
 
