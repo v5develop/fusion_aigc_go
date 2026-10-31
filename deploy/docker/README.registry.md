@@ -6,7 +6,7 @@
 
 | | 单镜像（README.md） | 每服务独立镜像（本文档） |
 |---|---|---|
-| 镜像 | 1 个 `aigc-local-life`（6 个服务 + 工具全在一起） | 7 个：6 个服务各一个 + `aigc-local-life-ops` |
+| 镜像 | 1 个 `aigc-local-life`（9 个服务 + 工具全在一起） | 11 个：9 个服务各一个 + 反推 sidecar `aigc-local-life-prompt-reverse` + `aigc-local-life-ops` |
 | 构建推送 | 主 Makefile 的 `make image ... PUSH=1` | `make -f Makefile_x push-all` |
 | 服务器 `.env` | `AIGC_IMAGE`（建议带 digest） | `AIGC_REGISTRY` + `AIGC_TAG` |
 | 服务器 compose | `docker-compose.yml` | `docker-compose.registry.yml` |
@@ -22,6 +22,10 @@
 | `aigc-local-life-digitalhuman-rpc` | `app/digitalhuman/rpc` | 数字人 |
 | `aigc-local-life-note-rpc` | `app/note/rpc` | 图文笔记 |
 | `aigc-local-life-imagegen-rpc` | `app/imagegen/rpc` | 视频/图片生成 |
+| `aigc-local-life-studio-rpc` | `app/studio/rpc` | 商拍换装 / 姿态复刻 / 图片生成（19205） |
+| `aigc-local-life-assetlib-rpc` | `app/assetlib/rpc` | 资产库增强（19206） |
+| `aigc-local-life-canvas-rpc` | `app/canvas/rpc` | 画布 + 提示词库（19207） |
+| `aigc-local-life-prompt-reverse` | `tools/prompt-reverse` | 反推 sidecar（Python，只绑 127.0.0.1:8090，不映射端口，只给 studio-rpc 用；模型经 ai-gateway 调用） |
 | `aigc-local-life-gateway-api` | `app/gateway/api` | App 网关（127.0.0.1:18888） |
 | `aigc-local-life-admin-api` | `app/admin/api` | 运营后台（127.0.0.1:18889） |
 | `aigc-local-life-ops` | `tools/ops/*` | prepare 一次性准备 + 运维工具（迁移、生成配置、渲染 nginx、计费自检） |
@@ -34,7 +38,7 @@
 
 ```bash
 make -f Makefile_x login                      # 登录私有仓库
-make -f Makefile_x build-all                  # 构建全部 7 个镜像到本机（--load）
+make -f Makefile_x build-all                  # 构建全部 11 个镜像到本机（--load）
 make -f Makefile_x note-rpc                   # 只构建某一个：服务名即目标名
 make -f Makefile_x push-all                   # 构建并推送全部
 make -f Makefile_x deploy TAG=v1.0.1          # 推送全部 + 触发部署 hook
@@ -96,7 +100,7 @@ docker login uniontest.pengqiwl.com:5000        # 若仓库需要认证
 docker compose -f docker-compose.registry.yml pull
 docker compose -f docker-compose.registry.yml up -d
 docker compose -f docker-compose.registry.yml logs -f prepare    # 最后一行「准备完成」
-docker compose -f docker-compose.registry.yml ps                 # prepare Exited(0)，6 个服务 healthy
+docker compose -f docker-compose.registry.yml ps                 # prepare Exited(0)，9 个服务 healthy（prompt-reverse 无健康检查依赖，状态 running 即可）
 ```
 
 prepare 会检查数据库、执行迁移（登记到 `go_schema_history`）、生成配置到 `./etc/`、渲染 `./nginx/aigc-local-life.conf`、做计费自检。**任何一步失败服务都不会启动**，规则与单镜像方式一致。
@@ -119,7 +123,7 @@ cd <仓库根目录>
 make -f Makefile_x deploy TAG=v1.0.1
 ```
 
-依次做三件事：构建 7 个镜像 → 推送私有仓库 → `curl` 触发 hook。需要更细的控制时：
+依次做三件事：构建 11 个镜像 → 推送私有仓库 → `curl` 触发 hook。需要更细的控制时：
 
 ```bash
 make -f Makefile_x push-all TAG=v1.0.1                     # 只推不触发
@@ -131,7 +135,7 @@ curl -X GET "https://<hook域名>/hook?access_key=<key>&param=aigc-local-life"  
 
 ```bash
 cd /opt/aigc-local-life
-docker compose -f docker-compose.registry.yml ps                     # 6 个服务 healthy
+docker compose -f docker-compose.registry.yml ps                     # 9 个服务 healthy
 docker compose -f docker-compose.registry.yml logs -f --tail=200 gateway-api
 docker compose -f docker-compose.registry.yml run --rm prepare bash /app/pkg/install.sh check-billing   # 计费复查（只读）
 TOKEN=<App 登录返回的 token>
@@ -144,7 +148,7 @@ curl -s -H "Authorization: Bearer $TOKEN" https://<PUBLIC_DOMAIN>/api/v1/local-l
 
 **回滚**：`AIGC_TAG` 换回上一个版本号 → `pull && up -d`。本项目的迁移只新增表 / 列 / 数据，旧版本可以在新表结构上运行；需要连数据一起回退时用升级前的 RDS 备份恢复。
 
-一条纪律：**不要重推已经发布过的 TAG**。tag 是可变的，重推后回滚会拉到与上次不同的内容。需要严格不可变时，把 compose 里的 `image:` 改成带 `@sha256` digest（7 个镜像都要改）。
+一条纪律：**不要重推已经发布过的 TAG**。tag 是可变的，重推后回滚会拉到与上次不同的内容。需要严格不可变时，把 compose 里的 `image:` 改成带 `@sha256` digest（11 个镜像都要改）。
 
 ## 六、从单镜像方式切过来
 

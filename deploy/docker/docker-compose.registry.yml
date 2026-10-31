@@ -1,19 +1,21 @@
 # aigc-local-life 正式部署（每服务独立镜像，从私有仓库拉取）
 #
 # 与 docker-compose.yml（单镜像）只有镜像来源不同，拓扑、prepare 流程、健康检查完全一致：
-#   · 单镜像：6 个服务 + prepare 共用 ${AIGC_IMAGE}，构建/推送用主 Makefile 的 make image
+#   · 单镜像：9 个服务 + prepare 共用 ${AIGC_IMAGE}，构建/推送用主 Makefile 的 make image
 #   · 本文件：每个服务用自己的镜像 <AIGC_REGISTRY>/aigc-local-life-<服务>:<AIGC_TAG>，
-#             prepare 用 aigc-local-life-ops；构建/推送用 Makefile_x，发布由 webhook 触发
+#             prepare 用 aigc-local-life-ops，反推 sidecar 用 aigc-local-life-prompt-reverse；
+#             构建/推送用 Makefile_x（build-all 共 11 个镜像），发布由 webhook 触发
 #
 # AIGC_TAG 一次覆盖 6 个服务镜像与 ops 镜像（同一个 TAG 一起构建），回滚 = 换回上一个 TAG。
 #
 # 服务器上执行（目录建议 /opt/aigc-local-life）：
-#   docker compose -f docker-compose.registry.yml pull          # 拉私有仓库的 7 个镜像
+#   docker compose -f docker-compose.registry.yml pull          # 拉私有仓库的 11 个镜像（ops、9 个服务、反推 sidecar）
 #   docker compose -f docker-compose.registry.yml up -d         # prepare 先跑完，6 个服务才启动
 #   docker compose -f docker-compose.registry.yml logs -f prepare
 #
 # 网络：全部 host 网络，与 docker-compose.yml 相同——
-#   · 服务只监听 127.0.0.1（网关 18888、后台 18889、rpc 19201–19204），公网只经宿主机 nginx；
+#   · 服务只监听 127.0.0.1（网关 18888、后台 18889、rpc 19201–19207），公网只经宿主机 nginx；
+#   · 反推 sidecar 只绑 127.0.0.1:8090、不映射端口、不经 nginx，只给 studio-rpc 用；
 #   · Redis 在宿主机（127.0.0.1:6379），MySQL 是阿里云 RDS（按内网地址连），Java 在 127.0.0.1:18080。
 #
 # 镜像自带启动命令 /app/<服务> -f /app/etc/<服务>.yaml（与服务名一一对应），这里不再重复写 command。
@@ -108,6 +110,63 @@ services:
       <<: *rpc-health
       test: ["CMD", "bash", "-c", "</dev/tcp/127.0.0.1/${IMAGEGEN_PORT:-19204}"]
 
+  studio-rpc:
+    <<: *svc
+    image: ${AIGC_REGISTRY:?}/aigc-local-life-studio-rpc:${AIGC_TAG:?}
+    healthcheck:
+      <<: *rpc-health
+      test: ["CMD", "bash", "-c", "</dev/tcp/127.0.0.1/${STUDIO_PORT:-19205}"]
+
+  # 资产库增强（/api/v1/asset-library）：只读 Java afv_asset + Go 旁表，无外部依赖
+  assetlib-rpc:
+    <<: *svc
+    image: ${AIGC_REGISTRY:?}/aigc-local-life-assetlib-rpc:${AIGC_TAG:?}
+    healthcheck:
+      <<: *rpc-health
+      test: ["CMD", "bash", "-c", "</dev/tcp/127.0.0.1/${ASSETLIB_PORT:-19206}"]
+
+  # 画布 + 提示词库：依赖 ai-gateway（AI_GATEWAY_*）、共享媒体服务、Java 兼容工具（CANVAS_JAVA_BASE_URL）、studio-rpc（试穿）
+  canvas-rpc:
+    <<: *svc
+    image: ${AIGC_REGISTRY:?}/aigc-local-life-canvas-rpc:${AIGC_TAG:?}
+    healthcheck:
+      <<: *rpc-health
+      test: ["CMD", "bash", "-c", "</dev/tcp/127.0.0.1/${CANVAS_PORT:-19207}"]
+
+  # 反推 sidecar（Python，只给 studio-rpc 用）：绑 127.0.0.1、不映射端口、不经 nginx，无鉴权，靠只听本机隔离。
+  # 模型调用经 ai-gateway（调用方 prompt-reverse，模型组默认 vlm.deepseek-flash）。REVERSE_AIG_SECRET 只注入本容器，
+  # 须与 ai-gateway 侧 AIG_CALLER_REVERSE_SECRET 一致。镜像默认取私有仓库的 aigc-local-life-prompt-reverse:${AIGC_TAG}，
+  # 可用 REVERSE_IMAGE 覆盖（例如本机 docker build tools/prompt-reverse 的本地镜像）。
+  # 不依赖 prepare（它不读 etc/），sidecar 不可用时 studio 批次失败并退款，其它功能不受影响。
+  prompt-reverse:
+    image: ${REVERSE_IMAGE:-${AIGC_REGISTRY:?设置 AIGC_REGISTRY：镜像仓库地址}/aigc-local-life-prompt-reverse:${AIGC_TAG:?设置 AIGC_TAG：镜像版本}}
+    network_mode: host
+    restart: unless-stopped
+    init: true
+    read_only: true
+    environment:
+      TZ: Asia/Shanghai
+      REVERSE_BIND: 127.0.0.1:${REVERSE_PORT:-8090}
+      AIG_BASE_URL: ${REVERSE_AIG_BASE_URL:-${AI_GATEWAY_URL:-}}
+      AIG_KEY_ID: ${REVERSE_AIG_KEY_ID:-prompt-reverse-v1}
+      AIG_SECRET: ${REVERSE_AIG_SECRET:-}
+      AIG_CALLER: prompt-reverse
+      REVERSE_MODEL_GROUP: ${REVERSE_MODEL_GROUP:-vlm.deepseek-flash}
+      REVERSE_ALLOWED_DEPLOYMENTS: ${REVERSE_ALLOWED_DEPLOYMENTS:-}
+      AIG_WAIT_S: ${REVERSE_AIG_WAIT_S:-25}
+    healthcheck:
+      <<: *rpc-health
+      test: ["CMD", "python3", "-I", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:${REVERSE_PORT:-8090}/api/status', timeout=2).status==200 else 1)"]
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+
   # 网关与后台：未带令牌的请求返回 401 属正常，健康检查只要求进程能应答（1xx–4xx）
   gateway-api:
     <<: *svc
@@ -118,6 +177,9 @@ services:
       digitalhuman-rpc: { condition: service_healthy }
       note-rpc: { condition: service_healthy }
       imagegen-rpc: { condition: service_healthy }
+      studio-rpc: { condition: service_healthy }
+      assetlib-rpc: { condition: service_healthy }
+      canvas-rpc: { condition: service_healthy }
     healthcheck:
       <<: *rpc-health
       test: ["CMD-SHELL", "case $$(curl -s -o /dev/null -m 3 -w '%{http_code}' http://127.0.0.1:${GATEWAY_PORT:-18888}/api/v1/local-life/copywriting/options) in [1-4]??) exit 0;; *) exit 1;; esac"]
@@ -131,6 +193,9 @@ services:
       digitalhuman-rpc: { condition: service_healthy }
       note-rpc: { condition: service_healthy }
       imagegen-rpc: { condition: service_healthy }
+      studio-rpc: { condition: service_healthy }
+      assetlib-rpc: { condition: service_healthy }
+      canvas-rpc: { condition: service_healthy }
     healthcheck:
       <<: *rpc-health
       test: ["CMD-SHELL", "case $$(curl -s -o /dev/null -m 3 -w '%{http_code}' http://127.0.0.1:${ADMIN_PORT:-18889}/api/v1/local-life/admin/copywriting/model) in [1-4]??) exit 0;; *) exit 1;; esac"]

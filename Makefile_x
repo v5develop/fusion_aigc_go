@@ -16,7 +16,7 @@
 # 媒体服务是独立镜像 <REGISTRY>/aigc-media:<TAG>，独立 compose 栈（docker-compose.media.yml，project aigc-media），
 # 与本地生活栈分开上线、分开回滚 —— 不在 build-all / push-all 里，单独用 media / deploy-media。
 
-.PHONY: copywriting-rpc digitalhuman-rpc note-rpc imagegen-rpc gateway-api admin-api ops \
+.PHONY: copywriting-rpc digitalhuman-rpc note-rpc imagegen-rpc studio-rpc assetlib-rpc canvas-rpc prompt-reverse gateway-api admin-api ops \
 	media push-media deploy-media \
 	build-all push-all login deploy clean
 
@@ -44,7 +44,7 @@ PLATFORM ?= linux/amd64
 BUILDER ?= orbstack
 
 # ---- 服务镜像：app/<SERVICE> => <REGISTRY>/aigc-local-life-<BIN>:<TAG> ----
-# 6 个服务共用一个参数化 Dockerfile，只有服务目录与产物名不同
+# 9 个服务共用一个参数化 Dockerfile（只有服务目录与产物名不同）；prompt-reverse 是独立的 Python 镜像
 
 copywriting-rpc:
 	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --provenance=false \
@@ -76,6 +76,27 @@ admin-api:
 		--build-arg SERVICE=admin/api --build-arg BIN=admin-api \
 		-t $(REGISTRY)/aigc-local-life-admin-api:$(TAG) -f deploy/docker/_Dockerfile.svc --load .
 
+# 新增服务（studio / 资产库 / 画布）：同一个参数化 Dockerfile
+studio-rpc:
+	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --provenance=false \
+		--build-arg SERVICE=studio/rpc --build-arg BIN=studio-rpc \
+		-t $(REGISTRY)/aigc-local-life-studio-rpc:$(TAG) -f deploy/docker/_Dockerfile.svc --load .
+
+assetlib-rpc:
+	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --provenance=false \
+		--build-arg SERVICE=assetlib/rpc --build-arg BIN=assetlib-rpc \
+		-t $(REGISTRY)/aigc-local-life-assetlib-rpc:$(TAG) -f deploy/docker/_Dockerfile.svc --load .
+
+canvas-rpc:
+	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --provenance=false \
+		--build-arg SERVICE=canvas/rpc --build-arg BIN=canvas-rpc \
+		-t $(REGISTRY)/aigc-local-life-canvas-rpc:$(TAG) -f deploy/docker/_Dockerfile.svc --load .
+
+# 反推 sidecar（Python，独立镜像；构建上下文只到 tools/prompt-reverse，不带 Go 源码）
+prompt-reverse:
+	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --provenance=false \
+		-t $(REGISTRY)/aigc-local-life-prompt-reverse:$(TAG) -f tools/prompt-reverse/Dockerfile --load tools/prompt-reverse
+
 # ---- ops 镜像：prepare（检查数据库/迁移/生成配置/渲染 nginx/计费自检）与运维工具 ----
 # 服务器侧每次部署先跑它，成功退出后服务容器才启动；逻辑与 install.sh prepare 一致
 ops:
@@ -98,12 +119,12 @@ deploy-media: push-media
 		echo "deploy-media 需要 HOOK_URL 与 HOOK_KEY：export 进来，或写进 deploy/docker/release.env（不要写进仓库）"; exit 1; }
 	@curl -fsS -X GET "$(HOOK_URL)?access_key=$(HOOK_KEY)&param=$(MEDIA_HOOK_PARAM)" >/dev/null
 
-build-all: copywriting-rpc digitalhuman-rpc note-rpc imagegen-rpc gateway-api admin-api ops
+build-all: copywriting-rpc digitalhuman-rpc note-rpc imagegen-rpc studio-rpc assetlib-rpc canvas-rpc prompt-reverse gateway-api admin-api ops
 
 # ---- 推送：dockerd 认 insecure-registries，普通 docker push 即可 ----
 SVC_IMAGES := aigc-local-life-copywriting-rpc aigc-local-life-digitalhuman-rpc aigc-local-life-note-rpc \
-	aigc-local-life-imagegen-rpc aigc-local-life-gateway-api aigc-local-life-admin-api \
-	aigc-local-life-ops
+	aigc-local-life-imagegen-rpc aigc-local-life-studio-rpc aigc-local-life-assetlib-rpc aigc-local-life-canvas-rpc \
+	aigc-local-life-prompt-reverse aigc-local-life-gateway-api aigc-local-life-admin-api aigc-local-life-ops
 
 push-all: build-all
 	@for i in $(SVC_IMAGES); do \
