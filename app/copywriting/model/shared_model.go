@@ -93,7 +93,7 @@ var derivativeSources = map[string]string{
 		firstImage + " AS `result_url`, 0 AS `is_video`, '' AS `size`, `create_time`, `copywriting_id`, `user_id` " +
 		"FROM `afv_image_text_note` WHERE `status` = 4 AND `deleted` = 0",
 
-	DerivativePoster: imageCreationSource(DerivativePoster, "poster", 0),
+	DerivativePoster:    imageCreationSource(DerivativePoster, "poster", 0),
 	DerivativeLongImage: imageCreationSource(DerivativeLongImage, "longImage", 0),
 	DerivativeVoiceover: imageCreationSource(DerivativeVoiceover, "voiceover", 1),
 

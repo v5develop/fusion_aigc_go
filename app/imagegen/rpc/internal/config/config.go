@@ -86,13 +86,13 @@ type MediaSvcConf struct {
 	BaseURL  string   `json:",optional"`
 	BaseURLs []string `json:",optional"`
 	// NacosServerAddr 注册中心（r-nacos）HTTP 地址 host:port。配置后按服务名订阅实例，静态地址只作回退
-	NacosServerAddr    string `json:",optional"`
-	NacosNamespace     string `json:",optional"`
-	NacosGroup         string `json:",default=DEFAULT_GROUP"`
-	NacosServiceName   string `json:",default=aigc-media"`
-	NacosUsername      string `json:",optional"`
-	NacosPassword      string `json:",optional"`
-	Token              string `json:",optional"`
+	NacosServerAddr  string `json:",optional"`
+	NacosNamespace   string `json:",optional"`
+	NacosGroup       string `json:",default=DEFAULT_GROUP"`
+	NacosServiceName string `json:",default=aigc-media"`
+	NacosUsername    string `json:",optional"`
+	NacosPassword    string `json:",optional"`
+	Token            string `json:",optional"`
 }
 
 // VideoRemakeConf 爆款视频复刻。源视频的限制见设计稿：仅支持 3 分钟、50M 以内。
