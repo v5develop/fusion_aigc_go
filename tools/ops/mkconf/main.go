@@ -12,7 +12,7 @@
 //
 //     mkconf -src deploy/etc -out /opt/aigc-local-life/etc -logs /opt/aigc-local-life/logs \
 //     -dsn 'user:pass@tcp(127.0.0.1:3306)/fusion_aigc?...' -aigc http://127.0.0.1:15055 \
-//     -ports copywriting=19201,digitalhuman=19202,note=19203,imagegen=19204,gateway=18888,admin=18889
+//     -ports copywriting=19201,digitalhuman=19202,note=19203,imagegen=19204,studio=19205,assetlib=19206,canvas=19207,gateway=18888,admin=18889
 package main
 
 import (
@@ -34,6 +34,9 @@ var services = map[string]string{
 	"digitalhuman-rpc.yaml": "digitalhuman",
 	"note-rpc.yaml":         "note",
 	"imagegen-rpc.yaml":     "imagegen",
+	"studio-rpc.yaml":       "studio",
+	"assetlib-rpc.yaml":     "assetlib",
+	"canvas-rpc.yaml":       "canvas",
 	"gateway-api.yaml":      "gateway",
 	"admin-api.yaml":        "admin",
 }
@@ -70,7 +73,13 @@ func main() {
 	mediaNacosAddr := flag.String("media-nacos-addr", "", "媒体服务注册中心（r-nacos）地址 host:port；imagegen 用它订阅实例，留空保留模板默认")
 	mediaNacosUser := flag.String("media-nacos-user", "", "r-nacos 鉴权用户名（开启 OpenAPI 鉴权时）")
 	mediaNacosPass := flag.String("media-nacos-pass", "", "r-nacos 鉴权密码")
-	mediaBaseURL := flag.String("media-base-url", "", "媒体服务静态回退地址（imagegen 的 VideoRemake.MediaSvc.BaseURL）")
+	mediaBaseURL := flag.String("media-base-url", "", "媒体服务静态回退地址（imagegen 的 VideoRemake.MediaSvc.BaseURL、studio 的 Media.BaseURL）")
+	aiGatewayURL := flag.String("ai-gateway-url", "", "ai-gateway 地址（studio 生图）；留空 = studio 提交返回「暂未开放」")
+	aiGatewayKeyID := flag.String("ai-gateway-key-id", "", "ai-gateway 调用方 key_id（如 fusion-go-v1），留空保留开发配置")
+	aiGatewaySecret := flag.String("ai-gateway-secret", "", "ai-gateway 调用方 HMAC 密钥（只写进 studio 配置）")
+	reverseURL := flag.String("reverse-url", "", "反推 sidecar 地址（studio 的 Reverse.BaseURL），留空保留开发配置的 127.0.0.1:8090")
+	studioInputPrefixes := flag.String("studio-input-url-prefixes", "", "studio / assetlib 额外允许的输入图地址前缀（逗号分隔，如素材库公有桶域名 https://cdn.example.com/），写进 InputURLPrefixes；留空不改")
+	canvasJavaURL := flag.String("canvas-java-base-url", "", "Java 主项目内网地址（canvas 调 creaft v1 兼容工具 / 任务查询 / 价目，透传用户 Bearer）；留空 = 放大 / 扩图 / 重绘返回「暂未开放」")
 	flag.Parse()
 	for _, r := range *taskIDPrefix {
 		if !(r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' || r >= '0' && r <= '9') {
@@ -113,7 +122,9 @@ func main() {
 			sessionRedisDB: *sessionRedisDB,
 			fusionURL:      *fusionURL, fusionKey: *fusionKey, fusionSecret: *fusionSecret, fusionKeyVer: *fusionKeyVer, billingMode: *billingMode, swagger: *swagger, taskIDPrefix: *taskIDPrefix,
 			listenHost: *listenHost, accessHours: *accessHours, refreshDays: *refreshDays, sessionMax: *sessionMax,
-			mediaToken: *mediaToken, mediaNacosAddr: *mediaNacosAddr, mediaNacosUser: *mediaNacosUser, mediaNacosPass: *mediaNacosPass, mediaBaseURL: *mediaBaseURL}
+			mediaToken: *mediaToken, mediaNacosAddr: *mediaNacosAddr, mediaNacosUser: *mediaNacosUser, mediaNacosPass: *mediaNacosPass, mediaBaseURL: *mediaBaseURL,
+			aiGatewayURL: *aiGatewayURL, aiGatewayKeyID: *aiGatewayKeyID, aiGatewaySecret: *aiGatewaySecret, reverseURL: *reverseURL,
+			studioInputPrefixes: splitList(*studioInputPrefixes), canvasJavaURL: *canvasJavaURL}
 		if err := e.apply(root); err != nil {
 			log.Fatalf("%s: %v", file, err)
 		}
@@ -176,6 +187,25 @@ type editor struct {
 	mediaNacosUser   string
 	mediaNacosPass   string
 	mediaBaseURL     string
+	aiGatewayURL     string
+	aiGatewayKeyID   string
+	aiGatewaySecret  string
+	reverseURL       string
+	// studioInputPrefixes studio InputURLPrefixes（空 = 不改模板）
+	studioInputPrefixes []string
+	// canvasJavaURL canvas 的 Java.BaseURL（空 = 清空，Java 工具返回「暂未开放」）
+	canvasJavaURL string
+}
+
+// splitList 逗号 / 空白分隔的列表，去空项。
+func splitList(s string) []string {
+	var out []string
+	for _, v := range strings.FieldsFunc(s, func(r rune) bool { return r == ',' || r == ' ' || r == '\n' || r == '\t' }) {
+		if v = strings.TrimSpace(v); v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 func (e editor) apply(root *yaml.Node) error {
@@ -269,20 +299,55 @@ func (e editor) apply(root *yaml.Node) error {
 		// 共享媒体服务（imagegen 复刻抽封面等）：token 必须与 media-svc / Java 一致。
 		// mkconf 原先不碰这段，模板里的 Token: change-me 会原样进生产 → Go 调媒体全部 401。
 		if ms := get(vr, "MediaSvc"); ms != nil {
-			// Token 始终写入（未配置则为空，宁可显式失败也不留占位符）
-			set(ms, "Token", quoted(e.mediaToken))
-			if e.mediaBaseURL != "" {
-				set(ms, "BaseURL", scalar(e.mediaBaseURL))
+			e.applyMedia(ms)
+		}
+	}
+	// studio：共享媒体服务（顶层 Media 段）、ai-gateway、反推 sidecar。TaskIDPrefix 是按 kind 的映射（tyo/pse/simg），不跟 -task-id-prefix 走
+	if e.name == "studio" {
+		if ms := get(root, "Media"); ms != nil {
+			e.applyMedia(ms)
+		}
+		if g := get(root, "AiGateway"); g != nil {
+			// 地址与密钥始终写入：没配就清空（提交返回「暂未开放」），不留开发配置里的值
+			set(g, "BaseURL", scalar(e.aiGatewayURL))
+			set(g, "Secret", quoted(e.aiGatewaySecret))
+			if e.aiGatewayKeyID != "" {
+				set(g, "KeyID", quoted(e.aiGatewayKeyID))
 			}
-			if e.mediaNacosAddr != "" {
-				set(ms, "NacosServerAddr", scalar(e.mediaNacosAddr))
+		}
+		if r := get(root, "Reverse"); r != nil && e.reverseURL != "" {
+			set(r, "BaseURL", scalar(e.reverseURL))
+		}
+		if len(e.studioInputPrefixes) > 0 {
+			seq := &yaml.Node{Kind: yaml.SequenceNode}
+			for _, p := range e.studioInputPrefixes {
+				seq.Content = append(seq.Content, scalar(p))
 			}
-			if e.mediaNacosUser != "" {
-				set(ms, "NacosUsername", quoted(e.mediaNacosUser))
+			set(root, "InputURLPrefixes", seq)
+		}
+	}
+	// assetlib：版本图片归属白名单，与 studio 共用 -studio-input-url-prefixes
+	if e.name == "assetlib" && len(e.studioInputPrefixes) > 0 {
+		seq := &yaml.Node{Kind: yaml.SequenceNode}
+		for _, p := range e.studioInputPrefixes {
+			seq.Content = append(seq.Content, scalar(p))
+		}
+		set(root, "InputURLPrefixes", seq)
+	}
+	// canvas：共享媒体服务、ai-gateway（与 studio 同一组调用方凭据）、Java 主项目地址。TaskIDPrefix 固定 cv，不跟 -task-id-prefix 走
+	if e.name == "canvas" {
+		if ms := get(root, "Media"); ms != nil {
+			e.applyMedia(ms)
+		}
+		if g := get(root, "AiGateway"); g != nil {
+			set(g, "BaseURL", scalar(e.aiGatewayURL))
+			set(g, "Secret", quoted(e.aiGatewaySecret))
+			if e.aiGatewayKeyID != "" {
+				set(g, "KeyID", quoted(e.aiGatewayKeyID))
 			}
-			if e.mediaNacosPass != "" {
-				set(ms, "NacosPassword", quoted(e.mediaNacosPass))
-			}
+		}
+		if j := get(root, "Java"); j != nil {
+			set(j, "BaseURL", scalar(e.canvasJavaURL)) // 没配就清空，不留开发配置
 		}
 	}
 	// 计费档位：只有接了计费的三个服务有这段
@@ -318,6 +383,24 @@ func (e editor) apply(root *yaml.Node) error {
 			Content: []*yaml.Node{scalar(fmt.Sprintf("127.0.0.1:%d", p))}})
 	}
 	return nil
+}
+
+// applyMedia 共享媒体服务段：token 必须与 media-svc / Java 一致。
+// 模板里的 Token: change-me 不能原样进生产（否则 Go 调媒体全部 401），所以 Token 始终写入（未配置则为空，宁可显式失败）。
+func (e editor) applyMedia(ms *yaml.Node) {
+	set(ms, "Token", quoted(e.mediaToken))
+	if e.mediaBaseURL != "" {
+		set(ms, "BaseURL", scalar(e.mediaBaseURL))
+	}
+	if e.mediaNacosAddr != "" {
+		set(ms, "NacosServerAddr", scalar(e.mediaNacosAddr))
+	}
+	if e.mediaNacosUser != "" {
+		set(ms, "NacosUsername", quoted(e.mediaNacosUser))
+	}
+	if e.mediaNacosPass != "" {
+		set(ms, "NacosPassword", quoted(e.mediaNacosPass))
+	}
 }
 
 func scalar(v string) *yaml.Node { return &yaml.Node{Kind: yaml.ScalarNode, Value: v} }

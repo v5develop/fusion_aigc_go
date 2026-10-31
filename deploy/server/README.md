@@ -22,7 +22,7 @@
 
 **对服务器上已有项目的影响**：
 - 只新建 `aigc-local-life-*` 这几个系统服务，装在单独目录（默认 `/opt/aigc-local-life`）。
-- 所有进程只监听 `127.0.0.1`：网关 18888、后台 18889、rpc 19201–19204（**避开了宝塔面板的 8888**）。端口被占用时脚本停下来提示，不抢端口。
+- 所有进程只监听 `127.0.0.1`：网关 18888、后台 18889、rpc 19201–19206（**避开了宝塔面板的 8888**）。端口被占用时脚本停下来提示，不抢端口。
 - 数据库只新建本项目的表、给本项目的表加列、写入本项目的分类与计费配置；迁移记录写在独立的 `go_schema_history`，**不碰 Java 的 `flyway_schema_history`**。
 - 不需要装 etcd、Docker、Go，服务之间本机直连。
 
@@ -123,7 +123,7 @@ bash /opt/aigc-local-life/install.sh voices   # 正式环境是 token 鉴权，�
 
 ## 三、对外入口（只经 nginx）
 
-公网只开 80 / 443。网关、后台、各 rpc **都只监听 127.0.0.1**，不要在云安全组或宝塔「安全」里放行 18888、18889、19201–19204。
+公网只开 80 / 443。网关、后台、各 rpc **都只监听 127.0.0.1**，不要在云安全组或宝塔「安全」里放行 18888、18889、19201–19206。
 
 安装后 `/opt/aigc-local-life/nginx/aigc-local-life.conf` 已按 `PUBLIC_DOMAIN`、`GATEWAY_PORT`、`ADMIN_PORT`、`JAVA_UPSTREAM` 渲染好，路由如下：
 
@@ -131,6 +131,8 @@ bash /opt/aigc-local-life/install.sh voices   # 正式环境是 token 鉴权，�
 |---|---|---|
 | `/api/v1/local-life` | Go 网关 | 本地生活全部 App 接口 |
 | `/api/v1/local-life/admin` | Go 后台（与 Java 后台共用登录令牌，按 RBAC 校验权限） |
+| `/api/v1/studio` | Go 网关 | studio（商拍换装 / 姿态复刻 / 图片生成）用户侧接口 |
+| `/api/v1/studio/admin` | Go 后台 | studio 运营后台；两条 `^~` location 都已在模板里，`/admin` 那条在前 |
 | `/api/v1/admin` | 404 | Java 的运营后台接口不走公网（运营走内网 / VPN）；确需公网访问时删掉模板里这一段 |
 | `/api/v1/`（其余） | Java | 登录、用户信息、点数、素材库、刷新令牌等 |
 | `/swagger-ui`、`/v3/api-docs`、`/actuator` | 404 | Java 的接口文档与监控不对公网 |
@@ -144,6 +146,49 @@ bash /opt/aigc-local-life/install.sh voices   # 正式环境是 token 鉴权，�
 前端地址：`https://<PUBLIC_DOMAIN>/api/v1/...`。
 
 **运营后台（Go）经 nginx 对外**，路径 `/api/v1/local-life/admin`，与 Java 后台共用登录令牌，无需 ssh 隧道。
+
+### studio 与反推 sidecar（脚本部署）
+
+- `studio-rpc` 由 `install.sh` 与其它 rpc 一起装（端口 `STUDIO_PORT`，默认 19205），同样只听 127.0.0.1，不要在安全组放行。
+- `assetlib-rpc`（资产库增强，端口 `ASSETLIB_PORT`，默认 19206）同上；nginx 模板已带 `/api/v1/asset-library/admin` 与 `/api/v1/asset-library` 两条 location。上线前的接入检查见根目录 README「资产库增强」。
+- 反推 sidecar（`tools/prompt-reverse/serve_reverse.py`，Python 3.9+ 标准库）**不在安装包里**，需单独部署：用 `REVERSE_BIND=127.0.0.1:8090` 启动（`python3 -I serve_reverse.py`），**只听本机，不对公网、不进 nginx**；`deploy.env` 的 `REVERSE_SIDECAR_URL` 指向它（留空用 `http://127.0.0.1:8090`）。
+- sidecar 目录需同时有 `serve_reverse.py` 与 `aig_client.py`。模型调用**经 ai-gateway**（调用方 `prompt-reverse`，模型组默认 `vlm.deepseek-flash`：官方优先、百炼备用），不再直连 DeepSeek；DeepSeek 官方密钥只在 gateway 管理端配置（账号 `deepseek-chat.main`）。sidecar 环境变量：`AIG_BASE_URL`（网关地址，同 `AI_GATEWAY_URL`）、`AIG_SECRET`（= ai-gateway 侧 `AIG_CALLER_REVERSE_SECRET`）必填；`AIG_KEY_ID`（默认 `prompt-reverse-v1`）、`AIG_CALLER`（默认 `prompt-reverse`）、`REVERSE_MODEL_GROUP`（默认 `vlm.deepseek-flash`）、`REVERSE_ALLOWED_DEPLOYMENTS`（排障钉渠道，逗号分隔，如 `deepseek-chat.vl.deepseek-flash` 或 `bailian-chat.vl.deepseek-flash`，写进 `constraints.allowed_deployments`；平时留空）、`AIG_WAIT_S`（默认 25）可选。
+- `AIG_SECRET` **只放 sidecar 自己的环境**（systemd `Environment=` / 宝塔进程守护的环境变量），不要写进 `etc/` 下任何 yaml，也不要给 studio-rpc；`deploy.env` 里的 `REVERSE_AIG_*` / `REVERSE_MODEL_GROUP` / `REVERSE_ALLOWED_DEPLOYMENTS` 仅供 docker 部署的 compose 使用。
+- `AI_GATEWAY_URL` / `AI_GATEWAY_KEY_ID` / `AI_GATEWAY_SECRET` 写在 `deploy.env`，由 `install.sh` 写进 studio 配置；URL 留空 = studio 提交返回「暂未开放」，其它功能不受影响。ai-gateway 侧需登记调用方 `fusion-go`（`AIG_CALLER_KEYS`）。
+- `STUDIO_INPUT_URL_PREFIXES`（逗号分隔）写进 studio 的 `InputURLPrefixes`：素材库公有桶 / CDN 域名。本服务上传的地址自动放行，用户从素材库选的图不在本服务前缀下，不配会被拒「不是本服务上传的地址」。
+- **`studio-rpc` 可多实例部署，依赖库里的行租约；扩容无需额外配置**：批次（编排 / 派发）与子任务（提交 / 轮询 / 交付）各有一把租约（`lease_owner` / `lease_until`，`Go_V1.0.21`），同一行同一时刻只由一个实例推进，不会重复调 sidecar / ai-gateway、重复转存。实例崩溃后租约到期（编排 10 分钟、轮询 3 分钟）由其它实例自动接管，接管时先按已有的 gateway 调用号查上游、没有才按幂等键提交，不会重复扣费。各实例时钟无需同步（租约时间用库的 `NOW(3)`）。
+- `BILLING_MODE=on` 时 `studio-rpc` 自带预留单回收器（与 imagegen-rpc 的同一个 `billing.Reclaimer`，release 是 CAS，同时跑安全）：
+  生成结果未知（gateway `UNKNOWN`，任务失败原因「结果未知，待对账」）的子任务**不主动退款**、不再续期，预留单到期由回收器自动退回；
+  在途子任务（含排队 / 切图 / 反推阶段）每分钟续期一次，不会因排队久而过期。
+- 状态口径：子任务 `5-交付中`（已出图、确认扣点中，不可被强制失败）；批次 `8-提交中`（逐张冻结中，不可取消；进程在此状态崩溃时 5 分钟后由轮询器退回已冻结点数并置失败）。
+
+> **gateway 调用方密钥**：用 `bash deploy/scripts/gen-gateway-callers.sh --go-env deploy.env --gw-env aig-callers.env` 一次生成 `fusion-go` 与 `prompt-reverse` 两个密钥，并同时写好 Go 侧 `deploy.env` 与 gateway 侧环境文件（详见脚本头注释）。
+
+
+#### studio 真实接入检查清单（上线前逐项过，mock 只用于单测与 CI）
+
+| # | 检查项 | 怎么验 | 不满足时的现象 |
+|---|---|---|---|
+| 1 | ai-gateway 部署变量 `AIG_CALLER_GO_SECRET`（即 `AIG_CALLER_KEYS` 里 `key_id=fusion-go-v1` 的 secret）与本机 `deploy.env` 的 `AI_GATEWAY_SECRET` **完全一致**，`AI_GATEWAY_KEY_ID` 同为 `fusion-go-v1`，scopes 含 `calls`、`catalog` | 后台 `GET /api/v1/studio/admin/sidecar/status` 的 `ai-gateway` 项 ok=true | 每次提交 401 `AUTH_FAILED`（`hmac.invalid_signature` / `hmac.caller_mismatch`），子任务「提交生图失败，点数已退回」 |
+| 2 | `POST /v1/catalog/readiness` 三个生图模型组（`img.gpt-image-2` / `img.nano-banana-2.1` / `img.seedream-5-pro`，按 `ModelGroups` 配置）带 `operation=image.edit` 均 ready；润色组 `llm.deepseek-flash`（2026-10-31 由 `llm.deepseek-v4-flash` 改名，旧组随同一次 gateway 发布删除）、`vlm.qwen-3.8-flash`（`chat.completion`）ready；反推组 `vlm.deepseek-flash` ready（`check-studio-readiness.sh` 默认已查） | 同上，`detail` 列出未就绪组与 reason（`operation.mismatch` / `deployments.all_balance_excluded` / `runtime.unavailable` …） | 该档模型的子任务失败「生图服务繁忙」；润色失败只降级为原提示词 |
+| 3 | 反推 sidecar `GET /api/status` 显示 `llm_configured=true`（`AIG_BASE_URL` + `AIG_SECRET` 只在 sidecar 环境里）、`gateway_ready=true`、`model_group` 为预期组（默认 `vlm.deepseek-flash`）、`allowed_deployments` 为空；gateway 侧已给账号 `deepseek-chat.main` 写入 DeepSeek 官方密钥并登记调用方 `prompt-reverse`（`AIG_CALLER_REVERSE_SECRET`）；`REVERSE_SIDECAR_URL` 指向 sidecar | 状态接口 `sidecar` 项 ok=true、`version` 有值；sidecar 本机 `curl -s http://127.0.0.1:8090/api/status` | 未配置：商拍 / 姿态整批失败「反推服务未配置，点数已退回」；secret 不一致：读图 502「读图返回 401」，analyze 降级为模板 |
+| 4 | 媒体服务可达且接了 OSS（本地存储模式没有可访问地址，FetchBytes / 转存都会失败），`MEDIA_SVC_TOKEN` 与 Java、media-svc 一致 | 状态接口 `media` 项 ok=true（`GET /healthz`）；跑一次真实链路看 result_url 能 HEAD 200 | 商拍 / 姿态「图片下载或处理失败」；成功出图后「成品转存失败，点数已退回」 |
+| 5 | Java 后台三个 offer 已配：`studio_tryon` / `studio_pose` / `studio_imagegen`（`deploy/sql/ops/studio-offers-2026-10-30.sql` 或后台手填，口径见 `docs/billing/studio-入口码配置指引.md`），并给用户发 `ecom_image_gen` 能力 | `bash install.sh check-billing` 全部通过 | **install.sh 第 6/6 步计费检查中止部署**；线上提交被拒「暂未开通该功能」/「暂时无法计费」 |
+| 6 | `STUDIO_INPUT_URL_PREFIXES` 含素材库公有桶域名 | 从素材库选图提交一次 | 「参考图第 n 张 不是本服务上传的地址」 |
+| 7 | 迁移 `Go_V1.0.21__studio.sql`、`Go_V1.0.22__admin_studio_permission.sql` 已登记；运营账号有 `studio:view` / `studio:update` | `SELECT version FROM go_schema_history` | 后台 studio 页 2005「没有权限：studio:view」 |
+| 8 | 真实链路回归 | `GW=… TOKEN=… ADMIN_TOKEN=… SAMPLE_GARMENT_URLS=… SAMPLE_MODEL_URL=… SAMPLE_POSE_URLS=… bash tests/e2e/e2e-real-studio.sh`（**会产生真实费用**） | 任一用例失败即不上线 |
+
+### 画布 canvas-rpc（脚本部署）
+
+- `canvas-rpc`（画布 `/api/v1/canvas` + 提示词库 `/api/v1/prompt-library`）同样只听 127.0.0.1；接口与状态口径见 `docs/api/api-canvas.md`。
+- **`canvas-rpc` 可多实例部署，依赖库里的行租约；扩容无需额外配置**：每个 run 一把租约（`lease_owner` / `lease_until`，`Go_V1.0.25`），提交 / 轮询 / 转存 / 结算同一时刻只由一个实例做；实例崩溃后 3 分钟内由其它实例接管（有 `backend_ref` 的先查上游，没有的按幂等键重提）。Java 兼容工具用的用户 Bearer 缓存仍只在各实例内存里：Java 工具的 run 由收到过该用户请求（带 Bearer）的实例推进，其它实例抢到后发现没有 Bearer 会立即放回，不影响正确性。
+- `canvas-rpc` 启动自检：`Timeouts` 各项（秒）须小于对应的 `Billing.Hold`（视频 `VideoMinutes`，其余 `DefaultMinutes`，分钟），否则拒绝启动并打印超限项。轮询器每分钟给排队 / 运行中、已冻结的 gateway run 续期预留单。
+- `BILLING_MODE=on` 时 `canvas-rpc` 自带预留单回收器（与 imagegen-rpc / studio-rpc 同一个 `billing.Reclaimer`，release 是 CAS，同时跑安全）：
+  gateway 结果未知（`UPSTREAM_UNKNOWN`，后台 `billing_status=review`）的 run **不主动退款**，预留单到期（图片 30 分钟、视频 200 分钟，按 `Billing.Hold`）由回收器**自动退回**；退款 / 确认写库失败的单子同样到期兜底退回。
+- 状态口径：run `5-提交中`（已落库、正在冻结点数；进程在此状态崩溃时 5 分钟后由轮询器退回可能已冻结的点数并置失败 `SUBMIT_TIMEOUT`）；`billing_status=unsettled` = 已交付但确认扣费失败（预留单已过期回收 / 已退），日志有 ERROR，需人工对账。
+- 同一节点同一时刻只允许一个未结束的 run，由 `afv_canvas_node_run.active_node` 生成列 + 唯一键 `uk_active_node` 保证（`Go_V1.0.25`）。
+- Java 兼容工具（放大 / 扩图 / 局部重绘）的取消：用户取消、运营强制失败、超时、所在画布被删时，`canvas-rpc` **通过 Java 现有取消接口 `POST /api/v1/creation/{taskId}/cancel` 真实取消，由 Java 退款**（Go 不退点数；取消时 Java 已成功则用户取消 / 超时 / 画布已删按成功交付）。用户取消用该次请求的 Bearer，其余场景用实例内存里该用户最近的 Bearer（2 小时）；**无有效登录态时退化为停止跟踪**——run 的 `error_reason` 写明「Java 任务未能取消（无有效登录态），可能仍会执行并扣费」，日志有 `WARN … check=canvas.java_cancel_degraded`（含 `run_id` / `user_id` / `java_task`），计数 `canvas_java_cancel_degraded_total{scene,reason}`，运营按 `java_task` 到 Java 后台手动取消。多实例时 Bearer 缓存按实例，处理该 run 的实例没见过该用户请求也会退化。Java 暂时不可达时 run 保持运行中，轮询器重试取消，最多 5 次后按停止跟踪处理。提交时遇暂时性错误、`backend_ref` 没写上的 run：首次发送前已把原始请求存进 `backend_request`（`Go_V1.0.25`），取消 / 强制失败 / 排队超时 / 画布已删时按同一 `Idempotency-Key` 逐字节重放找回 Java 任务号再取消；Java 没收到首次请求时重放会新建任务并冻结点数，随即取消由 Java 退款；找不回（Java 回 1003 同键内容不同）时日志 ERROR + 退化 WARN，带 `idempotency_key`，运营可按它在 Java `afv_creation_task.submit_idempotency_key` 查任务。
+- 局部重绘的蒙版：`mask_url` 交给媒体服务拉取（画布服务不直连用户给的地址），`mask_data_url` 先校验尺寸（宽高各 ≤4096）再拉入媒体服务，所以**重绘依赖媒体服务**（`MEDIA_SVC_*` 未配时重绘返回「暂未开放」）。
 
 ## 四、数据库迁移
 

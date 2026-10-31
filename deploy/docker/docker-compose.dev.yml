@@ -15,6 +15,14 @@ services:
         INCLUDE_MOCKS: "1"
         VERSION: dev
 
+  # 反推 sidecar 本地构建（正式环境用 REVERSE_IMAGE 指定的预构建镜像）。联调默认指向 mock-reverse 时可不填 REVERSE_AIG_SECRET
+  # （真 sidecar 需要真 ai-gateway：mock-aigateway 不登记 prompt-reverse 调用方，也不模拟 chat.completion；
+  #  真网关上反推走模型组 vlm.deepseek-flash，环境变量见 docker-compose.yml 的 prompt-reverse）
+  prompt-reverse:
+    build:
+      context: ../../tools/prompt-reverse
+    image: ${REVERSE_IMAGE:-aigc-prompt-reverse:latest}
+
   mock-aigc:
     image: ${AIGC_IMAGE:?设置 AIGC_IMAGE}
     network_mode: host
@@ -32,3 +40,21 @@ services:
     network_mode: host
     restart: unless-stopped
     command: ["/app/pkg/bin/mock-linkparse", "-addr", "127.0.0.1:5058"]
+
+  # studio 联调：mock 反推 sidecar（5057）与 mock ai-gateway（5059，密钥 MOCK_AIG_SECRET，默认 test-secret）。
+  # .env 里设 REVERSE_SIDECAR_URL=http://127.0.0.1:5057  AI_GATEWAY_URL=http://127.0.0.1:5059  AI_GATEWAY_SECRET=test-secret
+  mock-reverse:
+    image: ${AIGC_IMAGE:?设置 AIGC_IMAGE}
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      MOCK_REVERSE_FAIL: ${MOCK_REVERSE_FAIL:-}
+    command: ["/app/pkg/bin/mock-reverse", "-addr", "127.0.0.1:5057"]
+
+  mock-aigateway:
+    image: ${AIGC_IMAGE:?设置 AIGC_IMAGE}
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      MOCK_AIG_SECRET: ${AI_GATEWAY_SECRET:-test-secret}
+    command: ["/app/pkg/bin/mock-aigateway", "-addr", "127.0.0.1:5059"]

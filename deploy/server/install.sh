@@ -17,7 +17,7 @@
 set -euo pipefail
 
 PKG=$(cd "$(dirname "$0")" && pwd)
-RPCS=(copywriting-rpc digitalhuman-rpc note-rpc imagegen-rpc)
+RPCS=(copywriting-rpc digitalhuman-rpc note-rpc imagegen-rpc studio-rpc assetlib-rpc canvas-rpc)
 APIS=(gateway-api admin-api)
 
 red()    { printf '\033[31m%s\033[0m\n' "$*"; }
@@ -95,7 +95,7 @@ load_env() {
   MYSQL_OPTS=${MYSQL_OPTS:-}; read -r -a MYSQL_OPT_ARR <<< "$MYSQL_OPTS"
   GATEWAY_PORT=${GATEWAY_PORT:-18888}; ADMIN_PORT=${ADMIN_PORT:-18889}
   COPYWRITING_PORT=${COPYWRITING_PORT:-19201}; DIGITALHUMAN_PORT=${DIGITALHUMAN_PORT:-19202}
-  NOTE_PORT=${NOTE_PORT:-19203}; IMAGEGEN_PORT=${IMAGEGEN_PORT:-19204}
+  NOTE_PORT=${NOTE_PORT:-19203}; IMAGEGEN_PORT=${IMAGEGEN_PORT:-19204}; STUDIO_PORT=${STUDIO_PORT:-19205}; ASSETLIB_PORT=${ASSETLIB_PORT:-19206}; CANVAS_PORT=${CANVAS_PORT:-19207}
   LOG_KEEP_DAYS=${LOG_KEEP_DAYS:-7}
   UNION_BASE_URL=${UNION_BASE_URL:-}; AUTH_MODE=${AUTH_MODE:-token}; SWAGGER_ENABLED=${SWAGGER_ENABLED:-0}; TASK_ID_PREFIX=${TASK_ID_PREFIX:-AiCreationLife}; LINK_PARSE_URL=${LINK_PARSE_URL:-}
   # 与 Java 同源的配置：AIGC 地址、会话 Redis、会话参数都从 Java 的 .env 读（显式写在 deploy.env 的优先）
@@ -128,6 +128,13 @@ load_env() {
   MEDIA_SVC_TOKEN_DEPLOY=${MEDIA_SVC_TOKEN:-}
   resolve MEDIA_SVC_TOKEN MEDIA_SERVICE_TOKEN ""
   MEDIA_SVC_BASE_URL=${MEDIA_SVC_BASE_URL:-http://127.0.0.1:18090}
+  # studio（商拍 / 姿态 / 图片生成）：ai-gateway 调用方凭据与反推 sidecar。AI_GATEWAY_URL 留空 = studio 提交返回「暂未开放」
+  AI_GATEWAY_URL=${AI_GATEWAY_URL:-}; AI_GATEWAY_KEY_ID=${AI_GATEWAY_KEY_ID:-}; AI_GATEWAY_SECRET=${AI_GATEWAY_SECRET:-}
+  # REVERSE_BASE_URL 是 REVERSE_SIDECAR_URL 的别名（两个都写时以 REVERSE_SIDECAR_URL 为准）
+  REVERSE_SIDECAR_URL=${REVERSE_SIDECAR_URL:-${REVERSE_BASE_URL:-}}
+  STUDIO_INPUT_URL_PREFIXES=${STUDIO_INPUT_URL_PREFIXES:-}
+  # canvas（画布）：Java 主项目内网地址（放大 / 扩图 / 重绘走 creaft v1 兼容工具，透传用户 Bearer）。留空 = 三个 Java 工具返回「暂未开放」
+  CANVAS_JAVA_BASE_URL=${CANVAS_JAVA_BASE_URL:-}
   MEDIA_NACOS_ADDR=${MEDIA_NACOS_ADDR:-127.0.0.1:8848}
   MEDIA_NACOS_USERNAME=${MEDIA_NACOS_USERNAME:-}
   MEDIA_NACOS_PASSWORD=${MEDIA_NACOS_PASSWORD:-}
@@ -183,6 +190,7 @@ port_of() {
     gateway-api) echo "$GATEWAY_PORT" ;; admin-api) echo "$ADMIN_PORT" ;;
     copywriting-rpc) echo "$COPYWRITING_PORT" ;; digitalhuman-rpc) echo "$DIGITALHUMAN_PORT" ;;
     note-rpc) echo "$NOTE_PORT" ;; imagegen-rpc) echo "$IMAGEGEN_PORT" ;;
+    studio-rpc) echo "$STUDIO_PORT" ;; assetlib-rpc) echo "$ASSETLIB_PORT" ;; canvas-rpc) echo "$CANVAS_PORT" ;;
   esac
 }
 
@@ -358,12 +366,15 @@ gen_conf() {
     -media-token "$MEDIA_SVC_TOKEN" -media-nacos-addr "$MEDIA_NACOS_ADDR" \
     -media-nacos-user "$MEDIA_NACOS_USERNAME" -media-nacos-pass "$MEDIA_NACOS_PASSWORD" \
     -media-base-url "$MEDIA_SVC_BASE_URL" \
+    -ai-gateway-url "$AI_GATEWAY_URL" -ai-gateway-key-id "$AI_GATEWAY_KEY_ID" -ai-gateway-secret "$AI_GATEWAY_SECRET" \
+    -reverse-url "$REVERSE_SIDECAR_URL" -studio-input-url-prefixes "$STUDIO_INPUT_URL_PREFIXES" \
+    -canvas-java-base-url "$CANVAS_JAVA_BASE_URL" \
     -session-redis "$SESSION_REDIS_ADDR" -session-redis-pass "$SESSION_REDIS_PASS" \
     -session-redis-db "$SESSION_REDIS_DB" -session-max "$SESSION_MAX_CONCURRENT" \
     -token-access-hours "$TOKEN_ACCESS_HOURS" -token-refresh-days "$TOKEN_REFRESH_DAYS" \
     -fusion-url "$FUSION_BASE_URL" -fusion-key "$FUSION_APP_KEY" -fusion-secret "$FUSION_APP_SECRET" \
     -fusion-key-version "$FUSION_KEY_VERSION" -billing-mode "$BILLING_MODE" \
-    -ports "copywriting=$COPYWRITING_PORT,digitalhuman=$DIGITALHUMAN_PORT,note=$NOTE_PORT,imagegen=$IMAGEGEN_PORT,gateway=$GATEWAY_PORT,admin=$ADMIN_PORT" "$@"
+    -ports "copywriting=$COPYWRITING_PORT,digitalhuman=$DIGITALHUMAN_PORT,note=$NOTE_PORT,imagegen=$IMAGEGEN_PORT,studio=$STUDIO_PORT,assetlib=$ASSETLIB_PORT,canvas=$CANVAS_PORT,gateway=$GATEWAY_PORT,admin=$ADMIN_PORT" "$@"
   chmod 600 "$out"/*.yaml   # 配置里有数据库口令、JWT 密钥、会话 Redis 口令
 }
 

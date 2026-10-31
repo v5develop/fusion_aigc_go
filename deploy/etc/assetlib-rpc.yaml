@@ -1,0 +1,31 @@
+Name: assetlib.rpc
+ListenOn: 0.0.0.0:9206
+Mode: dev
+Timeout: 10000
+Etcd:
+  Hosts: [127.0.0.1:2379]
+  Key: assetlib.rpc
+Log:
+  Encoding: plain
+# 现有系统库：读 Java 的 afv_asset（只读），读写 afv_asset_ext / version / relation / tag / tag_link（Go_V1.0.23）
+DataSource: root:123456@tcp(127.0.0.1:3306)/fusion_aigc?charset=utf8mb4&parseTime=true&loc=Asia%2FShanghai&time_zone=%27%2B08%3A00%27
+# 媒体形态口径同 Java：type=video/image 直接判，已启用 offer 按 afv_billing_offer.category 判；
+# offer 查不到的看这里（Java creaft 兼容入口里 assetMediaType=VIDEO 的入口码）与「名字含 video」
+VideoTypes: []
+# 版本图片只接受本存储签发的地址（须与网关一致）；素材库公有桶域名等额外白名单写 InputURLPrefixes
+Storage:
+  Mode: local
+  Prefix: aigc-local-life
+  LocalDir: data/files
+  LocalBaseUrl: http://127.0.0.1:8888/files
+InputURLPrefixes: []
+# 服务端校验上限（改了要同步 docs/api/api-asset-library.md）
+Limits:
+  TitleLen: 100
+  TagNameLen: 20
+  TagsPerUser: 200
+  TagsPerAsset: 10
+  VersionsPerAsset: 100
+  MetadataLen: 50
+  PromptLen: 5000
+  BatchAssets: 100

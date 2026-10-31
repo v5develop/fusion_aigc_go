@@ -22,7 +22,7 @@ ARG INCLUDE_MOCKS=0
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
     set -eux; mkdir -p /out; \
     export GOOS="$TARGETOS" GOARCH="$TARGETARCH"; \
-    for s in copywriting/rpc digitalhuman/rpc note/rpc imagegen/rpc gateway/api admin/api; do \
+    for s in copywriting/rpc digitalhuman/rpc note/rpc imagegen/rpc studio/rpc assetlib/rpc canvas/rpc gateway/api admin/api; do \
       n=$(echo "$s" | sed 's#/rpc#-rpc#; s#/api#-api#'); \
       CGO_ENABLED=0 go build -tags timetzdata -trimpath -ldflags '-s -w' -o "/out/$n" "./app/$s"; \
     done; \
@@ -30,7 +30,7 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
       CGO_ENABLED=0 go build -tags timetzdata -trimpath -ldflags '-s -w' -o "/out/$t" "./tools/ops/$t"; \
     done; \
     if [ "$INCLUDE_MOCKS" = 1 ]; then \
-      for t in mock-aigc mock-union mock-linkparse; do \
+      for t in mock-aigc mock-union mock-linkparse mock-reverse mock-aigateway; do \
         CGO_ENABLED=0 go build -trimpath -ldflags '-s -w' -o "/out/$t" "./tools/mocks/$t"; \
       done; \
     fi

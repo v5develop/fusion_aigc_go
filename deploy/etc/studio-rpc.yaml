@@ -1,0 +1,77 @@
+Name: studio.rpc
+ListenOn: 0.0.0.0:9205
+Mode: dev
+Timeout: 30000
+Etcd:
+  Hosts: [127.0.0.1:2379]
+  Key: studio.rpc
+Log:
+  Encoding: plain
+# 现有系统库；OSS 配置从库里读，不写在这里
+DataSource: root:123456@tcp(127.0.0.1:3306)/fusion_aigc?charset=utf8mb4&parseTime=true&loc=Asia%2FShanghai&time_zone=%27%2B08%3A00%27
+# 计费：off 不计费 / shadow 只算价记日志、不拦用户 / on 真扣（服务器上由 deploy.env 的 BILLING_MODE 写入）
+Billing:
+  Mode: "off"
+Storage:                # 须与网关一致
+  Mode: local
+  Prefix: aigc-local-life
+  LocalDir: data/files
+  LocalBaseUrl: http://127.0.0.1:8888/files
+# 素材库：成品每张图一行，入口码按 kind 取 EntryCodes（分类见 Go_V1.0.21）
+Asset:
+  Enabled: true
+  Type: image
+EntryCodes:
+  Tryon: studio_tryon
+  Pose: studio_pose
+  ImageGen: studio_imagegen
+# 子任务号 / 任务中心坐标前缀：只能字母数字，不含下划线；img 已被海报/长图占用，图片生成用 simg
+TaskIDPrefix:
+  Tryon: tyo
+  Pose: pse
+  ImageGen: simg
+Poll:
+  IntervalSeconds: 5
+  Concurrency: 3        # 每批次同时生图数（s1.1 验收口径）
+  BatchConcurrency: 2   # 同时编排（下载 / 切图 / 反推）的批次数
+  Workers: 16           # 同时长轮询 gateway 的子任务数
+  BatchSize: 100
+Moderation:
+  Mode: keyword         # 与 AI文案共用 BLOCKWORD 词库
+# ai-gateway：调用方 fusion-go（ai-gateway 部署时加 AIG_CALLER_KEYS）。BaseURL 留空 = 提交返回「暂未开放」。
+# 服务器上由 deploy.env 的 AI_GATEWAY_URL / AI_GATEWAY_KEY_ID / AI_GATEWAY_SECRET 写入
+AiGateway:
+  BaseURL: ""
+  KeyID: fusion-go-v1
+  Secret: ""
+  LongPollWait: 20
+  TimeoutSeconds: 30
+  MaxCostCNY: "5.00"    # 每次生图调用的供应商成本上限（人民币，网关软上限）
+# 图片生成 rewrite_prompt=true 时的润色模型组（gateway chat.completion）；失败按原提示词继续
+Rewrite:
+  ModelGroup: llm.deepseek-flash          # 无参考图（DeepSeek Flash：官方 tier 0、百炼 tier 1）
+  VisionModelGroup: vlm.qwen-3.8-flash    # 有参考图（llm.* 不收图）
+# 反推 sidecar（Python，只监听内网）。服务器上由 deploy.env 的 REVERSE_SIDECAR_URL 覆盖
+Reverse:
+  BaseURL: http://127.0.0.1:8090
+  Timeout: 200          # 秒，单次 HTTP（sidecar 读图单次最长 180s）
+  Concurrency: 6
+# 共享媒体服务（下载 / 压缩 / 裁图 / 组图 / 产物转存）。NacosServerAddr 配了就订阅实例，BaseURL 只作回退
+Media:
+  NacosServerAddr: 127.0.0.1:8848
+  NacosGroup: DEFAULT_GROUP
+  NacosServiceName: aigc-media
+  BaseURL: http://127.0.0.1:18090
+  Token: change-me
+# 前端模型档 → ai-gateway model group；「通用」= 运营定的默认组
+ModelGroups:
+  通用: img.gpt-image-2
+  GPT: img.gpt-image-2
+  Banana: img.nano-banana-2.1
+  Seedream: img.seedream-5-pro
+Timeouts:
+  Crop: 120
+  Analyze: 120
+  Generate: 300
+Limits:
+  MaxPromptLen: 3000

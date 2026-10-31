@@ -25,3 +25,13 @@ NoteRpc:
 ImageGenRpc:
   Etcd: {Hosts: [127.0.0.1:2379], Key: imagegen.rpc}
   NonBlock: true
+StudioRpc:              # studio 运营后台与 tyo/pse/simg 任务的重做、强制失败
+  Etcd: {Hosts: [127.0.0.1:2379], Key: studio.rpc}
+  Timeout: 10000        # 依赖探测每项 3s、重做要重新冻结点数，默认 2s 不够
+  NonBlock: true
+AssetLibRpc:            # 资产库后台（/api/v1/asset-library/admin）：标签字典、分类统计
+  Etcd: {Hosts: [127.0.0.1:2379], Key: assetlib.rpc}
+  NonBlock: true
+CanvasRpc:              # 画布 / 提示词库后台（/api/v1/canvas/admin、/api/v1/prompt-library/admin）
+  Etcd: {Hosts: [127.0.0.1:2379], Key: canvas.rpc}
+  NonBlock: true

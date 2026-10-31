@@ -20,6 +20,8 @@ Go + go-zero，数据落在现有系统的 `fusion_aigc` 库，新表 `afv_` 前
 | `digitalhuman-rpc` | 9202 | 使用约定、公共数字人（只读）、AI 定制形象、系统音色、数字人生成；内置结果轮询器 |
 | `note-rpc` | 9203 | 图文笔记：构思（执行面 74）→ 规划 → 出图（75）、编辑；内置结果轮询器 |
 | `imagegen-rpc` | 9204 | 海报（78）、长图（76）、动作迁移（9/86）、数字人口播（92/91）、探店视频（72→73/81）、带货短剧（87→88/89）：模板与动作视频、提交、轮询；内置结果轮询器 |
+| `assetlib-rpc` | 9206 | 资产库增强 `/api/v1/asset-library`：读 Java 素材表 `afv_asset`（只读）+ 旁表（分类 / 收藏 / 标签 / 版本 / 关系） |
+| `canvas-rpc` | 9207 | 画布 `/api/v1/canvas` + 提示词库 `/api/v1/prompt-library`：快照存取（乐观锁）、单节点执行（gateway / 媒体 / Java 兼容工具 / studio 四个后端）、模板、提示词；内置轮询器 |
 | `gateway-api` | 8888 | App 接口 `/api/v1/local-life/*`，直传凭证；本地存储模式下提供 `/files` 与代传上传 |
 | `admin-api` | 8889 | 运营后台 `/api/v1/local-life/admin/*` |
 | `mock-union` | 5056 | **仅本地**：模拟联盟用户服务的两个接口，登录联调用 |
@@ -45,6 +47,12 @@ ADMIN=http://<host>:8889/api/v1/local-life/admin deploy/scripts/gen-voice-previe
 
 - **部署**：一键部署见 `deploy/server/README.md`（`make package` → 服务器 `bash install.sh`）；手工部署细节见 `deploy/README.md`
 - **给前端的接口文档**：`docs/api/api-app.md`（数字人口播单独一份：`docs/api/api-voiceover.md`）
+- **商拍换装 / 姿态复刻 / 图片生成接口文档**：`docs/api/api-studio.md`（计费入口码配置见 `docs/billing/studio-入口码配置指引.md`，脚本 `deploy/sql/ops/studio-offers-2026-10-30.sql`）
+- **资产库增强接口文档**：`docs/api/api-asset-library.md`（接入检查见下文「资产库增强」）
+- **画布 / 提示词库接口文档**：`docs/api/api-canvas.md`（以实现为准；官方种子 `deploy/sql/seed/canvas-official-prompts.sql`、`canvas-official-templates.sql`，19 条官方提示词全部启用，含 8 条第三方来源，已于 2026-10-31 确认授权）
+- **跨仓库上线手册**：`docs/design/xiaoqi-2026-10-30/13-上线手册.md`（studio / 资产库 / 画布：ai-gateway → Java → sidecar → Go → nginx → 管理后台 → 就绪检查 → 真实链路 e2e → 种子，含回退与检查清单）
+- **数据层约定**：新模块业务数据访问用 bun（`pkg/bundb`），计费/对账审计用 sqlc，写 Java 共享表仍走现有 pkg，详见 `docs/design/xiaoqi-2026-10-30/00-需求分流与设计方案.md` §9.5
+- **auditdb 约定**：`pkg/auditdb` 是 sqlc 生成的只读审计查询（SQL 在 `db/audit/query/`，表定义在 `db/audit/schema/`，改后执行 `make gen-audit`），与 bundb 共用同一个连接池；只给对账 / 运营报表 / 审计脚本用，业务逻辑不得 import
 
 ## 本地运行
 
@@ -62,6 +70,8 @@ tests/e2e/e2e-login-fusion.sh  # 建档交给现有 Java 服务那条路（9 项
 tests/e2e/e2e-login-direct.sh  # 自己验临时 token 那条路（15 项，读本地 Redis + 联盟用户库，真跑）
 tests/e2e/e2e-admin-login.sh   # 运营后台登录端到端测试（20 项，临时插账号跑完删，不碰真实账号）
 deploy/scripts/seed-templates.sh    # 造联调用的公共素材（公共数字人/模板/口播背景/动作视频，占位图）
+tests/e2e/e2e-assetlib.sh      # 资产库增强端到端测试（48 项；临时插 3 条 afv_asset 测试行，跑完清理）
+tests/e2e/e2e-real-assetlib.sh # 资产库增强对已部署环境的验收（GW / TOKEN；用真实资产，不插行，改过的字段收尾还原）
 tests/e2e/e2e-real.sh          # 真实链路回归：对着已部署环境每个模块真实跑一条（会产生费用，见脚本头部）
 make stop-all
 ```
@@ -176,6 +186,80 @@ make stop-all
 删除是逻辑删除，已生成的历史内容不受影响（提示词在生成时就拼好了）。
 
 目前已接入：AI文案（AI帮写/爆款仿写）、图文笔记（74）。探店视频、带货短剧做的时候一起带上。
+
+## 资产库增强（assetlib）
+
+前缀 `/api/v1/asset-library`（后台 `/api/v1/asset-library/admin`），设计见 `docs/design/xiaoqi-2026-10-30/00-需求分流与设计方案.md` §5。
+Java 的 `afv_asset` / `afv_asset_item` 不改表结构，Go 建 5 张旁表（`Go_V1.0.23__asset_ext.sql`）：
+`afv_asset_ext`（kind 分类 / 收藏 / 授权 / metadata / provenance / 当前版本）、`afv_asset_version`、`afv_asset_relation`、`afv_asset_tag`、`afv_asset_tag_link`。
+
+- 读：`afv_asset` LEFT JOIN 旁表；归属按 `afv_asset.user_id` = 当前用户、`deleted = 0`、非草稿（`status <> 0`），越权一律 4001。
+- 写 Java 表只有一处：改标题时 `UPDATE afv_asset SET name = ?`（`AssetRepo.Rename`，带归属条件，`pkg/asset` 没有改名方法）。
+- 来源：`source_type` 1 = upload、2 = generated，其余（NULL）= official（个人素材库目前没有官方素材）。
+- 媒体形态与 Java `resolveMediaType` 同口径：`type` 为 `video` / `image` 直接判；已启用 offer 按 `afv_billing_offer.category` 判；
+  查不到 offer 的看 `VideoTypes` 配置与「名字含 video」。
+- 后台权限码 `asset_library:view` / `asset_library:update`（`Go_V1.0.24`，admin-api 按路由前缀取码）。
+
+**接入检查项**（新环境上线前在该库执行，结果贴进上线单）：
+
+```sql
+-- 1. Go 读的 afv_asset 列都在、类型对得上（应返回 18 行；少了就是 Java 迁移没跑到 V1.0.181）
+SELECT COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE FROM information_schema.COLUMNS
+WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'afv_asset'
+  AND COLUMN_NAME IN ('id','user_id','workspace_id','source_task_id','type','entry_code','name','cover_url','result_url',
+                      'watermark_url','width','height','aspect_ratio','source_type','ai_prompt','status','deleted','create_time');
+
+-- 2. source_type 取值只有 1 / 2（出现其它值或 NULL，会被归到 official，需要和产品确认）
+SELECT source_type, COUNT(*) FROM afv_asset WHERE deleted = 0 GROUP BY source_type;
+
+-- 3. 媒体形态：看「名字不含 video、也不在已启用 offer 里」的类型——其中若有视频入口（Java creaft 兼容能力 assetMediaType=VIDEO），
+--    把入口码加进 assetlib-rpc.yaml 的 VideoTypes，否则会被当成图片
+SELECT a.type, COUNT(*) n FROM afv_asset a
+WHERE a.deleted = 0 AND a.type NOT IN ('image','video') AND a.type NOT LIKE '%video%'
+  AND a.type NOT IN (SELECT entry_code FROM afv_billing_offer WHERE status = 'ENABLED' AND deleted = 0 AND category IS NOT NULL AND category <> '')
+GROUP BY a.type ORDER BY n DESC;
+
+-- 4. 排序规则一致（旁表与 afv_asset 都应是 utf8mb4_unicode_ci，混用 0900_ai_ci 会在 JOIN 时报 1267）
+SELECT TABLE_NAME, TABLE_COLLATION FROM information_schema.TABLES
+WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ('afv_asset','afv_billing_offer','afv_asset_ext','afv_asset_version','afv_asset_relation','afv_asset_tag','afv_asset_tag_link');
+
+-- 5. 草稿与 user_id 为空的资产（Go 侧看不到它们，数量应很少）
+SELECT SUM(status = 0) drafts, SUM(user_id IS NULL) no_user FROM afv_asset WHERE deleted = 0;
+
+-- 6. 后台权限已授（应各有 super_admin；operator 只有 view）
+SELECT r.role_code, p.permission_code FROM afv_admin_role_permission rp
+JOIN afv_admin_role r ON r.id = rp.role_id JOIN afv_admin_permission p ON p.id = rp.permission_id
+WHERE p.permission_code LIKE 'asset_library:%';
+```
+
+然后 nginx 两条 location 生效后，用一个有素材的账号跑 `GW=https://<域名> TOKEN=<令牌> tests/e2e/e2e-real-assetlib.sh`：
+列表 → 分类计数与列表过滤逐项一致 → 改 kind / 收藏 → 详情 → 标签增删 → 追加版本 → 越权返回不存在；改过的字段收尾还原
+（接口没有删版本，追加的那一行版本会留下；给 `MYSQL_CMD` 则一并删掉）。
+
+## 画布 + 提示词库（canvas）
+
+前缀 `/api/v1/canvas`、`/api/v1/prompt-library`（后台各加 `/admin`，权限码 `canvas:view` / `canvas:update`，`Go_V1.0.26`），
+设计见 `docs/design/xiaoqi-2026-10-30/00-需求分流与设计方案.md` §6、§7 第 1 条，接口文档 `docs/api/api-canvas.md`。
+表 `Go_V1.0.25__canvas.sql`：`afv_canvas`（整段 Vue Flow 快照）、`afv_canvas_node_run`（一次节点执行）、`afv_canvas_template`、`afv_prompt_library_item`。
+
+| 节点 | 后端 | 计费 |
+|---|---|---|
+| image / video | ai-gateway `image.generate`·`image.edit` / `video.generate` | Go：每 run 一张预留单 `canvas-<task_id>`（入口 `canvas_image` / `canvas_video`），部分失败只退失败张 |
+| 反推 i2p | ai-gateway `chat.completion`（`vlm.qwen-3.8-flash`） | Go：`canvas_tool_i2p` |
+| 裁剪 crop | 媒体服务 `image/crop` → `resources/copy` | 不计费 |
+| 放大 / 扩图 / 局部重绘 | Java `/api/v1/tools/ai-image-upscaler`·`ai-ratio-convert`·`ai-inpaint`（透传用户 Bearer） | Java |
+| 试穿 tryon | studio-rpc `SubmitTryon` / `GetBatch` | studio（`studio_tryon`） |
+
+**真实接入检查清单**（新环境上线前逐项打勾）：
+
+1. 迁移：`Go_V1.0.25__canvas.sql`、`Go_V1.0.26__admin_canvas_permission.sql` 已执行（install.sh 的 migrate 会跑）；种子 `deploy/sql/seed/canvas-official-prompts.sql`、`canvas-official-templates.sql` **手工执行**（19 条官方提示词全部 `enabled=1`，含已确认授权的 8 条第三方条目；官方模板封面由运营补）。
+2. 计费方案：Java 库执行 `deploy/sql/ops/canvas-offers-2026-10-31.sql`（`canvas_image` / `canvas_video` / `canvas_tool_i2p`，价格是占位，待产品定价），`bash install.sh check-billing` 全过；没有 offer 时 RunNode 会被准入拦下（2005）。用户需有 `ecom_image_gen` / `ecom_video_gen` 能力。
+3. ai-gateway：`AI_GATEWAY_URL / KEY_ID / SECRET` 已配（与 studio 同一调用方 fusion-go）；`GET /v1/catalog/model-groups` 里 `img.gpt-image-2`、`img.nano-banana-2.1`、`img.seedream-5-pro`、`vid.seedance-2.5`、`vid.seedance-2`、`vid.seedance-2-fast`、`vid.seedance-2-mini`、`vlm.qwen-3.8-flash` 均 `enabled=true`（用 `POST /v1/catalog/readiness` 核对）。
+4. 媒体服务：canvas-rpc 的 `Media.Token` 与 media-svc 一致（mkconf 已写 `MEDIA_SVC_TOKEN`）；参考图经媒体服务拉成 `mr://` 后交给 gateway，媒体服务要能访问我方 OSS / 素材库地址。
+5. Java：`CANVAS_JAVA_BASE_URL` 填 Java **内网**地址；Java 兼容层 `/api/v1/tools/ai-image-upscaler|ai-ratio-convert|ai-inpaint` 与 `/api/v1/tasks/{taskUid}` 可用，Bearer 两边共用（Go 网关与 Java 同一套 Redis 会话）。
+6. studio：`studio-rpc` 在跑；studio 的 `STUDIO_INPUT_URL_PREFIXES` 包含素材库公有桶域名（画布候选在素材库桶，否则试穿报「不是本服务上传的地址」）。
+7. nginx：`/api/v1/canvas/admin`、`/api/v1/canvas`、`/api/v1/prompt-library/admin`、`/api/v1/prompt-library` 四条 location 在 `location /api/v1/` 之前（模板已加）。
+8. 回归：`GW=… TOKEN=… SAMPLE_IMAGE_URL=… bash tests/e2e/e2e-real-canvas.sh`（**会产生真实费用**）全部通过；本地 mock 冒烟 `START=1 tests/e2e/e2e-canvas.sh`。
 
 ## 登录（联盟 token → 本服务令牌）
 

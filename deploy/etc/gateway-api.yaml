@@ -54,3 +54,14 @@ ImageGenRpc:
   # 90 秒：提交链接复刻时要同步等链接解析（对方降级路径最慢 60 秒）
   Timeout: 90000
   NonBlock: true
+StudioRpc:              # 商拍换装 / 姿态复刻 / 图片生成（/api/v1/studio）
+  Etcd: {Hosts: [127.0.0.1:2379], Key: studio.rpc}
+  Timeout: 30000
+  NonBlock: true
+AssetLibRpc:            # 资产库增强（/api/v1/asset-library）
+  Etcd: {Hosts: [127.0.0.1:2379], Key: assetlib.rpc}
+  Timeout: 10000
+CanvasRpc:              # 画布 + 提示词库（/api/v1/canvas、/api/v1/prompt-library）
+  Etcd: {Hosts: [127.0.0.1:2379], Key: canvas.rpc}
+  Timeout: 60000        # 执行节点内联提交（拉入参考图 / 提交 gateway·Java·studio / 裁剪同步完成）
+  NonBlock: true

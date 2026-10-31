@@ -1,6 +1,6 @@
 # fusion-aigc-go 对外入口（install.sh 渲染：__SERVER_NAME__ / __GATEWAY_PORT__ / __ADMIN_PORT__ / __JAVA_UPSTREAM__）
 # 放进宝塔站点配置（http 段或该站点的 server 段），HTTPS 证书在宝塔里配，改完 reload nginx。
-# 公网只放 /api/v1/（本地生活走 Go，其余走 Java），其余一律 404：Go 后台、接口文档、指标都只在本机。
+# 公网只放 /api/v1/（本地生活与 studio 走 Go，其余走 Java），其余一律 404：Go 后台、接口文档、指标都只在本机。
 
 upstream aigc_gateway {
     server 127.0.0.1:__GATEWAY_PORT__;
@@ -38,6 +38,46 @@ server {
 
     # App 本地生活接口（Go 网关）。后台前缀 /api/v1/local-life/admin 已在上面单独转发，更长的前缀优先匹配
     location /api/v1/local-life {
+        proxy_pass http://aigc_gateway;
+    }
+
+    # studio（商拍换装 / 姿态复刻 / 图片生成）：用户侧与管理侧是两个进程，各一条 location。
+    # /api/v1/studio/admin → Go 后台，必须写在 /api/v1/studio 之前（同 local-life 的套路）；两条都用 ^~，
+    # 命中后不再看正则 location。前缀与 Java 的 31 个一级前缀不撞，都要放在下面的 location /api/v1/ 之前。
+    location ^~ /api/v1/studio/admin {
+        proxy_pass http://aigc_admin;
+    }
+
+    location ^~ /api/v1/studio {
+        proxy_pass http://aigc_gateway;
+    }
+
+    # 资产库增强（/api/v1/asset-library，Java 的素材接口是 /api/v1/asset，不撞）：同 studio，admin 那条在前。
+    location ^~ /api/v1/asset-library/admin {
+        proxy_pass http://aigc_admin;
+    }
+
+    location ^~ /api/v1/asset-library {
+        proxy_pass http://aigc_gateway;
+    }
+
+    # 画布（/api/v1/canvas，Java 的画布 AI 操作在 /api/v1/agent/canvas，不撞）与提示词库（/api/v1/prompt-library，
+    # Java 是 /api/v1/creation/prompts，不撞）：同 studio，每个前缀 admin 那条在前。
+    # 画布保存的请求体是整段快照（≤2MB），client_max_body_size 不能小于 4m。
+    location ^~ /api/v1/canvas/admin {
+        proxy_pass http://aigc_admin;
+    }
+
+    location ^~ /api/v1/canvas {
+        client_max_body_size 4m;
+        proxy_pass http://aigc_gateway;
+    }
+
+    location ^~ /api/v1/prompt-library/admin {
+        proxy_pass http://aigc_admin;
+    }
+
+    location ^~ /api/v1/prompt-library {
         proxy_pass http://aigc_gateway;
     }
 

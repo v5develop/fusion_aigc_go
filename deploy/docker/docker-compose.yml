@@ -3,7 +3,7 @@
 # 在本目录执行：
 #   cp .env.example .env && chmod 600 .env      # 填写，见 .env.example
 #   docker compose pull                          # 拉取 AIGC_IMAGE 指定的镜像（不在服务器上构建）
-#   docker compose up -d                         # prepare 先跑完，6 个服务才启动
+#   docker compose up -d                         # prepare 先跑完，其余服务才启动（含 studio-rpc 与反推 sidecar）
 #   docker compose logs -f prepare               # 看准备过程（迁移、配置、计费自检）
 #
 # 网络：全部 host 网络，与一键脚本部署的拓扑一致——
@@ -95,6 +95,66 @@ services:
       <<: *rpc-health
       test: ["CMD", "bash", "-c", "</dev/tcp/127.0.0.1/${IMAGEGEN_PORT:-19204}"]
 
+  # studio（商拍换装 / 姿态复刻 / 图片生成）：依赖 ai-gateway（AI_GATEWAY_*）、反推 sidecar（prompt-reverse）、共享媒体服务
+  studio-rpc:
+    <<: *svc
+    command: ["/app/pkg/bin/studio-rpc", "-f", "/app/etc/studio-rpc.yaml"]
+    healthcheck:
+      <<: *rpc-health
+      test: ["CMD", "bash", "-c", "</dev/tcp/127.0.0.1/${STUDIO_PORT:-19205}"]
+
+  # 资产库增强（/api/v1/asset-library）：只读 Java afv_asset + Go 旁表，无外部依赖
+  assetlib-rpc:
+    <<: *svc
+    command: ["/app/pkg/bin/assetlib-rpc", "-f", "/app/etc/assetlib-rpc.yaml"]
+    healthcheck:
+      <<: *rpc-health
+      test: ["CMD", "bash", "-c", "</dev/tcp/127.0.0.1/${ASSETLIB_PORT:-19206}"]
+
+  # 画布 + 提示词库：依赖 ai-gateway（AI_GATEWAY_*）、共享媒体服务、Java 兼容工具（CANVAS_JAVA_BASE_URL）、studio-rpc（试穿）
+  canvas-rpc:
+    <<: *svc
+    command: ["/app/pkg/bin/canvas-rpc", "-f", "/app/etc/canvas-rpc.yaml"]
+    healthcheck:
+      <<: *rpc-health
+      test: ["CMD", "bash", "-c", "</dev/tcp/127.0.0.1/${CANVAS_PORT:-19207}"]
+
+  # 反推 sidecar（Python，只给 studio-rpc 用）：host 网络下只绑 127.0.0.1，不映射端口、不经 nginx；没有鉴权，靠只听本机隔离。
+  # 模型调用经 ai-gateway（调用方 prompt-reverse，模型组默认 vlm.deepseek-flash：官方优先、百炼备用），不再直连 DeepSeek；DeepSeek 官方密钥只在 gateway 管理端。
+  # 排障钉渠道：REVERSE_ALLOWED_DEPLOYMENTS（逗号分隔 → constraints.allowed_deployments），平时留空。
+  # REVERSE_AIG_SECRET 只通过环境变量注入到这个容器，不写镜像、不进 etc/、不进其它服务；须与 ai-gateway 侧 AIG_CALLER_REVERSE_SECRET 一致。
+  # REVERSE_AIG_BASE_URL 留空时复用 AI_GATEWAY_URL（同一个网关，不同调用方）。
+  # 镜像：docker build -t aigc-prompt-reverse:<版本> tools/prompt-reverse（REVERSE_IMAGE 填它）；studio-rpc 不依赖它起来，
+  # sidecar 不可用时 studio 提交的批次会失败并退款，其它功能不受影响。
+  prompt-reverse:
+    image: ${REVERSE_IMAGE:-aigc-prompt-reverse:latest}
+    network_mode: host
+    restart: unless-stopped
+    init: true
+    read_only: true
+    environment:
+      TZ: Asia/Shanghai
+      REVERSE_BIND: 127.0.0.1:${REVERSE_PORT:-8090}
+      AIG_BASE_URL: ${REVERSE_AIG_BASE_URL:-${AI_GATEWAY_URL:-}}
+      AIG_KEY_ID: ${REVERSE_AIG_KEY_ID:-prompt-reverse-v1}
+      AIG_SECRET: ${REVERSE_AIG_SECRET:-}
+      AIG_CALLER: prompt-reverse
+      REVERSE_MODEL_GROUP: ${REVERSE_MODEL_GROUP:-vlm.deepseek-flash}
+      REVERSE_ALLOWED_DEPLOYMENTS: ${REVERSE_ALLOWED_DEPLOYMENTS:-}
+      AIG_WAIT_S: ${REVERSE_AIG_WAIT_S:-25}
+    healthcheck:
+      <<: *rpc-health
+      test: ["CMD", "python3", "-I", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:${REVERSE_PORT:-8090}/api/status', timeout=2).status==200 else 1)"]
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+
   # 网关与后台：未带令牌的请求返回 401 属正常，健康检查只要求进程能应答（1xx–4xx）
   gateway-api:
     <<: *svc
@@ -105,6 +165,9 @@ services:
       digitalhuman-rpc: { condition: service_healthy }
       note-rpc: { condition: service_healthy }
       imagegen-rpc: { condition: service_healthy }
+      studio-rpc: { condition: service_healthy }
+      assetlib-rpc: { condition: service_healthy }
+      canvas-rpc: { condition: service_healthy }
     healthcheck:
       <<: *rpc-health
       test: ["CMD-SHELL", "case $$(curl -s -o /dev/null -m 3 -w '%{http_code}' http://127.0.0.1:${GATEWAY_PORT:-18888}/api/v1/local-life/copywriting/options) in [1-4]??) exit 0;; *) exit 1;; esac"]
@@ -118,6 +181,9 @@ services:
       digitalhuman-rpc: { condition: service_healthy }
       note-rpc: { condition: service_healthy }
       imagegen-rpc: { condition: service_healthy }
+      studio-rpc: { condition: service_healthy }
+      assetlib-rpc: { condition: service_healthy }
+      canvas-rpc: { condition: service_healthy }
     healthcheck:
       <<: *rpc-health
       test: ["CMD-SHELL", "case $$(curl -s -o /dev/null -m 3 -w '%{http_code}' http://127.0.0.1:${ADMIN_PORT:-18889}/api/v1/local-life/admin/copywriting/model) in [1-4]??) exit 0;; *) exit 1;; esac"]

@@ -1,0 +1,74 @@
+Name: canvas.rpc
+ListenOn: 0.0.0.0:9207
+Mode: dev
+Timeout: 60000          # RunNode 内联提交（拉入参考图 + 提交 gateway / Java / studio、裁剪同步完成）
+Etcd:
+  Hosts: [127.0.0.1:2379]
+  Key: canvas.rpc
+Log:
+  Encoding: plain
+# 现有系统库（afv_canvas* 新表 + 计费 / 任务中心 / 素材库共享表）
+DataSource: root:123456@tcp(127.0.0.1:3306)/fusion_aigc?charset=utf8mb4&parseTime=true&loc=Asia%2FShanghai&time_zone=%27%2B08%3A00%27
+# 计费：off / shadow / on（服务器上由 deploy.env 的 BILLING_MODE 写入）。只有 image / video / i2p 由 Go 计费
+Billing:
+  Mode: "off"
+Storage:
+  Mode: local
+  Prefix: aigc-local-life
+  LocalDir: data/files
+  LocalBaseUrl: http://127.0.0.1:8888/files
+# 素材库：gateway 生成的图 / 视频与裁剪图每个候选一行（Java 工具与 studio 试穿的成品由对方入库）
+Asset:
+  Enabled: true
+  Type: image
+EntryCodes:
+  Image: canvas_image
+  Video: canvas_video
+  Crop: canvas_tool_crop
+  I2P: canvas_tool_i2p
+TaskIDPrefix: cv
+# ai-gateway（调用方 fusion-go）。服务器上由 deploy.env 的 AI_GATEWAY_URL / AI_GATEWAY_KEY_ID / AI_GATEWAY_SECRET 写入
+AiGateway:
+  BaseURL: ""
+  KeyID: fusion-go-v1
+  Secret: ""
+  LongPollWait: 20
+  TimeoutSeconds: 30
+# 共享媒体服务：参考图拉入成 mr://、裁剪、产物转存素材库桶。NacosServerAddr 配了就订阅实例，BaseURL 只作回退
+Media:
+  NacosServerAddr: 127.0.0.1:8848
+  NacosGroup: DEFAULT_GROUP
+  NacosServiceName: aigc-media
+  BaseURL: http://127.0.0.1:18090
+  Token: change-me
+# Java 主项目内网地址（creaft v1 兼容工具 / 任务查询 / 价目，透传用户 Bearer）。服务器上由 deploy.env 的 CANVAS_JAVA_BASE_URL 写入
+Java:
+  BaseURL: ""
+  Timeout: 30
+# 试穿走 studio-rpc
+StudioRpc:
+  Etcd: {Hosts: [127.0.0.1:2379], Key: studio.rpc}
+  NonBlock: true
+I2P:
+  ModelGroup: vlm.qwen-3.8-flash   # 必须带视觉（gateway 审计：llm.* 传图会 no_capable_deployment）
+  MaxTokens: 1200
+FrameModelGroup: vid.seedance-2     # 带首尾帧时改用（seedance-2.5 不支持首尾帧）
+MaxCostCNY:
+  Image: "5.00"
+  Video: "60.00"
+  I2P: "1.00"
+Poll:
+  IntervalSeconds: 3
+  BatchSize: 100
+  MaxSubmitAttempts: 5
+Timeouts:
+  Image: 300
+  Video: 900
+  Tool: 600
+  I2P: 180
+Limits:
+  MaxSnapshotBytes: 2097152
+  MaxNodes: 2000
+  MaxPromptLen: 3000
+  MaxPromptsPerUser: 500
+  MaxTitleLen: 100
