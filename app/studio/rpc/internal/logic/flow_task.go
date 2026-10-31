@@ -21,8 +21,17 @@ import (
 	"github.com/zeromicro/go-zero/core/logx"
 )
 
-// deliverGrace 已成功但转存 / 结算暂时失败时，超过生图时限后再宽限多久才放弃（失败退款）。
-const deliverGrace = 10 * time.Minute
+// transferGrace 已出图但转存暂时失败时，超过生图时限后再宽限多久才放弃（失败退款）。
+const transferGrace = 10 * time.Minute
+
+// defaultDeliverGrace 交付中（已转存、待结算）最多停留多久（Timeouts.DeliverGrace 未配时）。超期仍结算不了就按预留单状态出场。
+const defaultDeliverGrace = 30 * time.Minute
+
+// deliveryOverdue 交付中已超过宽限期。进交付中时 TransitStatus 写 updated_at=NOW(3)，之后交付中不再有业务写入
+// （轮询的租约读写都保留 updated_at），所以 updated_at 就是进交付中的时刻。
+func deliveryOverdue(t *model.Task, now time.Time, grace time.Duration) bool {
+	return t.Status == model.TaskDelivering && now.Sub(t.UpdatedAt) > grace
+}
 
 // pollTask 一个 生成中 子任务走一步：补提交 → 长轮询 → 终态处理；交付中 的续做交付。续期在 maintain 里统一做。
 func (f *flow) pollTask(ctx context.Context, id int64) {
@@ -111,6 +120,17 @@ func (f *flow) cancelOnTimeout(ctx context.Context, t *model.Task, b *model.Batc
 	}
 	if err == nil && cc != nil && cc.Succeeded() {
 		log.Infof("studio: 子任务 %d 超时取消时已出图，照常交付", t.ID)
+		if outs, _ := pipeline.ParseOutputs(cc); len(outs) == 0 {
+			// 取消接口的返回可能不带 result：再 GET 一次拿完整结果，取不到才按空结果处理
+			gctx, gcancel := context.WithTimeout(ctx, 10*time.Second)
+			gc, gerr := f.gw.Get(gctx, call.ID, 0)
+			gcancel()
+			if gerr == nil && gc != nil && gc.Succeeded() {
+				cc = gc
+			} else {
+				log.Errorf("studio: 子任务 %d 取消返回成功但没有结果，补查失败: %v", t.ID, gerr)
+			}
+		}
 		f.deliver(ctx, t, b, cc, started)
 		return
 	}
@@ -179,28 +199,60 @@ func (f *flow) onTerminal(ctx context.Context, t *model.Task, b *model.Batch, ca
 	}
 }
 
-// resumeDeliver 交付中 的子任务续做：成品已转存（result_url 已写）时直接结算，否则按调用结果重新交付。
+// resumeDeliver 交付中 的子任务续做。
+//   - 成品已转存（result_url 已写，正常进交付中都会写）：直接结算，不依赖 gateway（只尽力 GET 一次补成本，取不到记 0）；
+//   - result_url 没写（异常数据）：按调用结果重新交付；
+//   - 超过 deliverGrace 仍结算不了：告警并按预留单状态出场（finishDelivery / failTask），保证交付中有出口。
 func (f *flow) resumeDeliver(ctx context.Context, t *model.Task, b *model.Batch, started time.Time) {
-	if !t.GatewayCallID.Valid || t.GatewayCallID.String == "" {
+	log := logx.WithContext(ctx)
+	overdue := deliveryOverdue(t, f.now(), f.deliverGrace())
+	hasCall := t.GatewayCallID.Valid && t.GatewayCallID.String != ""
+	if t.ResultURL.Valid && t.ResultURL.String != "" {
+		var call *aigateway.Call
+		if f.gwOn && hasCall {
+			gctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			c, err := f.gw.Get(gctx, t.GatewayCallID.String, 0)
+			cancel()
+			if err == nil && c != nil && c.Succeeded() {
+				call = c
+			} else {
+				log.Infof("studio: 交付中子任务 %d 补查 gateway 未果（不影响结算）: %v", t.ID, err)
+			}
+		}
+		res := mediasvc.Resource{RID: t.ResultRid.String, URL: t.ResultURL.String, Width: int(t.ResultWidth), Height: int(t.ResultHeight)}
+		f.finishDelivery(ctx, t, b, call, res, started, overdue)
 		return
 	}
-	call, err := f.gw.Get(ctx, t.GatewayCallID.String, 0)
-	if err != nil {
-		logx.WithContext(ctx).Errorf("studio: 交付中子任务 %d 查询 gateway 失败: %v", t.ID, err)
+	var call *aigateway.Call
+	var err error
+	if hasCall {
+		call, err = f.gw.Get(ctx, t.GatewayCallID.String, 0)
+	}
+	if !hasCall || err != nil || call == nil || !call.Succeeded() {
+		status := ""
+		if call != nil {
+			status = call.Status
+		}
+		log.Errorf("studio: 交付中子任务 %d 没有成品地址，且取不到成功的调用结果（%s）: %v", t.ID, status, err)
+		if overdue {
+			log.Errorw("studio delivering overdue, failing task", logx.Field("task_id", t.TaskID.String),
+				logx.Field("batch_id", b.ID), logx.Field("billing_request_id", t.BillingRequestID.String))
+			f.failTask(ctx, t, b, reasonDeliverTimeout, true, status)
+		}
 		return
 	}
-	if !call.Succeeded() {
-		logx.WithContext(ctx).Errorf("studio: 交付中子任务 %d 的调用 %s 不是成功态（%s），等人工处理", t.ID, call.ID, call.Status)
-		return
-	}
-	f.deliver(ctx, t, b, call, started)
+	f.deliverCall(ctx, t, b, call, started, overdue)
 }
 
 // deliver 成功：转存素材库桶 → CAS 生成中→交付中（抢交付锁，同时写成品）→ 结算（返回 nil 才交付）
 // → CAS 交付中→成功（写成本）→ 入素材库。交付中的任务不会被强制失败 / 超时失败改掉，结算后不会出现「已扣费却失败」。
 func (f *flow) deliver(ctx context.Context, t *model.Task, b *model.Batch, call *aigateway.Call, started time.Time) {
+	f.deliverCall(ctx, t, b, call, started, false)
+}
+
+func (f *flow) deliverCall(ctx context.Context, t *model.Task, b *model.Batch, call *aigateway.Call, started time.Time, overdue bool) {
 	log := logx.WithContext(ctx)
-	outs, costCNY := pipeline.ParseOutputs(call)
+	outs, _ := pipeline.ParseOutputs(call)
 	if len(outs) == 0 || outs[0].RID == "" {
 		f.failTask(ctx, t, b, reasonEmptyResult, true, call.Status)
 		return
@@ -209,7 +261,7 @@ func (f *flow) deliver(ctx context.Context, t *model.Task, b *model.Batch, call 
 	if t.Status == model.TaskDelivering && t.ResultURL.Valid && t.ResultURL.String != "" {
 		res = mediasvc.Resource{RID: t.ResultRid.String, URL: t.ResultURL.String, Width: int(t.ResultWidth), Height: int(t.ResultHeight)}
 	} else {
-		giveUp := f.now().Sub(started) > f.generateTimeout()+deliverGrace
+		giveUp := overdue || f.now().Sub(started) > f.generateTimeout()+transferGrace
 		if f.media == nil {
 			log.Errorf("studio: 子任务 %d 已出图，但媒体服务未配置，无法转存", t.ID)
 			if giveUp {
@@ -233,14 +285,13 @@ func (f *flow) deliver(ctx context.Context, t *model.Task, b *model.Batch, call 
 			return
 		}
 	}
-	w, h := res.Width, res.Height
-	if w == 0 || h == 0 {
-		w, h = outs[0].W, outs[0].H
+	if res.Width == 0 || res.Height == 0 {
+		res.Width, res.Height = outs[0].W, outs[0].H
 	}
 	// 交付锁：抢到 生成中→交付中 才结算；没抢到说明已被强制失败 / 超时失败 / 别处处理
 	if t.Status == model.TaskRunning {
 		ok, err := f.repo.Task.TransitStatus(ctx, t.ID, model.TaskRunning, model.TaskDelivering, map[string]any{
-			"result_rid": res.RID, "result_url": res.URL, "result_width": w, "result_height": h, "gateway_status": call.Status,
+			"result_rid": res.RID, "result_url": res.URL, "result_width": res.Width, "result_height": res.Height, "gateway_status": call.Status,
 		})
 		if err != nil {
 			log.Errorf("studio: 子任务 %d 进交付中失败: %v", t.ID, err)
@@ -250,33 +301,89 @@ func (f *flow) deliver(ctx context.Context, t *model.Task, b *model.Batch, call 
 			return
 		}
 		t.Status = model.TaskDelivering
+		overdue = false
 	}
 	if t.Status != model.TaskDelivering {
 		return
 	}
-	// 先确认扣费，确认成功才交付；预留已失效则不交付。结算暂时失败留在交付中，下一轮续做
+	f.finishDelivery(ctx, t, b, call, res, started, overdue)
+}
+
+// finishDelivery 交付中 → 结算 → 成功。call 可为 nil（续做交付时 gateway 取不到）：成本记 0 并告警。
+//
+// 结算结果：
+//   - nil：已确认扣费（或计费未开启），CAS 交付中→成功；
+//   - ErrGone：再查预留单真实状态。CONFIRMED / PARTIALLY_REFUNDED = 别的实例 / 上一轮已结算（并发交付），按成功交付；
+//     已释放（过期 / 退回）= 不交付，置失败不退款；仍 HELD（查询与加锁之间的瞬时状态）下一轮再结算；
+//   - 其它错误：留在交付中下一轮重试；超过 deliverGrace 仍失败则按预留单状态出场：已扣费 → 成功交付，
+//     仍 HELD → 置失败并退款（Fail），已释放 → 置失败（交付超时，点数已退回）。
+func (f *flow) finishDelivery(ctx context.Context, t *model.Task, b *model.Batch, call *aigateway.Call, res mediasvc.Resource, started time.Time, overdue bool) {
+	log := logx.WithContext(ctx)
+	gwStatus := ""
+	if call != nil {
+		gwStatus = call.Status
+	}
+	reqID := t.BillingRequestID.String
 	sctx, cancel := detached(ctx)
-	err := f.bill.Settle(sctx, b.UserID, t.BillingRequestID.String, 1)
+	err := f.bill.Settle(sctx, b.UserID, reqID, 1)
 	cancel()
 	if err != nil {
-		if errors.Is(err, billing.ErrGone) {
-			log.Errorf("studio: 子任务 %d 预留已失效，不交付: %v", t.ID, err)
-			f.failTask(ctx, t, b, billing.DeliverBlockedReason, false, call.Status)
+		gone := errors.Is(err, billing.ErrGone)
+		if !gone && !overdue {
+			log.Errorf("studio: 子任务 %d 结算失败，下一轮重试: %v", t.ID, err)
 			return
 		}
-		log.Errorf("studio: 子任务 %d 结算失败，下一轮重试: %v", t.ID, err)
-		return
+		qctx, qcancel := detached(ctx)
+		st, serr := f.bill.Status(qctx, b.UserID, reqID)
+		qcancel()
+		if serr != nil {
+			log.Errorw("studio deliver: settle failed and reservation status unknown, retry next round",
+				logx.Field("task_id", t.TaskID.String), logx.Field("billing_request_id", reqID),
+				logx.Field("overdue", overdue), logx.Field("settle_err", err.Error()), logx.Field("status_err", serr.Error()))
+			return
+		}
+		if overdue {
+			log.Errorw("studio delivering overdue: settle keeps failing", logx.Field("task_id", t.TaskID.String),
+				logx.Field("batch_id", b.ID), logx.Field("billing_request_id", reqID), logx.Field("reservation", st),
+				logx.Field("settle_err", err.Error()))
+		}
+		switch {
+		case st == resvConfirmed || st == resvPartiallyRefunded:
+			log.Infow("studio deliver: reservation already settled elsewhere, delivering", logx.Field("task_id", t.TaskID.String),
+				logx.Field("billing_request_id", reqID), logx.Field("reservation", st))
+		case st == resvHeld:
+			if !overdue {
+				log.Errorf("studio: 子任务 %d 结算返回失效但预留单仍冻结，下一轮重试: %v", t.ID, err)
+				return
+			}
+			f.failTask(ctx, t, b, reasonDeliverTimeout, true, gwStatus)
+			return
+		default: // 已过期 / 已退回 / 没有预留单：点数已不在冻结里，不交付
+			reason := billing.DeliverBlockedReason
+			if overdue {
+				reason = reasonDeliverTimeout
+			}
+			log.Errorf("studio: 子任务 %d 预留已失效（%s），不交付: %v", t.ID, st, err)
+			f.failTask(ctx, t, b, reason, false, gwStatus)
+			return
+		}
 	}
 	extra := map[string]any{
-		"result_rid": res.RID, "result_url": res.URL, "result_width": w, "result_height": h,
-		"gateway_status": call.Status, "error_reason": nil,
+		"result_rid": res.RID, "result_url": res.URL, "result_width": res.Width, "result_height": res.Height, "error_reason": nil,
 	}
-	c, costOK := costCNYText(call.Cost)
+	if call != nil {
+		extra["gateway_status"] = call.Status
+	}
+	var cost *aigateway.Cost
+	if call != nil {
+		cost = call.Cost
+	}
+	c, costOK := costCNYText(cost)
 	if !costOK {
-		log.Errorf("studio: warning 子任务 %d 的 gateway 调用 %s 没有可用的 amount_cny，成本记 0", t.ID, call.ID)
+		log.Errorf("studio: warning 子任务 %d 拿不到 gateway 调用的 amount_cny（调用 %s），成本记 0", t.ID, t.GatewayCallID.String)
 	}
 	extra["cost_cny"] = c
-	if t.BillingStatus == model.BillingHeld {
+	if f.bill.Mode() == billing.ModeOn {
 		extra["billing_status"] = model.BillingSettled
 	}
 	ok, err := f.repo.Task.TransitStatus(ctx, t.ID, model.TaskDelivering, model.TaskSucceeded, extra)
@@ -292,6 +399,7 @@ func (f *flow) deliver(ctx context.Context, t *model.Task, b *model.Batch, call 
 	}
 	t.ResultURL.String = res.URL
 	f.saveAsset(ctx, t, b, res.URL)
+	_, costCNY := pipeline.ParseOutputs(call)
 	f.logStep(ctx, b.ID, pipeline.StepLog{
 		JobID: t.TaskID.String, Step: pipeline.StepGenerate, Ms: f.now().Sub(started).Milliseconds(),
 		Images: inputCount(t), CostCNY: costCNY,

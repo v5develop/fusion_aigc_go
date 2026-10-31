@@ -59,15 +59,11 @@ func newDeps(s *svc.ServiceContext) *deps {
 	return &deps{
 		repo: s.Repo, bill: s.Billing, mod: s.Moderation,
 		owns: func(u string) bool {
-			if storage.Owned(s.Storage, u) == nil {
-				return true
+			// 先过结构校验（无 userinfo / .. / 反斜杠），再认本存储签发或白名单前缀（scheme + host 全等、路径按段前缀）
+			if !cleanHTTPURL(u) {
+				return false
 			}
-			for _, p := range c.InputURLPrefixes {
-				if p = strings.TrimSpace(p); p != "" && strings.HasPrefix(u, p) {
-					return true
-				}
-			}
-			return false
+			return storage.Owned(s.Storage, u) == nil || matchPrefixes(c.InputURLPrefixes, u)
 		},
 		personalWS: func(ctx context.Context, userID int64) (int64, error) {
 			return workspace.PersonalID(ctx, s.Conn, userID)

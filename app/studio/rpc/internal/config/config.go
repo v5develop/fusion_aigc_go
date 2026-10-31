@@ -45,6 +45,8 @@ type Config struct {
 		Workers int `json:",default=16"`
 		// BatchSize 每轮最多推进多少个批次 / 子任务
 		BatchSize int `json:",default=100"`
+		// MaxRunning 全进程（多实例时各实例按库里总数判断）同时在 gateway 生成中的子任务上限，达到后不再派发新的
+		MaxRunning int `json:",default=64"`
 	}
 	// Moderation 内容审核：keyword-关键词过滤（与 AI文案共用 BLOCKWORD 词库）、off-不审核
 	Moderation struct {
@@ -94,6 +96,8 @@ type Config struct {
 		Crop     int `json:",default=120"`
 		Analyze  int `json:",default=120"`
 		Generate int `json:",default=300"`
+		// DeliverGrace 交付中（已出图、待结算）最多停留多久：超期仍结算不了就告警并按预留单状态置失败 / 退款，保证有出口
+		DeliverGrace int `json:",default=1800"`
 	}
 	// Limits 服务端复查的上限（与前端一致，改了要同步前端）
 	Limits struct {

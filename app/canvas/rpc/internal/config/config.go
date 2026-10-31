@@ -73,6 +73,9 @@ type Config struct {
 		BatchSize       int `json:",default=100"`
 		// MaxSubmitAttempts 提交后端遇暂时性错误（429 / 5xx / 网络）时最多尝试几次，之后置失败退款
 		MaxSubmitAttempts int `json:",default=5"`
+		// JavaStopBackoffSeconds 停止 Java 任务（取消 / 找回任务号 / Poller 场景缺令牌）暂时失败后的重试退避（秒）：
+		// 第 n 次失败后等第 n 项，用完仍失败则退化为停止跟踪。不配用 15,30,60,120,240（约 8 分钟）
+		JavaStopBackoffSeconds []int `json:",optional"`
 	}
 	// Timeouts 各类 run 的总时限（秒），超时置失败（gateway 后端退款并取消调用；studio 取消批次；Java 调取消接口由 Java 退款，无有效登录态时退化为停止跟踪）
 	Timeouts struct {

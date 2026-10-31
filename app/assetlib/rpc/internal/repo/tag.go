@@ -13,14 +13,14 @@ import (
 // TagRepo afv_asset_tag + afv_asset_tag_link。
 type TagRepo struct{ db bun.IDB }
 
-// TagRow 标签 + 关联的有效资产数（未删除）。
+// TagRow 标签 + 关联的有效资产数（未删除、非草稿，与列表口径一致）。
 type TagRow struct {
 	model.Tag  `bun:",extend"`
 	AssetCount int64 `bun:"asset_count,scanonly"`
 }
 
 // assetCountExpr 每个标签挂着的未删除资产数。
-const assetCountExpr = "(SELECT COUNT(*) FROM afv_asset_tag_link AS l JOIN afv_asset AS a ON a.id = l.asset_id AND a.deleted = 0 WHERE l.tag_id = t.id) AS asset_count"
+const assetCountExpr = "(SELECT COUNT(*) FROM afv_asset_tag_link AS l JOIN afv_asset AS a ON a.id = l.asset_id AND a.deleted = 0 AND (a.status IS NULL OR a.status <> 0) WHERE l.tag_id = t.id) AS asset_count"
 
 // List 用户的全部标签（按名字排序）。
 func (r *TagRepo) List(ctx context.Context, userID int64) ([]*TagRow, error) {

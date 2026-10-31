@@ -12,7 +12,10 @@ import (
 type RelationRepo struct{ db bun.IDB }
 
 // Add 建关系；已存在（uk_asset_related_type）时不报错，返回 false。
-func (r *RelationRepo) Add(ctx context.Context, assetID, relatedID int64, typ string) (bool, error) {
+func (r *RelationRepo) Add(ctx context.Context, assetID, relatedID, userID int64, typ string) (bool, error) {
+	if err := assertOwned(ctx, r.db, assetID, userID); err != nil {
+		return false, err
+	}
 	n, err := affected(r.db.NewInsert().Ignore().
 		Model(&model.Relation{AssetID: assetID, RelatedAssetID: relatedID, RelationType: typ}).Exec(ctx))
 	return n > 0, err

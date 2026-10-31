@@ -47,19 +47,26 @@ umask 077
 # Go / sidecar 侧：就地替换或追加四个键，其余内容不动
 upsert() { # upsert <file> <key> <value>
   if grep -q "^$2=" "$1"; then
-    awk -v k="$2" -v v="$3" 'BEGIN{FS=OFS="="} $1==k{print k"="v; next} {print}' "$1" > "$1.tmp" && mv "$1.tmp" "$1"
+    # 值经 ENVIRON 传入：awk -v 会解释反斜杠转义，ENVIRON 不会
+    UPSERT_K=$2 UPSERT_V=$3 awk 'BEGIN{FS=OFS="="; k=ENVIRON["UPSERT_K"]; v=ENVIRON["UPSERT_V"]} $1==k{print k"="v; next} {print}' "$1" > "$1.tmp" \
+      && chmod 600 "$1.tmp" && mv "$1.tmp" "$1"
   else
     printf '%s=%s\n' "$2" "$3" >> "$1"
   fi
 }
-if [[ -f $GO_ENV ]]; then cp -p "$GO_ENV" "$GO_ENV.bak.$(date +%Y%m%d%H%M%S).$$"; else : > "$GO_ENV"; fi
+if [[ -f $GO_ENV ]]; then
+  chmod 600 "$GO_ENV"   # 先收紧已存在文件的权限，再备份、再写
+  bak="$GO_ENV.bak.$(date +%Y%m%d%H%M%S).$$"
+  cp -p "$GO_ENV" "$bak"; chmod 600 "$bak"
+else : > "$GO_ENV"; chmod 600 "$GO_ENV"; fi
 upsert "$GO_ENV" AI_GATEWAY_KEY_ID "$GO_KEY_ID"
 upsert "$GO_ENV" AI_GATEWAY_SECRET "$go_secret"
 upsert "$GO_ENV" REVERSE_AIG_KEY_ID "$REVERSE_KEY_ID"
 upsert "$GO_ENV" REVERSE_AIG_SECRET "$reverse_secret"
 chmod 600 "$GO_ENV"
 
-# gateway 侧：单独一份，合并进 gateway 的 .env
+# gateway 侧：单独一份，合并进 gateway 的 .env（先建空文件并 chmod 600，再写入）
+: > "$GW_ENV"; chmod 600 "$GW_ENV"
 cat > "$GW_ENV" <<EOF
 # 由 fusion_aigc_go deploy/scripts/gen-gateway-callers.sh 生成于 $(date '+%F %T')；合并进 ai-gateway 的 .env 后重启 serve。
 AIG_CALLER_GO_KEY_ID=$GO_KEY_ID

@@ -34,6 +34,7 @@ import json
 import os
 import re
 import sys
+import threading
 import time
 import hashlib
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -81,7 +82,27 @@ AIG_BASE_URL = os.environ.get("AIG_BASE_URL", "").strip().rstrip("/")
 AIG_KEY_ID = os.environ.get("AIG_KEY_ID", "prompt-reverse-v1").strip()
 AIG_SECRET = os.environ.get("AIG_SECRET", "")
 AIG_CALLER = os.environ.get("AIG_CALLER", "prompt-reverse").strip()
-AIG_WAIT_S = int(os.environ.get("AIG_WAIT_S", "25") or 25)
+
+
+def _env_int(name, default, lo=None):
+    """读整数环境变量；非数字（或小于下限）时回落默认值并打一行警告，不让进程崩溃。"""
+    raw = os.environ.get(name, "")
+    if raw is None or not str(raw).strip():
+        return default
+    try:
+        v = int(str(raw).strip())
+    except ValueError:
+        sys.stderr.write("警告：环境变量 %s=%r 不是整数，回落默认值 %s\n" % (name, raw, default))
+        return default
+    if lo is not None and v < lo:
+        sys.stderr.write("警告：环境变量 %s=%r 小于 %s，回落默认值 %s\n" % (name, raw, lo, default))
+        return default
+    return v
+
+
+AIG_WAIT_S = _env_int("AIG_WAIT_S", 25)
+# 单次 HTTP 请求的总时间预算（秒，从请求开始算）：所有 llm_chat、重试、退避都不得超出
+REQUEST_BUDGET_S = _env_int("REVERSE_REQUEST_BUDGET_S", 190, lo=10)
 MODEL_GROUP = os.environ.get("REVERSE_MODEL_GROUP", "vlm.deepseek-flash").strip() or "vlm.deepseek-flash"
 # 排障：只走指定部署（逗号分隔，如 deepseek-chat.vl.deepseek-flash 或 bailian-chat.vl.deepseek-flash）。
 # 非空时写入 constraints.allowed_deployments（ai-gateway contract/calls.py Constraints，最多 64 个）；空 = 组内正常路由。
@@ -1078,6 +1099,49 @@ def llm_configured():
     return bool(AIG_BASE_URL and AIG_SECRET)
 
 
+# ---------------------------------------------------------------- 单次请求的总截止时间
+
+class RequestBudgetExceeded(Exception):
+    """单次请求总预算（REVERSE_REQUEST_BUDGET_S）用尽。不是 AigError：不当作网关错误重试。"""
+
+
+_REQ = threading.local()
+
+
+def begin_request(budget_s=None):
+    """在处理线程里开始计时；返回截止时刻（time.monotonic 基准）。"""
+    _REQ.deadline = time.monotonic() + (REQUEST_BUDGET_S if budget_s is None else budget_s)
+    return _REQ.deadline
+
+
+def request_deadline():
+    return getattr(_REQ, "deadline", None)
+
+
+def set_request_deadline(deadline):
+    """线程池 worker 里继承调用方的截止时间。"""
+    _REQ.deadline = deadline
+
+
+def request_remaining(deadline=None):
+    """距截止还剩多少秒；没有截止时间（请求之外的调用）返回 None。"""
+    d = deadline if deadline is not None else request_deadline()
+    return None if d is None else d - time.monotonic()
+
+
+def budget_sleep(seconds, deadline=None):
+    """退避等待；剩余预算不够等（含至少 1 秒给下一次尝试）就抛 RequestBudgetExceeded，不白睡。"""
+    rem = request_remaining(deadline)
+    if rem is not None and rem < seconds + 1.0:
+        raise RequestBudgetExceeded(_BUDGET_MSG % REQUEST_BUDGET_S)
+    time.sleep(seconds)
+
+
+_BUDGET_MSG = "处理超时：超过单次请求总时限 %d 秒，请稍后重试或减少图片数量"
+MIN_RERUN_BUDGET_S = 40  # crop-plan 重跑所需的最小剩余预算
+MIN_CALL_BUDGET_S = 5  # 剩余不足这个数就不再发起模型调用
+
+
 def _aig_client():
     return aig.AigClient(AIG_BASE_URL, AIG_KEY_ID, AIG_SECRET, AIG_CALLER, wait_s=AIG_WAIT_S)
 
@@ -1113,7 +1177,7 @@ def _gateway_messages(messages):
 
 
 def llm_chat(messages, *, json_mode, thinking, max_tokens, timeout, route,
-             temperature=None, retry_without_json=True):
+             temperature=None, retry_without_json=True, deadline=None):
     """经 ai-gateway 调 chat.completion（模型组 REVERSE_MODEL_GROUP），返回 (text, usage)。
 
     messages 仍是原来的 OpenAI 形状（system/user，content 为字符串或 text/image_url parts），这里转换成网关契约。
@@ -1127,8 +1191,20 @@ def llm_chat(messages, *, json_mode, thinking, max_tokens, timeout, route,
         raise RuntimeError(NOT_CONFIGURED)
     client = _aig_client()
     gw_messages = _gateway_messages(messages)
+    if deadline is None:
+        deadline = request_deadline()   # 当前请求的总截止时间；请求之外的调用为 None（只受 timeout 约束）
 
-    def body(json_on):
+    def effective_timeout():
+        """本次调用可用的秒数 = min(timeout, 请求剩余预算 - 网关多留的 15s 余量)。"""
+        rem = request_remaining(deadline)
+        if rem is None:
+            return timeout, timeout + 15
+        if rem < MIN_CALL_BUDGET_S:
+            raise RequestBudgetExceeded(_BUDGET_MSG % REQUEST_BUDGET_S)
+        t = max(MIN_CALL_BUDGET_S - 1, min(timeout, int(rem) - 2))
+        return t, min(t + 15, rem)
+
+    def body(json_on, timeout):
         inp = {"messages": gw_messages}
         if json_on:
             inp["response_format"] = {"type": "json_object"}
@@ -1149,16 +1225,18 @@ def llm_chat(messages, *, json_mode, thinking, max_tokens, timeout, route,
             "labels": {"caller": AIG_CALLER, "route": route},
         }
 
-    budget = timeout + 15  # 比 deadline_at 多留一点，让网关先给出 DEADLINE_EXCEEDED 终态
+    # budget 比 deadline_at 多留一点，让网关先给出 DEADLINE_EXCEEDED 终态；但不超过请求剩余预算
+    t, budget = effective_timeout()
     try:
-        rec = client.call(body(json_mode), idempotency_key=aig.new_idempotency_key(AIG_CALLER, route),
+        rec = client.call(body(json_mode, t), idempotency_key=aig.new_idempotency_key(AIG_CALLER, route),
                           budget_s=budget)
     except AigError as e:
         if not (json_mode and retry_without_json and e.is_input_rejected
                 and e.mentions("response_format", "json")):
             raise
         sys.stderr.write("llm %s · JSON 模式被拒（%s），去掉 response_format 重发\n" % (route, e.code))
-        rec = client.call(body(False), idempotency_key=aig.new_idempotency_key(AIG_CALLER, route),
+        t, budget = effective_timeout()
+        rec = client.call(body(False, t), idempotency_key=aig.new_idempotency_key(AIG_CALLER, route),
                           budget_s=budget)
     msg = ((rec.get("result") or {}).get("message")) or {}
     text = (msg.get("content") or "").strip()
@@ -1433,7 +1511,8 @@ def vision_fields(payload, picked):
         last = parse_json(text)
         if last:
             return last
-        time.sleep(0.6)
+        if attempt < 1:
+            budget_sleep(0.6)
     return last
 
 
@@ -3104,19 +3183,20 @@ def _pose_llm_json(system, text, image, max_tokens):
                                     max_tokens=max_tokens, timeout=POSE_TIMEOUT, route=route)
         except aig.AigNetworkError:
             if attempt < attempts - 1:
-                time.sleep(1.0 * (attempt + 1))
+                budget_sleep(1.0 * (attempt + 1))
                 continue
             raise
         except aig.AigRetryable:
             # 对应原 408/429/5xx：退避后用新幂等键重提
             if attempt < attempts - 1:
-                time.sleep(2.5 * (attempt + 1))
+                budget_sleep(2.5 * (attempt + 1))
                 continue
             raise
         last = parse_json(reply)
         if last:
             return last, usage
-        time.sleep(0.6)
+        if attempt < attempts - 1:
+            budget_sleep(0.6)
     return last, usage
 
 
@@ -3618,7 +3698,10 @@ def analyze_batch(payload):
     base = [im for im in imgs if str(im.get("role") or "") != "人物模特"]
     concurrency = max(1, min(6, int(payload.get("concurrency") or 3)))
 
+    req_deadline = request_deadline()
+
     def one(i, model):
+        set_request_deadline(req_deadline)   # 线程池 worker 继承本请求的总截止时间
         sub = dict(payload)
         sub.pop("models", None)
         sub["images"] = base + [{
@@ -3663,6 +3746,40 @@ def analyze_batch(payload):
             "target_model": str(payload.get("target_model") or ""),
         },
     }
+
+
+# ---------------------------------------------------------------- 图片 data URL 归一与校验
+
+_DATA_URL_RE = re.compile(r"^data:image/([A-Za-z0-9.+-]+)((?:;[^;,]*)*);base64,(.*)$", re.S | re.I)
+_MIME_ALIAS = {"jpg": "jpeg", "pjpeg": "jpeg"}
+GATEWAY_IMAGE_TYPES = ("png", "jpeg", "webp", "gif")   # ai-gateway 支持的图片格式
+_WS_RE = re.compile(r"\s")
+
+
+def normalize_data_url(value):
+    """归一一个 data:image/... URL：mime 小写、jpg→jpeg；网关不支持的格式、base64 含空白抛 ValueError（中文文案）。"""
+    m = _DATA_URL_RE.match(value)
+    if not m:
+        raise ValueError("图片不是合法的 base64 data URL（需形如 data:image/png;base64,...）")
+    sub = m.group(1).lower()
+    sub = _MIME_ALIAS.get(sub, sub)
+    if sub not in GATEWAY_IMAGE_TYPES:
+        raise ValueError("不支持的图片格式 image/%s，仅支持 PNG / JPEG / WebP / GIF" % sub)
+    data = m.group(3)
+    if _WS_RE.search(data):
+        raise ValueError("图片 base64 数据含空白字符（空格或换行），请去掉后重试")
+    return "data:image/%s;base64,%s" % (sub, data)
+
+
+def normalize_payload_images(obj):
+    """递归把请求里所有 data:image/ 字符串就地归一；任一不合规抛 ValueError（路由回 422）。"""
+    items = obj.items() if isinstance(obj, dict) else enumerate(obj) if isinstance(obj, list) else ()
+    for k, v in list(items):
+        if isinstance(v, str):
+            if v[:11].lower() == "data:image/":
+                obj[k] = normalize_data_url(v)
+        elif isinstance(v, (dict, list)):
+            normalize_payload_images(v)
 
 
 # ---------------------------------------------------------------- HTTP
@@ -3716,6 +3833,7 @@ class Handler(BaseHTTPRequestHandler):
         return self.send_json({"error": "not found"}, 404)
 
     def do_POST(self):
+        begin_request()   # 总预算从请求开始算
         path = urlsplit(self.path).path
         if path in ("/api/pose/source", "/api/pose/prompt"):
             length = int(self.headers.get("Content-Length") or 0)
@@ -3726,6 +3844,10 @@ class Handler(BaseHTTPRequestHandler):
                 payload = json.loads(raw.decode("utf-8") or "{}")
             except ValueError:
                 return self.send_json({"error": "invalid json"}, 400)
+            try:
+                normalize_payload_images(payload)
+            except ValueError as e:
+                return self.send_json({"error": str(e)}, 422)
             started = time.time()
             try:
                 result = (pose_source(payload.get("image")) if path == "/api/pose/source"
@@ -3737,6 +3859,8 @@ class Handler(BaseHTTPRequestHandler):
                     {"error": f"读图连接失败（{getattr(e, 'reason', e)}）"}, 502)
             except AigError as e:
                 return self.send_json({"error": f"读图返回 {e.code}，请稍后重试"}, 502)
+            except RequestBudgetExceeded as e:
+                return self.send_json({"error": str(e)}, 504)
             except Exception as e:  # noqa: BLE001
                 return self.send_json({"error": f"分析失败：{e}"}, 502)
             elapsed = int((time.time() - started) * 1000)
@@ -3756,6 +3880,10 @@ class Handler(BaseHTTPRequestHandler):
                 payload = json.loads(raw.decode("utf-8") or "{}")
             except ValueError:
                 return self.send_json({"error": "invalid json"}, 400)
+            try:
+                normalize_payload_images(payload)
+            except ValueError as e:
+                return self.send_json({"error": str(e)}, 422)
             started = time.time()
             try:
                 result = crop_check(payload)
@@ -3765,6 +3893,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json({"error": f"读图连接失败（{getattr(e, 'reason', e)}）"}, 502)
             except AigError as e:
                 return self.send_json({"error": f"读图返回 {e.code}，请稍后重试"}, 502)
+            except RequestBudgetExceeded as e:
+                return self.send_json({"error": str(e)}, 504)
             except Exception as e:  # noqa: BLE001
                 return self.send_json({"error": f"裁切质检失败：{e}"}, 502)
             result["meta"]["elapsed_ms"] = int((time.time() - started) * 1000)
@@ -3780,11 +3910,18 @@ class Handler(BaseHTTPRequestHandler):
                 payload = json.loads(raw.decode("utf-8") or "{}")
             except ValueError:
                 return self.send_json({"error": "invalid json"}, 400)
+            try:
+                normalize_payload_images(payload)
+            except ValueError as e:
+                return self.send_json({"error": str(e)}, 422)
             started = time.time()
             try:
                 result = crop_plan(payload)
-                if not any((p.get("crops") or []) for p in (result.get("plans") or [])):
-                    time.sleep(0.6)
+                # 没找到任何裁切框时重跑一次；剩余预算不够一次完整调用就不重跑，直接返回首轮结果
+                rem = request_remaining()
+                if (not any((p.get("crops") or []) for p in (result.get("plans") or []))
+                        and (rem is None or rem > MIN_RERUN_BUDGET_S)):
+                    budget_sleep(0.6)
                     result = crop_plan(payload)
             except ValueError as e:
                 return self.send_json({"error": str(e)}, 422)
@@ -3792,6 +3929,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json({"error": f"读图连接失败（{getattr(e, 'reason', e)}）"}, 502)
             except AigError as e:
                 return self.send_json({"error": f"读图返回 {e.code}，请稍后重试"}, 502)
+            except RequestBudgetExceeded as e:
+                return self.send_json({"error": str(e)}, 504)
             except Exception as e:  # noqa: BLE001
                 return self.send_json({"error": f"找细节失败：{e}"}, 502)
             elapsed = int((time.time() - started) * 1000)
@@ -3808,9 +3947,15 @@ class Handler(BaseHTTPRequestHandler):
                 payload = json.loads(raw.decode("utf-8") or "{}")
             except ValueError:
                 return self.send_json({"error": "invalid json"}, 400)
+            try:
+                normalize_payload_images(payload)
+            except ValueError as e:
+                return self.send_json({"error": str(e)}, 422)
             started = time.time()
             try:
                 result = analyze(payload)
+            except RequestBudgetExceeded as e:
+                return self.send_json({"error": str(e)}, 504)
             except Exception as e:  # noqa: BLE001 与其他路由同口径：内部异常回 502 JSON，不让连接被直接断开
                 return self.send_json({"error": f"分析失败：{e}"}, 502)
             result["meta"]["elapsed_ms"] = int((time.time() - started) * 1000)
@@ -3832,11 +3977,17 @@ class Handler(BaseHTTPRequestHandler):
                 payload = json.loads(raw.decode("utf-8") or "{}")
             except ValueError:
                 return self.send_json({"error": "invalid json"}, 400)
+            try:
+                normalize_payload_images(payload)
+            except ValueError as e:
+                return self.send_json({"error": str(e)}, 422)
             started = time.time()
             try:
                 result = analyze_batch(payload)
             except ValueError as e:
                 return self.send_json({"error": str(e)}, 400)
+            except RequestBudgetExceeded as e:
+                return self.send_json({"error": str(e)}, 504)
             except Exception as e:  # noqa: BLE001
                 return self.send_json({"error": "批量反推失败：" + str(e)}, 502)
             result["meta"]["elapsed_ms"] = int((time.time() - started) * 1000)

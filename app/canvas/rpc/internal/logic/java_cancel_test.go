@@ -99,8 +99,8 @@ func TestCancelRunJavaUsesRequestBearer(t *testing.T) {
 	fj.start(t, c)
 	c.s.Bearers.Put(7, "Bearer stale")
 	mock.ExpectQuery(qRunGet).WillReturnRows(javaRunRow(1, nil, nil))
-	expectEnd(mock, model.RunCanceled, "已取消执行；Java 任务已取消，点数由 Java 退回")
-	mock.ExpectQuery(qRunGet).WillReturnRows(javaRunRow(4, "CANCELED", "已取消执行；Java 任务已取消，点数由 Java 退回"))
+	expectEnd(mock, model.RunCanceled, "已取消执行；已请求 Java 取消，点数以 Java 终态为准")
+	mock.ExpectQuery(qRunGet).WillReturnRows(javaRunRow(4, "CANCELED", "已取消执行；已请求 Java 取消，点数以 Java 终态为准"))
 	out, err := c.CancelRun(withBearer("Bearer fresh"), &canvas.RunIdReq{UserId: 7, Id: 21})
 	if err != nil || out.Status != "cancelled" {
 		t.Fatalf("%+v %v", out, err)
@@ -139,7 +139,7 @@ func TestForceFailJavaUsesCachedBearer(t *testing.T) {
 	fj.start(t, c)
 	c.s.Bearers.Put(7, "Bearer cached")
 	mock.ExpectQuery(qRunGet).WillReturnRows(javaRunRow(1, nil, nil))
-	expectEnd(mock, model.RunFailed, "运营已终止该任务；Java 任务已取消，点数由 Java 退回")
+	expectEnd(mock, model.RunFailed, "运营已终止该任务；已请求 Java 取消，点数以 Java 终态为准")
 	if _, err := c.AdminForceFailRun(context.Background(), &canvas.AdminRunReq{Id: 21}); err != nil {
 		t.Fatal(err)
 	}
@@ -166,7 +166,7 @@ func TestStopJavaOutcomes(t *testing.T) {
 			`{"code":0,"data":{"taskUid":"JT1","status":"FAILED"}}`, model.RunCanceled, "已取消执行；Java 任务已结束（失败）"},
 		{"任务不存在：停止跟踪", stopUser, javaNotFound, "", model.RunCanceled, "已取消执行；Java 任务已不存在，已停止跟踪"},
 		{"令牌失效：退化", stopTimeout, java401, "", model.RunFailed, "工具执行超时；Java 任务未能取消（无有效登录态）"},
-		{"画布已删：取消", stopGone, javaOK, "", model.RunCanceled, "画布已删除；Java 任务已取消"},
+		{"画布已删：取消", stopGone, javaOK, "", model.RunCanceled, "画布已删除；已请求 Java 取消"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -195,7 +195,7 @@ func TestStopJavaAlreadyFinishedButNotTerminalRetries(t *testing.T) {
 	fj := &fakeJava{cancel: javaFinished, task: `{"code":0,"data":{"taskUid":"JT1","status":"RUNNING"}}`}
 	fj.start(t, c)
 	// 3001 但任务仍在跑（如「任务状态已变化」）：按暂时性登记待重试
-	mock.ExpectExec("UPDATE `afv_canvas_node_run` AS `r` SET `error_code` = 'JAVA_CANCEL_PENDING:u:1', `error_reason` = '已取消执行' WHERE \\(id = 21\\) AND \\(status = 1\\)").
+	mock.ExpectExec("UPDATE `afv_canvas_node_run` AS `r` SET `error_code` = 'JAVA_CANCEL_PENDING:u:1:[0-9]+', `error_reason` = '已取消执行' WHERE \\(id = 21\\) AND \\(status = 1\\)").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	ended, pending := c.stopJava(context.Background(), runningJava(), stopUser, "已取消执行", "Bearer b", 0)
 	if ended || !pending || fj.gets != 1 {
@@ -212,19 +212,19 @@ func TestJavaCancelTransientRetriesThenDegrades(t *testing.T) {
 	fj.start(t, c)
 	c.s.Bearers.Put(7, "Bearer b")
 	// 首次：登记待重试，run 保持运行中
-	mock.ExpectExec("SET `error_code` = 'JAVA_CANCEL_PENDING:a:1', `error_reason` = '运营已终止该任务' WHERE \\(id = 21\\) AND \\(status = 1\\)").
+	mock.ExpectExec("SET `error_code` = 'JAVA_CANCEL_PENDING:a:1:[0-9]+', `error_reason` = '运营已终止该任务' WHERE \\(id = 21\\) AND \\(status = 1\\)").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	if ended, pending := c.stopJava(context.Background(), runningJava(), stopAdmin, "运营已终止该任务", "Bearer b", 0); ended || !pending {
 		t.Fatalf("ended=%v pending=%v", ended, pending)
 	}
-	// Poller 第 3 次重试：仍失败，计数 +1
+	// Poller 第 3 次重试（旧格式标记没有时间戳，视为已到点）：仍失败，计数 +1
 	run := runningJava()
 	run.ErrorCode = sql.NullString{String: "JAVA_CANCEL_PENDING:a:2", Valid: true}
 	run.ErrorReason = sql.NullString{String: "运营已终止该任务", Valid: true}
-	mock.ExpectExec("SET `error_code` = 'JAVA_CANCEL_PENDING:a:3'").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("SET `error_code` = 'JAVA_CANCEL_PENDING:a:3:[0-9]+'").WillReturnResult(sqlmock.NewResult(0, 1))
 	c.pollJavaRun(context.Background(), run, false)
-	// 第 5 次：达到上限，按停止跟踪置失败（强制失败场景）
-	run.ErrorCode.String = "JAVA_CANCEL_PENDING:a:4"
+	// 第 6 次（退避表 5 项 + 首次）：达到上限，按停止跟踪置失败（强制失败场景）
+	run.ErrorCode.String = "JAVA_CANCEL_PENDING:a:5"
 	expectEnd(mock, model.RunFailed, "运营已终止该任务；Java 任务未能取消（取消接口多次失败），可能仍会执行并扣费")
 	c.pollJavaRun(context.Background(), run, false)
 	if n := len(fj.calls()); n != 3 {
@@ -240,7 +240,7 @@ func TestPollJavaGoneCancels(t *testing.T) {
 	fj := &fakeJava{cancel: javaOK}
 	fj.start(t, c)
 	c.s.Bearers.Put(7, "Bearer b")
-	expectEnd(mock, model.RunCanceled, "画布已删除，执行已取消；Java 任务已取消，点数由 Java 退回")
+	expectEnd(mock, model.RunCanceled, "画布已删除，执行已取消；已请求 Java 取消，点数以 Java 终态为准")
 	c.pollJavaRun(context.Background(), runningJava(), true)
 	if got := fj.calls(); len(got) != 1 {
 		t.Fatalf("画布已删应取消 Java 任务: %v", got)

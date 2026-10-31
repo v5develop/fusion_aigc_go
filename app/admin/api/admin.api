@@ -485,7 +485,7 @@ type (
 		PageSize int64  `form:"page_size,optional,default=20"`
 		UserId   int64  `form:"user_id,optional"`
 		Kind     string `form:"kind,optional,options=|tryon|pose|imagegen"`
-		Status   int32  `form:"status,optional,default=-1"` // -1=全部；0-排队 1-切图中 2-反推中 3-生图中 4-全部成功 5-全部失败 6-部分成功 7-已取消
+		Status   int32  `form:"status,optional,default=-1"` // -1=全部；0-排队 1-切图中 2-反推中 3-生图中 4-全部成功 5-全部失败 6-部分成功 7-已取消 8-提交中
 		StartAt  int64  `form:"start_at,optional"` // 创建时间起（unix 毫秒，含）
 		EndAt    int64  `form:"end_at,optional"` // 创建时间止（unix 毫秒，不含）
 	}
@@ -518,7 +518,7 @@ type (
 		ModelIndex       int32  `json:"model_index"`
 		ShotIndex        int32  `json:"shot_index"`
 		PoseIndex        int32  `json:"pose_index"`
-		Status           int32  `json:"status"` // 0-排队 1-生成中 2-成功 3-失败 4-已取消
+		Status           int32  `json:"status"` // 0-排队 1-生成中 2-成功 3-失败 4-已取消 5-交付中
 		ResultUrl        string `json:"result_url"`
 		ResultWidth      int32  `json:"result_width"`
 		ResultHeight     int32  `json:"result_height"`

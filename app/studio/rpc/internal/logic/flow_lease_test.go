@@ -65,7 +65,21 @@ func TestPollRunningSkipsLeasedTask(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "status"}).AddRow(2, model.TaskSucceeded))
 	mock.ExpectExec(regexp.QuoteMeta("UPDATE `afv_studio_task` SET `lease_owner` = NULL, `lease_until` = NULL, `updated_at` = `updated_at` WHERE `id` = 2 AND `lease_owner` = 'inst-a'")).
 		WillReturnResult(ok1)
+	// 释放后记下轮询结束时刻（lease_until = NOW(3)），供 ListByStatus 轮转
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE `afv_studio_task` SET `lease_until` = NOW(3), `updated_at` = `updated_at` WHERE `id` = 2 AND `lease_owner` IS NULL AND `lease_until` IS NULL")).
+		WillReturnResult(ok1)
 	f.pollRunning(context.Background())
 	f.wg.Wait()
+	met(t, mock)
+}
+
+// 候选按上次轮询时间轮转：没轮询过的在前，其余按 lease_until 升序。
+func TestListByStatusRotates(t *testing.T) {
+	f, mock, _ := newTestFlow(t, onBill())
+	mock.ExpectQuery(regexp.QuoteMeta("ORDER BY t.lease_until IS NOT NULL ASC, t.lease_until ASC, t.updated_at ASC, t.id ASC LIMIT 100")).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}))
+	if _, err := f.repo.Task.ListByStatus(context.Background(), model.TaskRunning, 100); err != nil {
+		t.Fatal(err)
+	}
 	met(t, mock)
 }

@@ -8,15 +8,20 @@ package logic
 //	运营强制失败    BearerCache 里该用户最近的 token      failed（ADMIN_FORCE_FAIL）
 //	Poller 超时     同上                                 failed（TIMEOUT）
 //	画布已删        同上                                 canceled
+//	提交失败        同上（dispatch 内联时为本次请求的）  failed（SUBMIT_FAILED）：已落 backend_request 的重提失败，Java 可能已建任务
 //
 //	Cancel 结果       处理
-//	Cancelled         置终态，error_reason 注明「Java 任务已取消，点数由 Java 退回」
+//	Cancelled         置终态，error_reason 注明「已请求 Java 取消，点数以 Java 终态为准」（code=0 只表示 Java 受理了取消）
 //	AlreadyFinished   立刻按 taskUid 查一次：Java 已成功 → 用户取消 / 超时 / 画布已删按成功交付；强制失败照常置失败并注明 Java 已扣费；
 //	                  Java 失败 / 已取消 → 置终态并注明；查不到或仍未终态 → 按 Transient
 //	NotFound          视为已不存在：置终态（停止跟踪）
 //	Unauthorized      清掉缓存的令牌，退化为停止跟踪（WARN + 计数）
-//	Transient         run 保持运行中，在 error_code 记「待取消」标记（JAVA_CANCEL_PENDING:<场景>:<次数>，运行中不对外展示），
-//	                  error_reason 记要落的文案；Poller 下轮用缓存令牌重试，满 javaCancelMaxTries 次按停止跟踪处理
+//	Transient         run 保持原状态，在 error_code 记「待取消」标记（JAVA_CANCEL_PENDING:<场景>:<次数>:<上次尝试 unix 秒>，运行中不对外展示），
+//	                  error_reason 记要落的文案；Poller 按上次尝试时间指数退避（默认 15s/30s/60s/2m/4m，Poll.JavaStopBackoffSeconds）
+//	                  用缓存令牌重试，退避表用完（约 8 分钟）仍失败按停止跟踪处理
+//
+// 没有令牌：用户当次请求 / 运营强制失败（同步操作）立即退化；Poller 发起的（超时、画布已删、提交失败、待取消重试）
+// 按 Transient 计次，给其它实例或用户下次请求补令牌的机会，退避表用完才退化。
 //
 // 状态迁移一律走 endRun / succeed 的 CAS（from=运行中），与 Poller 并发时只有一方生效；待取消标记也只在运行中时写入。
 
@@ -26,6 +31,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"aigc-local-life/app/canvas/model"
 	"aigc-local-life/app/canvas/rpc/internal/javatool"
@@ -42,6 +48,7 @@ const (
 	stopAdmin   javaStop = 'a' // 运营强制失败
 	stopTimeout javaStop = 't' // Poller 超时
 	stopGone    javaStop = 'g' // 画布已删
+	stopSubmit  javaStop = 's' // 提交失败（已落 backend_request 的重提失败 / 次数用尽）
 )
 
 func (s javaStop) String() string {
@@ -54,6 +61,8 @@ func (s javaStop) String() string {
 		return "timeout"
 	case stopGone:
 		return "canvas_deleted"
+	case stopSubmit:
+		return "submit_failed"
 	}
 	return "unknown"
 }
@@ -65,20 +74,28 @@ func (s javaStop) target() (int8, string) {
 		return model.RunFailed, "ADMIN_FORCE_FAIL"
 	case stopTimeout:
 		return model.RunFailed, "TIMEOUT"
+	case stopSubmit:
+		return model.RunFailed, "SUBMIT_FAILED"
 	}
 	return model.RunCanceled, "CANCELED"
 }
 
+// background 由 Poller / dispatch 发起（不是用户或运营的同步操作）：缺令牌时计次重试而不是立即退化。
+func (s javaStop) background() bool {
+	return s == stopTimeout || s == stopGone || s == stopSubmit
+}
+
+// defaultJavaStopBackoff 停止 Java 任务暂时失败后的重试退避（第 n 次失败后等第 n 项；共 len+1 次尝试，约 8 分钟）。
+var defaultJavaStopBackoff = []int{15, 30, 60, 120, 240}
+
 const (
-	// javaCancelMaxTries 取消接口暂时性失败时最多尝试几次（含首次），之后按停止跟踪处理。
-	javaCancelMaxTries = 5
 	// javaCancelPending 运行中 run 的 error_code 前缀：已决定取消、等 Poller 重试（运行中不对外展示 error_code）。
 	javaCancelPending = "JAVA_CANCEL_PENDING:"
 )
 
 // error_reason 后缀。
 const (
-	sufJavaCancelled  = "；Java 任务已取消，点数由 Java 退回"
+	sufJavaCancelled  = "；已请求 Java 取消，点数以 Java 终态为准"
 	sufJavaNoLogin    = "；Java 任务未能取消（无有效登录态），可能仍会执行并扣费"
 	sufJavaRetryOut   = "；Java 任务未能取消（取消接口多次失败），可能仍会执行并扣费"
 	sufJavaNotFound   = "；Java 任务已不存在，已停止跟踪"
@@ -98,25 +115,76 @@ var javaCancelDegraded = metric.NewCounterVec(&metric.CounterVecOpts{
 	Labels:    []string{"scene", "reason"},
 })
 
-// pendingJavaStop 解析运行中 run 的待取消标记。
+// pendingJavaStop 解析 run 的待取消标记。
 func pendingJavaStop(run *model.NodeRun) (mode javaStop, tries int, ok bool) {
+	mode, tries, _, ok = parsePendingJavaStop(run)
+	return
+}
+
+// parsePendingJavaStop 解析待取消标记 JAVA_CANCEL_PENDING:<场景>:<次数>[:<上次尝试 unix 秒>]（旧格式没有时间戳，at 为零值）。
+func parsePendingJavaStop(run *model.NodeRun) (mode javaStop, tries int, at time.Time, ok bool) {
 	code := run.ErrorCode.String
 	if !run.ErrorCode.Valid || !strings.HasPrefix(code, javaCancelPending) {
-		return 0, 0, false
+		return 0, 0, time.Time{}, false
 	}
 	parts := strings.Split(strings.TrimPrefix(code, javaCancelPending), ":")
-	if len(parts) != 2 || len(parts[0]) != 1 {
-		return 0, 0, false
+	if (len(parts) != 2 && len(parts) != 3) || len(parts[0]) != 1 {
+		return 0, 0, time.Time{}, false
 	}
 	n, err := strconv.Atoi(parts[1])
 	if err != nil {
-		return 0, 0, false
+		return 0, 0, time.Time{}, false
+	}
+	if len(parts) == 3 {
+		sec, err := strconv.ParseInt(parts[2], 10, 64)
+		if err != nil {
+			return 0, 0, time.Time{}, false
+		}
+		at = time.Unix(sec, 0)
 	}
 	switch m := javaStop(parts[0][0]); m {
-	case stopUser, stopAdmin, stopTimeout, stopGone:
-		return m, n, true
+	case stopUser, stopAdmin, stopTimeout, stopGone, stopSubmit:
+		return m, n, at, true
 	}
-	return 0, 0, false
+	return 0, 0, time.Time{}, false
+}
+
+// javaStopBackoff 重试退避表（配置 Poll.JavaStopBackoffSeconds，未配用默认）。
+func (c *core) javaStopBackoff() []time.Duration {
+	secs := c.s.Config.Poll.JavaStopBackoffSeconds
+	if len(secs) == 0 {
+		secs = defaultJavaStopBackoff
+	}
+	out := make([]time.Duration, 0, len(secs))
+	for _, s := range secs {
+		out = append(out, time.Duration(max(s, 1))*time.Second)
+	}
+	return out
+}
+
+// javaStopMaxTries 停止 Java 任务最多尝试几次（含首次）：退避表每项对应一次重试。
+func (c *core) javaStopMaxTries() int { return len(c.javaStopBackoff()) + 1 }
+
+// javaStopDue 待取消标记是否到了下次重试时间：上次尝试时间 + 第 tries 项退避。没有时间戳（旧标记）视为已到。
+func (c *core) javaStopDue(run *model.NodeRun) bool {
+	_, tries, at, ok := parsePendingJavaStop(run)
+	if !ok || at.IsZero() || tries <= 0 {
+		return true
+	}
+	b := c.javaStopBackoff()
+	return !c.now().Before(at.Add(b[min(tries, len(b))-1]))
+}
+
+// retryPendingJavaStop Poller 推进带待取消标记的 run：到了重试时间就再试一次停止。返回是否带标记（带标记的 run 本轮到此为止）。
+func (c *core) retryPendingJavaStop(ctx context.Context, run *model.NodeRun, bearer string) bool {
+	mode, tries, ok := pendingJavaStop(run)
+	if !ok {
+		return false
+	}
+	if c.javaStopDue(run) {
+		c.stopJava(ctx, run, mode, firstNonEmpty(run.ErrorReason.String, "已取消执行"), bearer, tries)
+	}
+	return true
 }
 
 // stopJava 停止一个 Java 后端、未结束的 run。base 为终态文案主体（如「已取消执行」「运营已终止该任务：…」），
@@ -130,6 +198,10 @@ func (c *core) stopJava(ctx context.Context, run *model.NodeRun, mode javaStop, 
 		return c.endRun(ctx, run, run.Status, to, code, base, true, false), false
 	}
 	if strings.TrimSpace(bearer) == "" {
+		if mode.background() || tries > 0 {
+			// Poller 发起的（非用户 / 运营当次请求）：计次等令牌（其它实例或用户下次请求会补进缓存），退避表用完才退化
+			return c.retryJavaStop(ctx, run, mode, base, tries, javatool.ErrNoBearer)
+		}
 		return c.degradeJava(ctx, run, mode, base, "no_bearer", sufJavaNoLogin), false
 	}
 	var err error
@@ -184,22 +256,26 @@ func (c *core) stopJava(ctx context.Context, run *model.NodeRun, mode javaStop, 
 	return c.retryJavaStop(ctx, run, mode, base, tries, err)
 }
 
-// retryJavaStop 暂时性失败（取消接口或找回任务号的重放）：保持当前状态，登记待重试；满 javaCancelMaxTries 次按停止跟踪处理。
+// retryJavaStop 暂时性失败（取消接口或找回任务号的重放，或 Poller 场景缺令牌）：保持当前状态，登记待重试（带本次尝试时间，
+// Poller 按退避表等待）；满 javaStopMaxTries 次按停止跟踪处理。
 func (c *core) retryJavaStop(ctx context.Context, run *model.NodeRun, mode javaStop, base string, tries int, err error) (ended, pending bool) {
 	log := logx.WithContext(ctx)
 	tries++
-	if tries >= javaCancelMaxTries {
-		suf := sufJavaRetryOut
-		if run.Status == model.RunQueued {
+	if tries >= c.javaStopMaxTries() {
+		reason, suf := "retry_exhausted", sufJavaRetryOut
+		switch {
+		case errors.Is(err, javatool.ErrNoBearer):
+			reason, suf = "no_bearer", sufJavaNoLogin
+		case run.Status == model.RunQueued:
 			suf = sufJavaNoRef
 		}
-		return c.degradeJava(ctx, run, mode, base, "retry_exhausted", suf), false
+		return c.degradeJava(ctx, run, mode, base, reason, suf), false
 	}
 	log.Infof("canvas: run %d（%s）停止 Java 任务 %s 暂时失败（第 %d 次），下轮重试: %v", run.ID, mode, run.BackendRef.String, tries, err)
 	bctx, cancel := detached(ctx)
 	defer cancel()
 	ok, uerr := c.s.Repo.Run.UpdateIfStatus(bctx, run.ID, run.Status, map[string]any{
-		"error_code": fmt.Sprintf("%s%c:%d", javaCancelPending, byte(mode), tries), "error_reason": base,
+		"error_code": fmt.Sprintf("%s%c:%d:%d", javaCancelPending, byte(mode), tries, c.now().Unix()), "error_reason": base,
 	})
 	if uerr != nil {
 		log.Errorf("canvas: run %d 登记待取消失败: %v", run.ID, uerr)

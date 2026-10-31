@@ -95,7 +95,8 @@ start_all() {
   # 取消接口 POST /api/v1/creation/{taskId}/cancel 照 Java cancelByUser：不存在 4001、已结束 3001、否则置取消 code=0。
   # 控制口（Java 取消用例用）：/debug/mode?m=normal|hold（新任务一直 RUNNING）|finish_on_cancel（一直 RUNNING，取消时恰好成功 → 3001）、
   # /debug/reject?on=1（所有请求 401）、/debug/cancels（收到的取消与提交记录）、
-  # /debug/fail?m=after_create（下一次提交建了任务却回 502）|before_create（下一次提交没到 Java，回 502）。
+  # /debug/fail?m=after_create（下一次提交建了任务却回 502）|before_create（下一次提交没到 Java，回 502）|
+  #   sticky:after_create（此后每次提交都建任务 / 命中同键却回 502，直到 fail?m= 清掉）。
   # 幂等：同 Idempotency-Key 同 body（原始字节）返回原 taskId，不同 body 回 1003（Java 实际按语义摘要比，这里更严）。
   cat > "$TMP/mock_java.py" <<'PY'
 import json, sys, threading
@@ -119,7 +120,9 @@ class H(BaseHTTPRequestHandler):
         if not self.authed(): return
         if self.path.startswith("/api/v1/tools/"):
             with lock:
-                key = self.headers.get("Idempotency-Key"); f = state["fail"]; state["fail"] = ""
+                key = self.headers.get("Idempotency-Key"); f = state["fail"]
+                if f.startswith("sticky:"): f = f[len("sticky:"):]
+                else: state["fail"] = ""
                 old = state["idem"].get(key) if key and f != "before_create" else None
                 if f == "before_create":
                     tid = None
@@ -256,7 +259,10 @@ poll_run() { # poll_run REQUEST_ID → 终态 run
   local d
   for _ in $(seq 1 60); do
     d=$(ok GET "/api/v1/canvas/runs/$1")
-    case $(jq -r .status <<<"$d") in succeeded|failed|cancelled) echo "$d"; return;; esac
+    case $(jq -r .status <<<"$d") in succeeded|failed|cancelled)
+      # 成功先 CAS 置成功、再确认扣费（设计如此）：计费核对前等结算落定（billing_status 离开 held），避免读到中间态
+      for _ in $(seq 1 20); do [[ $(sql "SELECT billing_status FROM afv_canvas_node_run WHERE id=$1") != held ]] && break; sleep 0.25; done
+      echo "$d"; return;; esac
     sleep 1
   done
   red "run $1 超时：$d" >&2; exit 1
@@ -572,8 +578,8 @@ if [[ $START == 1 ]]; then
   check "用户取消 → cancelled" "$(ok POST "/api/v1/canvas/runs/$JRID/cancel" | jq -r .status)" cancelled
   check "mock Java 收到 1 次取消、带用户 Bearer" "$(jcancels "$JT")" "1,true"
   check "run 置 canceled、error_reason 注明 Java 已取消并由 Java 退款、计费仍归 Java" \
-    "$(sql "SELECT CONCAT(status,',',error_code,',',billing_status,',',error_reason LIKE '%Java 任务已取消，点数由 Java 退回%') FROM afv_canvas_node_run WHERE id=$JRID")" "4,CANCELED,java,1"
-  check "GetRun：cancelled、提示里不再是「只停止跟踪」" "$(ok GET "/api/v1/canvas/runs/$JRID" | jq -r '"\(.status),\(.error|test("Java 任务已取消"))"')" "cancelled,true"
+    "$(sql "SELECT CONCAT(status,',',error_code,',',billing_status,',',error_reason LIKE '%已请求 Java 取消，点数以 Java 终态为准%') FROM afv_canvas_node_run WHERE id=$JRID")" "4,CANCELED,java,1"
+  check "GetRun：cancelled、提示里不再是「只停止跟踪」" "$(ok GET "/api/v1/canvas/runs/$JRID" | jq -r '"\(.status),\(.error|test("已请求 Java 取消"))"')" "cancelled,true"
 
   jdbg "mode?m=finish_on_cancel" >/dev/null
   JR=$(jrun u2); JRID=$(jq -r .request_id <<<"$JR"); JT=$(jref "$JRID")
@@ -621,8 +627,8 @@ if [[ $START == 1 ]]; then
     "$(jq -r '"\(length>=2),\(.[0].replay),\([.[1:][]|.replay]|all),\([.[].tid]|unique|length)"' <<<"$SUBS")" "true,false,true,1"
   check "该 tid 的所有提交都用同一幂等键" "$(jsubs_of "$JT" "$JK")" true
   check "原 taskId 收到取消（带用户 Bearer）、run 回写 backend_ref" "$(jcancels "$JT"),$(jref "$JRID")" "1,true,${JT}"
-  check "run canceled、error_reason 注明 Java 已取消" \
-    "$(sql "SELECT CONCAT(status,',',error_code,',',error_reason LIKE '%Java 任务已取消，点数由 Java 退回%') FROM afv_canvas_node_run WHERE id=$JRID")" "4,CANCELED,1"
+  check "run canceled、error_reason 注明已请求 Java 取消" \
+    "$(sql "SELECT CONCAT(status,',',error_code,',',error_reason LIKE '%已请求 Java 取消，点数以 Java 终态为准%') FROM afv_canvas_node_run WHERE id=$JRID")" "4,CANCELED,1"
 
   jdbg "fail?m=before_create" >/dev/null # Java 根本没收到首次请求
   JR=$(jrun2 u2); JRID=$(jq -r .request_id <<<"$JR"); JK=$(jidem "$JRID")
@@ -634,6 +640,22 @@ if [[ $START == 1 ]]; then
     "$(jq -r '"\(length>=2),\(.[0].tid),\([.[]|select(.tid!=null and .replay==false)]|length),\([.[].tid|select(.!=null)]|unique|length)"' <<<"$SUBS")" "true,null,1,1"
   check "该 tid 的所有提交都用同一幂等键" "$(jsubs_of "$JT" "$JK")" true
   check "新建的任务随即被取消（由 Java 退款）、run canceled" "$(jcancels "$JT"),$(sql "SELECT status FROM afv_canvas_node_run WHERE id=$JRID")" "1,true,4"
+
+  # 提交次数用尽：Java 每次都建了任务（同键命中同一 tid）却回 502。用尽后不能直接置失败留下孤儿任务，
+  # 要走 stopJava：同键重放找回任务号（这时也 502 → 登记待取消 JAVA_CANCEL_PENDING:s:*，Poller 退避重试），
+  # Java 恢复后找回原 taskId 并取消，run 置失败（SUBMIT_FAILED）。
+  jdbg "fail?m=sticky:after_create" >/dev/null
+  JR=$(jrun2 u3); JRID=$(jq -r .request_id <<<"$JR"); JK=$(jidem "$JRID")
+  check "提交 502（sticky）→ 排队" "$(jq -r .status <<<"$JR")" queued
+  for _ in $(seq 1 60); do [[ $(sql "SELECT error_code LIKE 'JAVA_CANCEL_PENDING:s:%' FROM afv_canvas_node_run WHERE id=$JRID") == 1 ]] && break; sleep 0.5; done
+  check "次数用尽 → 未直接失败，登记待取消（场景 s），仍排队" \
+    "$(sql "SELECT CONCAT(status,',',error_code LIKE 'JAVA_CANCEL_PENDING:s:%',',',attempt>=4) FROM afv_canvas_node_run WHERE id=$JRID")" "0,1,1"
+  jdbg "fail?m=" >/dev/null
+  for _ in $(seq 1 80); do [[ $(sql "SELECT status FROM afv_canvas_node_run WHERE id=$JRID") == 3 ]] && break; sleep 0.5; done
+  SUBS=$(jsubs "$JK"); JT=$(jq -r '[.[]|select(.tid!=null)][0].tid' <<<"$SUBS")
+  check "Java 恢复后按同键找回原 taskId 并取消、run 失败（SUBMIT_FAILED）且回写 backend_ref" \
+    "$(jq -r '[.[].tid]|unique|length' <<<"$SUBS"),$(jcancels "$JT"),$(sql "SELECT CONCAT(status,',',error_code,',',error_reason LIKE '%已请求 Java 取消%') FROM afv_canvas_node_run WHERE id=$JRID"),$(jref "$JRID")" \
+    "1,1,true,3,SUBMIT_FAILED,1,$JT"
 
   jdbg "mode?m=normal" >/dev/null
   code_of "$(call DELETE "/api/v1/canvas/canvases/$JC2ID")" >/dev/null

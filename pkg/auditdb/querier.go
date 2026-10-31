@@ -45,10 +45,14 @@ type Querier interface {
 	// 镜像写失败（停在 0-未计费）而预留单真实存在的任务也要核；镜像为 0 且确实没有预留单的（Billing.Mode=off）不算不一致，
 	// 4（影子模式不动账）没有真预留单，排除。任务状态 5-交付中 是在途态，不参与。
 	// 预留单状态 CONFIRMED / PARTIALLY_REFUNDED 都算已结算；EXPIRED / CANCELLED / REFUNDED 都算已退回。
-	// 业务含义：任务终态与预留单状态不一致。三种情况：
-	//   succeeded_not_confirmed  任务成功，但预留单没结算（仍 HELD，或已退回，或根本没有预留单）
-	//   failed_but_held          任务失败 / 取消，预留单还冻着，点数没退
-	//   failed_but_confirmed     任务失败 / 取消，预留单却已结算，多扣了
+	// 业务含义：任务终态与预留单状态不一致。四种情况：
+	//   succeeded_not_confirmed        任务成功，但预留单没结算（仍 HELD，或已退回，或根本没有预留单）
+	//   failed_but_held                任务失败 / 取消，预留单还冻着，点数没退
+	//   failed_but_confirmed           任务失败 / 取消，预留单却已结算，多扣了
+	//   failed_but_partially_refunded  任务失败 / 取消，预留单只退了一部分（仍有点数被扣）
+	// 例外：结果未知（error_reason='结果未知，待对账'）的失败任务按设计不主动退款，预留单留给回收器到期释放。
+	// 在「冻结时长（Billing.Hold.DefaultMinutes 默认 30 分钟）+ 回收周期（1 分钟）」内仍 HELD 是正常的，不报 failed_but_held；
+	// 超过这个窗口还 HELD 才报（回收器没收掉）。改了冻结时长要同步改这里的 31 分钟。
 	// 读者：对账人员每天跑；有结果就要人工核。
 	StudioTasksBillingMismatch(ctx context.Context, limit int32) ([]StudioTasksBillingMismatchRow, error)
 	// 业务含义：某用户在 [date_from, date_to) 内按入口类型的 studio 消耗：任务数、成功数、上游成本（人民币）、

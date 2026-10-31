@@ -121,17 +121,19 @@ func TestCategoriesNullIsUncategorized(t *testing.T) {
 // AddVersion 的版本号：MAX+1（无版本时 COALESCE 成 1）。
 func TestVersionNextNo(t *testing.T) {
 	r, mock := newMock(t)
-	mock.ExpectQuery(q("SELECT COALESCE(MAX(version_no), 0) + 1 FROM afv_asset_version WHERE (asset_id = 3)") + "$").
+	mock.ExpectQuery(q("SELECT COALESCE(MAX(version_no), 0) + 1 FROM afv_asset_version WHERE (asset_id = 3) AND (asset_id IN (SELECT id FROM afv_asset WHERE user_id = 7 AND deleted = 0))") + "$").
 		WillReturnRows(sqlmock.NewRows([]string{"n"}).AddRow(4))
+	mock.ExpectQuery(q("SELECT count(*) FROM afv_asset WHERE (id = 3) AND (user_id = 7) AND (deleted = 0)")).
+		WillReturnRows(sqlmock.NewRows([]string{"n"}).AddRow(1))
 	mock.ExpectExec(q("INSERT INTO `afv_asset_version` (`id`, `asset_id`, `version_no`, `image_rid`, `image_url`, `prompt`, `model`, `params`, `created_at`) " +
 		"VALUES (DEFAULT, 3, 4, NULL, 'https://x/4.png', 'p', 'GPT', '{\"seed\":1}', DEFAULT)")).
 		WillReturnResult(sqlmock.NewResult(88, 1))
-	n, err := r.Version.NextNo(ctx, 3)
+	n, err := r.Version.NextNo(ctx, 3, 7)
 	if err != nil || n != 4 {
 		t.Fatalf("n=%d err=%v", n, err)
 	}
 	v := &model.Version{AssetID: 3, VersionNo: n, ImageURL: "https://x/4.png", Prompt: sql.NullString{String: "p", Valid: true}, Model: "GPT", Params: json.RawMessage(`{"seed":1}`)}
-	if err := r.Version.Insert(ctx, v); err != nil || v.ID != 88 {
+	if err := r.Version.Insert(ctx, 7, v); err != nil || v.ID != 88 {
 		t.Fatalf("id=%d err=%v", v.ID, err)
 	}
 	done(t, mock)
@@ -140,6 +142,8 @@ func TestVersionNextNo(t *testing.T) {
 // Upsert ext：整行 INSERT … ON DUPLICATE KEY UPDATE，user_id / created_at 不在更新列；空 JSON 写 NULL（DEFAULT）。
 func TestExtUpsert(t *testing.T) {
 	r, mock := newMock(t)
+	mock.ExpectQuery(q("SELECT count(*) FROM afv_asset WHERE (id = 3) AND (user_id = 7) AND (deleted = 0)")).
+		WillReturnRows(sqlmock.NewRows([]string{"n"}).AddRow(1))
 	mock.ExpectExec(q("INSERT INTO `afv_asset_ext` (`asset_id`, `user_id`, `kind`, `favorite`, `license`, `metadata`, `provenance`, `current_version_id`, `created_at`, `updated_at`) "+
 		"VALUES (3, 7, 'scene', 1, '', '{\"style\":\"日系\"}', DEFAULT, 88, DEFAULT, DEFAULT) ON DUPLICATE KEY UPDATE "+
 		"`kind` = VALUES(`kind`), `favorite` = VALUES(`favorite`), `license` = VALUES(`license`), `metadata` = VALUES(`metadata`), "+
@@ -147,13 +151,13 @@ func TestExtUpsert(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 2))
 	e := &model.Ext{AssetID: 3, UserID: 7, Kind: sql.NullString{String: "scene", Valid: true}, Favorite: 1,
 		Metadata: json.RawMessage(`{"style":"日系"}`), CurrentVersionID: sql.NullInt64{Int64: 88, Valid: true}}
-	if err := r.Ext.Upsert(ctx, e); err != nil {
+	if err := r.Ext.Upsert(ctx, 7, e); err != nil {
 		t.Fatal(err)
 	}
 	// 读改写：事务里 FOR UPDATE
-	mock.ExpectQuery(q("FROM `afv_asset_ext` AS `e` WHERE (e.asset_id = 3) LIMIT 1 FOR UPDATE")).
+	mock.ExpectQuery(q("FROM `afv_asset_ext` AS `e` WHERE (e.asset_id = 3) AND (e.asset_id IN (SELECT id FROM afv_asset WHERE user_id = 7 AND deleted = 0)) LIMIT 1 FOR UPDATE")).
 		WillReturnRows(sqlmock.NewRows([]string{"asset_id"}))
-	if got, err := r.Ext.Get(ctx, 3, true); got != nil || err != nil {
+	if got, err := r.Ext.Get(ctx, 3, 7, true); got != nil || err != nil {
 		t.Fatalf("没有旁表行应返回 nil：%v %v", got, err)
 	}
 	done(t, mock)
@@ -222,6 +226,53 @@ func TestTagDeleteScopedByUser(t *testing.T) {
 	mock.ExpectExec(q("DELETE FROM `afv_asset_tag` WHERE (id = 5) AND (user_id = 7)")).WillReturnResult(sqlmock.NewResult(0, 1))
 	if ok, err := r.Tag.Delete(ctx, 5, 7); !ok || err != nil {
 		t.Fatalf("ok=%v err=%v", ok, err)
+	}
+	done(t, mock)
+}
+
+// 越权写：资产不属于该用户时不执行 INSERT，返回 ErrAssetNotOwned。
+func TestWritesRejectForeignAsset(t *testing.T) {
+	r, mock := newMock(t)
+	for i := 0; i < 3; i++ {
+		mock.ExpectQuery(q("SELECT count(*) FROM afv_asset WHERE (id = 3) AND (user_id = 9) AND (deleted = 0)")).
+			WillReturnRows(sqlmock.NewRows([]string{"n"}).AddRow(0))
+	}
+	if err := r.Version.Insert(ctx, 9, &model.Version{AssetID: 3}); !errors.Is(err, ErrAssetNotOwned) {
+		t.Fatalf("version: %v", err)
+	}
+	if err := r.Ext.Upsert(ctx, 9, &model.Ext{AssetID: 3, UserID: 9}); !errors.Is(err, ErrAssetNotOwned) {
+		t.Fatalf("ext: %v", err)
+	}
+	if _, err := r.Relation.Add(ctx, 3, 4, 9, "reference"); !errors.Is(err, ErrAssetNotOwned) {
+		t.Fatalf("relation: %v", err)
+	}
+	if err := r.Ext.Upsert(ctx, 9, &model.Ext{AssetID: 3, UserID: 7}); !errors.Is(err, ErrAssetNotOwned) {
+		t.Fatalf("ext user mismatch: %v", err)
+	}
+	done(t, mock)
+}
+
+func TestVersionReadsCarryUserID(t *testing.T) {
+	r, mock := newMock(t)
+	mock.ExpectQuery(q("v.asset_id = 3) AND (v.asset_id IN (SELECT id FROM afv_asset WHERE user_id = 7 AND deleted = 0)")).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+	mock.ExpectQuery(q("v.asset_id = 3) AND (v.asset_id IN (SELECT id FROM afv_asset WHERE user_id = 7 AND deleted = 0)")).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}))
+	mock.ExpectQuery(q("v.id = 5) AND (v.asset_id = 3) AND (v.asset_id IN (SELECT id FROM afv_asset WHERE user_id = 7 AND deleted = 0)")).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}))
+	_, _ = r.Version.Count(ctx, 3, 7)
+	_, _ = r.Version.Page(ctx, 3, 7, 6, 0)
+	_, _ = r.Version.Get(ctx, 5, 3, 7)
+	done(t, mock)
+}
+
+// 标签计数口径：未删除且非草稿，与列表一致。
+func TestTagCountExcludesDrafts(t *testing.T) {
+	r, mock := newMock(t)
+	mock.ExpectQuery(q("a.deleted = 0 AND (a.status IS NULL OR a.status <> 0) WHERE l.tag_id = t.id")).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}))
+	if _, err := r.Tag.List(ctx, 7); err != nil {
+		t.Fatal(err)
 	}
 	done(t, mock)
 }

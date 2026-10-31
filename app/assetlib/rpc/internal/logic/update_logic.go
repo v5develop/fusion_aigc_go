@@ -41,7 +41,10 @@ func (l *UpdateLogic) Update(in *assetlib.UpdateReq) (*assetlib.Asset, error) {
 	// ---- 校验（全部通过才动库）----
 	var title string
 	if in.Title != nil {
-		title = strings.TrimSpace(*in.Title)
+		title = stripControl(*in.Title)
+		if title == "" && strings.TrimSpace(*in.Title) != "" {
+			return nil, xerr.Param("标题不能只含控制字符")
+		}
 		if title == "" {
 			return nil, xerr.New(xerr.ParamMissing, "标题不能为空")
 		}
@@ -94,7 +97,7 @@ func (l *UpdateLogic) Update(in *assetlib.UpdateReq) (*assetlib.Asset, error) {
 			}
 		}
 		if extTouched {
-			e, err := tx.Ext.Get(ctx, row.ID, true)
+			e, err := tx.Ext.Get(ctx, row.ID, in.UserId, true)
 			if err != nil {
 				return err
 			}
@@ -119,7 +122,7 @@ func (l *UpdateLogic) Update(in *assetlib.UpdateReq) (*assetlib.Asset, error) {
 			if in.CurrentVersionId != nil {
 				vid := *in.CurrentVersionId
 				if vid > 0 {
-					v, err := tx.Version.Get(ctx, vid, row.ID)
+					v, err := tx.Version.Get(ctx, vid, row.ID, in.UserId)
 					if err != nil {
 						return err
 					}
@@ -129,7 +132,7 @@ func (l *UpdateLogic) Update(in *assetlib.UpdateReq) (*assetlib.Asset, error) {
 				}
 				e.CurrentVersionID = sql.NullInt64{Int64: vid, Valid: vid > 0}
 			}
-			if err := tx.Ext.Upsert(ctx, e); err != nil {
+			if err := tx.Ext.Upsert(ctx, in.UserId, e); err != nil {
 				return err
 			}
 		}
@@ -154,4 +157,14 @@ func (l *UpdateLogic) Update(in *assetlib.UpdateReq) (*assetlib.Asset, error) {
 		return nil, err
 	}
 	return out[0], nil
+}
+
+// stripControl 去掉控制字符（\x00-\x1F、\x7F）并 trim：标题会写进 Java 的 afv_asset.name。
+func stripControl(s string) string {
+	return strings.TrimSpace(strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return -1
+		}
+		return r
+	}, s))
 }

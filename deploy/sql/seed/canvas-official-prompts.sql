@@ -3,8 +3,7 @@
 -- 表：afv_prompt_library_item（Go_V1.0.25__canvas.sql）。
 --
 -- 【上线前必须确认】19 条里有 8 条来自第三方 GitHub 来源（Awesome GPT Image、YouMind、
--- Freestylefly、DavidWu、Awesome GPT-4o、Banana Prompt Quicker），授权已于 2026-10-31 确认，
--- 需产品 / 法务拍板后才能对外展示。这 8 条在下文以「第三方」标出：
+-- Freestylefly、DavidWu、Awesome GPT-4o、Banana Prompt Quicker），授权已于 2026-10-31 确认。这 8 条在下文以「第三方」标出：
 --   * ecom-product-1  白底商品主图 · 柔和棚拍  （Awesome GPT Image）
 --   * general-photo-1  柔光棚拍 · 产品级  （Freestylefly GPT Image 2）
 --   * general-photo-2  自然光 · 窗边  （DavidWu GPT Image 2）
@@ -16,7 +15,7 @@
 -- 其余 11 条为小岐AI 自有（10 条内置 + 1 条智能体提示词）。
 --
 -- 开关：下面的 @third_party_enabled 控制这 8 条的 enabled。2026-10-31 已确认授权，默认 1（展示）；
--- 授权确认后改成 1 重放，或直接执行文末注释里的 UPDATE。已存在的行重放不会被改写
+-- 已存在的行重放不会被改写
 -- （按 user_id IS NULL + title 判重），所以改开关后要用文末的 UPDATE。
 --
 -- 可重放：INSERT ... SELECT ... WHERE NOT EXISTS。title 在官方范围内视为唯一键。
@@ -153,8 +152,5 @@ FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM afv_prompt_library_item WHERE user_id 
 --   '海报标题排版'
 -- );
 
--- 已按旧版种子（enabled=0）落库的环境：重放本文件不会改写已有行，执行下面这条把 8 条第三方提示词打开（可重放）。
-UPDATE afv_prompt_library_item SET enabled = 1, updated_at = NOW()
-WHERE user_id IS NULL AND enabled = 0
-  AND source IN ('Awesome GPT Image','Freestylefly GPT Image 2','DavidWu GPT Image 2','Awesome GPT-4o',
-                 'Banana Prompt Quicker','YouMind GPT Image 2','YouMind Nano Banana Pro');
+-- 已按旧版种子（第三方 enabled=0）落库的环境：一次性启用脚本见 deploy/sql/ops/canvas-enable-third-party-prompts-2026-10-31.sql。
+-- 本文件只插入不存在的行，重放不会改写已有行（运营在后台下架的条目不会被重新上架）。

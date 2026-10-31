@@ -94,3 +94,35 @@ func TestCheckOwnedURL(t *testing.T) {
 		t.Fatal("非 http(s) 仍应拒")
 	}
 }
+
+func TestMatchPrefixesNoHostBypass(t *testing.T) {
+	ps := []string{"https://cdn.example.com", " https://img.example.com/assets "}
+	ok := []string{"https://cdn.example.com/a.png", "https://CDN.example.com/a.png", "https://img.example.com/assets/a.png"}
+	bad := []string{
+		"https://cdn.example.com.evil.io/a.png", "https://cdn.example.com@evil.io/a.png", "https://cdn.example.com:8443/a.png",
+		"http://cdn.example.com/a.png", "https://cdn.example.com", "https://img.example.com/assets2/a.png",
+		"https://img.example.com/assets/../x.png", "https://img.example.com/other/a.png", "ftp://cdn.example.com/a",
+	}
+	for _, u := range ok {
+		if !matchPrefixes(ps, u) {
+			t.Errorf("应放行 %s", u)
+		}
+	}
+	for _, u := range bad {
+		if matchPrefixes(ps, u) {
+			t.Errorf("应拒绝 %s", u)
+		}
+	}
+	if cleanHTTPURL("https://u:p@cdn.example.com/a") || cleanHTTPURL("https://cdn.example.com/p/../a") || !cleanHTTPURL("https://cdn.example.com/p/a.png") {
+		t.Error("cleanHTTPURL")
+	}
+}
+
+func TestStripControl(t *testing.T) {
+	if got := stripControl(" a\x00b\n\tc\x7f "); got != "abc" {
+		t.Fatalf("got %q", got)
+	}
+	if stripControl("\x01\x02 \x1f") != "" {
+		t.Fatal("全控制字符应为空")
+	}
+}

@@ -27,7 +27,7 @@ func (l *AddRelationLogic) AddRelation(in *assetlib.RelationReq) (*assetlib.Empt
 	if err := checkRelation(l.ctx, l.svcCtx, in); err != nil {
 		return nil, err
 	}
-	if _, err := l.svcCtx.Repo.Relation.Add(l.ctx, in.Id, in.RelatedAssetId, in.RelationType); err != nil {
+	if _, err := l.svcCtx.Repo.Relation.Add(l.ctx, in.Id, in.RelatedAssetId, in.UserId, in.RelationType); err != nil {
 		return nil, err
 	}
 	return &assetlib.Empty{}, nil

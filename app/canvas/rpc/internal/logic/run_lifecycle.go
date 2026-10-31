@@ -204,6 +204,15 @@ func (c *core) reclaimQueuedCalls(ctx context.Context, run *model.NodeRun, why s
 	c.cancelCalls(ctx, run.ID, ids, why)
 }
 
+// reclaimUnrefCalls 取消 / 强制失败的 gateway run 提交过（attempt>0）但没有 backend_ref：此前的提交可能已建调用，
+// 按幂等键取回并取消（有 backend_ref 的已由 cancelUpstream 取消）。
+func (c *core) reclaimUnrefCalls(ctx context.Context, run *model.NodeRun, why string) {
+	if len(callIDs(run)) > 0 {
+		return
+	}
+	c.reclaimQueuedCalls(ctx, run, why)
+}
+
 // settle 成功后的确认扣费：Settle 返回错误（含 ErrGone：预留单已过期回收 / 已退）→ billing_status=unsettled + ERROR 日志
 // 待对账；成功 → settled。此时 run 已是成功（先 CAS 再结算，避免取消与成功并发时重复扣费）。
 func (c *core) settle(ctx context.Context, run *model.NodeRun, actual int) {

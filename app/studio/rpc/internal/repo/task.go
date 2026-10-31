@@ -101,27 +101,50 @@ func (r *TaskRepo) ListByBatches(ctx context.Context, batchIDs []int64) (map[int
 	return out, err
 }
 
-// ListByStatus 某状态的子任务（轮询器用），按 updated_at、id 升序，最多 limit 条。只取未封禁（admin_locked=0）
+// ListByStatus 某状态的子任务（轮询器用），最多 limit 条。只取未封禁（admin_locked=0）
 // 且没有租约或租约已过期的（别的实例正在轮询的不列）。
+//
+// 顺序按「上次轮询时间」轮转：从没轮询过的（lease_until 为 NULL）在前，其余按 lease_until 升序——
+// 每次轮询结束 MarkPolled 把 lease_until 记成结束时刻（见 KeepLease），刚轮询过的排到队尾。
+// 这样在途超过 limit 时每个子任务都能轮到，不会总是同一批（按 updated_at 排时轮询不改 updated_at，前 limit 条永远不变）。
 func (r *TaskRepo) ListByStatus(ctx context.Context, status int8, limit int) ([]*model.Task, error) {
 	var list []*model.Task
 	err := r.db.NewSelect().Model(&list).Where("t.status = ?", status).Where("t.admin_locked = 0").Where(lease.FreeCond("t")).
-		OrderExpr("t.updated_at ASC, t.id ASC").Limit(int64(limit)).Scan(ctx)
+		OrderExpr("t.lease_until IS NOT NULL ASC, t.lease_until ASC, t.updated_at ASC, t.id ASC").Limit(int64(limit)).Scan(ctx)
 	return list, err
 }
 
-// ListHeldActive 需要续期的子任务：所在批次未终态（排队 / 切图中 / 反推中 / 生图中），任务在途（排队 / 生成中 / 交付中），
-// 且计费镜像为 已冻结。按 id 升序，最多 limit 条（只取续期要用的列）。
-func (r *TaskRepo) ListHeldActive(ctx context.Context, limit int) ([]*model.Task, error) {
+// MarkPolled 记下「刚轮询过」：释放租约后把 lease_until 写成 NOW(3)（已过期，不挡别人抢），供 ListByStatus 轮转排序。
+// 只改仍无人持有的行（期间被别的实例抢走则不动）；显式 updated_at = updated_at，不算业务变化。
+func (r *TaskRepo) MarkPolled(ctx context.Context, id int64) error {
+	_, err := r.db.ExecContext(ctx, "UPDATE `"+TableTask+"` SET `lease_until` = NOW(3), `updated_at` = `updated_at` "+
+		"WHERE `id` = ? AND `lease_owner` IS NULL AND `lease_until` IS NULL", id)
+	return err
+}
+
+// ListRenewable 需要续期的子任务：所在批次未终态（排队 / 切图中 / 反推中 / 生图中），任务在途（排队 / 生成中 / 交付中），
+// 有计费请求号（不看 billing_status 镜像：镜像写失败停在 0 的也要续，不是 HELD 的预留单 Renew 是空操作）。
+// 按 id 升序取 id > afterID 的至多 limit 条（只取续期要用的列），调用方据此游标轮转。
+func (r *TaskRepo) ListRenewable(ctx context.Context, afterID int64, limit int) ([]*model.Task, error) {
 	var list []*model.Task
 	err := r.db.NewSelect().Model(&list).Column("t.id", "t.batch_id", "t.user_id", "t.billing_request_id", "t.billing_status").
 		Join("JOIN afv_studio_batch AS b ON b.id = t.batch_id").
 		Where("b.status IN (?)", bun.In([]int8{model.BatchQueued, model.BatchCropping, model.BatchPrompting, model.BatchGenerating})).
 		Where("t.status IN (?)", bun.In([]int8{model.TaskQueued, model.TaskRunning, model.TaskDelivering})).
-		Where("t.billing_status = ?", model.BillingHeld).
 		Where("t.billing_request_id IS NOT NULL AND t.billing_request_id <> ''").
+		Where("t.id > ?", afterID).
 		OrderExpr("t.id ASC").Limit(int64(limit)).Scan(ctx)
 	return list, err
+}
+
+// ClaimRetry 后台重做先占轮次：attempt 仍是 attempt、任务仍是失败 / 已取消且未封禁时 attempt+1。返回是否占到。
+// 占到的轮次只属于这一次重做（attempt 只增不减），据此生成的计费请求号不会与并发 / 撤销过的重做重复。
+func (r *TaskRepo) ClaimRetry(ctx context.Context, id int64, attempt int32) (bool, error) {
+	n, err := affected(r.db.NewUpdate().Table(TableTask).Set("attempt = attempt + 1").
+		Where("id = ?", id).Where("attempt = ?", attempt).
+		Where("status IN (?)", bun.In([]int8{model.TaskFailed, model.TaskCanceled})).
+		Where("admin_locked = 0").Exec(ctx))
+	return n == 1, err
 }
 
 // ListFinalHeld 任务已终态（成功 / 失败 / 已取消）而计费镜像仍是 已冻结 的子任务（计费善后用）：
@@ -196,10 +219,13 @@ func (r *TaskRepo) SetPrompt(ctx context.Context, id int64, text string, meta, i
 }
 
 // SetGateway 写 ai-gateway 调用号与状态原文。callID 为空只更新状态。
+// 写调用号时顺带记 started_at（真正提交到 gateway 的时刻，生图时限从这里算）：换了新调用号记 NOW(3)，
+// 同调用号（幂等重提）保留原值。started_at 必须排在 gateway_call_id 之前赋值（MySQL 按书写顺序求值，要读旧调用号）。
 func (r *TaskRepo) SetGateway(ctx context.Context, id int64, callID, status string) error {
 	q := r.db.NewUpdate().Table(TableTask).Set("gateway_status = ?", Trunc(status, 32))
 	if callID != "" {
-		q = q.Set("gateway_call_id = ?", callID)
+		q = q.Set("started_at = IF(gateway_call_id <=> ?, COALESCE(started_at, NOW(3)), NOW(3))", callID).
+			Set("gateway_call_id = ?", callID)
 	}
 	_, err := q.Where("id = ?", id).Exec(ctx)
 	return err

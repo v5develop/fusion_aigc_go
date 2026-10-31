@@ -35,3 +35,30 @@ func TestParseSaveKeepsRawSnapshot(t *testing.T) {
 		t.Fatalf("缺 snapshot 留空交给 logic 报 1002: %+v %v", req, err)
 	}
 }
+
+func TestParseRawPathHeaderNotOverriddenByBody(t *testing.T) {
+	body := `{"id":"cv_EVIL","nodeid":"n_EVIL","node_id":"n_EVIL","key":"k_EVIL","Key":"k_EVIL","kind":"image"}`
+	r := pathvar.WithVars(httptest.NewRequest(http.MethodPost, "/x", strings.NewReader(body)), map[string]string{"id": "cv_A", "node_id": "n_A"})
+	r.Header.Set("Idempotency-Key", "k_A")
+	var req types.CanvasRunReq
+	if err := parseRaw(r, &req); err != nil {
+		t.Fatal(err)
+	}
+	if req.Id != "cv_A" || req.NodeId != "n_A" || req.Key != "k_A" || req.Kind != "image" {
+		t.Fatalf("path/header 应胜出: %+v", req)
+	}
+	// 缺 Idempotency-Key 头时，请求体的 key 不能顶替
+	r = pathvar.WithVars(httptest.NewRequest(http.MethodPost, "/x", strings.NewReader(body)), map[string]string{"id": "cv_A", "node_id": "n_A"})
+	req = types.CanvasRunReq{}
+	if err := parseRaw(r, &req); err == nil && req.Key != "" {
+		t.Fatalf("请求体 key 绕过头部: %+v", req)
+	}
+}
+
+func TestParseSavePathNotOverriddenByBody(t *testing.T) {
+	r := pathvar.WithVars(httptest.NewRequest(http.MethodPut, "/x", strings.NewReader(`{"id":"cv_EVIL","snapshot":{}}`)), map[string]string{"id": "cv_A"})
+	var req types.CanvasSaveReq
+	if err := parseSave(r, &req); err != nil || req.Id != "cv_A" {
+		t.Fatalf("%+v %v", req, err)
+	}
+}

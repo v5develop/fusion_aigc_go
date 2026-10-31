@@ -355,18 +355,29 @@ func javaErr(err error) error {
 		switch {
 		case je.Unauthorized():
 			return xerr.New(xerr.Unauthorized, "登录已过期，请重新登录")
-		case je.Temporary() && je.Code == 0:
-			return temporary(err)
 		case je.Code == xerr.InsufficientPoints:
 			return xerr.New(xerr.InsufficientPoints, firstNonEmpty(je.Msg, "点数不足"))
+		case javaRetryable(je): // 与 recoverJavaRef 同口径：网络 / 429 / ≥500 / 1004 / 3010 / 5005 / 46011
+			return temporary(err)
 		case je.Code >= 1000 && je.Code < 10000 && je.Code != xerr.ServerError:
 			return xerr.New(je.Code, firstNonEmpty(je.Msg, "工具调用失败"))
-		case je.Temporary():
-			return temporary(err)
 		}
 		return xerr.New(xerr.ThirdPartyError, firstNonEmpty(je.Msg, "工具调用失败"))
 	}
 	return temporary(err)
+}
+
+// javaMaybeSubmitted Java run 提交失败时，Java 侧是否可能已有任务：已落 backend_request，且此前有过结局未知的尝试
+// （attempt>0：暂时失败 / 提交成功但写库失败）或这次本身是暂时性失败（超时 / 5xx，次数用尽）。
+// 首次就被 Java 明确拒绝（参数 / 点数不足等同步校验）说明没建任务，照常直接置失败。
+func (c *core) javaMaybeSubmitted(run *model.NodeRun, err error) bool {
+	if run.Backend != model.BackendJava {
+		return false
+	}
+	if _, ok := parseJavaRequest(run); !ok {
+		return false
+	}
+	return run.Attempt > 0 || isTemporary(err)
 }
 
 // submitJava 提交 Java 兼容工具，返回 taskUid。
@@ -905,8 +916,21 @@ func (c *core) dispatch(ctx context.Context, run *model.NodeRun, sp *runSpec, be
 		if code == xerr.ParamError {
 			ecode = "PARAM_INVALID"
 		}
+		if c.javaMaybeSubmitted(run, err) {
+			// 已落 backend_request、此前（或这次）的请求结局未知：Java 可能已建任务并冻结点数，不能直接置失败留下孤儿。
+			// 走 stopJava：同键重放找回任务号再取消；找不回 / 被拒按退化告警计数；暂时失败登记待取消由 Poller 退避重试。
+			log.Errorf("canvas: run %d Java 提交失败（第 %d 次，%v），按幂等键找回并取消可能已建的任务", run.ID, run.Attempt+1, err)
+			c.stopJava(ctx, run, stopSubmit, msg, bearer, 0)
+			return xerr.New(code, msg)
+		}
 		if c.failRun(ctx, run, model.RunQueued, ecode, msg, true) {
 			c.cancelCalls(ctx, run.ID, acquired, "提交失败")
+			if run.Backend == model.BackendGateway && (run.Attempt > 0 || isTemporary(err)) {
+				// 此前（或这次超时的）提交可能已在 gateway 建了调用但 backend_ref 没写上：按幂等键取回并取消
+				r := *run
+				r.Attempt = max(r.Attempt, 1)
+				c.reclaimQueuedCalls(ctx, &r, "提交失败")
+			}
 		}
 		return xerr.New(code, msg)
 	}

@@ -375,6 +375,41 @@ class GatewayRoutesTest(unittest.TestCase):
         self.assertEqual(js["pose"]["confidence"], "高")
 
 
+    # ---- 图片 data URL 归一 / 校验（sidecar 直接 422，不打网关）----
+
+    def test_image_mime_jpg_normalized_to_jpeg(self):
+        self.gw.reply = self.pose_reply
+        payload = self.pose_payload()
+        payload["image"] = TINY_PNG.replace("data:image/png", "data:image/JPG")
+        st, js = self.call("POST", "/api/pose/prompt", payload)
+        self.assertEqual(st, 200, js)
+        inp = self.assert_signed_submit(self.gw.submits[0], "pose.prompt")
+        images = [p for p in inp["messages"][1]["content"] if p["type"] == "image_url"]
+        self.assertTrue(images[0]["uri"].startswith("data:image/jpeg;base64,"), images[0]["uri"][:40])
+
+    def test_unsupported_image_format_is_422(self):
+        for path, payload in (("/api/pose/prompt", self.pose_payload()), ("/api/pose/source", {"image": TINY_PNG})):
+            payload = json.loads(json.dumps(payload).replace("data:image/png", "data:image/bmp"))
+            with self.subTest(path=path):
+                st, js = self.call("POST", path, payload)
+                self.assertEqual(st, 422, js)
+                self.assertIn("不支持的图片格式", js["error"])
+        self.assertEqual(len(self.gw.submits), 0)
+
+    def test_base64_with_whitespace_is_422(self):
+        for ws in ("\n", " ", "\r\n", "\t"):
+            payload = self.pose_payload()
+            payload["image"] = TINY_PNG[:40] + ws + TINY_PNG[40:]
+            with self.subTest(ws=repr(ws)):
+                st, js = self.call("POST", "/api/pose/prompt", payload)
+                self.assertEqual(st, 422, js)
+                self.assertIn("空白", js["error"])
+        # 其它路由（含 analyze 的 images[].data）同样拦截
+        st, js = self.call("POST", "/api/reverse/analyze",
+                           {"images": [{"role": "正面", "data": TINY_PNG[:40] + "\n" + TINY_PNG[40:]}]})
+        self.assertEqual(st, 422, js)
+        self.assertEqual(len(self.gw.submits), 0)
+
 
 class PinnedDeploymentsTest(unittest.TestCase):
     """REVERSE_ALLOWED_DEPLOYMENTS（排障钉渠道）→ 请求体 constraints.allowed_deployments。"""
@@ -408,6 +443,51 @@ class PinnedDeploymentsTest(unittest.TestCase):
         self.assertEqual(st, 200)
         self.assertEqual(js["allowed_deployments"],
                          ["bailian-chat.vl.deepseek-flash", "deepseek-chat.vl.deepseek-flash"])
+
+
+class RequestBudgetTest(unittest.TestCase):
+    """REVERSE_REQUEST_BUDGET_S：pose 多轮重试不得超出请求总预算；AIG_WAIT_S 非数字不崩溃。"""
+
+    def test_pose_retries_stay_within_budget(self):
+        gw = fake_gateway.FakeGateway(secret=SECRET).start()
+        env = clean_env()
+        env.update(AIG_BASE_URL=gw.base_url, AIG_SECRET=SECRET, AIG_WAIT_S="1", REVERSE_REQUEST_BUDGET_S="10")
+        proc, port = start_sidecar(env)
+        try:
+            gw.fail_class = "NO_CAPACITY"      # 可重试：不设预算时会 4 轮 + 退避 2.5+5+7.5s
+            payload = GatewayRoutesTest.pose_payload(None)
+            t0 = time.monotonic()
+            st, js = http_call(port, "POST", "/api/pose/prompt", payload, timeout=60)
+            elapsed = time.monotonic() - t0
+            self.assertEqual(st, 504, js)
+            self.assertIn("总时限 10 秒", js["error"])
+            self.assertLess(elapsed, 12, elapsed)   # 预算 10s，不得拖到 4 轮重试（>15s）
+            self.assertLess(len(gw.submits), 4)
+        finally:
+            proc.terminate()
+            proc.wait(timeout=5)
+            gw.stop()
+
+    def test_non_numeric_env_falls_back(self):
+        env = clean_env()
+        env.update(AIG_WAIT_S="abc", REVERSE_REQUEST_BUDGET_S="x1")
+        err_path = os.path.join(HERE, ".sidecar-env-stderr.log")
+        with open(err_path, "wb") as f:
+            proc, port = start_sidecar(env, stderr=f)
+        try:
+            st, js = http_call(port, "GET", "/api/status")
+            self.assertEqual(st, 200, js)
+        finally:
+            proc.terminate()
+            proc.wait(timeout=5)
+        try:
+            with open(err_path, "rb") as f:
+                log = f.read().decode("utf-8", "replace")
+        finally:
+            os.remove(err_path)
+        self.assertIn("AIG_WAIT_S", log)
+        self.assertIn("REVERSE_REQUEST_BUDGET_S", log)
+        self.assertNotIn("Traceback", log)
 
 
 if __name__ == "__main__":

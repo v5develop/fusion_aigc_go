@@ -451,6 +451,36 @@ bill_partial_retry() {
 }
 billing_case "部分失败：只扣成功张、失败张退款；后台重做 -r1 冻结并结算" bill_partial_retry
 
+bill_concurrent_retry() {
+  local mk="E2ECRT$RANDOM" unit resp bid d bad_t before2 c1 c2 codes nreq n i
+  unit=$(bill_unit_price studio_imagegen 2K)
+  aig_inject "$mk" FAILED INPUT_REJECTED 1
+  resp=$(api POST /image-generate/submit "$(ig_body "并发重做 $mk" 2)" "$(uuidgen)")
+  bid=$(jq -r .batch_id <<<"$resp")
+  d=$(poll_batch "$bid")
+  check "批次部分成功(6)" "$(jq -r .batch.status <<<"$d")" 6
+  bad_t=$(jq -r '[.tasks[]|select(.status==3)][0].task_id' <<<"$d")
+  before2=$(bill_snap "$USER_ID")
+  # 同时发两次重做：只能有一次受理（另一次 4002），且不会互相退掉对方在用的预留单
+  admin_post "/tasks/$bad_t/retry" >"$TMP/cr1" & c1=$!
+  admin_post "/tasks/$bad_t/retry" >"$TMP/cr2" & c2=$!
+  wait "$c1" "$c2"
+  codes=$(printf '%s\n%s\n' "$(code_of "$(cat "$TMP/cr1")")" "$(code_of "$(cat "$TMP/cr2")")" | sort | tr '\n' ' ')
+  check "并发两次重做：一次受理、一次冲突" "$codes" "0 4002 "
+  d=$(poll_batch "$bid")
+  check "重做后批次全部成功(4)" "$(jq -r .batch.status <<<"$d")" 4
+  nreq=$(task_of "$(admin GET "/batches/$bid")" "$bad_t" | jq -r .billing_request_id)
+  check "任务用的是重做号（-rN）" "$([[ $nreq == studio-$bad_t-r* ]] && echo yes)" yes
+  assert_reservation_status "在用的重做单 CONFIRMED（没被另一次重做误退）" "$USER_ID" "$nreq" CONFIRMED "$unit"
+  n=0
+  for i in 1 2 3 4 5 6; do [[ $(bill_res_status "$USER_ID" "studio-$bad_t-r$i") == CONFIRMED ]] && n=$((n + 1)); done
+  check "重做号里只有一张被确认" "$n" 1
+  check "无残留 HELD 单" "$(bill_held_count "$USER_ID")" 0
+  assert_balance_delta "并发重做只扣一次单价" "$USER_ID" "$before2" "-$unit" 0
+  curl -s -o /dev/null "$AIG/debug/inject?reset=1"
+}
+billing_case "并发两次重做只扣一次" bill_concurrent_retry
+
 bill_cancel_force() {
   local mk="E2EHOLD$RANDOM" before unit resp bid d c t n running
   unit=$(bill_unit_price studio_imagegen 2K)

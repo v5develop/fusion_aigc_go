@@ -31,6 +31,10 @@ type core struct {
 	now func() time.Time
 
 	renewAt time.Time // 上次续期预留单的时间（只有 Poller 的 core 用；零值 = 下一轮立刻做）
+
+	// 以下只有 Poller 的 core 用（单 goroutine）。
+	reconcileAfter   int64          // 计费镜像对账的 id 游标（一页取满就从这里接着取，取不满回到 0）
+	unsettledAlerted map[int64]bool // 已 ERROR 告警过「交付了没扣成费」的 run（本进程只报一次，之后降为 Info）
 }
 
 func newCore(s *svc.ServiceContext) *core { return &core{s: s, now: time.Now} }

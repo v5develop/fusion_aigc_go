@@ -39,6 +39,7 @@ func refundable(mode string, t *model.Task) bool {
 
 // 预留单状态（pkg/billing 内部常量的字面值）。
 const (
+	resvHeld              = "HELD"
 	resvConfirmed         = "CONFIRMED"
 	resvPartiallyRefunded = "PARTIALLY_REFUNDED"
 )
@@ -134,17 +135,25 @@ func (f *flow) reconcileBilling(ctx context.Context) {
 	}
 }
 
-// renewHeld 未终态批次下所有已冻结的在途子任务（排队 / 生成中 / 交付中，含编排阶段）批量续期。
+// renewHeld 未终态批次下有计费请求号的在途子任务（排队 / 生成中 / 交付中，含编排阶段）批量续期。
+// 不看 billing_status 镜像（镜像写失败停在 0 的也续；不是 HELD 的预留单 Renew 是空操作）。
 // 排队很久（如 81 张排队 > 30 分钟）的预留单不会过期被回收，结算时也就不会 ErrGone。
+// 超过 renewLimit 时按主键游标分轮轮转（这一轮续到哪，下一轮从后面接着续，取不满一页就回到开头），不会总是只续前 renewLimit 条。
 func (f *flow) renewHeld(ctx context.Context) {
 	if f.bill == nil || f.bill.Mode() != billing.ModeOn {
 		return
 	}
 	log := logx.WithContext(ctx)
-	list, err := f.repo.Task.ListHeldActive(ctx, renewLimit)
+	list, err := f.repo.Task.ListRenewable(ctx, f.renewAfter, renewLimit)
 	if err != nil {
 		log.Errorf("studio: 列待续期子任务失败: %v", err)
 		return
+	}
+	if len(list) < renewLimit {
+		f.renewAfter = 0
+	} else {
+		f.renewAfter = list[len(list)-1].ID
+		log.Infof("studio: 待续期子任务超过 %d 条，下一轮从主键 %d 之后接着续", renewLimit, f.renewAfter)
 	}
 	var (
 		wg  sync.WaitGroup

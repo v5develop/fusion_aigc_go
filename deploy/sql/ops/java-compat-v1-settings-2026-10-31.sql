@@ -3,16 +3,21 @@
 -- 所属库：Java 主项目库（fusion_aigc，表 afv_system_config / afv_compat_workflow_template /
 --   afv_compat_core_capability_binding）。不是 Go 自己的库。
 -- 依据：docs/design/xiaoqi-2026-10-30/00-需求分流与设计方案.md §2.1/§2.2/§8 期 0；08-Java主项目能力盘点.md「校验位置」。
--- 代码侧配套（已改，未 commit）：CreaftV2Contract.java:207 / :245 提示词上限 2000 -> 3000。
---   影响面：场景生成 content、单图复制 / SKU 替换 prompt（即 wf:13 visual-style-replace、wf:14 visual-sku-replace）。
---   上线顺序：先发布含该改动的 Java 版本，再跑本脚本第 1 节（两者无依赖，但前端放开 9 张前两边都要到位）。
+-- 代码侧配套：Java 提交 494818fd（CreaftV2Contract 提示词上限 2000 -> 3000：场景生成 content、单图复制 / SKU 替换
+--   prompt，即 wf:13 visual-style-replace、wf:14 visual-sku-replace），随 Java 发版生效；与本脚本无依赖，
+--   前端放开 9 张前两边都要到位。
 --
 -- 本脚本分节：
---   1. 写：compat.v1.max_image_count 设为 9（可重放；唯一会改数据的一节）
+--   0. 写：备份当前行（只增不覆盖）
+--   1. 写：compat.v1.max_image_count 设为 9（可重放）
 --   2. 读：复核 max_image_count 生效值
 --   3. 读：wf:13 / wf:14 模板是否启用、payload 里 max_num 现值
 --   4. 读：15 个工具 + 2 个工作流的能力绑定启用状态与 model_roles
---   2~4 只读，可随时重复执行。
+--   2~4 只读，可随时重复执行。文末「回退」默认注释。
+--
+-- 执行方式：先用生产账号在测试库跑一遍（确认 CREATE TABLE … LIKE / INSERT … SELECT 权限）；生产遇错即停：
+--   客户端支持时 `mysql --abort-source-on-error` 再 `source <文件>`（MySQL 8.0 客户端没有该选项），
+--   通用做法是 `mysql … < 本文件`，不加 --force（批处理遇第一个错误即退出）。
 --
 -- ============================================================================
 -- ⚠️ 第 1 节是「全局值」
@@ -21,7 +26,8 @@
 -- 同时影响：智能体对话 / 工具 / 工作流 / 帮写 / 批量托管每个任务 / 品牌档案每个图组。
 -- 也就是说改成 9 之后，Agent、帮写、档案图组的上限也同步变成 9，不只是小岐 v1.0 的图片生成。
 -- 各模型自己的参考图上限（model-presets maxReferenceImages）仍按网关能力另判，是第二道，不受此值影响。
--- 回退：DELETE 该行（恢复配置文件值，app.compat.v1.max-image-count 默认 4），或后台点「恢复默认」。
+-- 回退：见文末「回退」——执行前已有该行则从备份表还原原值与 remark；原本没有该行则 DELETE（恢复配置文件值，
+--   app.compat.v1.max-image-count 默认 4）。没有原行时也可后台点「恢复默认」。
 --
 -- 等价的后台操作（推荐，会审计 + 广播让各副本即时失效缓存）：
 --   管理台 → 系统 →「运行时设置」（权限 runtime_settings:view / runtime_settings:update）
@@ -35,8 +41,9 @@
 -- ============================================================================
 -- 关于工作流模板 max_num（本脚本不改模板数据）
 -- ============================================================================
--- max_num 是 payload 里每个输入槽位（image_urls / prd_image_urls 元素）的「可传张数」，运营配置在
+-- max_num 是模板 payload.image_urls 里每个输入槽位的「可传张数」，运营配置在
 --   afv_compat_workflow_template.payload（JSON）。v1.0 范围只复核 wf:13 / wf:14。
+--   种子（Java V1.0.170）里两者都只有 image_urls 两个槽位：wf:13 主体图 1 + 参考图 3，wf:14 主体图 1 + 参考图 20。
 -- 服装类 wf:5 fashion-model-tryon、wf:8 fashion-model-cloth-fit 的 max_num 1 -> 4 不在 v1.0；将来要改时：
 --   后台 AdminCreaftWorkflowTemplateController（管理台「Creaft 工作流模板」）编辑该模板 payload，
 --   把对应槽位的 "max_num":1 改成 4 并保存；或者先备份再 UPDATE ... SET payload = JSON_SET(payload, '$.payload.image_urls[i].max_num', 4)
@@ -59,9 +66,11 @@
 SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- 0. 备份当前值（已存在则不覆盖；表仅一行，建在 Java 库内）
+-- 0. 备份当前行（结构同原表；config_key 唯一键 + INSERT IGNORE：重放不覆盖第一次的原值；
+--    执行前没有该行时备份表为空，回退据此判断走 DELETE）
 -- ---------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS afv_system_config_bak_20261031_maximg AS
+CREATE TABLE IF NOT EXISTS afv_system_config_bak_20261031_maximg LIKE afv_system_config;
+INSERT IGNORE INTO afv_system_config_bak_20261031_maximg
 SELECT * FROM afv_system_config WHERE config_key = 'compat.v1.max_image_count';
 
 -- ---------------------------------------------------------------------------
@@ -85,12 +94,11 @@ SELECT config_key, config_value, deleted, remark, update_time
 -- ---------------------------------------------------------------------------
 -- 3. 读：wf:13 / wf:14 模板。期望 enabled = 1、payload 非空；
 --    max_num_values 列出 payload 里全部 "max_num" 取值（顺序即槽位顺序，用来对照前端表单）。
---    wf:13 的 prd_image_urls 应与 1+N <= 账号上限(9) 匹配；wf:14 产品 <= 20、num <= 4 在代码里（VISUAL_SKU_MAX_GROUPS）。
+--    wf:13 各槽位 max_num 之和应 <= 账号上限(9)（种子 1 + 3）；wf:14 产品 <= 20、num <= 4 在代码里（VISUAL_SKU_MAX_GROUPS）。
 -- ---------------------------------------------------------------------------
 SELECT t.id AS workflow_id, t.title, t.title_zh, t.enabled, t.deleted,
        (t.payload IS NOT NULL) AS has_payload,
-       JSON_EXTRACT(t.payload, '$.payload.image_urls[*].max_num')     AS image_urls_max_num,
-       JSON_EXTRACT(t.payload, '$.payload.prd_image_urls[*].max_num') AS prd_image_urls_max_num,
+       JSON_EXTRACT(t.payload, '$.payload.image_urls[*].max_num') AS image_urls_max_num,
        t.update_time
   FROM afv_compat_workflow_template t
  WHERE t.id IN (13, 14)
@@ -163,3 +171,17 @@ SELECT r.route AS missing_route
   LEFT JOIN afv_compat_core_capability_binding b
          ON b.creaft_v1_route = r.route COLLATE utf8mb4_unicode_ci AND b.deleted = 0
  WHERE b.id IS NULL;
+
+-- ---------------------------------------------------------------------------
+-- 回退（默认注释）：执行前已有该行 → 还原原值、remark、deleted；执行前没有该行 → 删除本脚本插入的行
+-- ---------------------------------------------------------------------------
+-- START TRANSACTION;
+-- UPDATE afv_system_config c
+--   JOIN afv_system_config_bak_20261031_maximg k ON k.config_key = c.config_key
+--    SET c.config_value = k.config_value, c.remark = k.remark, c.deleted = k.deleted;
+-- DELETE FROM afv_system_config
+--  WHERE config_key = 'compat.v1.max_image_count'
+--    AND NOT EXISTS (SELECT 1 FROM afv_system_config_bak_20261031_maximg k
+--                     WHERE k.config_key = 'compat.v1.max_image_count');
+-- COMMIT;
+-- 直接改库不经失效广播，各副本 5 秒内（RuntimeSettings.LOCAL_TTL）生效。

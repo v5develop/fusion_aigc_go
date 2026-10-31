@@ -297,6 +297,7 @@ func (c *core) CancelRun(ctx context.Context, in *canvas.RunIdReq) (*canvas.RunR
 		return nil, xerr.New(xerr.Conflict, "执行状态已变化，请刷新")
 	}
 	c.cancelUpstream(ctx, r, "用户取消")
+	c.reclaimUnrefCalls(ctx, r, "用户取消")
 	if c.s.TaskCenter != nil {
 		_ = c.s.TaskCenter.Sync(ctx)
 	}

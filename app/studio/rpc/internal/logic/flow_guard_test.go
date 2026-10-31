@@ -51,11 +51,21 @@ func (f *fakeFlowBill) RefundConfirmed(_ context.Context, _ int64, requestID, _ 
 	return 10, nil
 }
 
-// fakeGW 网关：Cancel 返回 cancelStatus 的调用并记录；其它方法本测试不用。
+// fakeGW 网关：Cancel 返回 cancelStatus 的调用并记录；Get 返回 getCall（为 nil 时报 gateway 不可用）。
 type fakeGW struct {
 	pipeline.Gateway
 	cancels      []string
 	cancelStatus string
+	getCall      *aigateway.Call
+	gets         int
+}
+
+func (g *fakeGW) Get(context.Context, string, time.Duration) (*aigateway.Call, error) {
+	g.gets++
+	if g.getCall == nil {
+		return nil, errors.New("gateway unavailable")
+	}
+	return g.getCall, nil
 }
 
 func (g *fakeGW) Cancel(_ context.Context, id string) (*aigateway.Call, error) {
@@ -117,7 +127,7 @@ func TestTickRenewsQueuedHeld(t *testing.T) {
 	bill := onBill()
 	f, mock, _ := newTestFlow(t, bill)
 	f.gwOn = false
-	mock.ExpectQuery(regexp.QuoteMeta("JOIN afv_studio_batch AS b ON b.id = t.batch_id WHERE (b.status IN (0, 1, 2, 3)) AND (t.status IN (0, 1, 5)) AND (t.billing_status = 1)")).
+	mock.ExpectQuery(regexp.QuoteMeta("JOIN afv_studio_batch AS b ON b.id = t.batch_id WHERE (b.status IN (0, 1, 2, 3)) AND (t.status IN (0, 1, 5)) AND (t.billing_request_id IS NOT NULL AND t.billing_request_id <> '') AND (t.id > 0)")).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "batch_id", "user_id", "billing_request_id", "billing_status"}).
 			AddRow(1, 9, 7, "studio-simg_1", model.BillingHeld).AddRow(2, 9, 7, "studio-simg_2", model.BillingHeld))
 	mock.ExpectQuery(regexp.QuoteMeta("WHERE (b.status = 8) AND (b.created_at < FROM_UNIXTIME(")).WillReturnRows(sqlmock.NewRows([]string{"id"}))
@@ -259,11 +269,14 @@ func TestAdminRetryBatchRevertFails(t *testing.T) {
 	tk.Status, tk.Attempt = model.TaskFailed, 0
 	tk.PromptText.String, tk.PromptText.Valid = "p", true
 	tk.ErrorReason.String, tk.ErrorReason.Valid = "生成失败，点数已退回", true
+	bill.status = resvHeld
 	b := &model.Batch{ID: 9, UserID: 7, Kind: model.KindImageGen, Status: model.BatchFailed, Payload: []byte(`{"resolution":"1k","aspect_ratio":"1:1"}`)}
+	mock.ExpectExec(qClaim(0)).WillReturnResult(ok1)
 	mock.ExpectExec(regexp.QuoteMeta("UPDATE `afv_studio_task` SET `status` = 0") + ".*`billing_request_id` = 'studio-simg_1-r1'.*" + regexp.QuoteMeta("WHERE (`id` = 1) AND (`status` = 3)")).WillReturnResult(ok1)
 	mock.ExpectExec(regexp.QuoteMeta("task_failed = task_failed + -1")).WillReturnResult(ok1)
 	mock.ExpectExec(regexp.QuoteMeta("UPDATE `afv_studio_batch` SET `status` = 3") + ".*" + regexp.QuoteMeta("WHERE (`id` = 9) AND (`status` = 5)")).WillReturnError(errors.New("db down"))
 	mock.ExpectExec(regexp.QuoteMeta("UPDATE `afv_studio_task` SET `status` = 3") + ".*`billing_request_id` = 'studio-simg_1'.*`error_reason` = '生成失败，点数已退回'.*" + regexp.QuoteMeta("WHERE (`id` = 1) AND (`status` = 0)")).WillReturnResult(ok1)
+	expectTaskReq(mock, "studio-simg_1") // 撤回后重读：库里已是旧号 → 新单没被用上，退回
 	mock.ExpectExec(regexp.QuoteMeta("task_failed = task_failed + 1")).WillReturnResult(ok1)
 	if err := f.adminRetry(context.Background(), tk, b); err == nil {
 		t.Fatal("拉回失败应报错")

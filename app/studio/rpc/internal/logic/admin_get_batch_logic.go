@@ -2,6 +2,7 @@ package logic
 
 import (
 	"context"
+	"time"
 
 	"aigc-local-life/app/studio/rpc/internal/svc"
 	"aigc-local-life/app/studio/rpc/studio"
@@ -51,8 +52,14 @@ func (l *AdminGetBatchLogic) AdminGetBatch(in *studio.AdminGetBatchReq) (*studio
 		SelectedImages: jsonText(b.SelectedImages), StepLog: jsonText(b.StepLog),
 		Tasks: make([]*studio.AdminTask, 0, len(tasks)),
 	}
+	grace, now := secs(l.svcCtx.Config.Timeouts.DeliverGrace, defaultDeliverGrace), time.Now()
 	for _, t := range tasks {
-		out.Tasks = append(out.Tasks, toAdminTask(t, b.Status))
+		at := toAdminTask(t, b.Status)
+		if deliveryOverdue(t, now, grace) && at.Task != nil {
+			// 交付中已超过宽限期：强制失败仍拒绝（结算可能已发生），在详情里透出，交给 Poller 的超期出口处理
+			at.Task.ErrorReason = reasonDeliverOverdue
+		}
+		out.Tasks = append(out.Tasks, at)
 	}
 	return out, nil
 }

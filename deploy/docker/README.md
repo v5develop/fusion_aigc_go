@@ -11,7 +11,7 @@
                 │
         宿主机 nginx（加载 ./nginx/aigc-local-life.conf）
         ├─ /api/v1/local-life、/api/v1/studio ──► 127.0.0.1:18888  gateway-api ─┐
-        ├─ /api/v1/（其余）  ──► 127.0.0.1:18080  Java          │  rpc 直连 127.0.0.1:19201–19206
+        ├─ /api/v1/（其余）  ──► 127.0.0.1:18080  Java          │  rpc 直连 127.0.0.1:19201–19207
         └─ /api/v1/admin、/api/v1/local-life/admin、Swagger、其它 ──► 404  │  copywriting / digitalhuman / note / imagegen / studio
                                                                   │
    127.0.0.1:18889 admin-api（只在本机，ssh 隧道访问）            │
@@ -29,7 +29,7 @@
 
 1. **`prepare`**（一次性）：检查数据库 → 执行迁移（登记到 `go_schema_history`）→ 生成服务配置到 `./etc/`（只有服务用户可读）→ 渲染 `./nginx/aigc-local-life.conf` → 计费配置自检。**任何一步失败都以非 0 退出，服务不会启动。**
 2. 7 个 rpc（含 studio-rpc、assetlib-rpc、canvas-rpc）和反推 sidecar `prompt-reverse`：`prepare` 成功退出后启动，健康检查是端口可连。
-3. `gateway-api`、`admin-api`：5 个 rpc 都健康后启动，健康检查是 HTTP 能应答（未带令牌返回 401 属正常）。
+3. `gateway-api`、`admin-api`：7 个 rpc（copywriting / digitalhuman / note / imagegen / studio / assetlib / canvas）都健康后启动，健康检查是 HTTP 能应答（未带令牌返回 401 属正常）。
 
 正式环境的硬规则在 `prepare` 里强制检查，没有放行开关：`AUTH_MODE=token`、`BILLING_MODE=on`、执行面地址（`AIGC_ENDPOINT` 或 `JAVA_ENV_FILE`）、`PUBLIC_DOMAIN`、会话 Redis（来自 `JAVA_ENV_FILE` 或显式填写）。JWT 密钥不需要。
 
@@ -126,7 +126,7 @@ curl -s -H "Authorization: Bearer $TOKEN" https://<PUBLIC_DOMAIN>/api/v1/points/
 - **studio-rpc**：端口 `STUDIO_PORT`（默认 19205），与其它 rpc 同镜像同配置生成流程；依赖 ai-gateway 与反推 sidecar。`AI_GATEWAY_URL` 留空时 studio 提交返回「暂未开放」，不影响其它功能。
 - **prompt-reverse（Python sidecar）**：独立镜像，`docker build -t aigc-prompt-reverse:<版本> tools/prompt-reverse`，`.env` 的 `REVERSE_IMAGE` 填它。**只给 studio-rpc 用**：host 网络下只绑 `127.0.0.1:${REVERSE_PORT:-8090}`，不映射宿主端口、不经 nginx，无鉴权，靠只听本机隔离；`REVERSE_SIDECAR_URL` 留空即默认 `http://127.0.0.1:8090`。
 - **sidecar 经 ai-gateway 调 DeepSeek**（调用方 `prompt-reverse`，模型组默认 `vlm.deepseek-flash`：官方 `deepseek-chat.vl.deepseek-flash` 优先、百炼 `bailian-chat.vl.deepseek-flash` 自动切换备用；排障用 `REVERSE_ALLOWED_DEPLOYMENTS=deepseek-chat.vl.deepseek-flash` 或 `bailian-chat.vl.deepseek-flash` 钉单一渠道，sidecar 写进 `constraints.allowed_deployments`，排障完清空），不再直连 api.deepseek.com；DeepSeek 官方密钥只在 gateway 管理端配置（账号 `deepseek-chat.main`）。
-- **`REVERSE_AIG_SECRET` 只在 `.env` 里**（须与 ai-gateway 侧 `AIG_CALLER_REVERSE_SECRET` 一致），compose 把它映射成 `AIG_SECRET` 只注入 `prompt-reverse` 容器（不写镜像、不进 `etc/`、其它服务读不到）；不要提交 `.env`。`REVERSE_AIG_BASE_URL` 留空复用 `AI_GATEWAY_URL`，`REVERSE_AIG_KEY_ID` 默认 `prompt-reverse-v1`。没配地址或 secret 时 sidecar 的 `/api/status` 里 `llm_configured=false`，批次会在反推阶段失败并退款；配好后看 `gateway_ready`（readiness 缓存 60s）。
+- **`REVERSE_AIG_SECRET` 只在 `.env` 里**（须与 ai-gateway 侧 `AIG_CALLER_REVERSE_SECRET` 一致），compose 把它映射成 `AIG_SECRET` 注入 `prompt-reverse` 容器（不写镜像、不进 `etc/`，运行中的 rpc / 网关容器读不到）。注意：一次性的 `prepare` 容器用 `env_file: [.env]` 加载整个 `.env`，所以它也能读到这个值（它不会把该值写进 `etc/`，但需要时请当作可见范围包含 `prepare`）；不要提交 `.env`。`REVERSE_AIG_BASE_URL` 留空复用 `AI_GATEWAY_URL`，`REVERSE_AIG_KEY_ID` 默认 `prompt-reverse-v1`。没配地址或 secret 时 sidecar 的 `/api/status` 里 `llm_configured=false`，批次会在反推阶段失败并退款；配好后看 `gateway_ready`（readiness 缓存 60s）。
 - **nginx**：`/api/v1/studio/admin`（→ admin-api）与 `/api/v1/studio`（→ gateway-api）两条 location 已在 `nginx/aigc-local-life.conf.tmpl` 里，`prepare` 渲染时自带，不用手改。
 - 验证：`curl -s http://127.0.0.1:8090/api/status`（在服务器本机）应返回 `service=prompt-reverse`、`llm_configured=true`、`model_group`、`gateway_ready=true`；后台「studio / sidecar 状态」页能看到 sidecar、ai-gateway、媒体服务三项依赖。
 

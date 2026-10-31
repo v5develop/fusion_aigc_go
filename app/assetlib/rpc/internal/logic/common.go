@@ -120,16 +120,52 @@ func checkOwnedURL(owns func(string) bool, field, u string) error {
 // ownsURL 生产用的归属判断：本存储签发，或命中 InputURLPrefixes。
 func ownsURL(s *svc.ServiceContext) func(string) bool {
 	return func(u string) bool {
-		if s.Storage != nil && storage.Owned(s.Storage, u) == nil {
+		if s.Storage != nil && storage.Owned(s.Storage, u) == nil && cleanHTTPURL(u) {
 			return true
 		}
-		for _, p := range s.Config.InputURLPrefixes {
-			if p = strings.TrimSpace(p); p != "" && strings.HasPrefix(u, p) {
-				return true
-			}
-		}
+		return matchPrefixes(s.Config.InputURLPrefixes, u)
+	}
+}
+
+// cleanHTTPURL 解析后的地址不带账号信息、无 .. 路径段（防 storage.Owns 纯字符串前缀被花式拼接绕过）。
+func cleanHTTPURL(u string) bool {
+	p, err := url.Parse(u)
+	if err != nil || (p.Scheme != "http" && p.Scheme != "https") || p.Host == "" || p.User != nil || strings.Contains(u, "\\") {
 		return false
 	}
+	for _, seg := range strings.Split(p.Path, "/") {
+		if seg == ".." {
+			return false
+		}
+	}
+	return true
+}
+
+// matchPrefixes u 命中任一前缀：scheme + host 完全相等，路径以前缀路径（补尾 /）开头。
+// 不能用字符串 HasPrefix：前缀没带尾部 / 时 https://cdn.example.com 会放过 https://cdn.example.com.evil.io。
+func matchPrefixes(prefixes []string, u string) bool {
+	if !cleanHTTPURL(u) {
+		return false
+	}
+	pu, _ := url.Parse(u)
+	for _, p := range prefixes {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		pp, err := url.Parse(p)
+		if err != nil || pp.Host == "" || pp.User != nil {
+			continue
+		}
+		if !strings.EqualFold(pp.Scheme, pu.Scheme) || !strings.EqualFold(pp.Host, pu.Host) {
+			continue
+		}
+		base := strings.TrimRight(pp.Path, "/") + "/"
+		if strings.HasPrefix(pu.Path, base) {
+			return true
+		}
+	}
+	return false
 }
 
 func subPage(page, size int64) (limit, offset int64) {

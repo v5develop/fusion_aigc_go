@@ -29,6 +29,8 @@ path = re.sub(r"/+", "/", path)
 if len(path) > 1:
     path = path.rstrip("/") or "/"
 
+# 注意：查询串里的 "+" 被当作字面量（unquote 不转空格），与服务端 parse_qsl 把 "+" 视为空格不同；
+# 调用方不要传含 "+" 的查询（需要空格请写 %20，字面加号请写 %2B）。
 # canonical query：键值各自 RFC3986 编码（空格 %20、大写十六进制），按 (键, 值) 排序
 pairs = []
 for part in filter(None, query.split("&")):

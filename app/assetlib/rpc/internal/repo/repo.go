@@ -65,6 +65,24 @@ func IsDuplicate(err error) bool {
 	return errors.As(err, &me) && me.Number == 1062
 }
 
+// ErrAssetNotOwned 资产不属于该用户（写旁表前的纵深防御，调用方应已校验过归属）。
+var ErrAssetNotOwned = errors.New("repo: 资产不属于该用户")
+
+// ownedAssetSub 本人未删除资产 id 的子查询条件（带 userID 参数）。
+const ownedAssetSub = "asset_id IN (SELECT id FROM afv_asset WHERE user_id = ? AND deleted = 0)"
+
+// assertOwned 写入前确认 assetID 是 userID 的未删除资产。
+func assertOwned(ctx context.Context, db bun.IDB, assetID, userID int64) error {
+	n, err := db.NewSelect().TableExpr("afv_asset").Where("id = ?", assetID).Where("user_id = ?", userID).Where("deleted = 0").Count(ctx)
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrAssetNotOwned
+	}
+	return nil
+}
+
 func noRows[T any](v *T, err error) (*T, error) {
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil

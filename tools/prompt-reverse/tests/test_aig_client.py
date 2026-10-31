@@ -217,5 +217,37 @@ class ClientTest(unittest.TestCase):
             self.assertNotIn("test-secret", str(e))
 
 
+class NoProxyTest(unittest.TestCase):
+    """aig_client 不走环境代理：网关是内网地址，签名请求不能被代理劫持或外泄。"""
+
+    def test_opener_has_empty_proxy_handler(self):
+        import urllib.request
+        # ProxyHandler({}) 没有任何 <scheme>_open 方法，不会进 handlers；关键是没有带代理的 ProxyHandler
+        proxies = [h for h in aig._OPENER.handlers if isinstance(h, urllib.request.ProxyHandler)]
+        self.assertTrue(all(not h.proxies for h in proxies))
+
+    def test_request_ignores_env_proxy(self):
+        gw = fake_gateway.FakeGateway(secret="test-secret-xyz", caller="c", key_id="k").start()
+        saved = {k: os.environ.get(k) for k in ("http_proxy", "HTTP_PROXY", "all_proxy", "ALL_PROXY", "no_proxy", "NO_PROXY")}
+        try:
+            for k in saved:
+                os.environ.pop(k, None)
+            os.environ["http_proxy"] = os.environ["HTTP_PROXY"] = "http://127.0.0.1:9"   # 死端口：走了代理必失败
+            import urllib.error
+            import urllib.request
+            with self.assertRaises(urllib.error.URLError):   # 对照：默认 opener 会读到环境代理，连不上死端口
+                urllib.request.build_opener().open(gw.base_url + "/x", timeout=3)
+            c = aig.AigClient(gw.base_url, "k", "test-secret-xyz", "c")
+            ready, _ = c.readiness("vlm.deepseek-flash")
+            self.assertTrue(ready)
+        finally:
+            gw.stop()
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
+
 if __name__ == "__main__":
     unittest.main()

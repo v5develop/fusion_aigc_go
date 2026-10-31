@@ -357,8 +357,18 @@ func TestJavaErrMapping(t *testing.T) {
 	}{
 		{&javatool.Error{HTTPStatus: 200, Code: 3003, Msg: "点数余额不足"}, xerr.InsufficientPoints, false},
 		{&javatool.Error{HTTPStatus: 401, Code: 2001}, xerr.Unauthorized, false},
+		// 1003 在提交场景仍是永久失败（不重提）；但此前的请求结局未知时 dispatch 走 stopJava 找回 / 退化，
+		// 不直接 failRun（见 TestDispatchJavaPermanentAfterUnknownGoesStopJava）
 		{&javatool.Error{HTTPStatus: 200, Code: 1003, Msg: "图片不能为空"}, 1003, false},
 		{&javatool.Error{HTTPStatus: 502}, 0, true},
+		// Java 明确「请重试」的码：与 recoverJavaRef 同口径（javaRetryable）
+		{&javatool.Error{HTTPStatus: 200, Code: 1004, Msg: "请求过于频繁"}, 0, true},
+		{&javatool.Error{HTTPStatus: 500, Code: 5005, Msg: "提交期间配置已变更，请重试"}, 0, true},
+		{&javatool.Error{HTTPStatus: 200, Code: 5005}, 0, true},
+		{&javatool.Error{HTTPStatus: 500, Code: 5001, Msg: "系统内部错误"}, 0, true},
+		{&javatool.Error{HTTPStatus: 200, Code: 3010}, 0, true},
+		{&javatool.Error{HTTPStatus: 200, Code: 46011}, 0, true},
+		{&javatool.Error{HTTPStatus: 200, Code: 3001, Msg: "业务处理失败"}, 3001, false},
 		{&javatool.Error{HTTPStatus: 0, Msg: "dial"}, 0, true},
 		{javatool.ErrNoBearer, xerr.NotReady, false},
 	}
@@ -371,6 +381,23 @@ func TestJavaErrMapping(t *testing.T) {
 			if code, _, _ := xerr.Parse(err); code != c.code {
 				t.Fatalf("%v → %d want %d", c.err, code, c.code)
 			}
+		}
+	}
+}
+
+// javaErr（提交）与 recoverJavaRef（找回）对「暂时性」的判定必须一致。
+func TestJavaRetryableShared(t *testing.T) {
+	for _, je := range []*javatool.Error{
+		{HTTPStatus: 0}, {HTTPStatus: 429}, {HTTPStatus: 503}, {HTTPStatus: 500, Code: 5005}, {HTTPStatus: 200, Code: 1004},
+		{HTTPStatus: 200, Code: 3010}, {HTTPStatus: 200, Code: 46011},
+	} {
+		if !javaRetryable(je) || !isTemporary(javaErr(je)) {
+			t.Errorf("%v 应为暂时性", je)
+		}
+	}
+	for _, je := range []*javatool.Error{{HTTPStatus: 401, Code: 2001}, {HTTPStatus: 200, Code: 1003}, {HTTPStatus: 200, Code: 3003}, {HTTPStatus: 200, Code: 3001}} {
+		if javaRetryable(je) || isTemporary(javaErr(je)) {
+			t.Errorf("%v 不应为暂时性", je)
 		}
 	}
 }

@@ -119,7 +119,8 @@ type flow struct {
 	inflight sync.Map // 本地去重："b:<id>" 编排中、"t:<id>" 轮询中、"s:<id>" 派发中（跨实例互斥靠行租约）
 	wg       sync.WaitGroup
 
-	maintAt time.Time // 上次 maintain 的时间（零值 = 下一轮立刻做）
+	maintAt    time.Time // 上次 maintain 的时间（零值 = 下一轮立刻做）
+	renewAfter int64     // 续期游标：上一轮续到的子任务主键（超过 renewLimit 时分轮轮转，0 = 从头）
 }
 
 // semaphore.Group 的 key：批次编排、子任务轮询各一个全局名额池。
@@ -218,6 +219,9 @@ func (f *flow) analyzeTimeout() time.Duration {
 }
 func (f *flow) generateTimeout() time.Duration {
 	return secs(f.cfg.Timeouts.Generate, pipeline.GenerateTimeout)
+}
+func (f *flow) deliverGrace() time.Duration {
+	return secs(f.cfg.Timeouts.DeliverGrace, defaultDeliverGrace)
 }
 func (f *flow) longPollWait() time.Duration {
 	return min(secs(f.cfg.AiGateway.LongPollWait, 20*time.Second), 25*time.Second)
@@ -358,10 +362,10 @@ func (f *flow) submitBatch(ctx context.Context, batchID int64) (started []int64)
 		log.Errorf("studio: 批次 %d 列子任务失败: %v", b.ID, err)
 		return nil
 	}
-	running, queued := 0, 0
+	running, queued := 0, 0 // running 含交付中：已出图待结算的也占本批名额，避免交付卡住时又派发一批
 	for _, t := range tasks {
 		switch t.Status {
-		case model.TaskRunning:
+		case model.TaskRunning, model.TaskDelivering:
 			running++
 		case model.TaskQueued:
 			queued++
@@ -372,14 +376,25 @@ func (f *flow) submitBatch(ctx context.Context, batchID int64) (started []int64)
 		return nil
 	}
 	limit := positive(f.cfg.Poll.Concurrency, 3)
+	if queued == 0 || running >= limit {
+		return nil
+	}
+	// 全局上限：库里生成中的总数（多实例共用）达到 Poll.MaxRunning 就不再派发，等下一轮
+	global, err := f.repo.Task.CountByStatus(ctx, model.TaskRunning)
+	if err != nil {
+		log.Errorf("studio: 统计生成中子任务失败，本轮不派发: %v", err)
+		return nil
+	}
+	slots := int64(positive(f.cfg.Poll.MaxRunning, 64)) - global
 	for _, t := range tasks {
-		if running >= limit {
+		if running >= limit || slots <= 0 {
 			break
 		}
 		if t.Status != model.TaskQueued || t.AdminLocked != 0 {
 			continue
 		}
-		ok, err := f.repo.Task.TransitStatus(ctx, t.ID, model.TaskQueued, model.TaskRunning, nil)
+		// started_at 先置空：真正提交到 gateway 时（SetGateway 写调用号）才记，等提交名额的时间不算进生图时限
+		ok, err := f.repo.Task.TransitStatus(ctx, t.ID, model.TaskQueued, model.TaskRunning, map[string]any{"started_at": nil})
 		if err != nil {
 			log.Errorf("studio: 子任务 %d 排队→生成中失败: %v", t.ID, err)
 			continue
@@ -388,6 +403,7 @@ func (f *flow) submitBatch(ctx context.Context, batchID int64) (started []int64)
 			continue
 		}
 		running++
+		slots--
 		started = append(started, t.ID)
 	}
 	return started

@@ -63,6 +63,27 @@ func TestStudioTasksBillingMismatch(t *testing.T) {
 	}
 }
 
+// 结果未知的失败任务在回收窗口内仍 HELD 不报；失败任务的预留单部分退款单独标出。
+func TestStudioTasksBillingMismatchUnknownAndPartial(t *testing.T) {
+	q, mock := newMock(t)
+	mock.ExpectQuery(`(?s)WHEN r\.status = 'PARTIALLY_REFUNDED' THEN 'failed_but_partially_refunded'.*` +
+		`r\.status IN \('CONFIRMED', 'PARTIALLY_REFUNDED'\).*r\.status = 'HELD'\s+AND NOT \(t\.error_reason = '结果未知，待对账' AND t\.updated_at > NOW\(\) - INTERVAL 31 MINUTE\)`).
+		WithArgs(int32(10)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "task_id", "user_id", "kind", "task_status", "billing_status",
+			"billing_request_id", "finished_at", "reservation_no", "reservation_status", "reservation_points", "mismatch_type"}).
+			AddRow(8, "simg_x", 42, "imagegen", 3, 3, "studio-simg_x", nil, "BR2", "PARTIALLY_REFUNDED", 30, "failed_but_partially_refunded"))
+	got, err := q.StudioTasksBillingMismatch(context.Background(), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].MismatchType != "failed_but_partially_refunded" {
+		t.Fatalf("结果不对：%+v", got)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestStudioTaskCenterMissing(t *testing.T) {
 	q, mock := newMock(t)
 	before := time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)

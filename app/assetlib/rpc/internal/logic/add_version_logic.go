@@ -55,14 +55,14 @@ func (l *AddVersionLogic) AddVersion(in *assetlib.AddVersionReq) (*assetlib.Vers
 	for attempt := 0; ; attempt++ {
 		err = l.svcCtx.Repo.RunInTx(l.ctx, func(ctx context.Context, tx *repo.Repo) error {
 			// 先锁旁表行（有的话），同一资产的追加在这里串行；没有旁表行时靠 uk_asset_version 兜底重试
-			e, err := tx.Ext.Get(ctx, row.ID, true)
+			e, err := tx.Ext.Get(ctx, row.ID, in.UserId, true)
 			if err != nil {
 				return err
 			}
 			if e == nil {
 				e = &model.Ext{AssetID: row.ID, UserID: in.UserId}
 			}
-			n, err := tx.Version.NextNo(ctx, row.ID)
+			n, err := tx.Version.NextNo(ctx, row.ID, in.UserId)
 			if err != nil {
 				return err
 			}
@@ -70,12 +70,12 @@ func (l *AddVersionLogic) AddVersion(in *assetlib.AddVersionReq) (*assetlib.Vers
 				return xerr.Newf(xerr.ParamError, "每个资产最多 %d 个版本", lim.VersionsPerAsset)
 			}
 			v.ID, v.VersionNo = 0, n
-			if err := tx.Version.Insert(ctx, v); err != nil {
+			if err := tx.Version.Insert(ctx, in.UserId, v); err != nil {
 				return err
 			}
 			// 新版本即当前版本
 			e.CurrentVersionID = sql.NullInt64{Int64: v.ID, Valid: true}
-			return tx.Ext.Upsert(ctx, e)
+			return tx.Ext.Upsert(ctx, in.UserId, e)
 		})
 		if err == nil || !repo.IsDuplicate(err) || attempt >= 2 {
 			break

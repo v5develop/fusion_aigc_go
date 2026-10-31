@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -167,7 +168,8 @@ func TestReconcileBillingMirror(t *testing.T) {
 
 	long := "canvas-" + strings.Repeat("x", 70) // 超 64 字节：biz_id 按 pkg/billing 规则折叠
 	mock.ExpectQuery(regexp.QuoteMeta("WHERE (r.status IN (2, 3, 4)) AND (r.updated_at >= '2026-10-24 12:00:00") +
-		".*" + regexp.QuoteMeta("AND (r.backend = 'gateway') AND (r.billing_status IN ('review', 'held'))")).
+		".*" + regexp.QuoteMeta("AND (r.backend = 'gateway') AND (r.billing_status IN ('review', 'held', 'unsettled'))") +
+		".*" + regexp.QuoteMeta("AND (r.id > 0) ORDER BY r.id ASC LIMIT 500")).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "billing_request_id", "billing_status"}).
 			AddRow(1, 7, "canvas-cv_1", "review"). // 到期被 Reclaimer 释放 → refunded
 			AddRow(2, 7, "canvas-cv_2", "review"). // 运营人工确认扣费 → settled
@@ -190,6 +192,80 @@ func TestReconcileBillingMirror(t *testing.T) {
 	}
 	bmock.ExpectQuery(qResvStatus).WithArgs("LOCALLIFE", folded).WillReturnRows(sqlmock.NewRows([]string{"status"}))
 
+	c.reconcileBilling(context.Background())
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+	if err := bmock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func reconcileCore(t *testing.T) (*core, sqlmock.Sqlmock, sqlmock.Sqlmock) {
+	c, mock := mockCore(t)
+	bdb, bmock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = bdb.Close() })
+	c.s.Billing = billing.New(billing.Conf{Mode: billing.ModeOn}, sqlx.NewSqlConnFromDB(bdb))
+	return c, mock, bmock
+}
+
+var reconcileCols = []string{"id", "user_id", "kind", "billing_request_id", "billing_status", "candidates"}
+
+// unsettled（已交付、确认扣费暂时失败）：重试 Settle。成功 → settled；ErrGone（已释放 / 并发改了状态）→ 保持 unsettled、
+// 只 ERROR 告警一次；其它错误 → 不动、下轮再试。
+func TestReconcileUnsettledRetriesSettle(t *testing.T) {
+	c, mock, bmock := reconcileCore(t)
+	mock.ExpectQuery(regexp.QuoteMeta("r.billing_status IN ('review', 'held', 'unsettled')")).
+		WillReturnRows(sqlmock.NewRows(reconcileCols).
+			AddRow(1, 7, "image", "canvas-cv_1", "unsettled", `[{"rid":"a"},{"rid":"b"}]`). // 已 CONFIRMED（幂等）→ settled
+			AddRow(2, 7, "image", "canvas-cv_2", "unsettled", nil).                         // 已被回收释放 → ErrGone，保持
+			AddRow(3, 7, "video", "canvas-cv_3", "unsettled", nil).                         // HELD 但加锁时已被改 → ErrGone，保持
+			AddRow(4, 7, "image", "canvas-cv_4", "unsettled", nil))                         // 查库出错 → 暂时性，保持
+	bmock.ExpectQuery(qResvStatus).WithArgs("LOCALLIFE", "7_canvas-cv_1").WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow("CONFIRMED"))
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE `afv_canvas_node_run` SET billing_status = 'settled' WHERE (id = 1) AND (billing_status = 'unsettled')")).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	bmock.ExpectQuery(qResvStatus).WithArgs("LOCALLIFE", "7_canvas-cv_2").WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow("EXPIRED"))
+	bmock.ExpectQuery(qResvStatus).WithArgs("LOCALLIFE", "7_canvas-cv_3").WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow("HELD"))
+	bmock.ExpectQuery("SELECT .* FROM `afv_billing_reservation` WHERE `biz_type` = \\? AND `biz_id` = \\? AND `status` = \\?").
+		WithArgs("LOCALLIFE", "7_canvas-cv_3", "HELD").WillReturnRows(sqlmock.NewRows([]string{"id"}))
+	bmock.ExpectQuery(qResvStatus).WithArgs("LOCALLIFE", "7_canvas-cv_4").WillReturnError(errors.New("conn reset"))
+	c.reconcileBilling(context.Background())
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+	if err := bmock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+	if !c.unsettledAlerted[2] || !c.unsettledAlerted[3] || c.unsettledAlerted[4] || c.unsettledAlerted[1] {
+		t.Fatalf("ErrGone 的才告警: %v", c.unsettledAlerted)
+	}
+	if c.reconcileAfter != 0 {
+		t.Fatalf("没取满一页，游标应回到开头: %d", c.reconcileAfter)
+	}
+}
+
+// 积压超过一页：按 id 游标轮转，下一轮从上页末尾接着取，取不满回到开头（不被长期 HELD 的行饿死）。
+func TestReconcileCursorRotates(t *testing.T) {
+	c, mock, bmock := reconcileCore(t)
+	old := reconcileLimit
+	reconcileLimit = 2
+	t.Cleanup(func() { reconcileLimit = old })
+	held := func(ids ...int64) *sqlmock.Rows {
+		rows := sqlmock.NewRows(reconcileCols)
+		for _, id := range ids {
+			rows.AddRow(id, 7, "image", fmt.Sprintf("canvas-cv_%d", id), "review", nil)
+			bmock.ExpectQuery(qResvStatus).WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow("HELD"))
+		}
+		return rows
+	}
+	mock.ExpectQuery(regexp.QuoteMeta("AND (r.id > 0) ORDER BY r.id ASC LIMIT 2")).WillReturnRows(held(1, 2))
+	c.reconcileBilling(context.Background())
+	mock.ExpectQuery(regexp.QuoteMeta("AND (r.id > 2) ORDER BY r.id ASC LIMIT 2")).WillReturnRows(held(5))
+	c.reconcileBilling(context.Background())
+	mock.ExpectQuery(regexp.QuoteMeta("AND (r.id > 0) ORDER BY r.id ASC LIMIT 2")).WillReturnRows(held())
 	c.reconcileBilling(context.Background())
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)

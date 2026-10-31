@@ -3,6 +3,7 @@ package lease
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"regexp"
 	"strings"
 	"sync"
@@ -93,10 +94,11 @@ type row struct {
 }
 
 type fakeDB struct {
-	mu    sync.Mutex
-	now   time.Time
-	rows  map[int64]*row
-	multi int // ExtendMany 调用次数
+	mu        sync.Mutex
+	now       time.Time
+	rows      map[int64]*row
+	multi     int   // ExtendMany 调用次数
+	extendErr error // 非空时 Extend 返回该错误（模拟库不可用）
 }
 
 func newFake() *fakeDB {
@@ -134,6 +136,9 @@ func (f *fakeDB) ExecContext(_ context.Context, q string, args ...any) (sql.Resu
 		}
 		return result(n), nil
 	case strings.HasPrefix(q, "UPDATE `afv_t` SET `lease_until` ="): // Extend
+		if f.extendErr != nil {
+			return nil, f.extendErr
+		}
 		us, id, owner := args[0].(int64), args[1].(int64), args[2].(string)
 		r := f.rows[id]
 		if r == nil || r.owner != owner {
@@ -220,6 +225,46 @@ func TestKeepCancelsWhenLost(t *testing.T) {
 	stop()
 	if db.rows[7].owner != "b" {
 		t.Fatal("a 的 stop 不应释放 b 的租约")
+	}
+}
+
+// 续租一直报错（库不可用）：不立刻取消，距上次续上超过 ttl - ttl/3 时主动取消，避免租约在库里过期后两边同时推进。
+func TestKeepCancelsWhenExtendKeepsFailing(t *testing.T) {
+	db := newFake()
+	db.extendErr = errors.New("db down")
+	start := time.Now()
+	ctx2, stop, ok, err := Keep(context.Background(), db, "afv_t", 7, "a", 3*time.Second)
+	if err != nil || !ok {
+		t.Fatalf("应抢到: %v", err)
+	}
+	defer stop()
+	select {
+	case <-ctx2.Done():
+		if d := time.Since(start); d < 1900*time.Millisecond {
+			t.Fatalf("第一次续租失败就取消太早了: %v", d)
+		}
+	case <-time.After(4 * time.Second):
+		t.Fatal("续租持续失败超过 ttl-ttl/3 应取消 ctx")
+	}
+}
+
+// 续租偶发报错、随后恢复：不取消。
+func TestKeepToleratesTransientExtendError(t *testing.T) {
+	db := newFake()
+	db.extendErr = errors.New("db blip")
+	ctx2, stop, ok, _ := Keep(context.Background(), db, "afv_t", 7, "a", 3*time.Second)
+	if !ok {
+		t.Fatal("应抢到")
+	}
+	defer stop()
+	time.Sleep(1200 * time.Millisecond) // 第一次心跳失败
+	db.mu.Lock()
+	db.extendErr = nil
+	db.mu.Unlock()
+	select {
+	case <-ctx2.Done():
+		t.Fatal("续租恢复后不应取消")
+	case <-time.After(2500 * time.Millisecond):
 	}
 }
 

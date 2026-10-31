@@ -100,16 +100,19 @@ func decideTerminal(call *aigateway.Call) (terminalAction, time.Duration) {
 
 // 用户可见的失败文案。
 const (
-	reasonUnknown       = "结果未知，待对账"
-	reasonTimeout       = "生成超时，点数已退回"
-	reasonSubmitFailed  = "提交生图失败，点数已退回"
-	reasonEmptyResult   = "生成结果为空，点数已退回"
-	reasonTransfer      = "成品转存失败，点数已退回"
-	reasonLost          = "生成记录丢失，点数已退回"
-	reasonForceFail     = "运营强制失败，点数已退回"
-	reasonGatewayCancel = "生成已取消，点数已退回"
-	reasonSubmitAborted = "提交未完成，点数已退回"
-	reasonDelivering    = "任务正在交付，不能强制失败"
+	reasonUnknown        = "结果未知，待对账"
+	reasonTimeout        = "生成超时，点数已退回"
+	reasonSubmitFailed   = "提交生图失败，点数已退回"
+	reasonEmptyResult    = "生成结果为空，点数已退回"
+	reasonTransfer       = "成品转存失败，点数已退回"
+	reasonLost           = "生成记录丢失，点数已退回"
+	reasonForceFail      = "运营强制失败，点数已退回"
+	reasonGatewayCancel  = "生成已取消，点数已退回"
+	reasonSubmitAborted  = "提交未完成，点数已退回"
+	reasonDelivering     = "任务正在交付，不能强制失败"
+	reasonDeliverTimeout = "交付超时，点数已退回"
+	// reasonDeliverOverdue 后台详情里交付中已超过 deliverGrace 的提示（不落库，只透出给运营）
+	reasonDeliverOverdue = "交付中已超期，等待结算出口处理"
 )
 
 // failureReason gateway 失败 → 用户文案（failure.message 只给运维看，不进文案）。

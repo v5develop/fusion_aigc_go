@@ -38,11 +38,11 @@ func (l *GetLogic) Get(in *assetlib.GetReq) (*assetlib.GetResp, error) {
 
 	// 版本（新的在前）
 	limit, offset := subPage(in.VersionPage, in.PageSize)
-	if out.Versions.Total, err = l.svcCtx.Repo.Version.Count(l.ctx, row.ID); err != nil {
+	if out.Versions.Total, err = l.svcCtx.Repo.Version.Count(l.ctx, row.ID, in.UserId); err != nil {
 		return nil, err
 	}
 	if out.Versions.Total > offset {
-		vs, err := l.svcCtx.Repo.Version.Page(l.ctx, row.ID, limit, offset)
+		vs, err := l.svcCtx.Repo.Version.Page(l.ctx, row.ID, in.UserId, limit, offset)
 		if err != nil {
 			return nil, err
 		}

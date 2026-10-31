@@ -49,6 +49,8 @@ CREATE TABLE IF NOT EXISTS afv_billing_charge_component_bak_1030  AS SELECT * FR
 -- 模型按 code 找，各库 id 不一样（测试库 14，Java 说线上 181）。找不到，下面的 variant / component 不会建。
 SET @img_model := (SELECT id FROM afv_ai_model WHERE code = 'creaft-image-2' AND deleted = 0 ORDER BY id LIMIT 1);
 SELECT @img_model AS `creaft-image-2 的模型id（NULL=不存在，先处理再跑）`;
+-- 模型缺失时下面的场景 / 档位 / 步骤一律不建（不留 ENABLED 的空壳 offer；入口无 offer 则准入拒绝 = 关闭），并出告警行。
+SELECT '⚠️ creaft-image-2 模型缺失：studio 三个入口均未建，先补模型再重跑本脚本' AS `告警` WHERE @img_model IS NULL;
 
 -- 占位：步骤上的 base_points 只在「查不到单价行」时兜底，默认 0 = 不兜底（查不到就让检查报错，不让用户白嫖）。
 -- ⚠️ 待产品定价；不要为了让检查变绿随手填个数。
@@ -69,7 +71,8 @@ INSERT INTO tmp_studio VALUES
 INSERT INTO afv_billing_offer (offer_code, name, category, entry_code, feature_code, billing_scene, status, sort, deleted)
 SELECT t.offer_code, t.name, 'IMAGE', t.entry_code, 'ecom_image_gen', 'IMAGE_GEN', 'ENABLED', t.sort, 0
 FROM tmp_studio t
-WHERE NOT EXISTS (SELECT 1 FROM afv_billing_offer o
+WHERE @img_model IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM afv_billing_offer o
                    WHERE o.offer_code = t.offer_code COLLATE utf8mb4_unicode_ci
                       OR (o.entry_code = t.entry_code COLLATE utf8mb4_unicode_ci AND o.deleted = 0));
 

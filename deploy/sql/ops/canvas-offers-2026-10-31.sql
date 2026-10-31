@@ -11,6 +11,9 @@
 -- 执行顺序：Go_V1.0.25__canvas.sql → 本脚本 → 产品定价后改价格模型 → bash install.sh check-billing 全过 → BILLING_MODE=on。
 -- 为什么必须配：canvas-rpc 提交 image / video / i2p 时先做准入（billing.CheckAccess，与计费开关无关），
 --   入口没有 offer 会被拒（「暂未开通该功能」2005）——缺配置不静默放行。
+-- 模型缺失（creaft-image-2 / creaft-video-2.0 查不到）：对应入口整套都不建（不会留下 ENABLED 的空壳 offer），
+--   脚本会 SELECT 出「⚠️ 模型缺失」告警行；先在后台补好模型再重跑本脚本即可补建（NOT EXISTS 判重）。
+--   入口没有 offer 时 canvas-rpc 准入拒绝（2005），即「缺配置 = 关闭」，不会半套放行或免费放行。
 -- 可重复执行：NOT EXISTS 判重，已有的不覆盖。先备份（已有备份不覆盖）。
 
 SET NAMES utf8mb4;
@@ -22,6 +25,10 @@ CREATE TABLE IF NOT EXISTS afv_billing_charge_component_bak_1031  AS SELECT * FR
 SET @img_model := (SELECT id FROM afv_ai_model WHERE code = 'creaft-image-2' AND deleted = 0 ORDER BY id LIMIT 1);
 SET @vid_model := (SELECT id FROM afv_ai_model WHERE code = 'creaft-video-2.0' AND deleted = 0 ORDER BY id LIMIT 1);
 SELECT @img_model AS `creaft-image-2（NULL=不存在）`, @vid_model AS `creaft-video-2.0（NULL=不存在）`;
+-- 告警：模型缺失的入口（有行 = 该入口未建，别往下走）
+SELECT t.offer_code AS `⚠️ 模型缺失，未建场景（先补模型再重跑）`
+FROM (SELECT 'canvas_image' AS offer_code, @img_model AS model_id UNION ALL SELECT 'canvas_tool_i2p', @img_model UNION ALL SELECT 'canvas_video', @vid_model) t
+WHERE t.model_id IS NULL;
 SET @canvas_base_points := 0; -- 查不到单价行时的兜底；0 = 不兜底（让检查报错），待产品定价
 
 DROP TEMPORARY TABLE IF EXISTS tmp_canvas;
@@ -35,7 +42,8 @@ INSERT INTO tmp_canvas VALUES
 INSERT INTO afv_billing_offer (offer_code, name, category, entry_code, feature_code, billing_scene, status, sort, deleted)
 SELECT t.offer_code, t.name, t.category, t.offer_code, t.feature, t.scene, 'ENABLED', t.sort, 0
 FROM tmp_canvas t
-WHERE NOT EXISTS (SELECT 1 FROM afv_billing_offer o
+WHERE t.model_id IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM afv_billing_offer o
                    WHERE o.offer_code = t.offer_code COLLATE utf8mb4_unicode_ci
                       OR (o.entry_code = t.offer_code COLLATE utf8mb4_unicode_ci AND o.deleted = 0));
 

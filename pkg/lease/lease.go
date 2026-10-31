@@ -128,7 +128,9 @@ func detached(ctx context.Context) (context.Context, context.CancelFunc) {
 
 // Keep 抢一行的租约并在后台每 ttl/3 续一次，直到 stop。
 //   - 抢不到返回 ok=false（ctx2 / stop 为 nil）。
-//   - 返回的 ctx2 在租约明确丢失（Extend 返回 false）时取消，调用方据此停手；续租出错（库暂时不可用）不取消，下次再续。
+//   - 返回的 ctx2 在租约明确丢失（Extend 返回 false）时取消，调用方据此停手。
+//   - 续租出错（库暂时不可用）先不取消、下次再续；但距上次续上（或抢到）已超过 ttl - ttl/3 仍没续上，
+//     就主动取消 ctx2：再拖下去租约会在库里过期、被别的实例接管，两边同时推进同一行。留 ttl/3 余量给调用方停手。
 //   - stop 停止心跳并释放租约（幂等）。
 func Keep(ctx context.Context, db Execer, table string, id int64, owner string, ttl time.Duration) (ctx2 context.Context, stop func(), ok bool, err error) {
 	ok, err = Acquire(ctx, db, table, id, owner, ttl)
@@ -139,6 +141,7 @@ func Keep(ctx context.Context, db Execer, table string, id int64, owner string, 
 	quit, done := make(chan struct{}), make(chan struct{})
 	go func() {
 		defer close(done)
+		lastOK, giveUp := time.Now(), ttl-ttl/3
 		t := time.NewTicker(ttl / 3)
 		defer t.Stop()
 		for {
@@ -151,8 +154,14 @@ func Keep(ctx context.Context, db Execer, table string, id int64, owner string, 
 				ectx, ecancel := detached(ctx2)
 				held, err := Extend(ectx, db, table, id, owner, ttl)
 				ecancel()
-				if err == nil && !held {
+				switch {
+				case err == nil && held:
+					lastOK = time.Now()
+				case err == nil:
 					cancel() // 已被别人接管
+					return
+				case time.Since(lastOK) >= giveUp:
+					cancel() // 一直续不上：租约快过期了，主动停手
 					return
 				}
 			}

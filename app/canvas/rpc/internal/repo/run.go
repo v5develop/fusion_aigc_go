@@ -180,16 +180,20 @@ func (r *RunRepo) ListHeldActive(ctx context.Context, limit int) ([]*model.NodeR
 	return list, err
 }
 
-// ListFinalBillingOpen 计费镜像待对账的 run：已终态（成功 / 失败 / 取消）、gateway 后端、镜像仍是 review（UNKNOWN 待对账）或 held、
-// 有计费请求号，且 updated_at 不早于 since（走 idx_status(status, updated_at) 的范围扫描，不全表扫）。按 id 升序，最多 limit 条。
-func (r *RunRepo) ListFinalBillingOpen(ctx context.Context, since time.Time, limit int) ([]*model.NodeRun, error) {
+// ListFinalBillingOpen 计费镜像待对账的 run：已终态（成功 / 失败 / 取消）、gateway 后端、镜像仍是 review（UNKNOWN 待对账）、
+// held 或 unsettled（已交付但确认扣费失败），有计费请求号，且 updated_at 不早于 since（走 idx_status(status, updated_at)
+// 的范围扫描，不全表扫）。只取 id > afterID 的，按 id 升序，最多 limit 条：调用方记录上次游标轮转，积压时每轮都能前进，
+// 不会被长期仍 HELD 的行占住队头。
+func (r *RunRepo) ListFinalBillingOpen(ctx context.Context, since time.Time, afterID int64, limit int) ([]*model.NodeRun, error) {
 	var list []*model.NodeRun
-	err := r.db.NewSelect().Model(&list).Column("r.id", "r.user_id", "r.billing_request_id", "r.billing_status").
+	err := r.db.NewSelect().Model(&list).
+		Column("r.id", "r.user_id", "r.kind", "r.billing_request_id", "r.billing_status", "r.candidates").
 		Where("r.status IN (?)", bun.In([]int8{model.RunSucceeded, model.RunFailed, model.RunCanceled})).
 		Where("r.updated_at >= ?", since).
 		Where("r.backend = ?", model.BackendGateway).
-		Where("r.billing_status IN (?)", bun.In([]string{model.BillReview, model.BillHeld})).
+		Where("r.billing_status IN (?)", bun.In([]string{model.BillReview, model.BillHeld, model.BillUnsettled})).
 		Where("r.billing_request_id IS NOT NULL AND r.billing_request_id <> ''").
+		Where("r.id > ?", afterID).
 		OrderExpr("r.id ASC").Limit(int64(limit)).Scan(ctx)
 	return list, err
 }

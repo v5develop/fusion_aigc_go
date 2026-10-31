@@ -69,6 +69,7 @@ func (c *core) AdminForceFailRun(ctx context.Context, in *canvas.AdminRunReq) (*
 		return nil, xerr.New(xerr.Conflict, "执行状态已变化，请刷新")
 	}
 	c.cancelUpstream(ctx, r, "运营强制失败")
+	c.reclaimUnrefCalls(ctx, r, "运营强制失败")
 	logx.WithContext(ctx).Infof("canvas: 管理员 %d 强制失败 run %d：%s", in.AdminId, r.ID, msg)
 	return &canvas.Empty{}, nil
 }

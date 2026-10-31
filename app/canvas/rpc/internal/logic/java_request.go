@@ -86,13 +86,37 @@ func javaLive(run *model.NodeRun) bool {
 type recoverResult int
 
 const (
-	recoverTransient     recoverResult = iota // 网络 / 5xx / 429 / 1004：计入重试上限
+	recoverTransient     recoverResult = iota // javaRetryable（网络 / 5xx / 429 / 1004 / 3010 / 5005 / 46011）：计入重试上限
 	recoverOK                                 // 已写回 backend_ref 并转运行中
 	recoverLost                               // CAS 落空：run 已被别处改变（如提交方同时转了运行中）
 	recoverUnauthorized                       // 登录态无效
 	recoverNoTask                             // 3003 点数不足：同键在 Java 没有任务（有则先按摘要重放，到不了扣费）
 	recoverUnrecoverable                      // 1003 同键内容不同 / 其它业务拒绝：无法找回
 )
+
+// Java 明确表示「稍后重试」的业务码（fusion-aigc common/ErrorCode）。
+const (
+	javaCodeTooFrequent = 1004  // REQUEST_TOO_FREQUENT
+	javaCodeProcessing  = 3010  // TASK_PROCESSING：受理成功、仍在处理中
+	javaCodeSubmitRetry = 5005  // SUBMIT_RETRY：提交期间配置已变更（HTTP 500）
+	javaCodeInProgress  = 46011 // REQUEST_IN_PROGRESS：同键请求处理中
+)
+
+// javaRetryable Java 错误是否暂时性（提交 javaErr 与找回 recoverJavaRef 共用一个口径）：网络 / HTTP 429 / HTTP ≥500
+// （Java 把 5xxx 业务码映成 HTTP 500，包括 5005 SUBMIT_RETRY），以及 Java 明确「请重试」的业务码。登录失效不算。
+func javaRetryable(je *javatool.Error) bool {
+	if je == nil || je.Unauthorized() {
+		return false
+	}
+	if je.Temporary() {
+		return true
+	}
+	switch je.Code {
+	case javaCodeTooFrequent, javaCodeProcessing, javaCodeSubmitRetry, javaCodeInProgress:
+		return true
+	}
+	return je.Code >= 5000 && je.Code < 6000
+}
 
 // recoverJavaRef 排队中、已发过请求的 run：同键逐字节重放拿回 taskUid → CAS 排队→运行中写回 backend_ref。
 func (c *core) recoverJavaRef(ctx context.Context, run *model.NodeRun, bearer string) (recoverResult, error) {
@@ -110,7 +134,7 @@ func (c *core) recoverJavaRef(ctx context.Context, run *model.NodeRun, bearer st
 			return recoverUnauthorized, err
 		case errors.As(err, &je) && je.Code == xerr.InsufficientPoints:
 			return recoverNoTask, err
-		case errors.As(err, &je) && (je.Temporary() || je.Code == 1004):
+		case errors.As(err, &je) && javaRetryable(je):
 			return recoverTransient, err
 		case errors.As(err, &je):
 			return recoverUnrecoverable, err

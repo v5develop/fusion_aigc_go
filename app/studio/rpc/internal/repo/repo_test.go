@@ -143,3 +143,19 @@ func TestTxRebinds(t *testing.T) {
 	}
 	done(t, mock)
 }
+
+// 写调用号时记 started_at（真正提交 gateway 的时刻）：started_at 必须排在 gateway_call_id 之前（MySQL 按书写顺序求值，读旧调用号）。
+func TestSetGatewayStartedAt(t *testing.T) {
+	r, mock := newMock(t)
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE `afv_studio_task` SET gateway_status = 'QUEUED', started_at = IF(gateway_call_id <=> 'c1', COALESCE(started_at, NOW(3)), NOW(3)), gateway_call_id = 'c1' WHERE (id = 5)")).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE `afv_studio_task` SET gateway_status = 'RUNNING' WHERE (id = 5)")).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	if err := r.Task.SetGateway(ctx, 5, "c1", "QUEUED"); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Task.SetGateway(ctx, 5, "", "RUNNING"); err != nil {
+		t.Fatal(err)
+	}
+	done(t, mock)
+}

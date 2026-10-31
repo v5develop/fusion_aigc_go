@@ -7,7 +7,7 @@
 #   docker compose logs -f prepare               # 看准备过程（迁移、配置、计费自检）
 #
 # 网络：全部 host 网络，与一键脚本部署的拓扑一致——
-#   · 服务只监听 127.0.0.1（网关 18888、后台 18889、rpc 19201–19204），公网只经宿主机 nginx；
+#   · 服务只监听 127.0.0.1（网关 18888、后台 18889、rpc 19201–19207），公网只经宿主机 nginx；
 #   · Redis 在宿主机（127.0.0.1:6379），MySQL 是阿里云 RDS（按内网地址连），Java 在 127.0.0.1:18080。
 #
 # 本文件不含 mock。本地联调叠加 docker-compose.dev.yml。
@@ -122,7 +122,7 @@ services:
   # 反推 sidecar（Python，只给 studio-rpc 用）：host 网络下只绑 127.0.0.1，不映射端口、不经 nginx；没有鉴权，靠只听本机隔离。
   # 模型调用经 ai-gateway（调用方 prompt-reverse，模型组默认 vlm.deepseek-flash：官方优先、百炼备用），不再直连 DeepSeek；DeepSeek 官方密钥只在 gateway 管理端。
   # 排障钉渠道：REVERSE_ALLOWED_DEPLOYMENTS（逗号分隔 → constraints.allowed_deployments），平时留空。
-  # REVERSE_AIG_SECRET 只通过环境变量注入到这个容器，不写镜像、不进 etc/、不进其它服务；须与 ai-gateway 侧 AIG_CALLER_REVERSE_SECRET 一致。
+  # REVERSE_AIG_SECRET 通过环境变量注入到这个容器，不写镜像、不进 etc/、不进运行中的其它服务（一次性 prepare 容器经 env_file 加载整个 .env，也读得到）；须与 ai-gateway 侧 AIG_CALLER_REVERSE_SECRET 一致。
   # REVERSE_AIG_BASE_URL 留空时复用 AI_GATEWAY_URL（同一个网关，不同调用方）。
   # 镜像：docker build -t aigc-prompt-reverse:<版本> tools/prompt-reverse（REVERSE_IMAGE 填它）；studio-rpc 不依赖它起来，
   # sidecar 不可用时 studio 提交的批次会失败并退款，其它功能不受影响。

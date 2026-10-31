@@ -41,6 +41,9 @@ NONCE_RE = re.compile(r"^[A-Za-z0-9_-]{16,128}$")
 IDEMPOTENCY_KEY_RE = re.compile(r"^[A-Za-z0-9._:/#@-]{1,255}$")
 MAX_WAIT_S = 60
 
+# 不走环境代理（HTTP(S)_PROXY / ALL_PROXY）：网关是内网/本机地址，经代理会被劫持或 502，也可能把签名请求外泄给代理
+_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
 # 失败类别 → 是否值得重提（新幂等键）。未列出的按不可重试处理。
 RETRYABLE_FAILURE_CLASSES = frozenset({
     "NO_CAPACITY", "NO_ROUTE", "ATTEMPTS_EXHAUSTED", "VENDOR_FAILED",
@@ -235,7 +238,7 @@ class AigClient:
                          method=method, path=full_path, query=query, raw_body=raw))
         req = urllib.request.Request(url, data=raw if body is not None else None, headers=hdrs, method=method)
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
+            with _OPENER.open(req, timeout=timeout) as resp:
                 data = resp.read()
                 return resp.status, (json.loads(data.decode("utf-8")) if data else {})
         except urllib.error.HTTPError as e:

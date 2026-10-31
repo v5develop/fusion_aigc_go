@@ -7,10 +7,14 @@
 -- 预留单状态 CONFIRMED / PARTIALLY_REFUNDED 都算已结算；EXPIRED / CANCELLED / REFUNDED 都算已退回。
 
 -- name: StudioTasksBillingMismatch :many
--- 业务含义：任务终态与预留单状态不一致。三种情况：
---   succeeded_not_confirmed  任务成功，但预留单没结算（仍 HELD，或已退回，或根本没有预留单）
---   failed_but_held          任务失败 / 取消，预留单还冻着，点数没退
---   failed_but_confirmed     任务失败 / 取消，预留单却已结算，多扣了
+-- 业务含义：任务终态与预留单状态不一致。四种情况：
+--   succeeded_not_confirmed        任务成功，但预留单没结算（仍 HELD，或已退回，或根本没有预留单）
+--   failed_but_held                任务失败 / 取消，预留单还冻着，点数没退
+--   failed_but_confirmed           任务失败 / 取消，预留单却已结算，多扣了
+--   failed_but_partially_refunded  任务失败 / 取消，预留单只退了一部分（仍有点数被扣）
+-- 例外：结果未知（error_reason='结果未知，待对账'）的失败任务按设计不主动退款，预留单留给回收器到期释放。
+-- 在「冻结时长（Billing.Hold.DefaultMinutes 默认 30 分钟）+ 回收周期（1 分钟）」内仍 HELD 是正常的，不报 failed_but_held；
+-- 超过这个窗口还 HELD 才报（回收器没收掉）。改了冻结时长要同步改这里的 31 分钟。
 -- 读者：对账人员每天跑；有结果就要人工核。
 SELECT
   t.id,
@@ -27,6 +31,7 @@ SELECT
   CASE
     WHEN t.status = 2 THEN 'succeeded_not_confirmed'
     WHEN r.status = 'HELD' THEN 'failed_but_held'
+    WHEN r.status = 'PARTIALLY_REFUNDED' THEN 'failed_but_partially_refunded'
     ELSE 'failed_but_confirmed'
   END AS mismatch_type
 FROM afv_studio_task t
@@ -40,7 +45,9 @@ WHERE t.billing_request_id IS NOT NULL AND t.billing_request_id <> ''
   AND (t.billing_status <> 0 OR r.id IS NOT NULL)
   AND (
         (t.status = 2 AND (r.id IS NULL OR r.status NOT IN ('CONFIRMED', 'PARTIALLY_REFUNDED')))
-     OR (t.status IN (3, 4) AND r.status IN ('HELD', 'CONFIRMED'))
+     OR (t.status IN (3, 4) AND r.status IN ('CONFIRMED', 'PARTIALLY_REFUNDED'))
+     OR (t.status IN (3, 4) AND r.status = 'HELD'
+         AND NOT (t.error_reason = '结果未知，待对账' AND t.updated_at > NOW() - INTERVAL 31 MINUTE))
   )
 ORDER BY t.id
 LIMIT ?;

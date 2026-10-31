@@ -12,6 +12,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"sync"
 	"time"
 
 	"aigc-local-life/pkg/bundb"
@@ -106,6 +107,19 @@ func (r *BatchRepo) KeepLease(ctx context.Context, id int64, owner string, ttl t
 }
 
 // KeepLease 抢子任务的租约并后台心跳续租（pkg/lease.Keep）；ok=false 表示别的实例持有。
+// stop 释放租约后再 MarkPolled（记下轮询结束时刻，ListByStatus 据此轮转；失败无妨，只影响排序）。
 func (r *TaskRepo) KeepLease(ctx context.Context, id int64, owner string, ttl time.Duration) (context.Context, func(), bool, error) {
-	return lease.Keep(ctx, r.db, TableTask, id, owner, ttl)
+	lctx, stop, ok, err := lease.Keep(ctx, r.db, TableTask, id, owner, ttl)
+	if !ok || err != nil {
+		return lctx, stop, ok, err
+	}
+	var once sync.Once
+	return lctx, func() {
+		once.Do(func() {
+			stop()
+			mctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			_ = r.MarkPolled(mctx, id)
+			cancel()
+		})
+	}, true, nil
 }

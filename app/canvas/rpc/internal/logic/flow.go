@@ -517,8 +517,7 @@ func (c *core) advanceQueuedRun(ctx context.Context, run *model.NodeRun, gone ma
 	if javaLive(run) {
 		// Java 发过请求但 backend_ref 没写上：待取消 / 画布已删 / 排队超时都按幂等键重放找回任务号再取消（见 java_request.go）
 		bearer := c.s.Bearers.Get(run.UserID)
-		if mode, tries, ok := pendingJavaStop(run); ok {
-			c.stopJava(ctx, run, mode, firstNonEmpty(run.ErrorReason.String, "已取消执行"), bearer, tries)
+		if c.retryPendingJavaStop(ctx, run, bearer) { // 待取消：按退避到点才重试
 			return
 		}
 		if gone[run.CanvasID] {
@@ -682,8 +681,7 @@ func (c *core) pollJava(ctx context.Context, run *model.NodeRun) { c.pollJavaRun
 // （拿不到有效登录态时退化为停止跟踪，见 java_cancel.go）；否则查任务、终态收尾。
 func (c *core) pollJavaRun(ctx context.Context, run *model.NodeRun, gone bool) {
 	bearer := c.s.Bearers.Get(run.UserID)
-	if mode, tries, ok := pendingJavaStop(run); ok {
-		c.stopJava(ctx, run, mode, firstNonEmpty(run.ErrorReason.String, "已取消执行"), bearer, tries)
+	if c.retryPendingJavaStop(ctx, run, bearer) { // 待取消：按退避到点才重试
 		return
 	}
 	if gone {
@@ -701,8 +699,11 @@ func (c *core) pollJavaRun(ctx context.Context, run *model.NodeRun, gone bool) {
 				return
 			}
 		case errors.As(err, &je) && je.Unauthorized():
-			// 令牌已失效：丢掉缓存，等前端下一次请求带新的进来（不再拿旧令牌反复打 Java）
-			c.s.Bearers.Delete(run.UserID)
+			// 令牌已失效：丢掉缓存，等前端下一次请求带新的进来（不再拿旧令牌反复打 Java）。
+			// 只删本次用的那个：期间用户请求可能已补进新令牌，不能误删
+			if c.s.Bearers.Get(run.UserID) == bearer {
+				c.s.Bearers.Delete(run.UserID)
+			}
 			bearer = ""
 			logx.WithContext(ctx).Infof("canvas: 查 Java 任务 %s（run %d）401，已清除缓存的登录令牌", run.BackendRef.String, run.ID)
 		default:

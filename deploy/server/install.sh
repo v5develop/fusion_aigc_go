@@ -550,14 +550,14 @@ check_nginx_routes() {
   body=$(printf '%s' "$body" | sed '$d')
   case "$code" in
     ""|000|5*) yellow "  ! 无法经 nginx 验证后台路由（HTTP ${code:-无响应}），请手动确认 $path"; return 0 ;;
-    3*) yellow "  ! 站点把请求跳转了（HTTP $code），无法在 HTTP 上验证后台路由，请在 HTTPS 上手动确认"; return 0 ;;
+    3*) yellow "  ! 站点把请求跳转了（HTTP ${code}），无法在 HTTP 上验证后台路由，请在 HTTPS 上手动确认"; return 0 ;;
   esac
   if [[ $body == *'"requestId"'* ]]; then
     red "  ✗ 后台路由未生效：$path 被转到了 Java（响应带 requestId）"
     echo "    把 $INSTALL_DIR/nginx/aigc-local-life.conf 里的 location ^~ /api/v1/local-life/admin 合并进线上站点配置，然后 nginx -t && nginx -s reload"
     return 0
   fi
-  green "  ✓ 后台路由生效（$path 由 Go 应答，HTTP $code）"
+  green "  ✓ 后台路由生效（$path 由 Go 应答，HTTP ${code}）"
 }
 
 self_check() {

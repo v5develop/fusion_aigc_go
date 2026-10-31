@@ -174,10 +174,12 @@ for it in d.get("items", []):
     if [[ -z $line ]]; then fail "gateway: 模型组 $g 不在响应里"; continue; fi
     IFS=$'\t' read -r _ ready reason en av <<<"$line"
     if [[ $ready == true ]]; then ok "gateway: $g 就绪（可用部署 $av/${en}）"
-      [[ $av =~ ^[0-9]+$ && $en =~ ^[0-9]+$ && $av -lt $en ]] \
-        && warn "gateway: $g 有部署被门控（可用 $av/${en}：熔断 / 探测失败 / 账号缺密钥），流量落在备用渠道"
+      if [[ $av =~ ^[0-9]+$ && $en =~ ^[0-9]+$ && $av -lt $en ]]; then
+        warn "gateway: $g 有部署被门控（可用 $av/${en}：熔断 / 探测失败 / 账号缺密钥），流量落在备用渠道"
+      fi
     else fail "gateway: $g 未就绪（${reason}，可用部署 $av/${en}）"; fi
   done
+  return 0
 }
 
 # ---------- 2. sidecar ----------
@@ -217,6 +219,7 @@ check_sidecar() {
   [[ $mock == true ]] && warn "sidecar: mock=true，返回的是假数据，上线前必须关"
   if is_internal_host "$host"; then ok "sidecar: 地址 $host 为本机/内网"
   else warn "sidecar: 地址 $host 看起来是公网，sidecar 无鉴权，只能内网访问——确认安全组/防火墙只放行 Go 服务"; fi
+  return 0
 }
 
 # ---------- 3. media ----------
@@ -233,6 +236,7 @@ check_media() {
     000) fail "media: capabilities 请求失败（$(curl_err)）" ;;
     *)   fail "media: capabilities 返回 $HTTP_CODE" ;;
   esac
+  return 0
 }
 
 # ---------- 4. java ----------
@@ -256,6 +260,7 @@ check_java() {
     000) fail "java: 连不上 ${base}（$(curl_err)）" ;;
     *)   fail "java: $JAVA_PROBE_PATH 返回 $HTTP_CODE" ;;
   esac
+  return 0
 }
 
 # ---------- 5. mysql ----------
@@ -311,6 +316,7 @@ check_mysql() {
     fail "mysql: 查询 admin 权限失败（$(curl_err)）"; return; fi
   miss=""; for t in $ADMIN_PERMS; do grep -qx "$t" <<<"$have" || miss="$miss $t"; done
   if [[ -z $miss ]]; then ok "mysql: admin 权限码齐全（${ADMIN_PERMS}）"; else fail "mysql: admin 权限码缺失:${miss}（Go_V1.0.22/24/26 权限迁移没跑？）"; fi
+  return 0
 }
 
 # ---------- 6. nginx ----------
@@ -327,6 +333,7 @@ check_nginx() {
       *) warn "nginx: $p -> ${HTTP_CODE}（非预期，人工确认）" ;;
     esac
   done
+  return 0
 }
 
 # ---------- 7. ports ----------
@@ -336,6 +343,7 @@ check_ports() {
     if (exec 3<>"/dev/tcp/127.0.0.1/$p") 2>/dev/null; then ok "ports: 127.0.0.1:$p 有监听"
     else fail "ports: 127.0.0.1:$p 没有监听（对应 rpc 未启动；容器部署请 --skip ports）"; fi
   done
+  return 0
 }
 
 for item in $ALL_ITEMS; do

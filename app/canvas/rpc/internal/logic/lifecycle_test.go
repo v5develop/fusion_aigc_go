@@ -236,11 +236,36 @@ func TestPollJava401ClearsBearer(t *testing.T) {
 	c.s.Bearers.Put(7, "Bearer old")
 	run := &model.NodeRun{ID: 21, UserID: 7, Kind: model.KindToolUpscale, Backend: model.BackendJava, Status: model.RunRunning,
 		BillingStatus: model.BillJava, BackendRef: sql.NullString{String: "JT1", Valid: true}, CreatedAt: time.Now().Add(-time.Hour)}
-	mock.ExpectExec("UPDATE `afv_canvas_node_run` SET `status` = 3, .*`error_reason` = '工具执行超时；Java 任务未能取消（无有效登录态）.* WHERE \\(`id` = 21\\) AND \\(`status` = 1\\)").
+	// 令牌清掉后超时停止：Poller 场景缺令牌不立即退化，登记待取消（带尝试时间）等令牌补进来
+	mock.ExpectExec("SET `error_code` = 'JAVA_CANCEL_PENDING:t:1:[0-9]+', `error_reason` = '工具执行超时' WHERE \\(id = 21\\) AND \\(status = 1\\)").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	c.pollJava(context.Background(), run)
 	if c.s.Bearers.Get(7) != "" {
 		t.Fatal("Java 401 应清掉缓存的令牌")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// 查询期间用户请求补进了新令牌：401 只删「值相等」的旧令牌，新令牌保留。
+func TestPollJava401KeepsNewerBearer(t *testing.T) {
+	c, mock := mockCore(t)
+	srv, _ := fakeServer(t, func(w http.ResponseWriter, r *http.Request, _ []byte) {
+		c.s.Bearers.Put(7, "Bearer new") // 并发：用户刚带来新令牌
+		w.WriteHeader(401)
+		_, _ = w.Write([]byte(`{"code":2001,"msg":"未登录"}`))
+	})
+	c.s.Java = javatool.New(srv.URL, 5*time.Second)
+	c.s.Bearers.Put(7, "Bearer old")
+	run := &model.NodeRun{ID: 21, UserID: 7, Kind: model.KindToolUpscale, Backend: model.BackendJava, Status: model.RunRunning,
+		BillingStatus: model.BillJava, BackendRef: sql.NullString{String: "JT1", Valid: true}, CreatedAt: time.Now()}
+	c.pollJava(context.Background(), run) // 未超时：只查询
+	if got := c.s.Bearers.Get(7); got != "Bearer new" {
+		t.Fatalf("新令牌不应被删: %q", got)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
@@ -619,5 +644,73 @@ func TestSettleQuantityByKind(t *testing.T) {
 		if got := settleQuantity(c.kind, c.actual); got != c.want {
 			t.Fatalf("%s actual=%d → %d，want %d", c.kind, c.actual, got, c.want)
 		}
+	}
+}
+
+// fakeGateway POST /v1/calls 依次回 submits（用完停在最后一个），/cancel 回已取消；记录请求路径。
+func fakeGateway(t *testing.T, c *core, submits ...int) *recorder {
+	var mu sync.Mutex
+	n := 0
+	srv, rec := fakeServer(t, func(w http.ResponseWriter, r *http.Request, _ []byte) {
+		if strings.HasSuffix(r.URL.Path, "/cancel") {
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": "call_aaaaaaaaaa07", "status": "CANCELLED"})
+			return
+		}
+		mu.Lock()
+		code := submits[min(n, len(submits)-1)]
+		n++
+		mu.Unlock()
+		if code != 200 {
+			w.WriteHeader(code)
+			_, _ = w.Write([]byte(`{"error":{"code":"unavailable","message":"down"}}`))
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": "call_aaaaaaaaaa07", "status": "QUEUED"})
+	})
+	c.s.Gateway = aigateway.New(aigateway.Config{BaseURL: srv.URL, KeyID: "k", Secret: "s"})
+	return rec
+}
+
+// 运营强制失败「提交过（attempt>0）但没有 backend_ref」的 gateway run：按幂等键取回此前可能已建的调用并取消。
+func TestForceFailGatewayReclaimsUnrefCalls(t *testing.T) {
+	c, mock := mockCore(t)
+	c.s.Billing = billing.New(billing.Conf{Mode: billing.ModeOff}, nil)
+	rec := fakeGateway(t, c, 200)
+	mock.ExpectQuery("FROM `afv_canvas_node_run` AS `r` WHERE \\(r.id = 41\\)").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "canvas_id", "node_id", "user_id", "status", "backend", "kind", "billing_status", "attempt", "requested_count", "task_id", "request"}).
+			AddRow(41, "cv_1", "m", 7, 0, "gateway", "image", "none", 2, 1, "cv_t", `{"model":"Banana","prompt":"p","count":1}`))
+	mock.ExpectExec("SET `status` = 3, .*`error_code` = 'ADMIN_FORCE_FAIL'.* WHERE \\(`id` = 41\\) AND \\(`status` = 0\\)").WillReturnResult(sqlmock.NewResult(0, 1))
+	if _, err := c.AdminForceFailRun(context.Background(), &canvas.AdminRunReq{Id: 41, AdminId: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if !rec.has("/v1/calls/call_aaaaaaaaaa07/cancel") {
+		t.Fatalf("应取回并取消孤儿调用: %v", rec.paths)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// gateway 提交次数用尽（暂时性）：置失败退款后，按幂等键取回此前超时提交可能已建的调用并取消。
+func TestDispatchGatewayExhaustedReclaims(t *testing.T) {
+	c, mock := mockCore(t)
+	c.s.Billing = billing.New(billing.Conf{Mode: billing.ModeOff}, nil)
+	rec := fakeGateway(t, c, 503, 200)
+	run := gatewayRun(41, model.RunQueued)
+	run.Attempt = 4
+	run.Request = json.RawMessage(`{"model":"Banana","prompt":"p","count":1}`)
+	sp, err := c.specFromRun(context.Background(), run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mock.ExpectExec("SET `status` = 3, .*`error_code` = 'SUBMIT_FAILED'.* WHERE \\(`id` = 41\\) AND \\(`status` = 0\\)").WillReturnResult(sqlmock.NewResult(0, 1))
+	if err := c.dispatch(context.Background(), run, sp, ""); err == nil {
+		t.Fatal("次数用尽应回错误")
+	}
+	if !rec.has("/v1/calls/call_aaaaaaaaaa07/cancel") {
+		t.Fatalf("应取回并取消孤儿调用: %v", rec.paths)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
 	}
 }
