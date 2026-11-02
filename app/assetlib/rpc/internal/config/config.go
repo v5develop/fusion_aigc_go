@@ -19,6 +19,19 @@ type Config struct {
 	// InputURLPrefixes 除本存储签发的地址外，额外允许的图片地址前缀（素材库公有桶域名，如 https://cdn.example.com/）。
 	// 与 studio 同口径；oss 模式下素材库公有桶不在 Storage 签发范围时必须配。
 	InputURLPrefixes []string `json:",optional"`
+	// Media 共享媒体服务：读时把 afv_asset 里的资源引用 mr://{rid}（Java 写入的封面等）现签成可访问地址。
+	// 与 studio / canvas 同结构：配了 NacosServerAddr 订阅实例，BaseURL 只作回退；都留空则 mr:// 一律输出为空。
+	Media struct {
+		NacosServerAddr  string   `json:",optional"`
+		NacosNamespace   string   `json:",optional"`
+		NacosGroup       string   `json:",default=DEFAULT_GROUP"`
+		NacosServiceName string   `json:",default=aigc-media"`
+		NacosUsername    string   `json:",optional"`
+		NacosPassword    string   `json:",optional"`
+		BaseURL          string   `json:",optional"`
+		BaseURLs         []string `json:",optional"`
+		Token            string   `json:",optional"`
+	}
 	// Limits 服务端校验上限（与前端一致，改了要同步 docs/api/api-asset-library.md）
 	Limits struct {
 		TitleLen         int `json:",default=100"`  // 标题字数（afv_asset.name 是 varchar(128)）

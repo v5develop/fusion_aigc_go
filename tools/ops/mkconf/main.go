@@ -334,6 +334,12 @@ func (e editor) apply(root *yaml.Node) error {
 		}
 		set(root, "InputURLPrefixes", seq)
 	}
+	// assetlib：共享媒体服务（读时现签 mr://{rid}）
+	if e.name == "assetlib" {
+		if ms := get(root, "Media"); ms != nil {
+			e.applyMedia(ms)
+		}
+	}
 	// canvas：共享媒体服务、ai-gateway（与 studio 同一组调用方凭据）、Java 主项目地址。TaskIDPrefix 固定 cv，不跟 -task-id-prefix 走
 	if e.name == "canvas" {
 		if ms := get(root, "Media"); ms != nil {

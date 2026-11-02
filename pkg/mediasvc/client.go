@@ -179,6 +179,9 @@ const instanceIDMetaKey = "instance_id"
 // ridPattern 资源 ID：{所属实例 6 位}-{类别}-{26 位编码}。
 var ridPattern = regexp.MustCompile(`^([a-z0-9]{6})-(user|work|deliver|asset)-[a-z2-7]{26}$`)
 
+// ValidRID s 是否为合法资源 ID（ResourceURLs 遇到不合法的 rid 会整批失败，调用方可先用它过滤）。
+func ValidRID(s string) bool { return ridPattern.MatchString(s) }
+
 // ownerOf 资源 ID 的所属实例 ID；不是资源 ID（如 URL 键）返回空串。
 func ownerOf(key string) string {
 	if m := ridPattern.FindStringSubmatch(key); m != nil {

@@ -224,6 +224,8 @@ func toAssets(ctx context.Context, s *svc.ServiceContext, uid int64, rows []*rep
 	if err != nil {
 		return nil, err
 	}
+	// 列表 / 详情 / 相关资产 / 生成结果都经这里：mr://{rid} 现签成地址，失败置空
+	resolveRefs(ctx, signerOf(s), rows)
 	out := make([]*assetlib.Asset, 0, len(rows))
 	for _, r := range rows {
 		names := make([]string, 0, len(tags[r.ID]))
