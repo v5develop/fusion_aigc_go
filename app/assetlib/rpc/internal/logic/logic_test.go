@@ -1,12 +1,15 @@
 package logic
 
 import (
+	"context"
 	"database/sql"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	"aigc-local-life/app/assetlib/model"
+	"aigc-local-life/app/assetlib/rpc/assetlib"
 	"aigc-local-life/app/assetlib/rpc/internal/repo"
 	"aigc-local-life/pkg/xerr"
 )
@@ -151,5 +154,42 @@ func TestStripControl(t *testing.T) {
 	}
 	if stripControl("\x01\x02 \x1f") != "" {
 		t.Fatal("全控制字符应为空")
+	}
+}
+
+func TestParseEntryCodes(t *testing.T) {
+	for in, want := range map[string][]string{
+		"":                            nil,
+		" , ":                         nil,
+		"txt2img":                     {"txt2img"},
+		" txt2img , img.edit-v2,A_1 ": {"txt2img", "img.edit-v2", "A_1"},
+		"a,,b,a":                      {"a", "b"},
+		strings.Repeat("x", 64):       {strings.Repeat("x", 64)},
+	} {
+		got, err := parseEntryCodes(in)
+		if err != nil || fmt.Sprint(got) != fmt.Sprint(want) || (want == nil) != (got == nil) {
+			t.Errorf("entry_codes %q：got %v err %v", in, got, err)
+		}
+	}
+	many := make([]string, 200)
+	for i := range many {
+		many[i] = fmt.Sprintf("e%d", i)
+	}
+	if got, err := parseEntryCodes(strings.Join(many, ",")); err != nil || len(got) != 200 {
+		t.Fatalf("200 个应合法：%d %v", len(got), err)
+	}
+	for _, bad := range []string{strings.Join(append(many, "e200"), ","), "a b", "a;b", "a'--", "中文", strings.Repeat("x", 65), "a,b/c"} {
+		_, err := parseEntryCodes(bad)
+		if code, _, _ := xerr.Parse(err); code != xerr.ParamError {
+			t.Errorf("entry_codes %.40q 应返回参数错误，got %d (%v)", bad, code, err)
+		}
+	}
+}
+
+// List 校验 entry_codes 在查库之前：非法值直接返回参数错误（svcCtx 为 nil 也不会走到仓储）。
+func TestListRejectsBadEntryCodes(t *testing.T) {
+	_, err := NewListLogic(context.Background(), nil).List(&assetlib.ListReq{UserId: 7, EntryCodes: "ok,bad code"})
+	if code, _, _ := xerr.Parse(err); code != xerr.ParamError {
+		t.Fatalf("应返回参数错误，got %d (%v)", code, err)
 	}
 }

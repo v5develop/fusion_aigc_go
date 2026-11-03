@@ -33,7 +33,11 @@ func (l *ListTagsLogic) ListTags(in *assetlib.UserReq) (*assetlib.ListTagsResp, 
 	if err != nil {
 		return nil, err
 	}
-	out := &assetlib.ListTagsResp{Items: make([]*assetlib.Tag, 0, len(rows))}
+	untagged, err := l.svcCtx.Repo.Tag.UntaggedCount(l.ctx, in.UserId)
+	if err != nil {
+		return nil, err
+	}
+	out := &assetlib.ListTagsResp{Items: make([]*assetlib.Tag, 0, len(rows)), UntaggedCount: untagged}
 	for _, t := range rows {
 		out.Items = append(out.Items, &assetlib.Tag{Id: t.ID, Name: t.Name, AssetCount: t.AssetCount, CreatedAt: pagex.Ms(t.CreatedAt)})
 	}

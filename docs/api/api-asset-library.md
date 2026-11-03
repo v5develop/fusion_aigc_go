@@ -138,6 +138,7 @@
 |---|---|
 | `kind` | 空 = 全部；`uncategorized` = 未分类；或 5 个 kind 之一；或视频二级分类键之一（见下，只读筛选） |
 | `kind_group` | 空 = 不限；`image` = 5 个图片 kind（`kind IN (model, scene, makeup, hair, accessory)`）；`video` = 视频二级分类键。与 `kind` 同传时两者同时生效 |
+| `entry_codes` | 空 = 不限；逗号分隔的创作入口码，按素材的 `entry_code IN (...)` 筛选（列表与 `total` 同口径）。每项须匹配 `[A-Za-z0-9_.-]{1,64}`，最多 200 个；空段忽略、重复去重；格式不对或超量返回参数错误。前端分类条传所选分类节点的入口码（见 2.3） |
 | `source` | 空 = 全部；`input` / `generated` / `official` / `upload` |
 | `media` | 空 = 全部；`image` / `video` |
 | `aspect_ratio` | 空 = 不限；比例 `宽:高`（各 1~2 位数字，如 `1:1` / `3:4` / `4:3` / `9:16` / `16:9`），按素材的 `aspect_ratio` 精确匹配；格式不对返回参数错误 |
@@ -191,6 +192,18 @@
 点某个分类时，把 `key` 作为列表的 `kind` 传（`all` 不传 `kind`），两边计数一致。
 
 前端分类条按大类分两级：一级「全部 / 创作素材（`kind_group=image`）/ AI生视频（`kind_group=video`）/ 其他分类（`kind=uncategorized`）」，选中大类且未选二级时列表传 `kind_group`；选中二级时传该二级的 `kind`。大类计数由前端把二级计数相加（本接口不变；`aspect_ratio` 不影响分类计数）。
+
+### 2.3 我的资产分类条（Creaft v1）
+
+分类树来自 Java `GET /api/v1/asset/categories`（需登录 token），返回 `List<AssetCategoryRespVO>`：
+一级节点 `{id, categoryCode, categoryName, sortOrder, entryCodes, children, count, entries}`，二级节点同结构、`children` 恒为 `[]`，`entries` 为 `[{entryCode, entryName}]`（只二级有）。
+二级里编码以 `__other` 结尾的「其他」是后端合成的虚拟分类（`id` 为 null，渲染 key 用 `categoryCode`）。
+
+前端：首项「全部」（不传 `entry_codes`），其后每个一级一个 chip（`categoryName` + `count`）；选中有二级的一级时显示其二级 chip，
+「全部」= 该组各二级 `entryCodes`（缺省时取一级 `entryCodes`）之并；选中二级或无二级的一级时传该节点 `entryCodes`。
+入口码一律以 `entry_codes` 传给本列表接口；分类树取不到或为空时分类条只剩「全部」，列表照常加载。
+
+> 口径差异：Java `count` 按「可访问范围」计数，本列表只查本人素材，两边条数可能不一致。
 
 ---
 
@@ -281,10 +294,11 @@ PATCH /api/v1/asset-library/assets/1351
 ### 6.1 我的标签 `GET /tags`
 
 ```json
-{"code": 0, "msg": "ok", "data": {"items": [{"id": 5, "name": "夏季", "asset_count": 12, "created_at": 1761840000000}]}}
+{"code": 0, "msg": "ok", "data": {"items": [{"id": 5, "name": "夏季", "asset_count": 12, "created_at": 1761840000000}], "untagged_count": 30}}
 ```
 
 按名字排序；`asset_count` 只数未删除的资产。
+`untagged_count`：本人没挂任何标签的资产数（标签弹层「未分类」的计数），归属 / 删除 / 草稿口径同 `GET /assets`。
 
 ### 6.2 新建 / 重命名 / 删除
 

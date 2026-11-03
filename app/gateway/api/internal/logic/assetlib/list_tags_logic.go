@@ -34,7 +34,7 @@ func (l *ListTagsLogic) ListTags() (resp *types.AssetLibTagListResp, err error) 
 	if err != nil {
 		return nil, err
 	}
-	resp = &types.AssetLibTagListResp{Items: make([]types.AssetLibTag, 0, len(out.Items))}
+	resp = &types.AssetLibTagListResp{Items: make([]types.AssetLibTag, 0, len(out.Items)), UntaggedCount: out.UntaggedCount}
 	for _, t := range out.Items {
 		resp.Items = append(resp.Items, toTag(t))
 	}

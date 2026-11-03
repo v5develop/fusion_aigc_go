@@ -122,6 +122,7 @@ type AssetLibListReq struct {
 	PageSize     int64  `form:"page_size,optional,default=20"`            // 上限 100
 	KindGroup    string `form:"kind_group,optional,options=|image|video"` // 大类：image = 5 个图片 kind；video = 视频 kind
 	AspectRatio  string `form:"aspect_ratio,optional"`                    // 比例，如 1:1 / 3:4 / 9:16
+	EntryCodes   string `form:"entry_codes,optional"`                     // 入口码，逗号分隔（每项 [A-Za-z0-9_.-]{1,64}，最多 200 个），按 entry_code IN (...)
 }
 
 type AssetLibListResp struct {
@@ -170,7 +171,8 @@ type AssetLibTagCreateReq struct {
 }
 
 type AssetLibTagListResp struct {
-	Items []AssetLibTag `json:"items"`
+	Items         []AssetLibTag `json:"items"`
+	UntaggedCount int64         `json:"untagged_count"` // 没挂任何标签的资产数（「未分类」计数，口径同列表）
 }
 
 type AssetLibTagRenameReq struct {

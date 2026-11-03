@@ -25,13 +25,14 @@ type AssetRow struct {
 
 // Filter 列表 / 计数的筛选条件（空值不筛）。
 type Filter struct {
-	UserID       int64  // 必填：归属
-	Kind         string // 空=全部；uncategorized=kind 为空；其余为 model.Kinds
-	Source       string // 空 / input / generated / official / upload
-	KindGroup    string // 空 / image / video：按 model.KindGroupKinds 取 e.kind IN (...)
-	Media        string // 空 / image / video
-	AspectRatio  string // 空 / afv_asset.aspect_ratio 精确匹配
-	Tag          string // 标签名
+	UserID       int64    // 必填：归属
+	Kind         string   // 空=全部；uncategorized=kind 为空；其余为 model.Kinds
+	Source       string   // 空 / input / generated / official / upload
+	KindGroup    string   // 空 / image / video：按 model.KindGroupKinds 取 e.kind IN (...)
+	Media        string   // 空 / image / video
+	AspectRatio  string   // 空 / afv_asset.aspect_ratio 精确匹配
+	EntryCodes   []string // 空=不限；a.entry_code IN (...)（素材库聚合分类节点的成员入口码）
+	Tag          string   // 标签名
 	FavoriteOnly bool
 	Q            string
 	// RelatedOf / ResultsOf 详情页的相关资产 / 生成结果（按 afv_asset_relation 取 id 集合）
@@ -107,6 +108,9 @@ func (r *AssetRepo) apply(q *bun.SelectQuery, f Filter) *bun.SelectQuery {
 	}
 	if f.AspectRatio != "" {
 		q = q.Where("a.aspect_ratio = ?", f.AspectRatio)
+	}
+	if len(f.EntryCodes) > 0 {
+		q = q.Where("a.entry_code IN (?)", bun.In(f.EntryCodes))
 	}
 	if c := sourceCond(f.Source); c != "" {
 		q = q.Where(c)

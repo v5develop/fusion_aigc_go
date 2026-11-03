@@ -32,7 +32,7 @@ func NewListAssetsLogic(ctx context.Context, svcCtx *svc.ServiceContext) *ListAs
 func (l *ListAssetsLogic) ListAssets(req *types.AssetLibListReq) (resp *types.AssetLibListResp, err error) {
 	out, err := l.svcCtx.AssetLibRpc.List(l.ctx, &assetlib_client.ListReq{UserId: ctxdata.UserID(l.ctx), Kind: req.Kind, Source: req.Source,
 		Media: req.Media, Tag: req.Tag, FavoriteOnly: req.FavoriteOnly, Q: req.Q, Page: req.Page, PageSize: req.PageSize,
-		KindGroup: req.KindGroup, AspectRatio: req.AspectRatio})
+		KindGroup: req.KindGroup, AspectRatio: req.AspectRatio, EntryCodes: req.EntryCodes})
 	if err != nil {
 		return nil, err
 	}

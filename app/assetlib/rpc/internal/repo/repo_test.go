@@ -65,6 +65,8 @@ func TestListFilters(t *testing.T) {
 		{"视频大类", Filter{UserID: 7, KindGroup: "video"}, nil,
 			ownedSQL + " AND (e.kind IN ('viral_video', 'video_remake', 'promo_video', 'digital_human', 'digital_human_talk', " +
 				"'store_visit', 'promo_drama', 'motion_transfer', 'canvas_video', 'video_other'))"},
+		{"入口码+比例", Filter{UserID: 7, EntryCodes: []string{"txt2img", "img.edit_v2"}, AspectRatio: "1:1"}, nil,
+			ownedSQL + " AND (a.aspect_ratio = '1:1') AND (a.entry_code IN ('txt2img', 'img.edit_v2'))"},
 		{"official", Filter{UserID: 7, Source: "official"}, nil, ownedSQL + " AND ((a.source_type IS NULL OR a.source_type NOT IN (1, 2)))"},
 		{"upload+收藏+标签+关键字(转义)", Filter{UserID: 7, Source: "upload", FavoriteOnly: true, Tag: "红", Q: "a_%"}, nil,
 			ownedSQL + " AND (a.source_type = 1) AND (e.favorite = 1) AND (EXISTS (SELECT 1 FROM afv_asset_tag_link AS l JOIN afv_asset_tag AS t ON t.id = l.tag_id " +
@@ -119,6 +121,19 @@ func TestCategoriesNullIsUncategorized(t *testing.T) {
 	}
 	if got[0].Kind.Valid || got[0].N != 5 || got[1].Kind.String != "model" || got[1].N != 2 {
 		t.Fatalf("got=%+v", got)
+	}
+	done(t, mock)
+}
+
+// 「未分类」计数：本人、未删除、非草稿，且没挂本人字典里的任何标签。
+func TestTagUntaggedCount(t *testing.T) {
+	r, mock := newMock(t)
+	mock.ExpectQuery(q("SELECT count(*) FROM afv_asset AS a "+ownedSQL+
+		" AND (NOT EXISTS (SELECT 1 FROM afv_asset_tag_link AS l JOIN afv_asset_tag AS t ON t.id = l.tag_id WHERE l.asset_id = a.id AND t.user_id = 7))") + "$").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(30))
+	n, err := r.Tag.UntaggedCount(ctx, 7)
+	if err != nil || n != 30 {
+		t.Fatalf("n=%d err=%v", n, err)
 	}
 	done(t, mock)
 }

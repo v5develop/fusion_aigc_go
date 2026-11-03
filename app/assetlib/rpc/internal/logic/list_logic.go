@@ -41,6 +41,10 @@ func (l *ListLogic) List(in *assetlib.ListReq) (*assetlib.ListResp, error) {
 	if err != nil {
 		return nil, err
 	}
+	entryCodes, err := parseEntryCodes(in.EntryCodes)
+	if err != nil {
+		return nil, err
+	}
 	if err := checkSource(in.Source); err != nil {
 		return nil, err
 	}
@@ -53,7 +57,7 @@ func (l *ListLogic) List(in *assetlib.ListReq) (*assetlib.ListResp, error) {
 	}
 	limit, offset := listPage(in.Page, in.PageSize)
 	f := repo.Filter{UserID: in.UserId, Kind: in.Kind, KindGroup: in.KindGroup, Source: in.Source, Media: in.Media,
-		AspectRatio: ratio, Tag: strings.TrimSpace(in.Tag), FavoriteOnly: in.FavoriteOnly, Q: q}
+		AspectRatio: ratio, EntryCodes: entryCodes, Tag: strings.TrimSpace(in.Tag), FavoriteOnly: in.FavoriteOnly, Q: q}
 	rows, total, err := l.svcCtx.Repo.Asset.List(l.ctx, f, limit, offset)
 	if err != nil {
 		return nil, err

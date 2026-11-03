@@ -66,6 +66,37 @@ func cleanAspectRatio(s string) (string, error) {
 	return "", xerr.Param("aspect_ratio 格式应为 宽:高，如 1:1 / 3:4 / 16:9")
 }
 
+// entryCodeRe 单个入口码：字母数字与 _ . -，1~64 位。
+var entryCodeRe = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,64}$`)
+
+// maxEntryCodes entry_codes 最多几个（一级分类展开后的入口并集也远小于它）。
+const maxEntryCodes = 200
+
+// parseEntryCodes entry_codes 逗号分隔；各段去首尾空白、跳过空段、去重保序。
+// 空 = 不限（返回 nil）；任一段格式不对或超过 maxEntryCodes 个返回参数错误。
+func parseEntryCodes(s string) ([]string, error) {
+	if strings.TrimSpace(s) == "" {
+		return nil, nil
+	}
+	var out []string
+	seen := map[string]bool{}
+	for _, c := range strings.Split(s, ",") {
+		c = strings.TrimSpace(c)
+		if c == "" || seen[c] {
+			continue
+		}
+		if !entryCodeRe.MatchString(c) {
+			return nil, xerr.Param("entry_codes 每项只能是字母、数字、_ . -，1~64 位")
+		}
+		seen[c] = true
+		out = append(out, c)
+		if len(out) > maxEntryCodes {
+			return nil, xerr.Param("entry_codes 最多 200 个")
+		}
+	}
+	return out, nil
+}
+
 func checkSource(s string) error {
 	switch s {
 	case "", model.SourceInput, model.SourceGenerated, model.SourceOfficial, model.SourceUpload:

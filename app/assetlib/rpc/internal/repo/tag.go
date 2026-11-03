@@ -30,6 +30,15 @@ func (r *TagRepo) List(ctx context.Context, userID int64) ([]*TagRow, error) {
 	return out, err
 }
 
+// UntaggedCount 本人没挂任何标签的资产数。归属 / 删除 / 草稿口径同列表（owned）；
+// 「挂了标签」只认本人字典里的标签，与列表 tag 筛选、资产卡片 tags（TagsOf）同口径。
+func (r *TagRepo) UntaggedCount(ctx context.Context, userID int64) (int64, error) {
+	n, err := owned(r.db.NewSelect().TableExpr("afv_asset AS a"), userID).
+		Where("NOT EXISTS (SELECT 1 FROM afv_asset_tag_link AS l JOIN afv_asset_tag AS t ON t.id = l.tag_id "+
+			"WHERE l.asset_id = a.id AND t.user_id = ?)", userID).Count(ctx)
+	return int64(n), err
+}
+
 // AdminList 后台标签分页（新的在前）。
 func (r *TagRepo) AdminList(ctx context.Context, userID int64, q string, limit, offset int64) ([]*TagRow, int64, error) {
 	filter := func(s *bun.SelectQuery) *bun.SelectQuery {

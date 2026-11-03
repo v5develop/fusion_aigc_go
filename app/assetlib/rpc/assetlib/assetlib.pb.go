@@ -563,6 +563,7 @@ type ListReq struct {
 	PageSize      int64                  `protobuf:"varint,9,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
 	KindGroup     string                 `protobuf:"bytes,10,opt,name=kind_group,json=kindGroup,proto3" json:"kind_group,omitempty"`       // 空=不限；image = 5 个图片 kind；video = 视频 kind（键表见 model.VideoKinds，数据来源待定）
 	AspectRatio   string                 `protobuf:"bytes,11,opt,name=aspect_ratio,json=aspectRatio,proto3" json:"aspect_ratio,omitempty"` // 空=不限；如 1:1 / 3:4 / 4:3 / 9:16 / 16:9，按 afv_asset.aspect_ratio 精确匹配
+	EntryCodes    string                 `protobuf:"bytes,12,opt,name=entry_codes,json=entryCodes,proto3" json:"entry_codes,omitempty"`    // 空=不限；逗号分隔的入口码（每项 [A-Za-z0-9_.-]{1,64}，最多 200 个），按 afv_asset.entry_code IN (...)
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -670,6 +671,13 @@ func (x *ListReq) GetKindGroup() string {
 func (x *ListReq) GetAspectRatio() string {
 	if x != nil {
 		return x.AspectRatio
+	}
+	return ""
+}
+
+func (x *ListReq) GetEntryCodes() string {
+	if x != nil {
+		return x.EntryCodes
 	}
 	return ""
 }
@@ -1530,6 +1538,7 @@ func (x *Tag) GetCreatedAt() int64 {
 type ListTagsResp struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Items         []*Tag                 `protobuf:"bytes,1,rep,name=items,proto3" json:"items,omitempty"`
+	UntaggedCount int64                  `protobuf:"varint,2,opt,name=untagged_count,json=untaggedCount,proto3" json:"untagged_count,omitempty"` // 本人没挂任何标签的资产数（未删除、非草稿，与列表口径一致）
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1569,6 +1578,13 @@ func (x *ListTagsResp) GetItems() []*Tag {
 		return x.Items
 	}
 	return nil
+}
+
+func (x *ListTagsResp) GetUntaggedCount() int64 {
+	if x != nil {
+		return x.UntaggedCount
+	}
+	return 0
 }
 
 type CreateTagReq struct {
@@ -2267,7 +2283,7 @@ const file_assetlib_proto_rawDesc = "" +
 	"\n" +
 	"entry_code\x18\x12 \x01(\tR\tentryCode\x12\x14\n" +
 	"\x05width\x18\x13 \x01(\x05R\x05width\x12\x16\n" +
-	"\x06height\x18\x14 \x01(\x05R\x06height\"\x9c\x02\n" +
+	"\x06height\x18\x14 \x01(\x05R\x06height\"\xbd\x02\n" +
 	"\aListReq\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x16\n" +
@@ -2281,7 +2297,9 @@ const file_assetlib_proto_rawDesc = "" +
 	"\n" +
 	"kind_group\x18\n" +
 	" \x01(\tR\tkindGroup\x12!\n" +
-	"\faspect_ratio\x18\v \x01(\tR\vaspectRatio\"G\n" +
+	"\faspect_ratio\x18\v \x01(\tR\vaspectRatio\x12\x1f\n" +
+	"\ventry_codes\x18\f \x01(\tR\n" +
+	"entryCodes\"G\n" +
 	"\bListResp\x12%\n" +
 	"\x05items\x18\x01 \x03(\v2\x0f.assetlib.AssetR\x05items\x12\x14\n" +
 	"\x05total\x18\x02 \x01(\x03R\x05total\"V\n" +
@@ -2351,9 +2369,10 @@ const file_assetlib_proto_rawDesc = "" +
 	"\vasset_count\x18\x03 \x01(\x03R\n" +
 	"assetCount\x12\x1d\n" +
 	"\n" +
-	"created_at\x18\x04 \x01(\x03R\tcreatedAt\"3\n" +
+	"created_at\x18\x04 \x01(\x03R\tcreatedAt\"Z\n" +
 	"\fListTagsResp\x12#\n" +
-	"\x05items\x18\x01 \x03(\v2\r.assetlib.TagR\x05items\";\n" +
+	"\x05items\x18\x01 \x03(\v2\r.assetlib.TagR\x05items\x12%\n" +
+	"\x0euntagged_count\x18\x02 \x01(\x03R\runtaggedCount\";\n" +
 	"\fCreateTagReq\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\"3\n" +

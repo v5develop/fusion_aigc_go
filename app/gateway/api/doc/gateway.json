@@ -33,7 +33,7 @@
         "tags": [
           "资产库增强"
         ],
-        "summary": "资产列表（kind / kind_group / source / media / 比例 / tag / 收藏 / 关键字，page 分页）",
+        "summary": "资产列表（kind / kind_group / 入口码 / source / media / 比例 / tag / 收藏 / 关键字，page 分页）",
         "operationId": "assetlibListAssets",
         "parameters": [
           {
@@ -135,6 +135,13 @@
             "type": "string",
             "description": "比例，如 1:1 / 3:4 / 9:16",
             "name": "aspect_ratio",
+            "in": "query",
+            "allowEmptyValue": true
+          },
+          {
+            "type": "string",
+            "description": "入口码，逗号分隔（每项 [A-Za-z0-9_.-]{1,64}，最多 200 个），按 entry_code IN (...)",
+            "name": "entry_codes",
             "in": "query",
             "allowEmptyValue": true
           }
@@ -1856,6 +1863,10 @@
                           }
                         }
                       }
+                    },
+                    "untagged_count": {
+                      "description": "没挂任何标签的资产数（「未分类」计数，口径同列表）",
+                      "type": "integer"
                     }
                   }
                 },
@@ -12047,7 +12058,7 @@
       "in": "header"
     }
   },
-  "x-date": "2026-11-03 09:47:12",
+  "x-date": "2026-11-03 12:45:30",
   "x-description": "This is a goctl generated swagger file.",
   "x-github": "https://github.com/zeromicro/go-zero",
   "x-go-zero-doc": "https://go-zero.dev/",
