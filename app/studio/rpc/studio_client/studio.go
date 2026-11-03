@@ -36,6 +36,8 @@ type (
 	GetTaskReq           = studio.GetTaskReq
 	ListHistoryReq       = studio.ListHistoryReq
 	ListHistoryResp      = studio.ListHistoryResp
+	QuoteReq             = studio.QuoteReq
+	QuoteResp            = studio.QuoteResp
 	SidecarStatusResp    = studio.SidecarStatusResp
 	SubmitImageGenReq    = studio.SubmitImageGenReq
 	SubmitPoseReq        = studio.SubmitPoseReq
@@ -50,6 +52,8 @@ type (
 		SubmitPose(ctx context.Context, in *SubmitPoseReq, opts ...grpc.CallOption) (*SubmitResp, error)
 		// 图片生成：count 张，一张一个子任务
 		SubmitImageGen(ctx context.Context, in *SubmitImageGenReq, opts ...grpc.CallOption) (*SubmitResp, error)
+		// 提交前报价（只读）：与提交同一套模型 / 分辨率归一与计费入口，返回本次提交会冻结的点数；不落库、不冻结、不校验素材
+		Quote(ctx context.Context, in *QuoteReq, opts ...grpc.CallOption) (*QuoteResp, error)
 		// 批次详情 + 全部子任务（生成中轮询此接口）
 		GetBatch(ctx context.Context, in *GetBatchReq, opts ...grpc.CallOption) (*BatchDetail, error)
 		// 单个子任务
@@ -101,6 +105,12 @@ func (m *defaultStudio) SubmitPose(ctx context.Context, in *SubmitPoseReq, opts 
 func (m *defaultStudio) SubmitImageGen(ctx context.Context, in *SubmitImageGenReq, opts ...grpc.CallOption) (*SubmitResp, error) {
 	client := studio.NewStudioClient(m.cli.Conn())
 	return client.SubmitImageGen(ctx, in, opts...)
+}
+
+// 提交前报价（只读）：与提交同一套模型 / 分辨率归一与计费入口，返回本次提交会冻结的点数；不落库、不冻结、不校验素材
+func (m *defaultStudio) Quote(ctx context.Context, in *QuoteReq, opts ...grpc.CallOption) (*QuoteResp, error) {
+	client := studio.NewStudioClient(m.cli.Conn())
+	return client.Quote(ctx, in, opts...)
 }
 
 // 批次详情 + 全部子任务（生成中轮询此接口）

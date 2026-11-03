@@ -8,6 +8,8 @@
 | 姿态复刻 | `POST /pose/submit` | 姿势图张数（1–9） |
 | 图片生成 | `POST /image-generate/submit` | `count`（1–9） |
 
+提交前的「消耗 N 点」用对应的 `POST /{tryon,pose,image-generate}/quote`（只读报价，见 7.1）。
+
 > 本文以 `app/gateway/api/gateway.api` 的 studio 组为准，字段名一律下划线。实现与本文不一致时，以接口定义为准，并请通知后端更新本文。
 > 管理后台的接口见最后一章，给后台同事。
 
@@ -694,7 +696,47 @@ DELETE /api/v1/studio/batches/:id
 - **取消**只退还没开始的（排队中）任务，已经在生成的会继续并按结果结算，见 5.5。
 - **单价**取决于分辨率（1k / 2k / 4k），由运营在后台配置；三个功能各有独立的计费入口，价格可以不同。
 - **`estimated_points`**：提交时的预估消耗，口径是「单价 × 任务数」（`task_total`），即这次提交一共冻结的点数。它是冻结额，**不是最终扣费**：有失败 / 取消的任务，最终扣费会比它少。前端提交成功后以它为准展示「已冻结 N 点」，最终余额以点数流水为准。
-- 提交前页面上的预估价沿用现有的价目接口展示，仅作提示；以提交返回的 `estimated_points` 为准。
+- **提交前报价**：页面上「消耗 N 点」调 7.1 的报价接口，与提交同一套模型 / 分辨率归一和计费入口，算出的就是提交会冻结的点数；最终仍以提交返回的 `estimated_points` 为准。
+
+### 7.1 提交前报价（只读）
+
+| 功能 | 报价接口 | 计价张数 `task_total` |
+|---|---|---|
+| 商拍换装 | `POST /tryon/quote` | `model_image_urls` 张数 × `count_per_model` |
+| 姿态复刻 | `POST /pose/quote` | `pose_image_urls` 张数 |
+| 图片生成 | `POST /image-generate/quote` | `count` |
+
+- 请求体与对应的提交接口**同构**，可以直接把提交体发过来；只读取上表的张数字段和 `model` / `resolution` / `aspect_ratio`，其余字段忽略。字段全部选填，**不需要** `Idempotency-Key`。
+- 只读：不建批次、不冻结、不查余额、不校验素材与准入（这些在提交时照常拦）。
+- 素材还没传够时 `task_total=0`，`points=0`，`unit_points` 仍是单价。
+- 报不出价（该入口没配价格、参数不合法）不报错，回 `available=false` 和 `reason`，前端不显示消耗。
+- 建议输入变化后防抖 300ms 再调；不要阻塞提交按钮。
+
+响应 `data`：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `available` | bool | 能否报出价；`false` 时点数为 0，原因见 `reason` |
+| `points` | int | 本次提交预计冻结点数 = `unit_points` × `task_total`，与提交返回的 `estimated_points` 同口径 |
+| `unit_points` | int | 每张点数 |
+| `price_unit` | string | 计量单位，`PER_IMAGE` |
+| `task_total` | int | 计价张数 |
+| `resolution` | string | 计价分辨率，已按模型档归一（如 Seedream 4k → 2k） |
+| `billing_mode` | string | 计费开关：`on` 真扣 / `shadow` 只算价不扣 / `off` 不计费（点数为 0） |
+| `charged` | bool | 提交是否真的冻结扣点（仅 `billing_mode=on` 为 `true`）；前端只在它为 `true` 且 `points>0` 时显示「消耗 N 点」 |
+| `reason` | string | `available=false` 的原因（给用户看的短句）；可用时为空串 |
+| `warnings` | string[] | 参数归一告警，同提交；没有为 `[]` |
+
+```json
+// POST /api/v1/studio/image-generate/quote   {"model":"通用","resolution":"2k","aspect_ratio":"1:1","count":3}
+{"code": 0, "msg": "ok", "data": {
+  "available": true, "points": 45, "unit_points": 15, "price_unit": "PER_IMAGE", "task_total": 3,
+  "resolution": "2k", "billing_mode": "on", "charged": true, "reason": "", "warnings": []
+}}
+// 没配价格
+{"code": 0, "msg": "ok", "data": {"available": false, "points": 0, "unit_points": 0, "price_unit": "PER_IMAGE",
+  "task_total": 3, "resolution": "2k", "billing_mode": "on", "charged": true, "reason": "该功能暂未配置价格", "warnings": []}}
+```
 
 ---
 

@@ -23,6 +23,15 @@ func toSubmitResp(r *studio_client.SubmitResp) *types.StudioSubmitResp {
 	}
 }
 
+// toQuoteResp 提交前报价。任务数规则与提交拆任务一致：商拍 = 模特图数 × 每位张数，姿态 = 姿势图数，图片生成 = count。
+func toQuoteResp(r *studio_client.QuoteResp) *types.StudioQuoteResp {
+	return &types.StudioQuoteResp{
+		Available: r.Available, Points: r.Points, UnitPoints: r.UnitPoints, PriceUnit: r.PriceUnit,
+		TaskTotal: r.TaskTotal, Resolution: r.Resolution, BillingMode: r.BillingMode, Charged: r.Charged,
+		Reason: r.Reason, Warnings: orEmpty(r.Warnings),
+	}
+}
+
 func toBatch(b *studio_client.BatchInfo) types.StudioBatch {
 	if b == nil {
 		return types.StudioBatch{}

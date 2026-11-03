@@ -957,6 +957,38 @@ type (
 		Replayed        bool     `json:"replayed"` // 同一 Idempotency-Key 重复提交：返回的是原批次
 		Warnings        []string `json:"warnings"` // 参数归一告警（如 Seedream 4K → 2K，按归一后的档位生成并计费）；没有为 []
 	}
+	// 提交前报价：请求体与对应的提交接口同构（可直接发提交体，其余字段忽略），字段全部选填，不要 Idempotency-Key
+	StudioTryonQuoteReq {
+		ModelImageUrls []string `json:"model_image_urls,optional"` // 只用张数：任务数 = 模特图数 × count_per_model
+		CountPerModel  int32    `json:"count_per_model,optional"`
+		Model          string   `json:"model,optional"` // 通用 / GPT / Banana / Seedream；空=通用
+		Resolution     string   `json:"resolution,optional"` // 1k / 2k / 4k；空=1k
+		AspectRatio    string   `json:"aspect_ratio,optional"` // 空=按模特图自动
+	}
+	StudioPoseQuoteReq {
+		PoseImageUrls []string `json:"pose_image_urls,optional"` // 只用张数：任务数 = 姿势图数
+		Model         string   `json:"model,optional"`
+		Resolution    string   `json:"resolution,optional"`
+		AspectRatio   string   `json:"aspect_ratio,optional"` // 空=按人物图自动
+	}
+	StudioImageGenQuoteReq {
+		Count       int32  `json:"count,optional"` // 任务数 = count
+		Model       string `json:"model,optional"`
+		Resolution  string `json:"resolution,optional"`
+		AspectRatio string `json:"aspect_ratio,optional"` // 空=1:1
+	}
+	StudioQuoteResp {
+		Available   bool     `json:"available"` // 能否报出价；false 时点数为 0，原因见 reason
+		Points      int64    `json:"points"` // 本次提交预计冻结点数 = unit_points × task_total（与提交回的 estimated_points 同口径）
+		UnitPoints  int64    `json:"unit_points"` // 每张点数
+		PriceUnit   string   `json:"price_unit"` // PER_IMAGE
+		TaskTotal   int32    `json:"task_total"` // 计价张数；0 = 素材还没传够，只回单价
+		Resolution  string   `json:"resolution"` // 计价分辨率（已按模型档归一，如 Seedream 4k → 2k）
+		BillingMode string   `json:"billing_mode"` // on 真扣 / shadow 只算价不扣 / off 不计费（点数为 0）
+		Charged     bool     `json:"charged"` // 提交是否真的冻结扣点（仅 billing_mode=on）
+		Reason      string   `json:"reason"` // available=false 的原因；可用时为空
+		Warnings    []string `json:"warnings"` // 参数归一告警（同提交）；没有为 []
+	}
 	StudioBatch {
 		Id              int64  `json:"id"`
 		Kind            string `json:"kind"` // tryon / pose / imagegen
@@ -1031,6 +1063,18 @@ service gateway-api {
 	@doc "图片生成（count 张拆任务）；必须带 Idempotency-Key"
 	@handler submitImageGen
 	post /image-generate/submit (StudioImageGenSubmitReq) returns (StudioSubmitResp)
+
+	@doc "商拍换装提交前报价（只读，不冻结）：请求体同提交，返回本次提交预计冻结的点数"
+	@handler quoteTryon
+	post /tryon/quote (StudioTryonQuoteReq) returns (StudioQuoteResp)
+
+	@doc "姿态复刻提交前报价（只读，不冻结）"
+	@handler quotePose
+	post /pose/quote (StudioPoseQuoteReq) returns (StudioQuoteResp)
+
+	@doc "图片生成提交前报价（只读，不冻结）"
+	@handler quoteImageGen
+	post /image-generate/quote (StudioImageGenQuoteReq) returns (StudioQuoteResp)
 
 	@doc "批次详情 + 子任务（生成中轮询此接口）"
 	@handler getBatch

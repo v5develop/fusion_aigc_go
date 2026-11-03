@@ -41,6 +41,12 @@ func (s *StudioServer) SubmitImageGen(ctx context.Context, in *studio.SubmitImag
 	return l.SubmitImageGen(in)
 }
 
+// 提交前报价（只读）：与提交同一套模型 / 分辨率归一与计费入口，返回本次提交会冻结的点数；不落库、不冻结、不校验素材
+func (s *StudioServer) Quote(ctx context.Context, in *studio.QuoteReq) (*studio.QuoteResp, error) {
+	l := logic.NewQuoteLogic(ctx, s.svcCtx)
+	return l.Quote(in)
+}
+
 // 批次详情 + 全部子任务（生成中轮询此接口）
 func (s *StudioServer) GetBatch(ctx context.Context, in *studio.GetBatchReq) (*studio.BatchDetail, error) {
 	l := logic.NewGetBatchLogic(ctx, s.svcCtx)

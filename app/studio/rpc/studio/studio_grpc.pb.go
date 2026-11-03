@@ -22,6 +22,7 @@ const (
 	Studio_SubmitTryon_FullMethodName        = "/studio.Studio/SubmitTryon"
 	Studio_SubmitPose_FullMethodName         = "/studio.Studio/SubmitPose"
 	Studio_SubmitImageGen_FullMethodName     = "/studio.Studio/SubmitImageGen"
+	Studio_Quote_FullMethodName              = "/studio.Studio/Quote"
 	Studio_GetBatch_FullMethodName           = "/studio.Studio/GetBatch"
 	Studio_GetTask_FullMethodName            = "/studio.Studio/GetTask"
 	Studio_ListHistory_FullMethodName        = "/studio.Studio/ListHistory"
@@ -51,6 +52,8 @@ type StudioClient interface {
 	SubmitPose(ctx context.Context, in *SubmitPoseReq, opts ...grpc.CallOption) (*SubmitResp, error)
 	// 图片生成：count 张，一张一个子任务
 	SubmitImageGen(ctx context.Context, in *SubmitImageGenReq, opts ...grpc.CallOption) (*SubmitResp, error)
+	// 提交前报价（只读）：与提交同一套模型 / 分辨率归一与计费入口，返回本次提交会冻结的点数；不落库、不冻结、不校验素材
+	Quote(ctx context.Context, in *QuoteReq, opts ...grpc.CallOption) (*QuoteResp, error)
 	// 批次详情 + 全部子任务（生成中轮询此接口）
 	GetBatch(ctx context.Context, in *GetBatchReq, opts ...grpc.CallOption) (*BatchDetail, error)
 	// 单个子任务
@@ -107,6 +110,16 @@ func (c *studioClient) SubmitImageGen(ctx context.Context, in *SubmitImageGenReq
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(SubmitResp)
 	err := c.cc.Invoke(ctx, Studio_SubmitImageGen_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *studioClient) Quote(ctx context.Context, in *QuoteReq, opts ...grpc.CallOption) (*QuoteResp, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(QuoteResp)
+	err := c.cc.Invoke(ctx, Studio_Quote_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -239,6 +252,8 @@ type StudioServer interface {
 	SubmitPose(context.Context, *SubmitPoseReq) (*SubmitResp, error)
 	// 图片生成：count 张，一张一个子任务
 	SubmitImageGen(context.Context, *SubmitImageGenReq) (*SubmitResp, error)
+	// 提交前报价（只读）：与提交同一套模型 / 分辨率归一与计费入口，返回本次提交会冻结的点数；不落库、不冻结、不校验素材
+	Quote(context.Context, *QuoteReq) (*QuoteResp, error)
 	// 批次详情 + 全部子任务（生成中轮询此接口）
 	GetBatch(context.Context, *GetBatchReq) (*BatchDetail, error)
 	// 单个子任务
@@ -279,6 +294,9 @@ func (UnimplementedStudioServer) SubmitPose(context.Context, *SubmitPoseReq) (*S
 }
 func (UnimplementedStudioServer) SubmitImageGen(context.Context, *SubmitImageGenReq) (*SubmitResp, error) {
 	return nil, status.Error(codes.Unimplemented, "method SubmitImageGen not implemented")
+}
+func (UnimplementedStudioServer) Quote(context.Context, *QuoteReq) (*QuoteResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method Quote not implemented")
 }
 func (UnimplementedStudioServer) GetBatch(context.Context, *GetBatchReq) (*BatchDetail, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetBatch not implemented")
@@ -384,6 +402,24 @@ func _Studio_SubmitImageGen_Handler(srv interface{}, ctx context.Context, dec fu
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(StudioServer).SubmitImageGen(ctx, req.(*SubmitImageGenReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Studio_Quote_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(QuoteReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(StudioServer).Quote(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Studio_Quote_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(StudioServer).Quote(ctx, req.(*QuoteReq))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -604,6 +640,10 @@ var Studio_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SubmitImageGen",
 			Handler:    _Studio_SubmitImageGen_Handler,
+		},
+		{
+			MethodName: "Quote",
+			Handler:    _Studio_Quote_Handler,
 		},
 		{
 			MethodName: "GetBatch",

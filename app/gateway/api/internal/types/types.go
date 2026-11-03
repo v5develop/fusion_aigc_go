@@ -1018,6 +1018,13 @@ type StudioHistoryResp struct {
 	NextCursor string              `json:"next_cursor"` // 空=没有下一页
 }
 
+type StudioImageGenQuoteReq struct {
+	Count       int32  `json:"count,optional"` // 任务数 = count
+	Model       string `json:"model,optional"`
+	Resolution  string `json:"resolution,optional"`
+	AspectRatio string `json:"aspect_ratio,optional"` // 空=1:1
+}
+
 type StudioImageGenSubmitReq struct {
 	RequestId     string   `header:"Idempotency-Key"`
 	WorkspaceId   int64    `json:"workspace_id,optional"`
@@ -1030,6 +1037,13 @@ type StudioImageGenSubmitReq struct {
 	RewritePrompt bool     `json:"rewrite_prompt,optional"` // 先润色提示词
 }
 
+type StudioPoseQuoteReq struct {
+	PoseImageUrls []string `json:"pose_image_urls,optional"` // 只用张数：任务数 = 姿势图数
+	Model         string   `json:"model,optional"`
+	Resolution    string   `json:"resolution,optional"`
+	AspectRatio   string   `json:"aspect_ratio,optional"` // 空=按人物图自动
+}
+
 type StudioPoseSubmitReq struct {
 	RequestId      string            `header:"Idempotency-Key"`
 	WorkspaceId    int64             `json:"workspace_id,optional"`
@@ -1040,6 +1054,19 @@ type StudioPoseSubmitReq struct {
 	Model          string            `json:"model,optional"`
 	Resolution     string            `json:"resolution,optional"`
 	AspectRatio    string            `json:"aspect_ratio,optional"` // 空=3:4
+}
+
+type StudioQuoteResp struct {
+	Available   bool     `json:"available"`    // 能否报出价；false 时点数为 0，原因见 reason
+	Points      int64    `json:"points"`       // 本次提交预计冻结点数 = unit_points × task_total（与提交回的 estimated_points 同口径）
+	UnitPoints  int64    `json:"unit_points"`  // 每张点数
+	PriceUnit   string   `json:"price_unit"`   // PER_IMAGE
+	TaskTotal   int32    `json:"task_total"`   // 计价张数；0 = 素材还没传够，只回单价
+	Resolution  string   `json:"resolution"`   // 计价分辨率（已按模型档归一，如 Seedream 4k → 2k）
+	BillingMode string   `json:"billing_mode"` // on 真扣 / shadow 只算价不扣 / off 不计费（点数为 0）
+	Charged     bool     `json:"charged"`      // 提交是否真的冻结扣点（仅 billing_mode=on）
+	Reason      string   `json:"reason"`       // available=false 的原因；可用时为空
+	Warnings    []string `json:"warnings"`     // 参数归一告警（同提交）；没有为 []
 }
 
 type StudioSubmitResp struct {
@@ -1073,6 +1100,14 @@ type StudioTask struct {
 
 type StudioTaskPath struct {
 	TaskId string `path:"task_id"`
+}
+
+type StudioTryonQuoteReq struct {
+	ModelImageUrls []string `json:"model_image_urls,optional"` // 只用张数：任务数 = 模特图数 × count_per_model
+	CountPerModel  int32    `json:"count_per_model,optional"`
+	Model          string   `json:"model,optional"`        // 通用 / GPT / Banana / Seedream；空=通用
+	Resolution     string   `json:"resolution,optional"`   // 1k / 2k / 4k；空=1k
+	AspectRatio    string   `json:"aspect_ratio,optional"` // 空=按模特图自动
 }
 
 type StudioTryonSubmitReq struct {

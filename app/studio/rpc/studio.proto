@@ -15,6 +15,8 @@ service Studio {
   rpc SubmitPose(SubmitPoseReq) returns (SubmitResp);
   // 图片生成：count 张，一张一个子任务
   rpc SubmitImageGen(SubmitImageGenReq) returns (SubmitResp);
+  // 提交前报价（只读）：与提交同一套模型 / 分辨率归一与计费入口，返回本次提交会冻结的点数；不落库、不冻结、不校验素材
+  rpc Quote(QuoteReq) returns (QuoteResp);
   // 批次详情 + 全部子任务（生成中轮询此接口）
   rpc GetBatch(GetBatchReq) returns (BatchDetail);
   // 单个子任务
@@ -106,6 +108,30 @@ message SubmitResp {
   repeated string task_ids = 4;          // 子任务号，顺序同拆分顺序（模特→张数 / 姿势 / 张数）
   bool replayed = 5;                     // 幂等命中：同 request_id 已提交过，返回的是原批次
   repeated string warnings = 6;          // 参数归一告警（如 Seedream 不支持 4K、1K 只支持 1:1 → 按 2K 生成并计费）；幂等重放不回
+}
+
+// 提交前报价：kind + 影响价格的输入。task_total 由调用方按提交的拆任务规则算好
+// （商拍 = 模特图数 × 每位张数；姿态 = 姿势图数；图片生成 = count）
+message QuoteReq {
+  int64 user_id = 1;
+  string kind = 2;                       // tryon / pose / imagegen
+  string model = 3;                      // 模型档：通用 / GPT / Banana / Seedream；空=通用
+  string resolution = 4;                 // 1k / 2k / 4k；空=1k
+  string aspect_ratio = 5;               // 空：商拍 / 姿态 = 自动，图片生成 = 1:1
+  int32 task_total = 6;                  // 本次提交的任务（图片）数；0 = 还没传够素材，只回单价
+}
+
+message QuoteResp {
+  bool available = 1;                    // 能否报出价；false 时 points / unit_points 为 0，原因见 reason
+  int64 points = 2;                      // 本次提交预计冻结点数 = unit_points × task_total（与提交回的 estimated_points 同口径）
+  int64 unit_points = 3;                 // 每张（每个任务）点数
+  string price_unit = 4;                 // 计量单位：PER_IMAGE
+  int32 task_total = 5;                  // 计价张数（回显请求）
+  string resolution = 6;                 // 计价用分辨率（已按模型档归一，如 Seedream 4k → 2k）
+  string billing_mode = 7;               // 计费开关：on 真扣 / shadow 只算价不扣 / off 不计费（点数为 0）
+  bool charged = 8;                      // 提交是否真的会冻结扣点（仅 billing_mode=on）
+  string reason = 9;                     // available=false 的原因（给用户看的短句）；可用时为空
+  repeated string warnings = 10;         // 参数归一告警（同提交）
 }
 
 // ---------------- 查询 ----------------

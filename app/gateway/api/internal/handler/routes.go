@@ -647,10 +647,22 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 					Handler: studio.HistoryHandler(serverCtx),
 				},
 				{
+					// 图片生成提交前报价（只读，不冻结）
+					Method:  http.MethodPost,
+					Path:    "/image-generate/quote",
+					Handler: studio.QuoteImageGenHandler(serverCtx),
+				},
+				{
 					// 图片生成（count 张拆任务）；必须带 Idempotency-Key
 					Method:  http.MethodPost,
 					Path:    "/image-generate/submit",
 					Handler: studio.SubmitImageGenHandler(serverCtx),
+				},
+				{
+					// 姿态复刻提交前报价（只读，不冻结）
+					Method:  http.MethodPost,
+					Path:    "/pose/quote",
+					Handler: studio.QuotePoseHandler(serverCtx),
 				},
 				{
 					// 姿态复刻整批提交（人物 1 张 + 姿势 1–9 张）；必须带 Idempotency-Key
@@ -663,6 +675,12 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 					Method:  http.MethodGet,
 					Path:    "/tasks/:task_id",
 					Handler: studio.GetTaskHandler(serverCtx),
+				},
+				{
+					// 商拍换装提交前报价（只读，不冻结）：请求体同提交，返回本次提交预计冻结的点数
+					Method:  http.MethodPost,
+					Path:    "/tryon/quote",
+					Handler: studio.QuoteTryonHandler(serverCtx),
 				},
 				{
 					// 商拍换装整批提交（模特 × 每位张数，服务端拆任务）；必须带 Idempotency-Key

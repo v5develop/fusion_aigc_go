@@ -326,12 +326,18 @@ func (d *deps) replay(ctx context.Context, b *model.Batch, hash string) (*studio
 
 // charge 一个子任务的计费请求：一张图一张预留单。
 func (d *deps) charge(sp *submitSpec, t *model.Task) billing.Charge {
-	entry := d.entry(sp.Kind)
+	c := quoteCharge(d.entry(sp.Kind), sp.UserID, sp.Resolution)
+	c.RequestID = BillingPrefix + t.TaskID.String
+	return c
+}
+
+// quoteCharge 一张图的计费请求（不带预留单号）：提交冻结与提交前报价（Quote）共用，保证两边同价。
+func quoteCharge(entry string, userID int64, resolution string) billing.Charge {
 	return billing.Charge{
-		UserID: sp.UserID, RequestID: BillingPrefix + t.TaskID.String, EntryCode: entry,
+		UserID: userID, EntryCode: entry,
 		Kind: billing.KindQuick, Count: 1,
-		Tier:       tierOf(entry, sp.Resolution),
-		Resolution: strings.ToUpper(sp.Resolution), // afv_model_pricing.resolution 用 1K/2K/4K；匹配不到退回不限分辨率的单价
+		Tier:       tierOf(entry, resolution),
+		Resolution: strings.ToUpper(resolution), // afv_model_pricing.resolution 用 1K/2K/4K；匹配不到退回不限分辨率的单价
 	}
 }
 

@@ -11500,6 +11500,123 @@
         }
       }
     },
+    "/api/v1/studio/image-generate/quote": {
+      "post": {
+        "security": [
+          {
+            "auth": []
+          }
+        ],
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "商拍换装 / 姿态复刻 / 图片生成"
+        ],
+        "summary": "图片生成提交前报价（只读，不冻结）",
+        "operationId": "studioQuoteImageGen",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "aspect_ratio": {
+                  "description": "空=1:1",
+                  "type": "string"
+                },
+                "count": {
+                  "description": "任务数 = count",
+                  "type": "integer"
+                },
+                "model": {
+                  "type": "string"
+                },
+                "resolution": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
+                  "type": "integer",
+                  "example": 0
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "available": {
+                      "description": "能否报出价；false 时点数为 0，原因见 reason",
+                      "type": "boolean"
+                    },
+                    "billing_mode": {
+                      "description": "on 真扣 / shadow 只算价不扣 / off 不计费（点数为 0）",
+                      "type": "string"
+                    },
+                    "charged": {
+                      "description": "提交是否真的冻结扣点（仅 billing_mode=on）",
+                      "type": "boolean"
+                    },
+                    "points": {
+                      "description": "本次提交预计冻结点数 = unit_points × task_total（与提交回的 estimated_points 同口径）",
+                      "type": "integer"
+                    },
+                    "price_unit": {
+                      "description": "PER_IMAGE",
+                      "type": "string"
+                    },
+                    "reason": {
+                      "description": "available=false 的原因；可用时为空",
+                      "type": "string"
+                    },
+                    "resolution": {
+                      "description": "计价分辨率（已按模型档归一，如 Seedream 4k → 2k）",
+                      "type": "string"
+                    },
+                    "task_total": {
+                      "description": "计价张数；0 = 素材还没传够，只回单价",
+                      "type": "integer"
+                    },
+                    "unit_points": {
+                      "description": "每张点数",
+                      "type": "integer"
+                    },
+                    "warnings": {
+                      "description": "参数归一告警（同提交）；没有为 []",
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                "msg": {
+                  "description": "business message",
+                  "type": "string",
+                  "example": "ok"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/studio/image-generate/submit": {
       "post": {
         "security": [
@@ -11609,6 +11726,126 @@
                     },
                     "warnings": {
                       "description": "参数归一告警（如 Seedream 4K → 2K，按归一后的档位生成并计费）；没有为 []",
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                "msg": {
+                  "description": "business message",
+                  "type": "string",
+                  "example": "ok"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/studio/pose/quote": {
+      "post": {
+        "security": [
+          {
+            "auth": []
+          }
+        ],
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "商拍换装 / 姿态复刻 / 图片生成"
+        ],
+        "summary": "姿态复刻提交前报价（只读，不冻结）",
+        "operationId": "studioQuotePose",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "aspect_ratio": {
+                  "description": "空=按人物图自动",
+                  "type": "string"
+                },
+                "model": {
+                  "type": "string"
+                },
+                "pose_image_urls": {
+                  "description": "只用张数：任务数 = 姿势图数",
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "resolution": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
+                  "type": "integer",
+                  "example": 0
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "available": {
+                      "description": "能否报出价；false 时点数为 0，原因见 reason",
+                      "type": "boolean"
+                    },
+                    "billing_mode": {
+                      "description": "on 真扣 / shadow 只算价不扣 / off 不计费（点数为 0）",
+                      "type": "string"
+                    },
+                    "charged": {
+                      "description": "提交是否真的冻结扣点（仅 billing_mode=on）",
+                      "type": "boolean"
+                    },
+                    "points": {
+                      "description": "本次提交预计冻结点数 = unit_points × task_total（与提交回的 estimated_points 同口径）",
+                      "type": "integer"
+                    },
+                    "price_unit": {
+                      "description": "PER_IMAGE",
+                      "type": "string"
+                    },
+                    "reason": {
+                      "description": "available=false 的原因；可用时为空",
+                      "type": "string"
+                    },
+                    "resolution": {
+                      "description": "计价分辨率（已按模型档归一，如 Seedream 4k → 2k）",
+                      "type": "string"
+                    },
+                    "task_total": {
+                      "description": "计价张数；0 = 素材还没传够，只回单价",
+                      "type": "integer"
+                    },
+                    "unit_points": {
+                      "description": "每张点数",
+                      "type": "integer"
+                    },
+                    "warnings": {
+                      "description": "参数归一告警（同提交）；没有为 []",
                       "type": "array",
                       "items": {
                         "type": "string"
@@ -11865,6 +12102,131 @@
         }
       }
     },
+    "/api/v1/studio/tryon/quote": {
+      "post": {
+        "security": [
+          {
+            "auth": []
+          }
+        ],
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "商拍换装 / 姿态复刻 / 图片生成"
+        ],
+        "summary": "商拍换装提交前报价（只读，不冻结）：请求体同提交，返回本次提交预计冻结的点数",
+        "operationId": "studioQuoteTryon",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "aspect_ratio": {
+                  "description": "空=按模特图自动",
+                  "type": "string"
+                },
+                "count_per_model": {
+                  "type": "integer"
+                },
+                "model": {
+                  "description": "通用 / GPT / Banana / Seedream；空=通用",
+                  "type": "string"
+                },
+                "model_image_urls": {
+                  "description": "只用张数：任务数 = 模特图数 × count_per_model",
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "resolution": {
+                  "description": "1k / 2k / 4k；空=1k",
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
+                  "type": "integer",
+                  "example": 0
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "available": {
+                      "description": "能否报出价；false 时点数为 0，原因见 reason",
+                      "type": "boolean"
+                    },
+                    "billing_mode": {
+                      "description": "on 真扣 / shadow 只算价不扣 / off 不计费（点数为 0）",
+                      "type": "string"
+                    },
+                    "charged": {
+                      "description": "提交是否真的冻结扣点（仅 billing_mode=on）",
+                      "type": "boolean"
+                    },
+                    "points": {
+                      "description": "本次提交预计冻结点数 = unit_points × task_total（与提交回的 estimated_points 同口径）",
+                      "type": "integer"
+                    },
+                    "price_unit": {
+                      "description": "PER_IMAGE",
+                      "type": "string"
+                    },
+                    "reason": {
+                      "description": "available=false 的原因；可用时为空",
+                      "type": "string"
+                    },
+                    "resolution": {
+                      "description": "计价分辨率（已按模型档归一，如 Seedream 4k → 2k）",
+                      "type": "string"
+                    },
+                    "task_total": {
+                      "description": "计价张数；0 = 素材还没传够，只回单价",
+                      "type": "integer"
+                    },
+                    "unit_points": {
+                      "description": "每张点数",
+                      "type": "integer"
+                    },
+                    "warnings": {
+                      "description": "参数归一告警（同提交）；没有为 []",
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                "msg": {
+                  "description": "business message",
+                  "type": "string",
+                  "example": "ok"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/studio/tryon/submit": {
       "post": {
         "security": [
@@ -12058,7 +12420,7 @@
       "in": "header"
     }
   },
-  "x-date": "2026-11-03 12:45:30",
+  "x-date": "2026-11-03 18:26:07",
   "x-description": "This is a goctl generated swagger file.",
   "x-github": "https://github.com/zeromicro/go-zero",
   "x-go-zero-doc": "https://go-zero.dev/",
