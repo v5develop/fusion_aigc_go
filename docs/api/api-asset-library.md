@@ -136,15 +136,22 @@
 
 | 参数 | 说明 |
 |---|---|
-| `kind` | 空 = 全部；`uncategorized` = 未分类；或 5 个 kind 之一 |
+| `kind` | 空 = 全部；`uncategorized` = 未分类；或 5 个 kind 之一；或视频二级分类键之一（见下，只读筛选） |
+| `kind_group` | 空 = 不限；`image` = 5 个图片 kind（`kind IN (model, scene, makeup, hair, accessory)`）；`video` = 视频二级分类键。与 `kind` 同传时两者同时生效 |
 | `source` | 空 = 全部；`input` / `generated` / `official` / `upload` |
 | `media` | 空 = 全部；`image` / `video` |
+| `aspect_ratio` | 空 = 不限；比例 `宽:高`（各 1~2 位数字，如 `1:1` / `3:4` / `4:3` / `9:16` / `16:9`），按素材的 `aspect_ratio` 精确匹配；格式不对返回参数错误 |
 | `tag` | 标签名（精确匹配） |
 | `favorite_only` | `true` 只看收藏 |
 | `q` | 关键字（标题 / 提示词，模糊） |
 | `page` / `page_size` | 见 1.3 |
 
 按创建时间倒序。
+
+视频二级分类键（`kind_group=video` 包含的全部 kind，前端「AI生视频」二级分类按这个顺序展示）：
+`viral_video` 爆款视频、`video_remake` 视频复刻、`promo_video` 带货视频、`digital_human` 数字人、`digital_human_talk` 数字人口播、`store_visit` 探店视频、`promo_drama` 带货短剧、`motion_transfer` 动作迁移、`canvas_video` 画布视频、`video_other` 其他。
+
+> **待定**：视频资产如何归入这些二级分类（数据来源）尚未确定，这些键目前不能写入资产的 `kind`，`/assets/categories` 也不返回它们。定下来之前 `kind_group=video` 与这些 `kind` 都查不到资产。
 
 ```json
 {
@@ -182,6 +189,8 @@
 ```
 
 点某个分类时，把 `key` 作为列表的 `kind` 传（`all` 不传 `kind`），两边计数一致。
+
+前端分类条按大类分两级：一级「全部 / 创作素材（`kind_group=image`）/ AI生视频（`kind_group=video`）/ 其他分类（`kind=uncategorized`）」，选中大类且未选二级时列表传 `kind_group`；选中二级时传该二级的 `kind`。大类计数由前端把二级计数相加（本接口不变；`aspect_ratio` 不影响分类计数）。
 
 ---
 

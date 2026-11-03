@@ -34,6 +34,13 @@ func (l *ListLogic) List(in *assetlib.ListReq) (*assetlib.ListResp, error) {
 	if err := checkListKind(in.Kind); err != nil {
 		return nil, err
 	}
+	if err := checkKindGroup(in.KindGroup); err != nil {
+		return nil, err
+	}
+	ratio, err := cleanAspectRatio(in.AspectRatio)
+	if err != nil {
+		return nil, err
+	}
 	if err := checkSource(in.Source); err != nil {
 		return nil, err
 	}
@@ -45,8 +52,8 @@ func (l *ListLogic) List(in *assetlib.ListReq) (*assetlib.ListResp, error) {
 		return nil, xerr.Param("关键字最多 100 字")
 	}
 	limit, offset := listPage(in.Page, in.PageSize)
-	f := repo.Filter{UserID: in.UserId, Kind: in.Kind, Source: in.Source, Media: in.Media,
-		Tag: strings.TrimSpace(in.Tag), FavoriteOnly: in.FavoriteOnly, Q: q}
+	f := repo.Filter{UserID: in.UserId, Kind: in.Kind, KindGroup: in.KindGroup, Source: in.Source, Media: in.Media,
+		AspectRatio: ratio, Tag: strings.TrimSpace(in.Tag), FavoriteOnly: in.FavoriteOnly, Q: q}
 	rows, total, err := l.svcCtx.Repo.Asset.List(l.ctx, f, limit, offset)
 	if err != nil {
 		return nil, err

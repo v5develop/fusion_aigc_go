@@ -29,7 +29,7 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 			[]rest.Middleware{serverCtx.Auth},
 			[]rest.Route{
 				{
-					// 资产列表（kind / source / media / tag / 收藏 / 关键字，page 分页）
+					// 资产列表（kind / kind_group / source / media / 比例 / tag / 收藏 / 关键字，page 分页）
 					Method:  http.MethodGet,
 					Path:    "/assets",
 					Handler: assetlib.ListAssetsHandler(serverCtx),

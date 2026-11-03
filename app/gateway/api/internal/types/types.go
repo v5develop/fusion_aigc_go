@@ -112,14 +112,16 @@ type AssetLibGetReq struct {
 }
 
 type AssetLibListReq struct {
-	Kind         string `form:"kind,optional,options=|model|scene|makeup|hair|accessory|uncategorized"`
+	Kind         string `form:"kind,optional,options=|model|scene|makeup|hair|accessory|uncategorized|viral_video|video_remake|promo_video|digital_human|digital_human_talk|store_visit|promo_drama|motion_transfer|canvas_video|video_other"`
 	Source       string `form:"source,optional,options=|input|generated|official|upload"` // input = official + upload
 	Media        string `form:"media,optional,options=|image|video"`
 	Tag          string `form:"tag,optional"` // 标签名
 	FavoriteOnly bool   `form:"favorite_only,optional"`
 	Q            string `form:"q,optional"` // 标题 / 提示词模糊
 	Page         int64  `form:"page,optional,default=1"`
-	PageSize     int64  `form:"page_size,optional,default=20"` // 上限 100
+	PageSize     int64  `form:"page_size,optional,default=20"`            // 上限 100
+	KindGroup    string `form:"kind_group,optional,options=|image|video"` // 大类：image = 5 个图片 kind；video = 视频 kind
+	AspectRatio  string `form:"aspect_ratio,optional"`                    // 比例，如 1:1 / 3:4 / 9:16
 }
 
 type AssetLibListResp struct {

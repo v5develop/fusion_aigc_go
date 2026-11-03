@@ -28,7 +28,9 @@ type Filter struct {
 	UserID       int64  // 必填：归属
 	Kind         string // 空=全部；uncategorized=kind 为空；其余为 model.Kinds
 	Source       string // 空 / input / generated / official / upload
+	KindGroup    string // 空 / image / video：按 model.KindGroupKinds 取 e.kind IN (...)
 	Media        string // 空 / image / video
+	AspectRatio  string // 空 / afv_asset.aspect_ratio 精确匹配
 	Tag          string // 标签名
 	FavoriteOnly bool
 	Q            string
@@ -99,6 +101,12 @@ func (r *AssetRepo) apply(q *bun.SelectQuery, f Filter) *bun.SelectQuery {
 		q = q.Where("e.kind IS NULL")
 	default:
 		q = q.Where("e.kind = ?", f.Kind)
+	}
+	if f.KindGroup != "" {
+		q = q.Where("e.kind IN (?)", bun.In(model.KindGroupKinds(f.KindGroup)))
+	}
+	if f.AspectRatio != "" {
+		q = q.Where("a.aspect_ratio = ?", f.AspectRatio)
 	}
 	if c := sourceCond(f.Source); c != "" {
 		q = q.Where(c)
@@ -189,6 +197,7 @@ func (r *AssetRepo) Categories(ctx context.Context, f Filter) ([]KindCount, erro
 		Join("LEFT JOIN afv_asset_ext AS e ON e.asset_id = a.id").
 		ColumnExpr("e.kind AS kind, COUNT(*) AS n")
 	f.Kind = ""
+	f.KindGroup = ""
 	err := r.apply(q, f).GroupExpr("e.kind").Scan(ctx, &out)
 	return out, err
 }

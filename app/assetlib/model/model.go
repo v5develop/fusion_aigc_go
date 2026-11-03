@@ -40,6 +40,29 @@ const (
 // Kinds 全部分类（固定顺序，分类条、后台统计都按它展开）。
 var Kinds = []Kind{KindModel, KindScene, KindMakeup, KindHair, KindAccessory}
 
+// VideoKinds 「AI生视频」大类下的二级分类键（与前端 VIDEO_KINDS 一一对应）。
+// 只用于列表 kind_group=video 的筛选，不是可写入的 kind（afv_asset_ext.kind 的 ENUM 里没有它们）：
+// 视频资产怎么归到这些二级分类还没定数据来源，定之前 kind_group=video 查不到任何资产。
+var VideoKinds = []string{
+	"viral_video", "video_remake", "promo_video", "digital_human", "digital_human_talk",
+	"store_visit", "promo_drama", "motion_transfer", "canvas_video", "video_other",
+}
+
+// KindGroupKinds 大类 → 包含的 kind 键；未知大类返回 nil。
+func KindGroupKinds(group string) []string {
+	switch group {
+	case "image":
+		out := make([]string, len(Kinds))
+		for i, k := range Kinds {
+			out[i] = string(k)
+		}
+		return out
+	case "video":
+		return append([]string(nil), VideoKinds...)
+	}
+	return nil
+}
+
 // KindLabels 分类中文名（分类条展示用）。
 var KindLabels = map[string]string{
 	"all":                 "全部",

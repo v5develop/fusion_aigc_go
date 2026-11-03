@@ -561,6 +561,8 @@ type ListReq struct {
 	Q             string                 `protobuf:"bytes,7,opt,name=q,proto3" json:"q,omitempty"` // 标题 / 提示词模糊匹配
 	Page          int64                  `protobuf:"varint,8,opt,name=page,proto3" json:"page,omitempty"`
 	PageSize      int64                  `protobuf:"varint,9,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	KindGroup     string                 `protobuf:"bytes,10,opt,name=kind_group,json=kindGroup,proto3" json:"kind_group,omitempty"`       // 空=不限；image = 5 个图片 kind；video = 视频 kind（键表见 model.VideoKinds，数据来源待定）
+	AspectRatio   string                 `protobuf:"bytes,11,opt,name=aspect_ratio,json=aspectRatio,proto3" json:"aspect_ratio,omitempty"` // 空=不限；如 1:1 / 3:4 / 4:3 / 9:16 / 16:9，按 afv_asset.aspect_ratio 精确匹配
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -656,6 +658,20 @@ func (x *ListReq) GetPageSize() int64 {
 		return x.PageSize
 	}
 	return 0
+}
+
+func (x *ListReq) GetKindGroup() string {
+	if x != nil {
+		return x.KindGroup
+	}
+	return ""
+}
+
+func (x *ListReq) GetAspectRatio() string {
+	if x != nil {
+		return x.AspectRatio
+	}
+	return ""
 }
 
 type ListResp struct {
@@ -2251,7 +2267,7 @@ const file_assetlib_proto_rawDesc = "" +
 	"\n" +
 	"entry_code\x18\x12 \x01(\tR\tentryCode\x12\x14\n" +
 	"\x05width\x18\x13 \x01(\x05R\x05width\x12\x16\n" +
-	"\x06height\x18\x14 \x01(\x05R\x06height\"\xda\x01\n" +
+	"\x06height\x18\x14 \x01(\x05R\x06height\"\x9c\x02\n" +
 	"\aListReq\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x16\n" +
@@ -2261,7 +2277,11 @@ const file_assetlib_proto_rawDesc = "" +
 	"\rfavorite_only\x18\x06 \x01(\bR\ffavoriteOnly\x12\f\n" +
 	"\x01q\x18\a \x01(\tR\x01q\x12\x12\n" +
 	"\x04page\x18\b \x01(\x03R\x04page\x12\x1b\n" +
-	"\tpage_size\x18\t \x01(\x03R\bpageSize\"G\n" +
+	"\tpage_size\x18\t \x01(\x03R\bpageSize\x12\x1d\n" +
+	"\n" +
+	"kind_group\x18\n" +
+	" \x01(\tR\tkindGroup\x12!\n" +
+	"\faspect_ratio\x18\v \x01(\tR\vaspectRatio\"G\n" +
 	"\bListResp\x12%\n" +
 	"\x05items\x18\x01 \x03(\v2\x0f.assetlib.AssetR\x05items\x12\x14\n" +
 	"\x05total\x18\x02 \x01(\x03R\x05total\"V\n" +

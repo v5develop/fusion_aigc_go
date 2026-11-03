@@ -59,13 +59,40 @@ func TestValidators(t *testing.T) {
 	if code, _, _ := xerr.Parse(func() error { _, err := cleanTagName(" ", 20); return err }()); code != xerr.ParamMissing {
 		t.Fatalf("空名应 1002，got %d", code)
 	}
-	for _, k := range []string{"", "uncategorized", "model", "accessory"} {
+	for _, k := range []string{"", "uncategorized", "model", "accessory", "viral_video", "video_other"} {
 		if checkListKind(k) != nil {
 			t.Errorf("kind %q 应合法", k)
 		}
 	}
 	if checkListKind("shoes") == nil || checkSource("mine") == nil || checkMedia("audio") == nil {
 		t.Fatal("非法枚举应被拒")
+	}
+	for _, g := range []string{"", "image", "video"} {
+		if checkKindGroup(g) != nil {
+			t.Errorf("kind_group %q 应合法", g)
+		}
+	}
+	if checkKindGroup("audio") == nil || checkKindGroup("model") == nil {
+		t.Fatal("非法 kind_group 应被拒")
+	}
+	for in, want := range map[string]string{"": "", " 1:1 ": "1:1", "3:4": "3:4", "16:9": "16:9", "9:16": "9:16"} {
+		if got, err := cleanAspectRatio(in); err != nil || got != want {
+			t.Errorf("aspect_ratio %q：got %q err %v", in, got, err)
+		}
+	}
+	for _, bad := range []string{"1", "1:", ":1", "0:1", "1:0", "100:1", "16/9", "1:1'--", "a:b"} {
+		if _, err := cleanAspectRatio(bad); err == nil {
+			t.Errorf("aspect_ratio %q 应被拒", bad)
+		}
+	}
+	if got := model.KindGroupKinds("image"); len(got) != len(model.Kinds) || got[0] != "model" {
+		t.Fatalf("image 大类 = 5 个图片 kind：%v", got)
+	}
+	if got := model.KindGroupKinds("video"); len(got) != len(model.VideoKinds) {
+		t.Fatalf("video 大类：%v", got)
+	}
+	if model.KindGroupKinds("") != nil || model.KindGroupKinds("x") != nil {
+		t.Fatal("未知大类应为 nil")
 	}
 	if checkURL("blob:abc") == nil || checkURL("https://x/a.png") != nil {
 		t.Fatal("url 校验")

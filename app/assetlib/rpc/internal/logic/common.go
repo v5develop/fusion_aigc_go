@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"net/url"
+	"regexp"
+	"slices"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -36,12 +38,32 @@ func needUser(uid int64) error {
 
 func runeLen(s string) int { return utf8.RuneCountInString(s) }
 
-// checkListKind List 的 kind：空 / uncategorized / 5 个 kind。
+// checkListKind List 的 kind：空 / uncategorized / 5 个 kind / 视频二级分类键（只读筛选，不可写入）。
 func checkListKind(k string) error {
-	if k == "" || k == "uncategorized" || model.Kind(k).Valid() {
+	if k == "" || k == "uncategorized" || model.Kind(k).Valid() || slices.Contains(model.VideoKinds, k) {
 		return nil
 	}
-	return xerr.Param("kind 只能是 model / scene / makeup / hair / accessory / uncategorized")
+	return xerr.Param("kind 只能是 model / scene / makeup / hair / accessory / uncategorized 或视频二级分类")
+}
+
+// checkKindGroup 大类：空 / image / video。
+func checkKindGroup(g string) error {
+	if g == "" || model.KindGroupKinds(g) != nil {
+		return nil
+	}
+	return xerr.Param("kind_group 只能是 image / video")
+}
+
+// aspectRatioRe 比例 宽:高，各 1~2 位数字（1:1 / 3:4 / 16:9 …）。
+var aspectRatioRe = regexp.MustCompile(`^[1-9][0-9]?:[1-9][0-9]?$`)
+
+// cleanAspectRatio 去首尾空白；空 = 不限，否则必须是 宽:高。
+func cleanAspectRatio(s string) (string, error) {
+	s = strings.TrimSpace(s)
+	if s == "" || aspectRatioRe.MatchString(s) {
+		return s, nil
+	}
+	return "", xerr.Param("aspect_ratio 格式应为 宽:高，如 1:1 / 3:4 / 16:9")
 }
 
 func checkSource(s string) error {

@@ -60,6 +60,11 @@ func TestListFilters(t *testing.T) {
 			ownedSQL + " AND (e.kind IS NULL) AND ((a.source_type IS NULL OR a.source_type <> 2)) AND ((a.type IS NULL OR NOT " + vc("a.type LIKE '%video%'") + "))"},
 		{"kind+generated+视频(含配置类型)", Filter{UserID: 7, Kind: "model", Source: "generated", Media: "video"}, []string{"lipSync"},
 			ownedSQL + " AND (e.kind = 'model') AND (a.source_type = 2) AND (" + vc("(a.type LIKE '%video%' OR a.type IN ('lipSync'))") + ")"},
+		{"图片大类+比例", Filter{UserID: 7, KindGroup: "image", AspectRatio: "3:4"}, nil,
+			ownedSQL + " AND (e.kind IN ('model', 'scene', 'makeup', 'hair', 'accessory')) AND (a.aspect_ratio = '3:4')"},
+		{"视频大类", Filter{UserID: 7, KindGroup: "video"}, nil,
+			ownedSQL + " AND (e.kind IN ('viral_video', 'video_remake', 'promo_video', 'digital_human', 'digital_human_talk', " +
+				"'store_visit', 'promo_drama', 'motion_transfer', 'canvas_video', 'video_other'))"},
 		{"official", Filter{UserID: 7, Source: "official"}, nil, ownedSQL + " AND ((a.source_type IS NULL OR a.source_type NOT IN (1, 2)))"},
 		{"upload+收藏+标签+关键字(转义)", Filter{UserID: 7, Source: "upload", FavoriteOnly: true, Tag: "红", Q: "a_%"}, nil,
 			ownedSQL + " AND (a.source_type = 1) AND (e.favorite = 1) AND (EXISTS (SELECT 1 FROM afv_asset_tag_link AS l JOIN afv_asset_tag AS t ON t.id = l.tag_id " +
