@@ -58,6 +58,9 @@ StudioRpc:              # 商拍换装 / 姿态复刻 / 图片生成（/api/v1/s
   Etcd: {Hosts: [127.0.0.1:2379], Key: studio.rpc}
   Timeout: 30000
   NonBlock: true
+Studio:                 # 工作室接口的网关侧限制
+  PosePreviewPerMinute: 6   # 姿态配对预览每用户每分钟次数上限（超出 4002「识别太频繁，请稍后再试」；<=0 不限）
+  PosePreviewPerDay: 200    # 每用户每天（北京时间自然日）上限；计数在 Auth.Session 的 Redis，多实例共享
 AssetLibRpc:            # 资产库增强（/api/v1/asset-library）
   Etcd: {Hosts: [127.0.0.1:2379], Key: assetlib.rpc}
   Timeout: 10000

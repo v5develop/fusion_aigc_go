@@ -97,7 +97,7 @@ func TestDefaults(t *testing.T) {
 
 func TestStatus(t *testing.T) {
 	_, srv := newFake(t, func(path string, _ map[string]any) (int, any) {
-		return 200, map[string]any{"service": "prompt-reverse", "version": "2026-10-30.merged", "mock": false,
+		return 200, map[string]any{"service": "prompt-reverse", "version": "2026-11-07.merged", "mock": false,
 			"llm_configured": true, "model": "deepseek-flash", "model_label": "DeepSeek V4 Flash · 读图", "vision": true}
 	})
 	st, err := newClient(srv.URL).Status(context.Background())
@@ -138,7 +138,7 @@ func TestPoseSourceAndPrompt(t *testing.T) {
 	if f.body(PathPoseSource)[0]["image"] != img {
 		t.Fatal("pose/source must send image")
 	}
-	pp, err := c.PosePrompt(context.Background(), src, img, "  抬头  ")
+	pp, err := c.PosePrompt(context.Background(), src, img, "  抬头  ", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,6 +152,78 @@ func TestPoseSourceAndPrompt(t *testing.T) {
 	}
 	if _, ok := b["mode"]; ok {
 		t.Fatal("mode must be omitted for long version")
+	}
+	if _, ok := b["mapping"]; ok {
+		t.Fatal("nil mapping must be omitted (sidecar default pairing)")
+	}
+	if pp.Mapping != nil || src.Source.PeopleCount() != 1 || pp.Pose.PeopleCount() != 1 {
+		t.Fatalf("single person: mapping=%v people=%d/%d", pp.Mapping, src.Source.PeopleCount(), pp.Pose.PeopleCount())
+	}
+}
+
+// 2026-11-07.1 多人：source.people / pose.people / mapping 透传与解析。
+func TestPosePromptMultiPersonMapping(t *testing.T) {
+	f, srv := newFake(t, func(path string, body map[string]any) (int, any) {
+		switch path {
+		case PathPoseSource:
+			return 200, map[string]any{
+				"source": map[string]any{"has_person": true, "person_count": 2, "group": "P1 在左，P2 在右", "interaction": "无",
+					"people": []map[string]any{
+						{"label": "P1", "position": "画面左侧", "primary": false, "gender_age": "成年女性", "outfit": []string{"灰色西装"}, "accessories": []string{}},
+						{"label": "P2", "position": "画面右侧", "primary": true, "gender_age": "成年男性", "outfit": []string{"米白西装"}, "accessories": []string{"白靴"}},
+					}},
+				"meta": map[string]any{"model": "vlm.deepseek-flash", "elapsed_ms": 1},
+			}
+		case PathPosePrompt:
+			m, _ := body["mapping"].([]any)
+			used := []int{0, 1}
+			if len(m) == 2 {
+				used = []int{int(m[0].(float64)), int(m[1].(float64))}
+			}
+			return 200, map[string]any{
+				"prompt":  "【人物配对】……",
+				"mapping": used,
+				"pose": map[string]any{"has_person": true, "orientation_deg": "正面0°", "person_count": 2, "interaction": "背靠背",
+					"people": []map[string]any{
+						{"label": "P1", "position": "画面左侧", "primary": false, "orientation_deg": "正侧90°", "arms": "抬手"},
+						{"label": "P2", "position": "画面右侧", "primary": true, "orientation_deg": "正面0°", "arms": "叉腰"},
+					}},
+				"meta":      map[string]any{"model": "vlm.deepseek-flash", "elapsed_ms": 1},
+				"extra_new": "kept-in-raw",
+			}
+		}
+		return 404, map[string]any{"error": "not found"}
+	})
+	c := newClient(srv.URL)
+	src, err := c.PoseSource(context.Background(), img)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ss := src.Source
+	if ss.PersonCount != 2 || ss.PeopleCount() != 2 || ss.People[1].Label != "P2" || !ss.People[1].Primary ||
+		ss.People[0].Outfit[0] != "灰色西装" || ss.People[1].Accessories[0] != "白靴" || ss.Interaction != "无" {
+		t.Fatalf("source people = %+v", ss)
+	}
+	pp, err := c.PosePrompt(context.Background(), src, img, "", []int{1, 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := f.body(PathPosePrompt)[0]
+	if got, _ := b["mapping"].([]any); len(got) != 2 || got[0].(float64) != 1 || got[1].(float64) != 0 {
+		t.Fatalf("mapping not forwarded: %v", b["mapping"])
+	}
+	if len(pp.Mapping) != 2 || pp.Mapping[0] != 1 || pp.Mapping[1] != 0 {
+		t.Fatalf("mapping = %v", pp.Mapping)
+	}
+	if pp.Pose.PeopleCount() != 2 || pp.Pose.People[0].OrientationDeg != "正侧90°" || pp.Pose.People[1].Arms != "叉腰" ||
+		pp.Pose.OrientationDeg != "正面0°" || pp.Pose.Interaction != "背靠背" {
+		t.Fatalf("pose people = %+v", pp.Pose)
+	}
+	if !strings.Contains(string(pp.Raw), "kept-in-raw") {
+		t.Fatalf("raw must keep unknown fields: %s", pp.Raw)
+	}
+	if _, err := c.PosePrompt(context.Background(), src, img, "", []int{0, 1, 2, 3, -1}); !IsRejected(err) {
+		t.Fatalf("mapping > 4 must be rejected client-side, got %v", err)
 	}
 }
 

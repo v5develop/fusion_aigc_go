@@ -48,6 +48,8 @@ func TestAdminRetryConcurrentOnlyOneWins(t *testing.T) {
 	mock.ExpectExec(qClaim(0)).WillReturnResult(ok1)
 	mock.ExpectExec(regexp.QuoteMeta("UPDATE `afv_studio_task` SET `status` = 0") + ".*`billing_request_id` = 'studio-simg_1-r1'.*" + regexp.QuoteMeta("WHERE (`id` = 1) AND (`status` = 3)")).WillReturnResult(ok1)
 	mock.ExpectExec(regexp.QuoteMeta("task_failed = task_failed + -1")).WillReturnResult(ok1)
+	// 批次读到时就在生图中：重读一次确认没被收敛成终态（仍生图中 → 不动）
+	mock.ExpectQuery(qB9).WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "status"}).AddRow(9, 7, model.BatchGenerating))
 	mock.ExpectExec("admin_retry").WillReturnResult(ok1)
 	mock.ExpectExec(qClaim(0)).WillReturnResult(ok0) // 第二次：轮次已被占
 	if err := f.adminRetry(context.Background(), failedTask(0), b); err != nil {

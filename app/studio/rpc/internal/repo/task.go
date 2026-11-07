@@ -147,6 +147,23 @@ func (r *TaskRepo) ClaimRetry(ctx context.Context, id int64, attempt int32) (boo
 	return n == 1, err
 }
 
+// ReleaseRetry 退还 ClaimRetry 占到但没用上的轮次（attempt claimed → claimed-1）：仅当 attempt 仍是 claimed、
+// 任务仍是失败 / 已取消、未封禁、billing_request_id 仍是占轮次前的原号（oldReq，空串匹配 NULL / 空）时才退。
+// ClaimRetry 只动 attempt，所以这几个条件都成立 = 占轮次之后没有任何别的写入。返回是否退到。
+func (r *TaskRepo) ReleaseRetry(ctx context.Context, id int64, claimed int32, oldReq string) (bool, error) {
+	q := r.db.NewUpdate().Table(TableTask).Set("attempt = attempt - 1").
+		Where("id = ?", id).Where("attempt = ?", claimed).
+		Where("status IN (?)", bun.In([]int8{model.TaskFailed, model.TaskCanceled})).
+		Where("admin_locked = 0")
+	if oldReq == "" {
+		q = q.Where("(billing_request_id IS NULL OR billing_request_id = '')")
+	} else {
+		q = q.Where("billing_request_id = ?", oldReq)
+	}
+	n, err := affected(q.Exec(ctx))
+	return n == 1, err
+}
+
 // ListFinalHeld 任务已终态（成功 / 失败 / 已取消）而计费镜像仍是 已冻结 的子任务（计费善后用）：
 // 例如结果未知的任务置失败后预留单留给回收器，到期释放时没人回写镜像。按 id 升序，最多 limit 条。
 func (r *TaskRepo) ListFinalHeld(ctx context.Context, limit int) ([]*model.Task, error) {

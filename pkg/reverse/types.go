@@ -2,7 +2,7 @@ package reverse
 
 import "encoding/json"
 
-// 以下类型按 tools/prompt-reverse/serve_reverse.py 的实际 JSON 建模（版本 2026-10-30.merged）。
+// 以下类型按 tools/prompt-reverse/serve_reverse.py 的实际 JSON 建模（版本 2026-11-07.merged：姿态 1–4 人多人模式 + mapping）。
 // 图片字段一律是 data URL（data:image/...;base64,...）；sidecar 会静默丢弃非 data URL 的图，
 // 本客户端在发送前就拒绝，避免下标错位。
 
@@ -27,10 +27,35 @@ type PoseMeta struct {
 	Usage     Usage  `json:"usage,omitempty"`
 }
 
+// MaxPosePeople sidecar 多人模式上限（POSE_MAX_PEOPLE）：原图 / 姿势图都只分析最主要的 4 位。
+const MaxPosePeople = 4
+
+// PoseSourcePerson source.people[]（_norm_source_person_item）：按画面左→右排序，label 为 P1…P4。
+// 顶层 PoseSourceData 的人物字段仍等于 primary 那位，旧调用可以忽略 people。
+type PoseSourcePerson struct {
+	Label       string   `json:"label"`    // P1…P4
+	Position    string   `json:"position"` // 画面左侧 / 画面中间 / 画面右侧 …
+	Primary     bool     `json:"primary"`
+	GenderAge   string   `json:"gender_age"`
+	Face        string   `json:"face"`
+	Skin        string   `json:"skin"`
+	Hair        string   `json:"hair"`
+	Makeup      string   `json:"makeup"`
+	Body        string   `json:"body"`
+	Expression  string   `json:"expression"`
+	Outfit      []string `json:"outfit"`
+	Accessories []string `json:"accessories"`
+	Pose        string   `json:"pose"`
+	Occluded    string   `json:"occluded"`
+}
+
 // PoseSourceData POST /api/pose/source 返回的 source（_norm_source）。全部是字符串 / 字符串数组。
 //
 // 回传 pose/prompt 时用 PoseSource.Raw 原样发回（sidecar 会再走一遍 _norm_source），
 // 不要用本结构体重新序列化，避免字段增减时信息丢失。
+//
+// 多人（2026-11-07.1）：PersonCount = len(People)（单人也是 1）；Group 整组站位、Interaction 身体接触（没有写「无」）；
+// PeopleTruncated 表示原图超过 4 人、只分析了前 4 位。
 type PoseSourceData struct {
 	HasPerson   bool     `json:"has_person"`
 	GenderAge   string   `json:"gender_age"`
@@ -51,6 +76,20 @@ type PoseSourceData struct {
 	Style       string   `json:"style"`
 	Pose        string   `json:"pose"`
 	Note        string   `json:"note"`
+
+	PersonCount     int                `json:"person_count"`
+	Group           string             `json:"group"`
+	Interaction     string             `json:"interaction"`
+	People          []PoseSourcePerson `json:"people"`
+	PeopleTruncated bool               `json:"people_truncated"`
+}
+
+// PeopleCount 原图人数：People 为空（旧版 sidecar）时按 1 人。
+func (d PoseSourceData) PeopleCount() int {
+	if n := len(d.People); n > 0 {
+		return n
+	}
+	return 1
 }
 
 // PoseSource POST /api/pose/source 的响应。Raw 是 source 对象的原始 JSON（缓存与回传都用它）。
@@ -60,10 +99,10 @@ type PoseSource struct {
 	Raw    json.RawMessage `json:"-"`
 }
 
-// PoseData POST /api/pose/prompt 返回的 pose（_norm_pose）。
+// PoseMotion 单人的动作 / 表情字段（_norm_pose_fields）：PoseData 顶层（= primary 那位）与 PosePerson 共用。
 // 注意 orientation_deg 是五档中文字符串（正面0° / 前侧45° / 正侧90° / 背侧135° / 背面180°）或空串，不是数字；
 // confidence 是 高 / 中 / 低。
-type PoseData struct {
+type PoseMotion struct {
 	HasPerson      bool   `json:"has_person"`
 	Orientation    string `json:"orientation"`
 	OrientationDeg string `json:"orientation_deg"`
@@ -93,19 +132,56 @@ type PoseData struct {
 	Note           string `json:"note"`
 }
 
+// PosePerson pose.people[]：姿势图里的一位人物（左→右，label P1…P4）。
+type PosePerson struct {
+	PoseMotion
+	Label    string `json:"label"`
+	Position string `json:"position"`
+	Primary  bool   `json:"primary"`
+}
+
+// PoseData POST /api/pose/prompt 返回的 pose（_norm_pose）。顶层动作字段 = primary 那位（单人兼容语义）。
+type PoseData struct {
+	PoseMotion
+	PersonCount     int          `json:"person_count"`
+	Group           string       `json:"group"`
+	Interaction     string       `json:"interaction"`
+	People          []PosePerson `json:"people"`
+	PeopleTruncated bool         `json:"people_truncated"`
+}
+
+// PeopleCount 姿势图人数：People 为空（旧版 sidecar）时按 1 人。
+func (d PoseData) PeopleCount() int {
+	if n := len(d.People); n > 0 {
+		return n
+	}
+	return 1
+}
+
 // PosePrompt POST /api/pose/prompt 的响应。
+//
+// Mapping 为实际使用的配对（源人物顺序 → pose.people 下标，-1 = 该源人物保持原姿势）；原图单人时 sidecar 回 null（nil）。
+// 请求的 mapping 有效时原样生效（-1 不会被补成默认配对）；无效（长度不符、越界、重复、全 -1）时 sidecar 整组退回默认配对，
+// 此时它与请求的 mapping 不同。2026-11-07 之前的 sidecar 会把有效配对里的 -1 按默认配对补位。
+// Raw 是整个响应的原始 JSON（客户端填充，不参与序列化：新增字段不丢，按需再 Decode）。
 type PosePrompt struct {
-	Prompt string   `json:"prompt"`
-	Pose   PoseData `json:"pose"`
-	Meta   PoseMeta `json:"meta"`
+	Prompt  string          `json:"prompt"`
+	Pose    PoseData        `json:"pose"`
+	Mapping []int           `json:"mapping"`
+	Meta    PoseMeta        `json:"meta"`
+	Raw     json.RawMessage `json:"-"`
 }
 
 // PosePromptReq POST /api/pose/prompt 的请求体。Mode=short 走短版，其余长版（默认长版）。
+//
+// Mapping 可选：长度应等于 source.people 长度，值是 pose.people 下标或 -1（保持原姿势）；不传时 sidecar 默认左→左、右→右
+// （参考图只有 1 人时配给 primary）。只在原图 ≥2 人时生效。
 type PosePromptReq struct {
-	Source json.RawMessage `json:"source"`
-	Image  string          `json:"image"`
-	Notes  string          `json:"notes,omitempty"`
-	Mode   string          `json:"mode,omitempty"`
+	Source  json.RawMessage `json:"source"`
+	Image   string          `json:"image"`
+	Notes   string          `json:"notes,omitempty"`
+	Mode    string          `json:"mode,omitempty"`
+	Mapping []int           `json:"mapping,omitempty"`
 }
 
 // ---------------------------------------------------------------- analyze

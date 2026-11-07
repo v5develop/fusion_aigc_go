@@ -22,12 +22,14 @@ const (
 	Studio_SubmitTryon_FullMethodName        = "/studio.Studio/SubmitTryon"
 	Studio_SubmitPose_FullMethodName         = "/studio.Studio/SubmitPose"
 	Studio_SubmitImageGen_FullMethodName     = "/studio.Studio/SubmitImageGen"
+	Studio_PreviewPose_FullMethodName        = "/studio.Studio/PreviewPose"
 	Studio_Quote_FullMethodName              = "/studio.Studio/Quote"
 	Studio_GetBatch_FullMethodName           = "/studio.Studio/GetBatch"
 	Studio_GetTask_FullMethodName            = "/studio.Studio/GetTask"
 	Studio_ListHistory_FullMethodName        = "/studio.Studio/ListHistory"
 	Studio_CancelBatch_FullMethodName        = "/studio.Studio/CancelBatch"
 	Studio_DeleteBatch_FullMethodName        = "/studio.Studio/DeleteBatch"
+	Studio_RetryTask_FullMethodName          = "/studio.Studio/RetryTask"
 	Studio_AdminListBatches_FullMethodName   = "/studio.Studio/AdminListBatches"
 	Studio_AdminGetBatch_FullMethodName      = "/studio.Studio/AdminGetBatch"
 	Studio_AdminRetryTask_FullMethodName     = "/studio.Studio/AdminRetryTask"
@@ -52,6 +54,9 @@ type StudioClient interface {
 	SubmitPose(ctx context.Context, in *SubmitPoseReq, opts ...grpc.CallOption) (*SubmitResp, error)
 	// 图片生成：count 张，一张一个子任务
 	SubmitImageGen(ctx context.Context, in *SubmitImageGenReq, opts ...grpc.CallOption) (*SubmitResp, error)
+	// 姿态多人配对预览（不计费、不建任务；原图读图结果按 用户+原图 sha1 写入 afv_studio_prompt_cache（batch_id=-user_id）供编排复用）：读原图与每张姿势图的人物（左→右），回人数与默认配对，
+	// 供用户在付费提交前确认 / 反转配对；结果里的人数原样带回 SubmitPose 的 source_person_count / mappings[].pose_person_count
+	PreviewPose(ctx context.Context, in *PreviewPoseReq, opts ...grpc.CallOption) (*PreviewPoseResp, error)
 	// 提交前报价（只读）：与提交同一套模型 / 分辨率归一与计费入口，返回本次提交会冻结的点数；不落库、不冻结、不校验素材
 	Quote(ctx context.Context, in *QuoteReq, opts ...grpc.CallOption) (*QuoteResp, error)
 	// 批次详情 + 全部子任务（生成中轮询此接口）
@@ -64,6 +69,9 @@ type StudioClient interface {
 	CancelBatch(ctx context.Context, in *BatchUserReq, opts ...grpc.CallOption) (*CancelBatchResp, error)
 	// 删除批次（软删）：进行中的批次拒绝删除
 	DeleteBatch(ctx context.Context, in *BatchUserReq, opts ...grpc.CallOption) (*Empty, error)
+	// 用户重试单个失败子任务：只重跑该任务的生图一步（沿用已存的提示词 / 图序，不再反推），
+	// 按原入口重新冻结 1 张的点数（新计费请求号 studio-<task_id>-r<n>，原单不再动）；返回批次详情（同 GetBatch）
+	RetryTask(ctx context.Context, in *RetryTaskReq, opts ...grpc.CallOption) (*BatchDetail, error)
 	// ---- 运营后台 ----
 	AdminListBatches(ctx context.Context, in *AdminListBatchesReq, opts ...grpc.CallOption) (*AdminListBatchesResp, error)
 	// 批次详情：含切图框、切图质检、组图、每步耗时与成本、每个子任务的完整 prompt
@@ -110,6 +118,16 @@ func (c *studioClient) SubmitImageGen(ctx context.Context, in *SubmitImageGenReq
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(SubmitResp)
 	err := c.cc.Invoke(ctx, Studio_SubmitImageGen_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *studioClient) PreviewPose(ctx context.Context, in *PreviewPoseReq, opts ...grpc.CallOption) (*PreviewPoseResp, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PreviewPoseResp)
+	err := c.cc.Invoke(ctx, Studio_PreviewPose_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -170,6 +188,16 @@ func (c *studioClient) DeleteBatch(ctx context.Context, in *BatchUserReq, opts .
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(Empty)
 	err := c.cc.Invoke(ctx, Studio_DeleteBatch_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *studioClient) RetryTask(ctx context.Context, in *RetryTaskReq, opts ...grpc.CallOption) (*BatchDetail, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(BatchDetail)
+	err := c.cc.Invoke(ctx, Studio_RetryTask_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -252,6 +280,9 @@ type StudioServer interface {
 	SubmitPose(context.Context, *SubmitPoseReq) (*SubmitResp, error)
 	// 图片生成：count 张，一张一个子任务
 	SubmitImageGen(context.Context, *SubmitImageGenReq) (*SubmitResp, error)
+	// 姿态多人配对预览（不计费、不建任务；原图读图结果按 用户+原图 sha1 写入 afv_studio_prompt_cache（batch_id=-user_id）供编排复用）：读原图与每张姿势图的人物（左→右），回人数与默认配对，
+	// 供用户在付费提交前确认 / 反转配对；结果里的人数原样带回 SubmitPose 的 source_person_count / mappings[].pose_person_count
+	PreviewPose(context.Context, *PreviewPoseReq) (*PreviewPoseResp, error)
 	// 提交前报价（只读）：与提交同一套模型 / 分辨率归一与计费入口，返回本次提交会冻结的点数；不落库、不冻结、不校验素材
 	Quote(context.Context, *QuoteReq) (*QuoteResp, error)
 	// 批次详情 + 全部子任务（生成中轮询此接口）
@@ -264,6 +295,9 @@ type StudioServer interface {
 	CancelBatch(context.Context, *BatchUserReq) (*CancelBatchResp, error)
 	// 删除批次（软删）：进行中的批次拒绝删除
 	DeleteBatch(context.Context, *BatchUserReq) (*Empty, error)
+	// 用户重试单个失败子任务：只重跑该任务的生图一步（沿用已存的提示词 / 图序，不再反推），
+	// 按原入口重新冻结 1 张的点数（新计费请求号 studio-<task_id>-r<n>，原单不再动）；返回批次详情（同 GetBatch）
+	RetryTask(context.Context, *RetryTaskReq) (*BatchDetail, error)
 	// ---- 运营后台 ----
 	AdminListBatches(context.Context, *AdminListBatchesReq) (*AdminListBatchesResp, error)
 	// 批次详情：含切图框、切图质检、组图、每步耗时与成本、每个子任务的完整 prompt
@@ -295,6 +329,9 @@ func (UnimplementedStudioServer) SubmitPose(context.Context, *SubmitPoseReq) (*S
 func (UnimplementedStudioServer) SubmitImageGen(context.Context, *SubmitImageGenReq) (*SubmitResp, error) {
 	return nil, status.Error(codes.Unimplemented, "method SubmitImageGen not implemented")
 }
+func (UnimplementedStudioServer) PreviewPose(context.Context, *PreviewPoseReq) (*PreviewPoseResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method PreviewPose not implemented")
+}
 func (UnimplementedStudioServer) Quote(context.Context, *QuoteReq) (*QuoteResp, error) {
 	return nil, status.Error(codes.Unimplemented, "method Quote not implemented")
 }
@@ -312,6 +349,9 @@ func (UnimplementedStudioServer) CancelBatch(context.Context, *BatchUserReq) (*C
 }
 func (UnimplementedStudioServer) DeleteBatch(context.Context, *BatchUserReq) (*Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method DeleteBatch not implemented")
+}
+func (UnimplementedStudioServer) RetryTask(context.Context, *RetryTaskReq) (*BatchDetail, error) {
+	return nil, status.Error(codes.Unimplemented, "method RetryTask not implemented")
 }
 func (UnimplementedStudioServer) AdminListBatches(context.Context, *AdminListBatchesReq) (*AdminListBatchesResp, error) {
 	return nil, status.Error(codes.Unimplemented, "method AdminListBatches not implemented")
@@ -402,6 +442,24 @@ func _Studio_SubmitImageGen_Handler(srv interface{}, ctx context.Context, dec fu
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(StudioServer).SubmitImageGen(ctx, req.(*SubmitImageGenReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Studio_PreviewPose_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PreviewPoseReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(StudioServer).PreviewPose(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Studio_PreviewPose_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(StudioServer).PreviewPose(ctx, req.(*PreviewPoseReq))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -510,6 +568,24 @@ func _Studio_DeleteBatch_Handler(srv interface{}, ctx context.Context, dec func(
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(StudioServer).DeleteBatch(ctx, req.(*BatchUserReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Studio_RetryTask_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RetryTaskReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(StudioServer).RetryTask(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Studio_RetryTask_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(StudioServer).RetryTask(ctx, req.(*RetryTaskReq))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -642,6 +718,10 @@ var Studio_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _Studio_SubmitImageGen_Handler,
 		},
 		{
+			MethodName: "PreviewPose",
+			Handler:    _Studio_PreviewPose_Handler,
+		},
+		{
 			MethodName: "Quote",
 			Handler:    _Studio_Quote_Handler,
 		},
@@ -664,6 +744,10 @@ var Studio_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DeleteBatch",
 			Handler:    _Studio_DeleteBatch_Handler,
+		},
+		{
+			MethodName: "RetryTask",
+			Handler:    _Studio_RetryTask_Handler,
 		},
 		{
 			MethodName: "AdminListBatches",

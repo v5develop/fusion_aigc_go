@@ -36,8 +36,15 @@ type (
 	GetTaskReq           = studio.GetTaskReq
 	ListHistoryReq       = studio.ListHistoryReq
 	ListHistoryResp      = studio.ListHistoryResp
+	PoseMapping          = studio.PoseMapping
+	PosePreviewImage     = studio.PosePreviewImage
+	PosePreviewItem      = studio.PosePreviewItem
+	PosePreviewPerson    = studio.PosePreviewPerson
+	PreviewPoseReq       = studio.PreviewPoseReq
+	PreviewPoseResp      = studio.PreviewPoseResp
 	QuoteReq             = studio.QuoteReq
 	QuoteResp            = studio.QuoteResp
+	RetryTaskReq         = studio.RetryTaskReq
 	SidecarStatusResp    = studio.SidecarStatusResp
 	SubmitImageGenReq    = studio.SubmitImageGenReq
 	SubmitPoseReq        = studio.SubmitPoseReq
@@ -52,6 +59,8 @@ type (
 		SubmitPose(ctx context.Context, in *SubmitPoseReq, opts ...grpc.CallOption) (*SubmitResp, error)
 		// 图片生成：count 张，一张一个子任务
 		SubmitImageGen(ctx context.Context, in *SubmitImageGenReq, opts ...grpc.CallOption) (*SubmitResp, error)
+		// 姿态多人配对预览（不计费、不建任务；原图读图结果按 用户+原图 sha1 写入 afv_studio_prompt_cache（batch_id=-user_id）供编排复用）：读原图与每张姿势图的人物（左→右），回人数与默认配对，
+		PreviewPose(ctx context.Context, in *PreviewPoseReq, opts ...grpc.CallOption) (*PreviewPoseResp, error)
 		// 提交前报价（只读）：与提交同一套模型 / 分辨率归一与计费入口，返回本次提交会冻结的点数；不落库、不冻结、不校验素材
 		Quote(ctx context.Context, in *QuoteReq, opts ...grpc.CallOption) (*QuoteResp, error)
 		// 批次详情 + 全部子任务（生成中轮询此接口）
@@ -64,6 +73,8 @@ type (
 		CancelBatch(ctx context.Context, in *BatchUserReq, opts ...grpc.CallOption) (*CancelBatchResp, error)
 		// 删除批次（软删）：进行中的批次拒绝删除
 		DeleteBatch(ctx context.Context, in *BatchUserReq, opts ...grpc.CallOption) (*Empty, error)
+		// 用户重试单个失败子任务：只重跑该任务的生图一步（沿用已存的提示词 / 图序，不再反推），
+		RetryTask(ctx context.Context, in *RetryTaskReq, opts ...grpc.CallOption) (*BatchDetail, error)
 		// ---- 运营后台 ----
 		AdminListBatches(ctx context.Context, in *AdminListBatchesReq, opts ...grpc.CallOption) (*AdminListBatchesResp, error)
 		// 批次详情：含切图框、切图质检、组图、每步耗时与成本、每个子任务的完整 prompt
@@ -107,6 +118,12 @@ func (m *defaultStudio) SubmitImageGen(ctx context.Context, in *SubmitImageGenRe
 	return client.SubmitImageGen(ctx, in, opts...)
 }
 
+// 姿态多人配对预览（不计费、不建任务；原图读图结果按 用户+原图 sha1 写入 afv_studio_prompt_cache（batch_id=-user_id）供编排复用）：读原图与每张姿势图的人物（左→右），回人数与默认配对，
+func (m *defaultStudio) PreviewPose(ctx context.Context, in *PreviewPoseReq, opts ...grpc.CallOption) (*PreviewPoseResp, error) {
+	client := studio.NewStudioClient(m.cli.Conn())
+	return client.PreviewPose(ctx, in, opts...)
+}
+
 // 提交前报价（只读）：与提交同一套模型 / 分辨率归一与计费入口，返回本次提交会冻结的点数；不落库、不冻结、不校验素材
 func (m *defaultStudio) Quote(ctx context.Context, in *QuoteReq, opts ...grpc.CallOption) (*QuoteResp, error) {
 	client := studio.NewStudioClient(m.cli.Conn())
@@ -141,6 +158,12 @@ func (m *defaultStudio) CancelBatch(ctx context.Context, in *BatchUserReq, opts 
 func (m *defaultStudio) DeleteBatch(ctx context.Context, in *BatchUserReq, opts ...grpc.CallOption) (*Empty, error) {
 	client := studio.NewStudioClient(m.cli.Conn())
 	return client.DeleteBatch(ctx, in, opts...)
+}
+
+// 用户重试单个失败子任务：只重跑该任务的生图一步（沿用已存的提示词 / 图序，不再反推），
+func (m *defaultStudio) RetryTask(ctx context.Context, in *RetryTaskReq, opts ...grpc.CallOption) (*BatchDetail, error) {
+	client := studio.NewStudioClient(m.cli.Conn())
+	return client.RetryTask(ctx, in, opts...)
 }
 
 // ---- 运营后台 ----

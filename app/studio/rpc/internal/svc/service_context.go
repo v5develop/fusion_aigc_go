@@ -43,6 +43,9 @@ type ServiceContext struct {
 	Gateway *aigateway.Client
 	// Reverse 反推 sidecar 客户端（c.Reverse）：crop-plan / crop-check / analyze-batch / pose source / pose prompt / status。
 	Reverse *reverse.Client
+	// PreviewSlots 姿态配对预览（免费）全进程的 sidecar 读图名额（Config.PreviewSidecarSlots）：预览先占它再进 Reverse
+	// 的共享信号量，最多占用这么多个 sidecar 名额，付费编排不会被预览挤到排队超时
+	PreviewSlots chan struct{}
 	// Audit 只读审计查询（sqlc，pkg/auditdb）：只给后台成本汇总用，业务读写一律走 Repo
 	Audit *auditdb.Queries
 }
@@ -58,19 +61,20 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		logx.Must(err)
 	}
 	return &ServiceContext{
-		Reverse:    newReverse(c),
-		Audit:      audit,
-		DB:         db,
-		Repo:       repo.New(db),
-		Gateway:    newGateway(c),
-		Config:     c,
-		Conn:       conn,
-		Billing:    billing.New(c.Billing, conn),
-		Asset:      asset.NewWriter(conn),
-		Storage:    storage.New(c.Storage, conn),
-		Moderation: moderation.New(c.Moderation.Mode, blockWords(conn)),
-		TaskCenter: taskcenter.New(conn, 10*time.Minute, TaskSources(c)...),
-		MediaSvc:   newMediaSvc(c),
+		Reverse:      newReverse(c),
+		PreviewSlots: make(chan struct{}, c.PreviewSidecarSlots()),
+		Audit:        audit,
+		DB:           db,
+		Repo:         repo.New(db),
+		Gateway:      newGateway(c),
+		Config:       c,
+		Conn:         conn,
+		Billing:      billing.New(c.Billing, conn),
+		Asset:        asset.NewWriter(conn),
+		Storage:      storage.New(c.Storage, conn),
+		Moderation:   moderation.New(c.Moderation.Mode, blockWords(conn)),
+		TaskCenter:   taskcenter.New(conn, 10*time.Minute, TaskSources(c)...),
+		MediaSvc:     newMediaSvc(c),
 	}
 }
 

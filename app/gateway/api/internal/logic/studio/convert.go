@@ -65,6 +65,63 @@ func toDetail(d *studio_client.BatchDetail) types.StudioBatchDetail {
 }
 
 // posePrompts HTTP 的 {"0": "…"} → rpc 的 {0: "…"}。键必须是非负整数，范围由 rpc 校验。
+// toPosePreviewResp 人物配对预览。数组一律回 []（前端不用判 null）；失败的姿势图 pose 为 null。
+func toPosePreviewResp(r *studio_client.PreviewPoseResp) *types.StudioPosePreviewResp {
+	out := &types.StudioPosePreviewResp{Poses: []types.StudioPosePreviewItem{}, MappingEnabled: r.MappingEnabled}
+	if r.Source != nil {
+		out.Source = toPosePreviewImage(r.Source)
+	} else {
+		out.Source.People = []types.StudioPosePreviewPerson{}
+	}
+	for _, it := range r.Poses {
+		if it == nil {
+			continue
+		}
+		item := types.StudioPosePreviewItem{PoseIndex: it.PoseIndex, DefaultMapping: orEmptyInt32(it.DefaultMapping), Error: it.Error}
+		if it.Pose != nil {
+			img := toPosePreviewImage(it.Pose)
+			item.Pose = &img
+		}
+		out.Poses = append(out.Poses, item)
+	}
+	return out
+}
+
+func toPosePreviewImage(r *studio_client.PosePreviewImage) types.StudioPosePreviewImage {
+	img := types.StudioPosePreviewImage{
+		PersonCount: r.PersonCount, Group: r.Group, Interaction: r.Interaction, PeopleTruncated: r.PeopleTruncated,
+		People: make([]types.StudioPosePreviewPerson, 0, len(r.People)),
+	}
+	for _, p := range r.People {
+		if p == nil {
+			continue
+		}
+		img.People = append(img.People, types.StudioPosePreviewPerson{
+			Label: p.Label, Position: p.Position, Primary: p.Primary, GenderAge: p.GenderAge, Summary: p.Summary,
+		})
+	}
+	return img
+}
+
+// poseMappings 提交体里的多人配对 → rpc。
+func poseMappings(list []types.StudioPoseMapping) []*studio_client.PoseMapping {
+	if len(list) == 0 {
+		return nil
+	}
+	out := make([]*studio_client.PoseMapping, 0, len(list))
+	for _, m := range list {
+		out = append(out, &studio_client.PoseMapping{PoseIndex: m.PoseIndex, Mapping: m.Mapping, PosePersonCount: m.PosePersonCount})
+	}
+	return out
+}
+
+func orEmptyInt32(v []int32) []int32 {
+	if v == nil {
+		return []int32{}
+	}
+	return v
+}
+
 func posePrompts(m map[string]string) (map[int32]string, error) {
 	if len(m) == 0 {
 		return nil, nil

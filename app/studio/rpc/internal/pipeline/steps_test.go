@@ -15,15 +15,38 @@ func TestCacheKeys(t *testing.T) {
 	if sha != "a9993e364706816aba3e25717850c26c9cd0d89d" || SHA1String("abc") != sha {
 		t.Fatal("sha1")
 	}
-	if AnalyzeKey(strings.ToUpper(sha)) != sha || SourceKey(sha) != sha || PromptKey(sha, "  ") != sha {
+	if AnalyzeKey(strings.ToUpper(sha)) != sha || SourceKey(sha) != sha || PromptKey(sha, "  ", nil) != sha {
 		t.Fatal("plain keys")
 	}
-	k := PromptKey(sha, "抬头")
-	if !strings.HasPrefix(k, sha+":") || len(k) != 57 || k == PromptKey(sha, "低头") {
+	k := PromptKey(sha, "抬头", nil)
+	if !strings.HasPrefix(k, sha+":") || len(k) != 57 || k == PromptKey(sha, "低头", nil) {
 		t.Fatalf("prompt key = %s", k)
 	}
 	if CropPlanKey(0) != "batch-0" || len(k) > 80 {
 		t.Fatal("crop key")
+	}
+}
+
+// 多人配对进缓存键：反转配对不能命中默认配对 / 原配对的缓存；空 mapping 与旧键一致。
+func TestPromptKeyMapping(t *testing.T) {
+	sha := SHA1Hex([]byte("pose"))
+	base := PromptKey(sha, "抬头", nil)
+	if PromptKey(sha, "抬头", []int{}) != base {
+		t.Fatal("empty mapping must keep the old key")
+	}
+	fwd, rev := PromptKey(sha, "抬头", []int{0, 1}), PromptKey(sha, "抬头", []int{1, 0})
+	if fwd == base || rev == base || fwd == rev {
+		t.Fatalf("mapping must change key: base=%s fwd=%s rev=%s", base, fwd, rev)
+	}
+	if rev != base+":m1.0" {
+		t.Fatalf("rev = %s", rev)
+	}
+	// -1 与多位下标不能拼出歧义（[1,-1] ≠ [-1,1]），最长 4 位仍 ≤80
+	if PromptKey(sha, "", []int{1, -1}) == PromptKey(sha, "", []int{-1, 1}) {
+		t.Fatal("ambiguous mapping key")
+	}
+	if k := PromptKey(sha, "抬头", []int{-1, -1, -1, -1}); len(k) > 80 {
+		t.Fatalf("key too long: %d", len(k))
 	}
 }
 

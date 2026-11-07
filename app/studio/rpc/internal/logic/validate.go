@@ -4,12 +4,14 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"unicode/utf8"
 
 	"aigc-local-life/app/studio/rpc/internal/pipeline"
 	"aigc-local-life/app/studio/rpc/studio"
+	"aigc-local-life/pkg/reverse"
 	"aigc-local-life/pkg/xerr"
 )
 
@@ -349,11 +351,14 @@ type PoseInput struct {
 	Source      string
 	Poses       []string
 	PosePrompts map[int32]string
-	Resolution  string
-	AspectRatio string
-	ModelName   string
-	ModelGroup  string
-	Warnings    []string
+	// SourcePersonCount / Mappings 多人配对（PreviewPose 确认后带回）；没传 mappings 时为 0 / nil
+	SourcePersonCount int
+	Mappings          []PoseMappingInput // 按 pose_index 升序
+	Resolution        string
+	AspectRatio       string
+	ModelName         string
+	ModelGroup        string
+	Warnings          []string
 }
 
 func ValidatePose(in *studio.SubmitPoseReq, groups map[string]string) (*PoseInput, error) {
@@ -404,14 +409,90 @@ func ValidatePose(in *studio.SubmitPoseReq, groups map[string]string) (*PoseInpu
 	if err != nil {
 		return nil, err
 	}
+	mappings, err := validatePoseMappings(in.SourcePersonCount, in.Mappings, len(in.PoseImageUrls))
+	if err != nil {
+		return nil, err
+	}
+	srcCount := 0
+	if len(mappings) > 0 {
+		srcCount = int(in.SourcePersonCount)
+	}
 	poses := make([]string, 0, len(in.PoseImageUrls))
 	for _, u := range in.PoseImageUrls {
 		poses = append(poses, strings.TrimSpace(u))
 	}
 	return &PoseInput{
 		Source: strings.TrimSpace(in.SourceImageUrl), Poses: poses, PosePrompts: prompts,
+		SourcePersonCount: srcCount, Mappings: mappings,
 		Resolution: res, AspectRatio: ar, ModelName: name, ModelGroup: group, Warnings: warns,
 	}, nil
+}
+
+// PoseMappingInput 一张姿势图的配对（校验后）。JSON 键名与批次 payload / 前端提交一致。
+type PoseMappingInput struct {
+	PoseIndex       int   `json:"pose_index"`
+	Mapping         []int `json:"mapping"`
+	PosePersonCount int   `json:"pose_person_count"`
+}
+
+// validatePoseMappings 多人配对校验（人数来自 PreviewPose，付费前由用户确认）：
+// 原图 2–4 人；每条 pose_index 在范围内且不重复；len(mapping) == 原图人数；值在 [-1, 姿势图人数-1]；
+// 非负值不重复（sidecar 会把重复值改成 -1）；至少一个非负值（全 -1 sidecar 会退回默认配对，等于没确认）。
+// 编排时若 sidecar 本次识别的人数与预览不同，配对会被放弃并记告警（见 resolvePoseMapping）。
+func validatePoseMappings(srcCount int32, list []*studio.PoseMapping, poses int) ([]PoseMappingInput, error) {
+	if len(list) == 0 {
+		return nil, nil
+	}
+	if srcCount < 2 || srcCount > reverse.MaxPosePeople {
+		return nil, xerr.Param(fmt.Sprintf("人物配对需要原图人数（2–%d），请先预览配对", reverse.MaxPosePeople))
+	}
+	if len(list) > poses {
+		return nil, xerr.Param("人物配对条数多于姿势图张数")
+	}
+	out := make([]PoseMappingInput, 0, len(list))
+	seen := map[int32]bool{}
+	for _, m := range list {
+		if m == nil {
+			continue
+		}
+		idx := m.PoseIndex
+		if idx < 0 || int(idx) >= poses {
+			return nil, xerr.Param(fmt.Sprintf("人物配对的姿势序号 %d 超出范围", idx))
+		}
+		if seen[idx] {
+			return nil, xerr.Param(fmt.Sprintf("姿势 %d 的人物配对重复", idx+1))
+		}
+		seen[idx] = true
+		what := fmt.Sprintf("姿势 %d 的人物配对", idx+1)
+		ppc := m.PosePersonCount
+		if ppc < 1 || ppc > reverse.MaxPosePeople {
+			return nil, xerr.Param(fmt.Sprintf("%s缺少姿势图人数（1–%d），请先预览配对", what, reverse.MaxPosePeople))
+		}
+		if len(m.Mapping) != int(srcCount) {
+			return nil, xerr.Param(fmt.Sprintf("%s应为 %d 位（与原图人数一致），实际 %d 位", what, srcCount, len(m.Mapping)))
+		}
+		vals := make([]int, len(m.Mapping))
+		used := map[int32]bool{}
+		hasPose := false
+		for i, v := range m.Mapping {
+			if v < -1 || v >= ppc {
+				return nil, xerr.Param(fmt.Sprintf("%s第 %d 位取值 %d 超出范围（-1 到 %d）", what, i+1, v, ppc-1))
+			}
+			if v >= 0 {
+				if used[v] {
+					return nil, xerr.Param(fmt.Sprintf("%s里姿势图人物 %d 被重复使用", what, v+1))
+				}
+				used[v], hasPose = true, true
+			}
+			vals[i] = int(v)
+		}
+		if !hasPose {
+			return nil, xerr.Param(what + "至少要有一位人物学姿势")
+		}
+		out = append(out, PoseMappingInput{PoseIndex: int(idx), Mapping: vals, PosePersonCount: int(ppc)})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].PoseIndex < out[j].PoseIndex })
+	return out, nil
 }
 
 // ---------------- 图片生成 ----------------

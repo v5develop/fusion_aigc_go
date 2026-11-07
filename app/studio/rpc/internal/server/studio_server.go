@@ -41,6 +41,12 @@ func (s *StudioServer) SubmitImageGen(ctx context.Context, in *studio.SubmitImag
 	return l.SubmitImageGen(in)
 }
 
+// 姿态多人配对预览（不计费、不建任务；原图读图结果按 用户+原图 sha1 写入 afv_studio_prompt_cache（batch_id=-user_id）供编排复用）：读原图与每张姿势图的人物（左→右），回人数与默认配对，
+func (s *StudioServer) PreviewPose(ctx context.Context, in *studio.PreviewPoseReq) (*studio.PreviewPoseResp, error) {
+	l := logic.NewPreviewPoseLogic(ctx, s.svcCtx)
+	return l.PreviewPose(in)
+}
+
 // 提交前报价（只读）：与提交同一套模型 / 分辨率归一与计费入口，返回本次提交会冻结的点数；不落库、不冻结、不校验素材
 func (s *StudioServer) Quote(ctx context.Context, in *studio.QuoteReq) (*studio.QuoteResp, error) {
 	l := logic.NewQuoteLogic(ctx, s.svcCtx)
@@ -75,6 +81,12 @@ func (s *StudioServer) CancelBatch(ctx context.Context, in *studio.BatchUserReq)
 func (s *StudioServer) DeleteBatch(ctx context.Context, in *studio.BatchUserReq) (*studio.Empty, error) {
 	l := logic.NewDeleteBatchLogic(ctx, s.svcCtx)
 	return l.DeleteBatch(in)
+}
+
+// 用户重试单个失败子任务：只重跑该任务的生图一步（沿用已存的提示词 / 图序，不再反推），
+func (s *StudioServer) RetryTask(ctx context.Context, in *studio.RetryTaskReq) (*studio.BatchDetail, error) {
+	l := logic.NewRetryTaskLogic(ctx, s.svcCtx)
+	return l.RetryTask(in)
 }
 
 // ---- 运营后台 ----

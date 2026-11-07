@@ -47,7 +47,15 @@ type Config struct {
 	DataSource string `json:",optional"`
 	// Storage 须与 digitalhuman-rpc 一致：rpc 只接受本存储签发的上传地址
 	Storage storage.Conf
-	Upload  struct {
+	// Studio 工作室接口的网关侧限制
+	Studio struct {
+		// PosePreviewPerMinute / PosePreviewPerDay 姿态配对预览（免费、但每次都要读图）每用户每分钟 / 每天（北京时间自然日）的次数上限，
+		// 超出回 4002「识别太频繁，请稍后再试」。计数放在 Auth.Session 的 Redis（多实例共享）；没配 Session 时退回进程内计数（仅开发）。
+		// <= 0 表示该窗口不限。
+		PosePreviewPerMinute int `json:",default=6"`
+		PosePreviewPerDay    int `json:",default=200"`
+	}
+	Upload struct {
 		// MaxImageBytes 仅网关代传（开发用）时生效；直传的大小与类型由前端控制
 		MaxImageBytes int64 `json:",default=10485760"`
 		// CredentialTTLMinutes 直传凭证有效期

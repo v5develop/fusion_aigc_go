@@ -15,6 +15,9 @@ service Studio {
   rpc SubmitPose(SubmitPoseReq) returns (SubmitResp);
   // 图片生成：count 张，一张一个子任务
   rpc SubmitImageGen(SubmitImageGenReq) returns (SubmitResp);
+  // 姿态多人配对预览（不计费、不建任务；原图读图结果按 用户+原图 sha1 写入 afv_studio_prompt_cache（batch_id=-user_id）供编排复用）：读原图与每张姿势图的人物（左→右），回人数与默认配对，
+  // 供用户在付费提交前确认 / 反转配对；结果里的人数原样带回 SubmitPose 的 source_person_count / mappings[].pose_person_count
+  rpc PreviewPose(PreviewPoseReq) returns (PreviewPoseResp);
   // 提交前报价（只读）：与提交同一套模型 / 分辨率归一与计费入口，返回本次提交会冻结的点数；不落库、不冻结、不校验素材
   rpc Quote(QuoteReq) returns (QuoteResp);
   // 批次详情 + 全部子任务（生成中轮询此接口）
@@ -27,6 +30,9 @@ service Studio {
   rpc CancelBatch(BatchUserReq) returns (CancelBatchResp);
   // 删除批次（软删）：进行中的批次拒绝删除
   rpc DeleteBatch(BatchUserReq) returns (Empty);
+  // 用户重试单个失败子任务：只重跑该任务的生图一步（沿用已存的提示词 / 图序，不再反推），
+  // 按原入口重新冻结 1 张的点数（新计费请求号 studio-<task_id>-r<n>，原单不再动）；返回批次详情（同 GetBatch）
+  rpc RetryTask(RetryTaskReq) returns (BatchDetail);
 
   // ---- 运营后台 ----
   rpc AdminListBatches(AdminListBatchesReq) returns (AdminListBatchesResp);
@@ -85,6 +91,55 @@ message SubmitPoseReq {
   string model = 8;                      // 模型档：通用 / GPT / Banana / Seedream；空=通用
   string resolution = 9;                 // 1k / 2k / 4k；空=1k
   string aspect_ratio = 10;              // 空=3:4
+  // 多人配对（可选，来自 PreviewPose 的确认结果）：每张姿势图一条；不传的姿势图按默认配对（左→左、右→右）。
+  // 只在原图 ≥2 人时有意义；传了 mappings 就必须带 source_person_count（预览时原图人数）
+  int32 source_person_count = 11;
+  repeated PoseMapping mappings = 12;
+}
+
+// 一张姿势图的人物配对。mapping[i] = 原图第 i 位人物（左→右）学姿势图第几位人物（左→右，从 0 起）；-1 = 该人物保持原姿势。
+// 校验：len(mapping) == source_person_count；值在 [-1, pose_person_count-1]；非负值不重复；至少一个非负值
+message PoseMapping {
+  int32 pose_index = 1;                  // 姿势图下标（从 0 起）
+  repeated int32 mapping = 2;
+  int32 pose_person_count = 3;           // 预览时该姿势图的人数
+}
+
+// 姿态配对预览
+message PreviewPoseReq {
+  int64 user_id = 1;
+  string source_image_url = 2;           // 人物图（图 1），只收本服务签发的地址
+  repeated string pose_image_urls = 3;   // 姿势图 1–9 张
+}
+
+// 预览里的一位人物（按画面左→右）
+message PosePreviewPerson {
+  string label = 1;                      // P1…P4
+  string position = 2;                   // 画面左侧 / 画面中间 / 画面右侧 …
+  bool primary = 3;                      // 主要人物（单人兼容字段取这位）
+  string gender_age = 4;                 // 原图人物有；姿势图人物为空
+  string summary = 5;                    // 原图：服装摘要；姿势图：动作剪影（outline）
+}
+
+message PosePreviewImage {
+  int32 person_count = 1;
+  repeated PosePreviewPerson people = 2;
+  string group = 3;                      // 整组站位
+  string interaction = 4;                // 身体接触；没有为「无」
+  bool people_truncated = 5;             // 超过 4 人，只分析了前 4 位
+}
+
+message PosePreviewItem {
+  int32 pose_index = 1;
+  PosePreviewImage pose = 2;             // 失败时为空
+  repeated int32 default_mapping = 3;    // sidecar 默认配对（长度 = 原图人数）；原图单人时为空（不需要配对）
+  string error = 4;                      // 该姿势图分析失败的原因（不影响其它姿势图）；成功为空
+}
+
+message PreviewPoseResp {
+  PosePreviewImage source = 1;
+  repeated PosePreviewItem poses = 2;    // 顺序同 pose_image_urls；原图单人时也逐张读（只回人数 / 人物，供提示「多出的人物会被忽略」）
+  bool mapping_enabled = 3;              // 原图 ≥2 人：前端显示配对 / 反转配对
 }
 
 // 图片生成（tool:image-generate）
@@ -142,6 +197,12 @@ message GetBatchReq {
 }
 
 message GetTaskReq {
+  string task_id = 1;
+  int64 user_id = 2;
+}
+
+// 用户重试子任务
+message RetryTaskReq {
   string task_id = 1;
   int64 user_id = 2;
 }

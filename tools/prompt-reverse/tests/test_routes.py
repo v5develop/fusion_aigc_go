@@ -108,7 +108,7 @@ class RoutesTest(unittest.TestCase):
         st, js = self.call("GET", "/api/status")
         self.assertEqual(st, 200)
         self.assertEqual(js["service"], "prompt-reverse")
-        self.assertEqual(js["version"], "2026-10-30.merged")
+        self.assertEqual(js["version"], "2026-11-07.merged")
         self.assertFalse(js["llm_configured"])
         self.assertEqual(js["model_group"], "vlm.deepseek-flash")
         self.assertEqual(js["model"], "vlm.deepseek-flash")

@@ -84,6 +84,14 @@ func New(c Conf) *Store {
 
 func (s *Store) Enabled() bool { return s != nil && s.rds != nil }
 
+// Redis 会话用的 Redis 客户端（未启用返回 nil）。给同库的其它轻量用途（如按用户的调用配额）复用连接池，key 自带前缀不与会话撞键。
+func (s *Store) Redis() *redis.Client {
+	if !s.Enabled() {
+		return nil
+	}
+	return s.rds
+}
+
 func (s *Store) accessTTL() time.Duration {
 	h := s.conf.AccessHours
 	if h <= 0 {

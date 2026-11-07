@@ -479,7 +479,7 @@ func poseSpec(in *studio.SubmitPoseReq, v *PoseInput) *submitSpec {
 		prompts[fmt.Sprint(i)] = p
 		texts = append(texts, textCheck{"studio_pose_prompt", p})
 	}
-	return &submitSpec{
+	sp := &submitSpec{
 		Kind: model.KindPose, UserID: in.UserId, WorkspaceID: in.WorkspaceId, RequestID: strings.TrimSpace(in.RequestId),
 		Payload: map[string]any{
 			"workspace_id": in.WorkspaceId, "source_image_url": v.Source, "pose_image_urls": v.Poses,
@@ -489,6 +489,13 @@ func poseSpec(in *studio.SubmitPoseReq, v *PoseInput) *submitSpec {
 		URLs: append([]urlCheck{{"人物图", v.Source}}, urlChecks("姿势图", v.Poses)...), Texts: texts, ModelGroup: v.ModelGroup, Resolution: v.Resolution, Warnings: v.Warnings,
 		Slots: poseSlots(len(v.Poses)),
 	}
+	// 多人配对：编排时传给 sidecar pose/prompt，历史回填时前端按它恢复配对。
+	// 只在传了配对时写入，不带配对的提交 payload（及其幂等哈希）与旧版逐字一致
+	if len(v.Mappings) > 0 {
+		sp.Payload["source_person_count"] = v.SourcePersonCount
+		sp.Payload["mappings"] = v.Mappings
+	}
+	return sp
 }
 
 func imageGenSpec(in *studio.SubmitImageGenReq, v *ImageGenInput) *submitSpec {

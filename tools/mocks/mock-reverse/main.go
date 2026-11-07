@@ -149,7 +149,11 @@ func handler() http.Handler {
 		}
 		writeJSON(w, 200, map[string]any{
 			"source": map[string]any{"has_person": true, "gender_age": "年轻女性", "face": "鹅蛋脸", "hair": "黑色长发",
-				"outfit": []string{"白色衬衫", "牛仔裤"}, "scene": "影棚", "background": "纯灰色", "light": "柔光", "camera": "平视", "framing": "全身"},
+				"outfit": []string{"白色衬衫", "牛仔裤"}, "scene": "影棚", "background": "纯灰色", "light": "柔光", "camera": "平视", "framing": "全身",
+				// 2026-11-07.1 多人字段：单人也有 people[1]、person_count=1
+				"person_count": 1, "group": "P1 在画面中间", "interaction": "无", "people_truncated": false,
+				"people": []map[string]any{{"label": "P1", "position": "画面中间", "primary": true, "gender_age": "年轻女性",
+					"face": "鹅蛋脸", "hair": "黑色长发", "outfit": []string{"白色衬衫", "牛仔裤"}, "accessories": []string{}, "pose": "站立", "occluded": ""}}},
 			"meta": map[string]any{"model": "deepseek-flash", "elapsed_ms": 1}})
 	})
 
@@ -162,8 +166,28 @@ func handler() http.Handler {
 		if n, _ := b["notes"].(string); n != "" {
 			sb.WriteString("【补充】" + n + "\n")
 		}
-		writeJSON(w, 200, map[string]any{"prompt": sb.String(),
-			"pose": map[string]any{"orientation": "正面", "orientation_deg": "正面0°", "arms": "自然下垂", "legs": "并拢", "expression": "平静", "confidence": "高"}, // 与 sidecar _norm_pose 一致：confidence 是 高/中/低
+		// 多人：姿势图人数按回传 source.people 的人数模拟；mapping 原样回显（合法时），否则默认左→左；单人回 null
+		src, _ := b["source"].(map[string]any)
+		n := lenOf(src["people"])
+		people := []map[string]any{}
+		for i := 0; i < max(n, 1); i++ {
+			people = append(people, map[string]any{"label": fmt.Sprintf("P%d", i+1), "position": "画面中间", "primary": i == 0,
+				"has_person": true, "orientation_deg": "正面0°", "arms": "自然下垂", "outline": "正面站立", "confidence": "高"})
+		}
+		var mapping any
+		if n >= 2 {
+			def := make([]int, n)
+			for i := range def {
+				def[i] = i
+			}
+			mapping = def
+			if m, ok := b["mapping"].([]any); ok && len(m) == n {
+				mapping = m
+			}
+		}
+		writeJSON(w, 200, map[string]any{"prompt": sb.String(), "mapping": mapping,
+			"pose": map[string]any{"orientation": "正面", "orientation_deg": "正面0°", "arms": "自然下垂", "legs": "并拢", "expression": "平静", "confidence": "高", // 与 sidecar _norm_pose 一致：confidence 是 高/中/低
+				"person_count": len(people), "group": "P1 在画面中间", "interaction": "无", "people": people, "people_truncated": false},
 			"meta": map[string]any{"model": "deepseek-flash", "elapsed_ms": 1}})
 	})
 	return mux

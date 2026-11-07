@@ -5,6 +5,7 @@ package handler
 
 import (
 	"net/http"
+	"time"
 
 	assetlib "aigc-local-life/app/gateway/api/internal/handler/assetlib"
 	auth "aigc-local-life/app/gateway/api/internal/handler/auth"
@@ -677,6 +678,12 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 					Handler: studio.GetTaskHandler(serverCtx),
 				},
 				{
+					// 重试单个失败子任务（仅本人、任务失败且批次为全部失败 / 部分成功）：只重跑这张图的生图一步（沿用已存提示词，不再反推），按原入口重新冻结 1 张点数；返回批次详情（同 GET /batches/:id），之后照常轮询批次。重复点击幂等
+					Method:  http.MethodPost,
+					Path:    "/tasks/:task_id/retry",
+					Handler: studio.RetryTaskHandler(serverCtx),
+				},
+				{
 					// 商拍换装提交前报价（只读，不冻结）：请求体同提交，返回本次提交预计冻结的点数
 					Method:  http.MethodPost,
 					Path:    "/tryon/quote",
@@ -691,6 +698,22 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 			}...,
 		),
 		rest.WithPrefix("/api/v1/studio"),
+	)
+
+	server.AddRoutes(
+		rest.WithMiddlewares(
+			[]rest.Middleware{serverCtx.Auth},
+			[]rest.Route{
+				{
+					// 姿态复刻多人配对预览（只读、不计费）：返回原图与每张姿势图的人数、人物站位与默认配对；原图 ≥2 人时前端据此让用户确认 / 反转配对，再把 mappings 随提交带回
+					Method:  http.MethodPost,
+					Path:    "/pose/preview",
+					Handler: studio.PreviewPoseHandler(serverCtx),
+				},
+			}...,
+		),
+		rest.WithPrefix("/api/v1/studio"),
+		rest.WithTimeout(250000*time.Millisecond),
 	)
 
 	server.AddRoutes(

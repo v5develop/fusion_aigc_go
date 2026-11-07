@@ -77,6 +77,48 @@ func (f *flow) maintain(ctx context.Context) {
 	f.reapSubmitting(ctx)
 	f.rescueStrayQueued(ctx)
 	f.reconcileBilling(ctx)
+	f.cleanPreviewCache(ctx)
+}
+
+const (
+	// previewCleanMaxRounds 单次清理最多连删几批（每批 PreviewCacheCleanBatch 行），防积压时占住 tick。
+	previewCleanMaxRounds = 20
+)
+
+// cleanPreviewCache 清理配对预览缓存（batch_id < 0）里过期很久的行：复用窗口是 previewSourceTTL（2h），
+// 保留期（默认 24h）必须不小于它，否则会删掉还能复用的行。真实批次缓存（batch_id > 0）不动。
+// 每个实例各自按 PreviewCacheCleanMinutes 跑，不需要租约：有界 DELETE 幂等，并发删同一批行只是各删一部分。
+// 间隔 <= 0 视为关闭（也让未配置该项的单测不多出一条 DELETE）。失败只记日志，下个周期再来。
+func (f *flow) cleanPreviewCache(ctx context.Context) {
+	every := time.Duration(f.cfg.Poll.PreviewCacheCleanMinutes) * time.Minute
+	if every <= 0 {
+		return
+	}
+	now := f.now()
+	if !f.previewCleanAt.IsZero() && now.Sub(f.previewCleanAt) < every {
+		return
+	}
+	f.previewCleanAt = now
+	retain := time.Duration(positive(f.cfg.Poll.PreviewCacheRetainHours, 24)) * time.Hour
+	if retain < previewSourceTTL {
+		retain = previewSourceTTL
+	}
+	batch := positive(f.cfg.Poll.PreviewCacheCleanBatch, 500)
+	var total int64
+	for i := 0; i < previewCleanMaxRounds && ctx.Err() == nil; i++ {
+		n, err := f.repo.Cache.DeleteStalePreview(ctx, int64(retain/time.Second), batch)
+		if err != nil {
+			logx.WithContext(ctx).Errorf("studio: 清理过期配对预览缓存失败: %v", err)
+			break
+		}
+		total += n
+		if n < int64(batch) {
+			break
+		}
+	}
+	if total > 0 {
+		logx.WithContext(ctx).Infof("studio: 清理过期配对预览缓存 %d 行", total)
+	}
 }
 
 const (

@@ -168,7 +168,7 @@ func stepLogRetries(logs []model.StepLog) int {
 		switch l.Step {
 		case stepRetry:
 			n++
-		case stepAdminRetry:
+		case stepAdminRetry, stepUserRetry:
 			n = 0
 		}
 	}
@@ -178,6 +178,7 @@ func stepLogRetries(logs []model.StepLog) int {
 const (
 	stepRetry      = "retry"
 	stepAdminRetry = "admin_retry"
+	stepUserRetry  = "user_retry"
 	stepRewrite    = "rewrite"
 	stepFinished   = "finished"
 	stepFailed     = "failed"

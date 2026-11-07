@@ -46,3 +46,34 @@ SET snapshot = JSON_SET(snapshot, '$.edges[1].sourceHandle', 'video', '$.edges[1
 WHERE scope = 'official' AND title = '元素替换' AND deleted = 0
   AND JSON_UNQUOTE(JSON_EXTRACT(snapshot, '$.edges[1].id')) = 'tpl-element-replace-e2'
   AND JSON_UNQUOTE(JSON_EXTRACT(snapshot, '$.edges[1].targetHandle')) = 'image1';
+
+-- 4. product-main 商品主图（2026-11-06 二轮 3→6）：4 个节点（含 1 个 module 框），2 条连线
+INSERT INTO afv_canvas_template (scope, user_id, title, description, snapshot, cover_url, sort, enabled, created_at)
+SELECT 'official', NULL, '商品主图', '一张商品图，出白底 / 场景两版 1:1 主图。运营需在后台替换封面与示例图。',
+  '{"nodes":[{"id":"tpl-product-main-n1","type":"module","position":{"x":0,"y":0},"draggable":false,"selectable":false,"zIndex":-1,"data":{"title":"模块 · 商品主图","subtitle":"模板模块","kind":"module","color":"rgba(20, 184, 166, 0.10)","width":980,"height":720}},{"id":"tpl-product-main-n2","type":"text","position":{"x":50,"y":60},"data":{"text":"商品主图：白底棚拍与场景两张，主体居中、边缘留白，真实材质与颜色，1:1。","title":"主图提示词","subtitle":"文字","kind":"text","mentions":[],"width":320,"height":170}},{"id":"tpl-product-main-n3","type":"image","position":{"x":50,"y":300},"data":{"image":"","title":"商品图","subtitle":"参考图 · 商品","kind":"input"}},{"id":"tpl-product-main-n4","type":"model","position":{"x":460,"y":240},"data":{"title":"商品主图","subtitle":"Banana · 1K","kind":"model","model":"Banana","maxImageRefs":5,"ratio":"1:1","size":"1K","quality":"中","cfg":0.95,"count":2,"prompt":"","status":"idle"}}],"edges":[{"id":"tpl-product-main-e1","type":"canvas-bezier","source":"tpl-product-main-n2","target":"tpl-product-main-n4","sourceHandle":"text","targetHandle":"prompt","data":{"color":"#22c55e"}},{"id":"tpl-product-main-e2","type":"canvas-bezier","source":"tpl-product-main-n3","target":"tpl-product-main-n4","sourceHandle":"image","targetHandle":"image","data":{"color":"#38bdf8","order":1}}]}',
+  '', 40, 1, NOW()
+FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM afv_canvas_template WHERE scope = 'official' AND title = '商品主图');
+
+-- 5. short-video 带货短片（2026-11-06 二轮 3→6）：4 个节点（含 1 个 module 框），2 条连线
+--   竖屏 9:16 / 8s；商品图接首帧口（image1），运行时以首帧 + 提示词驱动视频生成。
+INSERT INTO afv_canvas_template (scope, user_id, title, description, snapshot, cover_url, sort, enabled, created_at)
+SELECT 'official', NULL, '带货短片', '商品图 + 卖点，出 8 秒竖屏带货短片。运营需在后台替换封面与示例图。',
+  '{"nodes":[{"id":"tpl-short-video-n1","type":"module","position":{"x":0,"y":0},"draggable":false,"selectable":false,"zIndex":-1,"data":{"title":"模块 · 带货短片","subtitle":"模板模块","kind":"module","color":"rgba(106, 72, 123, 0.10)","width":980,"height":760}},{"id":"tpl-short-video-n2","type":"text","position":{"x":50,"y":60},"data":{"text":"8 秒竖屏带货短片：镜头从商品特写推到手持展示，暖光，节奏轻快，结尾出现卖点字幕。","title":"短片提示词","subtitle":"文字","kind":"text","mentions":[],"width":320,"height":180}},{"id":"tpl-short-video-n3","type":"image","position":{"x":50,"y":320},"data":{"image":"","title":"商品图","subtitle":"参考图 · 商品","kind":"input"}},{"id":"tpl-short-video-n4","type":"model","position":{"x":500,"y":240},"data":{"title":"带货短片","subtitle":"Seedance 2.5 · 8s","kind":"video","model":"Seedance 2.5","maxImageRefs":3,"ratio":"9:16","size":"720p","quality":"中","duration":"8s","sound":true,"cfg":0.95,"count":1,"prompt":"","status":"idle"}}],"edges":[{"id":"tpl-short-video-e1","type":"canvas-bezier","source":"tpl-short-video-n2","target":"tpl-short-video-n4","sourceHandle":"text","targetHandle":"prompt","data":{"color":"#22c55e"}},{"id":"tpl-short-video-e2","type":"canvas-bezier","source":"tpl-short-video-n3","target":"tpl-short-video-n4","sourceHandle":"image","targetHandle":"image1","data":{"color":"#38bdf8","order":1}}]}',
+  '', 50, 1, NOW()
+FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM afv_canvas_template WHERE scope = 'official' AND title = '带货短片');
+
+-- 6. hd-upscale 高清放大（2026-11-06 二轮 3→6）：3 个节点（含 1 个 module 框），1 条连线
+--   工具节点 upscale 走 Java 计价（免费预扣口径由 Java 侧定），原图接工具节点的 image 口。
+INSERT INTO afv_canvas_template (scope, user_id, title, description, snapshot, cover_url, sort, enabled, created_at)
+SELECT 'official', NULL, '高清放大', '模糊素材放到 2K，保留原构图与比例。运营需在后台替换封面与示例图。',
+  '{"nodes":[{"id":"tpl-hd-upscale-n1","type":"module","position":{"x":0,"y":0},"draggable":false,"selectable":false,"zIndex":-1,"data":{"title":"模块 · 高清放大","subtitle":"模板模块","kind":"module","color":"rgba(59, 130, 246, 0.10)","width":900,"height":680}},{"id":"tpl-hd-upscale-n2","type":"image","position":{"x":50,"y":120},"data":{"image":"","title":"原图","subtitle":"待放大素材","kind":"input"}},{"id":"tpl-hd-upscale-n3","type":"tool","position":{"x":420,"y":140},"data":{"title":"高清放大","subtitle":"2x 放大","kind":"tool","tool":"upscale","scale":2,"sourceNodeId":"tpl-hd-upscale-n2","status":"idle"}}],"edges":[{"id":"tpl-hd-upscale-e1","type":"canvas-bezier","source":"tpl-hd-upscale-n2","target":"tpl-hd-upscale-n3","sourceHandle":"image","targetHandle":"image","data":{"color":"#38bdf8","order":1}}]}',
+  '', 60, 1, NOW()
+FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM afv_canvas_template WHERE scope = 'official' AND title = '高清放大');
+
+-- 修正已按旧种子落库的「高清放大」：e1（原图 → 高清放大）从 image-in 改到 image 口（可重放：只改仍是 image-in 的；
+-- 同 ops/fix-canvas-hd-upscale-handle-2026-11-07.sql）。
+UPDATE afv_canvas_template
+SET snapshot = JSON_SET(snapshot, '$.edges[0].targetHandle', 'image')
+WHERE scope = 'official' AND title = '高清放大' AND deleted = 0
+  AND JSON_UNQUOTE(JSON_EXTRACT(snapshot, '$.edges[0].id')) = 'tpl-hd-upscale-e1'
+  AND JSON_UNQUOTE(JSON_EXTRACT(snapshot, '$.edges[0].targetHandle')) = 'image-in';

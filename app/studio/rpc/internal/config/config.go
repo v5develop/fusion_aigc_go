@@ -1,6 +1,8 @@
 package config
 
 import (
+	"time"
+
 	"aigc-local-life/pkg/asset"
 	"aigc-local-life/pkg/billing"
 	"aigc-local-life/pkg/storage"
@@ -47,6 +49,12 @@ type Config struct {
 		BatchSize int `json:",default=100"`
 		// MaxRunning 全进程（多实例时各实例按库里总数判断）同时在 gateway 生成中的子任务上限，达到后不再派发新的
 		MaxRunning int `json:",default=64"`
+		// PreviewCacheCleanMinutes 清理配对预览缓存（afv_studio_prompt_cache.batch_id < 0）的间隔（分钟），每个实例各自按此间隔跑，
+		// 删除幂等、并发安全；<= 0 关闭。PreviewCacheRetainHours 只删早于这么多小时的行（须明显大于复用窗口 2h）；
+		// PreviewCacheCleanBatch 每条 DELETE 的行数上限。
+		PreviewCacheCleanMinutes int `json:",default=10"`
+		PreviewCacheRetainHours  int `json:",default=24"`
+		PreviewCacheCleanBatch   int `json:",default=500"`
 	}
 	// Moderation 内容审核：keyword-关键词过滤（与 AI文案共用 BLOCKWORD 词库）、off-不审核
 	Moderation struct {
@@ -75,6 +83,10 @@ type Config struct {
 		BaseURL     string `json:",default=http://127.0.0.1:8090"`
 		Timeout     int    `json:",default=200"` // 秒；单次 HTTP（sidecar 读图单次最长 180s，与 pkg/reverse.DefaultTimeout 一致）
 		Concurrency int    `json:",default=6"`   // analyze-batch 并发（sidecar 允许 1–6）；姿态反推并发
+		// PreviewConcurrency 姿态配对预览（免费）全进程同时在途的 sidecar 读图上限。预览每次读图先占一个预览名额
+		// 再进客户端共享信号量，所以最多占 Concurrency 里的这么多个，付费编排始终保有 ≥ Concurrency-PreviewConcurrency 个；
+		// 生效值夹到 [1, Concurrency-1]（Concurrency=1 时为 1，与编排共用）
+		PreviewConcurrency int `json:",default=2,range=[1:6]"`
 	}
 	// Media 共享媒体服务：下载、压缩（conform ≤1600px）、裁图、组图、resources/copy 转存。
 	// 配了 NacosServerAddr 订阅实例，BaseURL 只作回退；都留空则切图不可用（商拍提交返回「暂未开放」）。
@@ -99,10 +111,49 @@ type Config struct {
 		// DeliverGrace 交付中（已出图、待结算）最多停留多久：超期仍结算不了就告警并按预留单状态置失败 / 退款，保证有出口
 		DeliverGrace int `json:",default=1800"`
 	}
+	// TryonPrompt 商拍反推提示词版本灰度：sidecar prompt_version=new 实验版（2026-11-07.2 PROMPT_VERSIONS：
+	// Seedream 结构化短版小幅提升、Nano 短版偏低），所以只灰度 Seedream，Nano 及其它模型一律稳定版。
+	TryonPrompt struct {
+		// NewPercent 0–100：模型组为 Seedream 的商拍批次按批次号哈希分桶，桶号 < NewPercent 的走
+		// prompt_version=new + target_model=seedream；0 = 关闭（默认）。同一批次（含重做）结果固定。
+		// 运行时覆盖：afv_system_config 有 studio_tryon_new_prompt_percent 行且值为 0–100 整数时以它为准（60s 内生效，不用重启）。
+		NewPercent int `json:",default=0,range=[0:100]"`
+	}
 	// Limits 服务端复查的上限（与前端一致，改了要同步前端）
 	Limits struct {
 		MaxPromptLen int `json:",default=3000"`
 	}
+}
+
+// PreviewPoseMethod / PreviewPoseTimeout 姿态配对预览要读原图 + 每张姿势图（sidecar 单次读图可达 60–140s），
+// 远超 RPC 默认 30s：没在 MethodTimeouts 里单独配时由 EnsureMethodTimeouts 补上。gateway-api 侧同样按方法放宽调用超时。
+const (
+	PreviewPoseMethod  = "/studio.Studio/PreviewPose"
+	PreviewPoseTimeout = 240 * time.Second
+)
+
+// EnsureMethodTimeouts 给长耗时方法补默认的服务端超时（已配置的不动）。
+func (c *Config) EnsureMethodTimeouts() {
+	for _, m := range c.MethodTimeouts {
+		if m.FullMethod == PreviewPoseMethod {
+			return
+		}
+	}
+	c.MethodTimeouts = append(c.MethodTimeouts, zrpc.MethodTimeoutConf{FullMethod: PreviewPoseMethod, Timeout: PreviewPoseTimeout})
+}
+
+// PreviewSidecarSlots 姿态配对预览全进程同时在途的 sidecar 读图上限：PreviewConcurrency 夹到 [1, Concurrency-1]，
+// 保证付费编排至少留有 Concurrency-该值 个 sidecar 名额（Concurrency ≤1 时只能共用，返回 1）。
+func (c Config) PreviewSidecarSlots() int {
+	conc := c.Reverse.Concurrency
+	if conc <= 0 {
+		conc = 3 // 与 pkg/reverse.DefaultConcurrency 一致
+	}
+	n := c.Reverse.PreviewConcurrency
+	if n <= 0 {
+		n = 2
+	}
+	return max(1, min(n, conc-1))
 }
 
 // DefaultModelGroups ModelGroups 没配时的映射（设计方案 §4.4）。

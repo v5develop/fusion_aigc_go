@@ -26,6 +26,7 @@ func main() {
 
 	var c config.Config
 	conf.MustLoad(*configFile, &c)
+	c.EnsureMethodTimeouts() // 姿态配对预览要读多张图，单独放宽服务端超时
 	// 轮询器每几秒查一次库，普通 SQL 日志会刷屏；慢查询日志保留
 	sqlx.DisableStmtLog()
 	ctx := svc.NewServiceContext(c)

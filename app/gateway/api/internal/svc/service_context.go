@@ -15,7 +15,10 @@ import (
 	"aigc-local-life/pkg/session"
 	"aigc-local-life/pkg/storage"
 	"aigc-local-life/pkg/unionauth"
+	"aigc-local-life/pkg/userquota"
 
+	"github.com/redis/go-redis/v9"
+	"github.com/zeromicro/go-zero/core/logx"
 	"github.com/zeromicro/go-zero/core/stores/sqlx"
 	"github.com/zeromicro/go-zero/rest"
 	"github.com/zeromicro/go-zero/zrpc"
@@ -37,6 +40,8 @@ type ServiceContext struct {
 	Union        *unionauth.Client
 	AppUser      *appuser.Model
 	Session      *session.Store
+	// PosePreviewQuota 姿态配对预览的按用户配额（Config.Studio.PosePreview*，计数在会话 Redis）
+	PosePreviewQuota *userquota.Limiter
 }
 
 func NewServiceContext(c config.Config) *ServiceContext {
@@ -45,20 +50,27 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		conn = sqlx.NewMysql(c.DataSource)
 	}
 	sess := session.New(c.Auth.Session)
+	var quotaRedis redis.UniversalClient
+	if rc := sess.Redis(); rc != nil { // 别把 nil 指针装进接口
+		quotaRedis = rc
+	} else {
+		logx.Info("gateway: 未配置会话 Redis，姿态配对预览配额退回进程内计数（多实例各算各的，仅开发）")
+	}
 	return &ServiceContext{
-		Config:          c,
-		Auth:            middleware.NewAuthMiddleware(c.Auth.Mode, c.Auth.Jwt, sess).Handle,
-		CopywritingRpc:  copywriting.NewCopywriting(zrpc.MustNewClient(c.CopywritingRpc)),
-		DigitalHumanRpc: digitalhuman.NewDigitalHuman(zrpc.MustNewClient(c.DigitalHumanRpc)),
-		NoteRpc:         note.NewNote(zrpc.MustNewClient(c.NoteRpc)),
-		ImageGenRpc:     imagegen.NewImageGen(zrpc.MustNewClient(c.ImageGenRpc)),
-		StudioRpc:       studio.NewStudio(zrpc.MustNewClient(c.StudioRpc)),
-		AssetLibRpc:     assetlib.NewAssetlib(zrpc.MustNewClient(c.AssetLibRpc)),
-		CanvasRpc:       canvas.NewCanvas(zrpc.MustNewClient(c.CanvasRpc)),
-		CanvasBearer:    middleware.NewCanvasBearerMiddleware().Handle,
-		Storage:         storage.New(c.Storage, conn),
-		Union:           unionauth.New(c.Union),
-		AppUser:         appuser.New(conn).WithRegistrar(fusionRegistrar{fusion.New(c.Fusion)}),
-		Session:         sess,
+		Config:           c,
+		Auth:             middleware.NewAuthMiddleware(c.Auth.Mode, c.Auth.Jwt, sess).Handle,
+		CopywritingRpc:   copywriting.NewCopywriting(zrpc.MustNewClient(c.CopywritingRpc)),
+		DigitalHumanRpc:  digitalhuman.NewDigitalHuman(zrpc.MustNewClient(c.DigitalHumanRpc)),
+		NoteRpc:          note.NewNote(zrpc.MustNewClient(c.NoteRpc)),
+		ImageGenRpc:      imagegen.NewImageGen(zrpc.MustNewClient(c.ImageGenRpc)),
+		StudioRpc:        studio.NewStudio(zrpc.MustNewClient(c.StudioRpc)),
+		AssetLibRpc:      assetlib.NewAssetlib(zrpc.MustNewClient(c.AssetLibRpc)),
+		CanvasRpc:        canvas.NewCanvas(zrpc.MustNewClient(c.CanvasRpc)),
+		CanvasBearer:     middleware.NewCanvasBearerMiddleware().Handle,
+		Storage:          storage.New(c.Storage, conn),
+		Union:            unionauth.New(c.Union),
+		AppUser:          appuser.New(conn).WithRegistrar(fusionRegistrar{fusion.New(c.Fusion)}),
+		Session:          sess,
+		PosePreviewQuota: userquota.New("studio:pose_preview", c.Studio.PosePreviewPerMinute, c.Studio.PosePreviewPerDay, quotaRedis),
 	}
 }

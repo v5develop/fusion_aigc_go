@@ -38,6 +38,7 @@ func (l *SubmitPoseLogic) SubmitPose(req *types.StudioPoseSubmitReq) (resp *type
 		UserId: ctxdata.UserID(l.ctx), WorkspaceId: req.WorkspaceId, RequestId: req.RequestId,
 		SourceImageUrl: req.SourceImageUrl, PoseImageUrls: req.PoseImageUrls, GlobalPrompt: req.GlobalPrompt,
 		PosePrompts: prompts, Model: req.Model, Resolution: req.Resolution, AspectRatio: req.AspectRatio,
+		SourcePersonCount: req.SourcePersonCount, Mappings: poseMappings(req.Mappings),
 	})
 	if err != nil {
 		return nil, err

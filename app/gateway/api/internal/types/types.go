@@ -1037,6 +1037,46 @@ type StudioImageGenSubmitReq struct {
 	RewritePrompt bool     `json:"rewrite_prompt,optional"` // 先润色提示词
 }
 
+type StudioPoseMapping struct {
+	PoseIndex       int32   `json:"pose_index"` // 姿势图下标（从 0 起）
+	Mapping         []int32 `json:"mapping"`
+	PosePersonCount int32   `json:"pose_person_count"` // 预览时该姿势图的人数
+}
+
+type StudioPosePreviewImage struct {
+	PersonCount     int32                     `json:"person_count"`
+	People          []StudioPosePreviewPerson `json:"people"`
+	Group           string                    `json:"group"`            // 整组站位
+	Interaction     string                    `json:"interaction"`      // 身体接触；没有为「无」
+	PeopleTruncated bool                      `json:"people_truncated"` // 超过 4 人，只分析了前 4 位
+}
+
+type StudioPosePreviewItem struct {
+	PoseIndex      int32                   `json:"pose_index"`
+	Pose           *StudioPosePreviewImage `json:"pose"`            // 该姿势图分析失败时为 null
+	DefaultMapping []int32                 `json:"default_mapping"` // 默认配对（长度 = 原图人数）；原图单人时为 []
+	Error          string                  `json:"error"`           // 该姿势图失败原因；成功为空串
+}
+
+type StudioPosePreviewPerson struct {
+	Label     string `json:"label"`    // P1…P4，按画面左→右
+	Position  string `json:"position"` // 画面左侧 / 画面中间 / 画面右侧 …
+	Primary   bool   `json:"primary"`
+	GenderAge string `json:"gender_age"` // 原图人物有；姿势图人物为空串
+	Summary   string `json:"summary"`    // 原图：服装摘要；姿势图：动作剪影
+}
+
+type StudioPosePreviewReq struct {
+	SourceImageUrl string   `json:"source_image_url"` // 人物图（图 1）
+	PoseImageUrls  []string `json:"pose_image_urls"`  // 姿势图 1–9 张
+}
+
+type StudioPosePreviewResp struct {
+	Source         StudioPosePreviewImage  `json:"source"`
+	Poses          []StudioPosePreviewItem `json:"poses"`           // 每张姿势图一条（顺序同 pose_image_urls）；原图单人时也逐张给 pose.person_count，用于提示多出的人物会被忽略
+	MappingEnabled bool                    `json:"mapping_enabled"` // 原图 ≥2 人：显示配对 / 反转配对
+}
+
 type StudioPoseQuoteReq struct {
 	PoseImageUrls []string `json:"pose_image_urls,optional"` // 只用张数：任务数 = 姿势图数
 	Model         string   `json:"model,optional"`
@@ -1045,15 +1085,17 @@ type StudioPoseQuoteReq struct {
 }
 
 type StudioPoseSubmitReq struct {
-	RequestId      string            `header:"Idempotency-Key"`
-	WorkspaceId    int64             `json:"workspace_id,optional"`
-	SourceImageUrl string            `json:"source_image_url"`       // 人物图（图 1）
-	PoseImageUrls  []string          `json:"pose_image_urls"`        // 姿势图 1–9 张，每张一个任务
-	GlobalPrompt   string            `json:"global_prompt,optional"` // 全局补充说明，≤3000 字
-	PosePrompts    map[string]string `json:"pose_prompts,optional"`  // 单张补充说明 {"0": "…", "2": "…"}，键为姿势下标（从 0 起）
-	Model          string            `json:"model,optional"`
-	Resolution     string            `json:"resolution,optional"`
-	AspectRatio    string            `json:"aspect_ratio,optional"` // 空=3:4
+	RequestId         string              `header:"Idempotency-Key"`
+	WorkspaceId       int64               `json:"workspace_id,optional"`
+	SourceImageUrl    string              `json:"source_image_url"`       // 人物图（图 1）
+	PoseImageUrls     []string            `json:"pose_image_urls"`        // 姿势图 1–9 张，每张一个任务
+	GlobalPrompt      string              `json:"global_prompt,optional"` // 全局补充说明，≤3000 字
+	PosePrompts       map[string]string   `json:"pose_prompts,optional"`  // 单张补充说明 {"0": "…", "2": "…"}，键为姿势下标（从 0 起）
+	Model             string              `json:"model,optional"`
+	Resolution        string              `json:"resolution,optional"`
+	AspectRatio       string              `json:"aspect_ratio,optional"` // 空=3:4
+	SourcePersonCount int32               `json:"source_person_count,optional"`
+	Mappings          []StudioPoseMapping `json:"mappings,optional"` // 每张姿势图一条；不传的按默认配对（左→左、右→右）
 }
 
 type StudioQuoteResp struct {

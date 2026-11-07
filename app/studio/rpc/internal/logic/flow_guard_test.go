@@ -32,7 +32,9 @@ type fakeFlowBill struct {
 	confirmed []string
 	status    string
 	settleErr error
-	mu        sync.Mutex // renewHeld 并发续期
+	enoughs   []billing.Charge // Enough 收到的计费参数
+	enoughErr error            // Enough 的返回（余额预检失败）
+	mu        sync.Mutex       // renewHeld 并发续期
 }
 
 func (f *fakeFlowBill) Renew(_ context.Context, _ int64, requestID string) error {
@@ -46,6 +48,10 @@ func (f *fakeFlowBill) Settle(_ context.Context, _ int64, requestID string, _ in
 	return f.settleErr
 }
 func (f *fakeFlowBill) Status(context.Context, int64, string) (string, error) { return f.status, nil }
+func (f *fakeFlowBill) Enough(_ context.Context, c billing.Charge) error {
+	f.enoughs = append(f.enoughs, c)
+	return f.enoughErr
+}
 func (f *fakeFlowBill) RefundConfirmed(_ context.Context, _ int64, requestID, _ string) (int64, error) {
 	f.confirmed = append(f.confirmed, requestID)
 	return 10, nil
@@ -358,4 +364,22 @@ func TestReconcileBillingOffMode(t *testing.T) {
 	f, mock, _ := newTestFlow(t, &fakeFlowBill{fakeBill: fakeBill{mode: billing.ModeOff}})
 	f.reconcileBilling(context.Background())
 	met(t, mock)
+}
+
+// 清理预览缓存：满批继续、不满批停；间隔内不重复；间隔 <= 0 关闭；保留期被夹到不小于复用窗口。
+func TestCleanPreviewCache(t *testing.T) {
+	f, mock, _ := newTestFlow(t, onBill())
+	f.cfg.Poll.PreviewCacheCleanMinutes = 10
+	f.cfg.Poll.PreviewCacheCleanBatch = 2
+	f.cfg.Poll.PreviewCacheRetainHours = 1 // 小于复用窗口 2h，应夹到 2h = 7200s
+	del := regexp.QuoteMeta("DELETE FROM afv_studio_prompt_cache WHERE (batch_id < 0) AND (created_at < DATE_SUB(NOW(3), INTERVAL 7200 SECOND)) LIMIT 2")
+	mock.ExpectExec(del).WillReturnResult(sqlmock.NewResult(0, 2))
+	mock.ExpectExec(del).WillReturnResult(sqlmock.NewResult(0, 1))
+	f.cleanPreviewCache(context.Background())
+	f.cleanPreviewCache(context.Background()) // 间隔内：不再发 SQL
+	met(t, mock)
+
+	g, gmock, _ := newTestFlow(t, onBill()) // 间隔 0：关闭，不发任何 SQL
+	g.cleanPreviewCache(context.Background())
+	met(t, gmock)
 }

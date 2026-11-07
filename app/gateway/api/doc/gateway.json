@@ -11744,6 +11744,237 @@
         }
       }
     },
+    "/api/v1/studio/pose/preview": {
+      "post": {
+        "security": [
+          {
+            "auth": []
+          }
+        ],
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "商拍换装 / 姿态复刻 / 图片生成"
+        ],
+        "summary": "姿态复刻多人配对预览（只读、不计费）：返回原图与每张姿势图的人数、人物站位与默认配对；原图 ≥2 人时前端据此让用户确认 / 反转配对，再把 mappings 随提交带回",
+        "operationId": "studioPreviewPose",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "required": [
+                "source_image_url",
+                "pose_image_urls"
+              ],
+              "properties": {
+                "pose_image_urls": {
+                  "description": "姿势图 1–9 张",
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "source_image_url": {
+                  "description": "人物图（图 1）",
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
+                  "type": "integer",
+                  "example": 0
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "mapping_enabled": {
+                      "description": "原图 ≥2 人：显示配对 / 反转配对",
+                      "type": "boolean"
+                    },
+                    "poses": {
+                      "description": "每张姿势图一条（顺序同 pose_image_urls）；原图单人时也逐张给 pose.person_count，用于提示多出的人物会被忽略",
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "pose_index",
+                          "pose",
+                          "default_mapping",
+                          "error"
+                        ],
+                        "properties": {
+                          "default_mapping": {
+                            "description": "默认配对（长度 = 原图人数）；原图单人时为 []",
+                            "type": "array",
+                            "items": {
+                              "type": "integer"
+                            }
+                          },
+                          "error": {
+                            "description": "该姿势图失败原因；成功为空串",
+                            "type": "string"
+                          },
+                          "pose": {
+                            "description": "该姿势图分析失败时为 null",
+                            "type": "object",
+                            "required": [
+                              "person_count",
+                              "people",
+                              "group",
+                              "interaction",
+                              "people_truncated"
+                            ],
+                            "properties": {
+                              "group": {
+                                "description": "整组站位",
+                                "type": "string"
+                              },
+                              "interaction": {
+                                "description": "身体接触；没有为「无」",
+                                "type": "string"
+                              },
+                              "people": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "required": [
+                                    "label",
+                                    "position",
+                                    "primary",
+                                    "gender_age",
+                                    "summary"
+                                  ],
+                                  "properties": {
+                                    "gender_age": {
+                                      "description": "原图人物有；姿势图人物为空串",
+                                      "type": "string"
+                                    },
+                                    "label": {
+                                      "description": "P1…P4，按画面左→右",
+                                      "type": "string"
+                                    },
+                                    "position": {
+                                      "description": "画面左侧 / 画面中间 / 画面右侧 …",
+                                      "type": "string"
+                                    },
+                                    "primary": {
+                                      "type": "boolean"
+                                    },
+                                    "summary": {
+                                      "description": "原图：服装摘要；姿势图：动作剪影",
+                                      "type": "string"
+                                    }
+                                  }
+                                }
+                              },
+                              "people_truncated": {
+                                "description": "超过 4 人，只分析了前 4 位",
+                                "type": "boolean"
+                              },
+                              "person_count": {
+                                "type": "integer"
+                              }
+                            }
+                          },
+                          "pose_index": {
+                            "type": "integer"
+                          }
+                        }
+                      }
+                    },
+                    "source": {
+                      "type": "object",
+                      "required": [
+                        "person_count",
+                        "people",
+                        "group",
+                        "interaction",
+                        "people_truncated"
+                      ],
+                      "properties": {
+                        "group": {
+                          "description": "整组站位",
+                          "type": "string"
+                        },
+                        "interaction": {
+                          "description": "身体接触；没有为「无」",
+                          "type": "string"
+                        },
+                        "people": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "required": [
+                              "label",
+                              "position",
+                              "primary",
+                              "gender_age",
+                              "summary"
+                            ],
+                            "properties": {
+                              "gender_age": {
+                                "description": "原图人物有；姿势图人物为空串",
+                                "type": "string"
+                              },
+                              "label": {
+                                "description": "P1…P4，按画面左→右",
+                                "type": "string"
+                              },
+                              "position": {
+                                "description": "画面左侧 / 画面中间 / 画面右侧 …",
+                                "type": "string"
+                              },
+                              "primary": {
+                                "type": "boolean"
+                              },
+                              "summary": {
+                                "description": "原图：服装摘要；姿势图：动作剪影",
+                                "type": "string"
+                              }
+                            }
+                          }
+                        },
+                        "people_truncated": {
+                          "description": "超过 4 人，只分析了前 4 位",
+                          "type": "boolean"
+                        },
+                        "person_count": {
+                          "type": "integer"
+                        }
+                      }
+                    }
+                  }
+                },
+                "msg": {
+                  "description": "business message",
+                  "type": "string",
+                  "example": "ok"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/studio/pose/quote": {
       "post": {
         "security": [
@@ -11910,6 +12141,34 @@
                   "description": "全局补充说明，≤3000 字",
                   "type": "string"
                 },
+                "mappings": {
+                  "description": "每张姿势图一条；不传的按默认配对（左→左、右→右）",
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "pose_index",
+                      "mapping",
+                      "pose_person_count"
+                    ],
+                    "properties": {
+                      "mapping": {
+                        "type": "array",
+                        "items": {
+                          "type": "integer"
+                        }
+                      },
+                      "pose_index": {
+                        "description": "姿势图下标（从 0 起）",
+                        "type": "integer"
+                      },
+                      "pose_person_count": {
+                        "description": "预览时该姿势图的人数",
+                        "type": "integer"
+                      }
+                    }
+                  }
+                },
                 "model": {
                   "type": "string"
                 },
@@ -11933,6 +12192,9 @@
                 "source_image_url": {
                   "description": "人物图（图 1）",
                   "type": "string"
+                },
+                "source_person_count": {
+                  "type": "integer"
                 },
                 "workspace_id": {
                   "type": "integer"
@@ -12088,6 +12350,203 @@
                     },
                     "task_id": {
                       "type": "string"
+                    }
+                  }
+                },
+                "msg": {
+                  "description": "business message",
+                  "type": "string",
+                  "example": "ok"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/studio/tasks/{task_id}/retry": {
+      "post": {
+        "security": [
+          {
+            "auth": []
+          }
+        ],
+        "consumes": [
+          "application/x-www-form-urlencoded"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "商拍换装 / 姿态复刻 / 图片生成"
+        ],
+        "summary": "重试单个失败子任务（仅本人、任务失败且批次为全部失败 / 部分成功）：只重跑这张图的生图一步（沿用已存提示词，不再反推），按原入口重新冻结 1 张点数；返回批次详情（同 GET /batches/:id），之后照常轮询批次。重复点击幂等",
+        "operationId": "studioRetryTask",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "task_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
+                  "type": "integer",
+                  "example": 0
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "batch": {
+                      "type": "object",
+                      "required": [
+                        "id",
+                        "kind",
+                        "status",
+                        "payload",
+                        "task_total",
+                        "task_done",
+                        "task_failed",
+                        "estimated_points",
+                        "error_reason",
+                        "cover_url",
+                        "created_at",
+                        "updated_at"
+                      ],
+                      "properties": {
+                        "cover_url": {
+                          "type": "string"
+                        },
+                        "created_at": {
+                          "description": "unix 毫秒",
+                          "type": "integer"
+                        },
+                        "error_reason": {
+                          "type": "string"
+                        },
+                        "estimated_points": {
+                          "type": "integer"
+                        },
+                        "id": {
+                          "type": "integer"
+                        },
+                        "kind": {
+                          "description": "tryon / pose / imagegen",
+                          "type": "string"
+                        },
+                        "payload": {
+                          "description": "提交时的全量字段（JSON 文本），用于回填表单",
+                          "type": "string"
+                        },
+                        "status": {
+                          "description": "0-排队 1-切图中 2-反推中 3-生图中 4-全部成功 5-全部失败 6-部分成功 7-已取消",
+                          "type": "integer"
+                        },
+                        "task_done": {
+                          "type": "integer"
+                        },
+                        "task_failed": {
+                          "type": "integer"
+                        },
+                        "task_total": {
+                          "type": "integer"
+                        },
+                        "updated_at": {
+                          "type": "integer"
+                        }
+                      }
+                    },
+                    "tasks": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "task_id",
+                          "batch_id",
+                          "kind",
+                          "model_index",
+                          "shot_index",
+                          "pose_index",
+                          "status",
+                          "progress",
+                          "result_url",
+                          "result_width",
+                          "result_height",
+                          "error_reason",
+                          "prompt_summary",
+                          "created_at",
+                          "started_at",
+                          "finished_at"
+                        ],
+                        "properties": {
+                          "batch_id": {
+                            "type": "integer"
+                          },
+                          "created_at": {
+                            "type": "integer"
+                          },
+                          "error_reason": {
+                            "type": "string"
+                          },
+                          "finished_at": {
+                            "description": "0=未结束",
+                            "type": "integer"
+                          },
+                          "id": {
+                            "type": "integer"
+                          },
+                          "kind": {
+                            "type": "string"
+                          },
+                          "model_index": {
+                            "type": "integer"
+                          },
+                          "pose_index": {
+                            "type": "integer"
+                          },
+                          "progress": {
+                            "description": "0–100（估算）",
+                            "type": "integer"
+                          },
+                          "prompt_summary": {
+                            "type": "string"
+                          },
+                          "result_height": {
+                            "type": "integer"
+                          },
+                          "result_url": {
+                            "type": "string"
+                          },
+                          "result_width": {
+                            "type": "integer"
+                          },
+                          "shot_index": {
+                            "type": "integer"
+                          },
+                          "started_at": {
+                            "description": "0=未开始",
+                            "type": "integer"
+                          },
+                          "status": {
+                            "description": "0-排队 1-生成中 2-成功 3-失败 4-已取消",
+                            "type": "integer"
+                          },
+                          "task_id": {
+                            "type": "string"
+                          }
+                        }
+                      }
                     }
                   }
                 },
@@ -12420,7 +12879,7 @@
       "in": "header"
     }
   },
-  "x-date": "2026-11-03 18:26:07",
+  "x-date": "2026-11-07 17:21:07",
   "x-description": "This is a goctl generated swagger file.",
   "x-github": "https://github.com/zeromicro/go-zero",
   "x-go-zero-doc": "https://go-zero.dev/",

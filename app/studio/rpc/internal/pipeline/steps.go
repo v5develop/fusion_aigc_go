@@ -28,7 +28,8 @@ type Media interface {
 type Reverse interface {
 	Status(ctx context.Context) (*reverse.Status, error)
 	PoseSource(ctx context.Context, imageDataURL string) (*reverse.PoseSource, error)
-	PosePrompt(ctx context.Context, source *reverse.PoseSource, poseDataURL, notes string) (*reverse.PosePrompt, error)
+	// mapping 多人配对（nil = sidecar 默认配对），见 reverse.PosePromptReq.Mapping
+	PosePrompt(ctx context.Context, source *reverse.PoseSource, poseDataURL, notes string, mapping []int) (*reverse.PosePrompt, error)
 	Analyze(ctx context.Context, req reverse.AnalyzeReq) (*reverse.AnalyzeResp, error)
 	AnalyzeBatch(ctx context.Context, req reverse.AnalyzeBatchReq) (*reverse.AnalyzeBatchResp, error)
 	CropPlan(ctx context.Context, req reverse.CropPlanReq) (*reverse.CropPlanResp, error)

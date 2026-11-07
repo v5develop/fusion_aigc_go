@@ -16,6 +16,7 @@ import (
 	"aigc-local-life/app/studio/rpc/internal/svc"
 	"aigc-local-life/pkg/aigateway"
 	"aigc-local-life/pkg/asset"
+	"aigc-local-life/pkg/billing"
 	"aigc-local-life/pkg/lease"
 	"aigc-local-life/pkg/semaphore"
 
@@ -92,6 +93,8 @@ type flowBiller interface {
 	Renew(ctx context.Context, userID int64, requestID string) error
 	Settle(ctx context.Context, userID int64, requestID string, actual int) error
 	Status(ctx context.Context, userID int64, requestID string) (string, error)
+	// Enough 只读余额预检（报价 vs 余额，不冻结；非 on 模式恒通过）：用户重试占轮次前先拦明显不够的
+	Enough(ctx context.Context, c billing.Charge) error
 	RefundConfirmed(ctx context.Context, userID int64, requestID, reason string) (int64, error)
 }
 
@@ -114,13 +117,18 @@ type flow struct {
 	catAt    time.Time
 	catLimit map[string]int // 启用的模型组 → max_reference_images
 
+	// promptPct 商拍提示词灰度比例（afv_system_config 覆盖 yaml）；nil 时直接用 cfg.TryonPrompt.NewPercent
+	promptPct *intKnob
+
 	sem      *semaphore.Group
 	owner    string   // 行租约持有者（pkg/lease.Owner，进程内共用）
 	inflight sync.Map // 本地去重："b:<id>" 编排中、"t:<id>" 轮询中、"s:<id>" 派发中（跨实例互斥靠行租约）
 	wg       sync.WaitGroup
 
-	maintAt    time.Time // 上次 maintain 的时间（零值 = 下一轮立刻做）
-	renewAfter int64     // 续期游标：上一轮续到的子任务主键（超过 renewLimit 时分轮轮转，0 = 从头）
+	maintAt time.Time // 上次 maintain 的时间（零值 = 下一轮立刻做）
+
+	previewCleanAt time.Time // 上次清理配对预览缓存的时间（零值 = 下一轮立刻做）
+	renewAfter     int64     // 续期游标：上一轮续到的子任务主键（超过 renewLimit 时分轮轮转，0 = 从头）
 }
 
 // semaphore.Group 的 key：批次编排、子任务轮询各一个全局名额池。
@@ -150,6 +158,9 @@ func newFlow(s *svc.ServiceContext) *flow {
 	}
 	if s.MediaSvc != nil { // 别把 nil 指针装进接口
 		f.media = s.MediaSvc
+	}
+	if s.Conn != nil {
+		f.promptPct = newIntKnob(KnobTryonNewPromptPercent, s.Config.TryonPrompt.NewPercent, 0, 100, systemConfigLoader(s.Conn))
 	}
 	if s.Gateway != nil {
 		f.gw, f.gwOn = s.Gateway, s.Gateway.Enabled()
@@ -214,6 +225,15 @@ func secs(v int, def time.Duration) time.Duration {
 }
 
 func (f *flow) cropTimeout() time.Duration { return secs(f.cfg.Timeouts.Crop, pipeline.CropTimeout) }
+
+// tryonNewPromptPercent 商拍反推走 prompt_version=new 的灰度比例（0–100，只对 Seedream 生效）。
+func (f *flow) tryonNewPromptPercent(ctx context.Context) int {
+	if f.promptPct != nil {
+		return f.promptPct.Get(ctx)
+	}
+	return f.cfg.TryonPrompt.NewPercent
+}
+
 func (f *flow) analyzeTimeout() time.Duration {
 	return secs(f.cfg.Timeouts.Analyze, pipeline.AnalyzeTimeout)
 }

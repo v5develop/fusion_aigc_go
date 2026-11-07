@@ -63,6 +63,21 @@ def _load_banned():
         return _BANNED_COPY, _NEG_COPY, "内置副本"
 
 
+def _load_item_locks():
+    """【单品锁定】逐件文字以源码 ITEM_LOCKS 为准（2026-11-07.2 起不再以「只替换X」开头）；加载失败返回 {}。"""
+    try:
+        spec = importlib.util.spec_from_file_location("serve_reverse_locks", SERVER)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return dict(mod.ITEM_LOCKS)
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+ITEM_LOCKS = _load_item_locks()
+LABEL_KEYS = {v: k for k, v in ITEM_LABELS.items()}
+
+
 # ------------------------------------------------------------------ 结构校验
 
 def sections(prompt):
@@ -115,7 +130,14 @@ def validate_tryon_prompt(prompt, case):
     repl = sec(secs, "本次替换")
     lock = sec(secs, "单品锁定")
     pos_repl = [repl.find(l) for l in labels]
-    pos_lock = [lock.find("只替换" + l) for l in labels]
+    # 单件走 CATS 品类锁（仍是「只替换X」）；多件按 ITEM_LOCKS 逐件文字定位，两种写法任一命中即可
+    pos_lock = []
+    for l in labels:
+        p = lock.find("只替换" + l)
+        item_lock = ITEM_LOCKS.get(LABEL_KEYS.get(l, ""), "")
+        if p < 0 and item_lock:
+            p = lock.find(item_lock)
+        pos_lock.append(p)
     ok_repl = bool(labels) and all(p >= 0 for p in pos_repl) and pos_repl == sorted(pos_repl)
     ok_lock = bool(labels) and all(p >= 0 for p in pos_lock) and pos_lock == sorted(pos_lock)
     add("S2 单品顺序（本次替换）", ok_repl, f"期望 {'、'.join(labels)}；位置 {pos_repl}")

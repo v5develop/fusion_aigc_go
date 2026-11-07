@@ -162,7 +162,7 @@ v1.0 契约里的 `tool:image-generate`、`tool:ai-posture-fission`、`tool:ai-d
 | 2007 | ACCOUNT_DISABLED | 账号已被禁用 | 提示并退出登录 |
 | 3003 | INSUFFICIENT_POINTS | 点数不足（整批没有提交成功） | 提示充值 |
 | 4001 | RESOURCE_NOT_FOUND | 批次 / 任务不存在、不属于当前用户或已删除 | 返回上一页 |
-| 4002 | RESOURCE_CONFLICT | 状态冲突：同 key 不同 body；取消已结束的批次；删除生成中的批次 | 展示 `msg` |
+| 4002 | RESOURCE_CONFLICT | 状态冲突：同 key 不同 body；取消已结束的批次；删除生成中的批次；重试条件不满足（见 5.2.1）；配对预览已在进行中；配对预览超出频率配额（「识别太频繁，请稍后再试」，见 3.1.1） | 展示 `msg` |
 | 7003 | FEATURE_NOT_READY | 功能暂未开放 | 展示 `msg` |
 | 5001 | SYSTEM_ERROR | 服务繁忙 | 提示稍后重试，**重试沿用同一个 `Idempotency-Key`** |
 
@@ -328,8 +328,15 @@ Idempotency-Key: <UUID>
 | `model` | string | 否 | 四档之一 | 空 = `通用` |
 | `resolution` | string | 否 | `1k` / `2k` / `4k`，大小写均可 | 空 = `1k` |
 | `aspect_ratio` | string | 否 | `宽:高` 格式 | 空 = 自动：按人物图宽高取 6.3 里最近的一档 |
+| `source_person_count` | int | 传 `mappings` 时必填 | 2–4 | 3.1.1 预览返回的 `source.person_count` 原样带回 |
+| `mappings` | object[] | 否 | 每张姿势图至多一条 | 多人配对（3.1.1 用户确认 / 反转后的结果）。不传的姿势图按默认配对（左→左、右→右） |
+| `mappings[].pose_index` | int | 是 | `0` ~ 姿势图张数-1，不重复 | 姿势序号 |
+| `mappings[].mapping` | int[] | 是 | 长度 = `source_person_count`；值在 `-1` ~ `pose_person_count-1`；非负值不重复；至少一个非负值 | `mapping[i]` = 原图第 i 位人物（左→右）学姿势图第几位人物（左→右，从 0 起）；`-1` = 保持原姿势 |
+| `mappings[].pose_person_count` | int | 是 | 1–4 | 3.1.1 预览返回的该姿势图 `pose.person_count` 原样带回 |
 
 响应与 2.2 完全一样，`task_total` = `pose_image_urls` 的张数，任务号前缀 `pse`。
+
+配对说明：人数与人物顺序以预览为准。生成时**原图直接复用预览读到的那份结果**（同一用户、同一张原图、预览后 2 小时内），人物左→右顺序就是用户确认配对时看到的；超过 2 小时或换了图才会重新读原图，这次读出的人数与预览不同时，这组配对已指不到同一批人，服务端放弃配对、按默认配对生成，并在该任务的告警里写明。姿势图生成时会重新读一次：读出的人数与预览不同，同样放弃配对、按默认配对重读生成并记告警。`-1` = 该人物保持原姿势，按用户的选择原样生效，不会被补成默认配对（如三人 `[0,1,-1]`、两人 `[0,-1]`）；只有配对无效（越界、重复、全 `-1`）时反推服务才整组退回默认配对，并记告警「配对被反推服务校正」。
 
 错误示例：
 
@@ -343,7 +350,73 @@ Idempotency-Key: <UUID>
 {"code": 1003, "reason": "PARAM_INVALID", "msg": "单张说明的姿势序号 5 超出范围", "data": null}
 {"code": 1003, "reason": "PARAM_INVALID", "msg": "姿势 2 的说明不能超过 3000 字", "data": null}
 {"code": 1003, "reason": "PARAM_INVALID", "msg": "pose_prompts 的键应为姿势下标（从 0 起）：abc", "data": null}
+{"code": 1003, "reason": "PARAM_INVALID", "msg": "人物配对需要原图人数（2–4），请先预览配对", "data": null}
+{"code": 1003, "reason": "PARAM_INVALID", "msg": "姿势 1 的人物配对应为 2 位（与原图人数一致），实际 3 位", "data": null}
+{"code": 1003, "reason": "PARAM_INVALID", "msg": "姿势 1 的人物配对第 1 位取值 2 超出范围（-1 到 1）", "data": null}
+{"code": 1003, "reason": "PARAM_INVALID", "msg": "姿势 1 的人物配对里姿势图人物 1 被重复使用", "data": null}
 ```
+
+#### 3.1.1 多人配对预览（付费前确认）
+
+```
+POST /api/v1/studio/pose/preview
+```
+
+不计费、不生成批次 / 任务，不要 `Idempotency-Key`（服务端会把原图的读图结果按 用户 + 原图存一份缓存（`afv_studio_prompt_cache`，`batch_id = -用户id`，24 小时后清理），提交后编排直接复用，见下方配对说明）。服务端下载人物图与姿势图（与提交同一套地址校验），读原图的人物（1–4 位，按画面左→右编号 P1…P4）；再逐张读姿势图，返回每张姿势图的人数；**原图 ≥2 人时**另给默认配对（`mapping_enabled=true`）。原图单人时不需要配对（`mapping_enabled=false`、`default_mapping` 为 `[]`），但 `poses[]` 仍逐张给出 `pose.person_count`：姿势图人数 >1 时前端可提示「姿势图里多出的人物会被忽略」，然后直接提交即可（不用带 `mappings`）。
+
+耗时：读图单次 20–140 秒，整个请求最长约 4 分钟（路由超时 250s），前端要有加载态，别设太短的请求超时；同一用户同一时间只能有一个预览在跑（重复请求回 `code=4002`）。
+
+频率配额：每个用户每分钟最多 6 次、每天（北京时间自然日）最多 200 次（网关 `Studio.PosePreviewPerMinute` / `Studio.PosePreviewPerDay` 可调，多实例共享计数，计在会话 Redis）。超出回 `code=4002`、`msg`「识别太频繁，请稍后再试」，不会读图；被拒的请求不占额度，每分钟的额度到下一分钟恢复、每天的额度次日零点恢复。每次放行的请求都计一次（不论预览成功与否），前端不要在用户没换图时自动重复预览。姿势图按序号顺序读，且全站预览共用少量读图名额（`Reverse.PreviewConcurrency`，默认 2，不挤占付费生成）：时间不够时已读完的照常返回，没来得及读的那几张在 `poses[].error` 里写「姿势图识别超时，请稍后重试」，整个请求不报错（可只对这几张重新预览）。
+
+**部署注意**：前置代理对 `/api/v1/studio/pose/preview` 的读超时必须 ≥ 260 秒（nginx `proxy_read_timeout 260s` 或更长；仓库模板 `deploy/server/nginx/aigc-local-life.conf.tmpl` 在 server 级已是 300s，宝塔 / CDN / SLB 等另有一层代理时同样要放宽），否则代理先断开、前端拿到 504 而服务端还在读图。
+
+```json
+{
+  "source_image_url": "https://bucket.oss-cn-hangzhou.aliyuncs.com/aigc-local-life/image/123/20261030/two.jpg",
+  "pose_image_urls": ["https://…/p1.jpg", "https://…/p2.jpg"]
+}
+```
+
+响应：
+
+```json
+{
+  "source": {
+    "person_count": 2,
+    "people": [
+      {"label": "P1", "position": "画面左侧", "primary": false, "gender_age": "成年女性", "summary": "灰色条纹西装外套；灰色短裤"},
+      {"label": "P2", "position": "画面右侧", "primary": true, "gender_age": "成年女性", "summary": "米白条纹西装外套；米白短裤"}
+    ],
+    "group": "两人并肩，P1 在左，P2 在右",
+    "interaction": "无",
+    "people_truncated": false
+  },
+  "poses": [
+    {
+      "pose_index": 0,
+      "pose": {"person_count": 2, "people": [{"label": "P1", "position": "画面左侧", "primary": false, "gender_age": "", "summary": "侧身站立，一臂抬至颈前"}, {"label": "P2", "position": "画面右侧", "primary": true, "gender_age": "", "summary": "正面站立，双手叉腰"}], "group": "两人一前一后", "interaction": "背靠背", "people_truncated": false},
+      "default_mapping": [0, 1],
+      "error": ""
+    },
+    {"pose_index": 1, "pose": null, "default_mapping": [], "error": "姿势参考图中没有识别到人物，请换一张"}
+  ],
+  "mapping_enabled": true
+}
+```
+
+| 字段 | 说明 |
+|---|---|
+| `source.person_count` / `poses[].pose.person_count` | 人数（最多 4；`people_truncated=true` 表示超过 4 人只分析了前 4 位） |
+| `people[]` | 按画面左→右；`summary` 原图为服装摘要、姿势图为动作剪影；`gender_age` 只有原图人物有 |
+| `poses[].default_mapping` | 默认配对，长度 = 原图人数：`[0,1]` 表示人物 A ← 姿势图 P1、人物 B ← 姿势图 P2；参考图只有 1 人时配给原图主要人物，其余为 `-1` |
+| `poses[].error` | 该姿势图读图失败的原因（只影响这一张）；成功为空串、`pose` 有值 |
+| `mapping_enabled` | 原图 ≥2 人：显示配对行与「反转配对」；`false` 时只用 `source.person_count` / `poses[].pose.person_count` 做人数提示（2026-11-07 起单人原图也返回 `poses[]`，此前为 `[]`；只增不改） |
+
+前端用法：每张姿势图下展示「人物A ← 图2画面左侧 …」；两边人数相同且 ≥2 时给「反转配对」（把 `default_mapping` 反过来，如 `[1,0]`）。参考图人多：多出来的人不进画面；原图人多：没配上的人保持原姿势。提交时把用户改过（或想固定）的姿势图写进 `mappings`，并原样带上 `source_person_count` 与各自的 `pose_person_count`。
+
+错误：人物图无人物 / 疑似未成年等原图问题回 `code=1003` 与原因；反推服务不可用 `code=6001`；未开放 `code=7003`；同一用户已有预览在跑 `code=4002`（不变）；超出频率配额 `code=4002`「识别太频繁，请稍后再试」。
+
+无人物的文案固定为两句（`msg` / `poses[].error`，码不变）：原图 →「原图中没有识别到人物，请换一张」（整个预览 `code=1003`）；姿势图 →「姿势参考图中没有识别到人物，请换一张」（只写在该张的 `poses[].error`）。提交后编排阶段同样原因失败时，批次 `error_reason` 为这两句加「，点数已退回」。
 
 ### 3.2 图片生成
 
@@ -557,6 +630,46 @@ GET /api/v1/studio/tasks/:task_id
 
 `task_id` 是任务号字符串（如 `tyo_a1b2c3d4`）。返回单个 `tasks[]` 的结构（字段同上）。不存在或不属于当前用户：`code=4001`。一般不需要用，轮询批次接口就够了。
 
+### 5.2.1 重试单个失败任务
+
+```
+POST /api/v1/studio/tasks/:task_id/retry
+```
+
+无请求体，不要 `Idempotency-Key`（幂等见下）。只重跑**这一张图的生图一步**：沿用提交时已存的提示词、图序和生图参数（比例 / 分辨率 / 质量），不再切图、不再反推（没有额外读图成本）。按原入口、原档位重新冻结 **1 张**的点数（新计费单号 `studio-<task_id>-r<n>`）；上一次失败时已退回的点数不再动。出图后结算新单，再次失败则退回新单。
+
+响应：批次详情，结构同 5.1 `GET /batches/:id`。成功时该任务 `status=0`（排队）、`error_reason` 清空，批次 `status=3`（生图中）、`task_failed` 减 1；前端拿到后继续轮询批次即可看到 排队 → 生成中 → 成功 / 失败，批次终态由服务端重算。
+
+同一批次里有多张失败时可以**连着重试**，不用等上一张出结果：第一张重试后批次回到生图中，其余失败的照样可以点重试（每张各冻结 1 张点数）。批次在所有子任务都到终态后才按实际结果重算为 全部成功 / 部分成功 / 全部失败，`task_done` / `task_failed` 也按实际计数重算。
+
+```json
+{
+  "code": 0,
+  "data": {
+    "batch": {"id": 1024, "kind": "pose", "status": 3, "task_total": 3, "task_done": 2, "task_failed": 0, "...": "…"},
+    "tasks": [
+      {"task_id": "pse_a1b2c3d4", "status": 2, "progress": 100, "...": "…"},
+      {"task_id": "pse_e5f6a7b8", "status": 0, "progress": 60, "error_reason": "", "...": "…"}
+    ]
+  }
+}
+```
+
+可重试的条件（都满足）：
+
+| 条件 | 不满足时 |
+|---|---|
+| 任务属于当前用户、未删除 | `4001` |
+| 任务状态为失败（3）；已取消（4）的不提供重试 | `4002`「只有失败的任务可以重试」 |
+| 批次为全部失败（5）/ 部分成功（6）；或生图中（3）但在跑的只有重试（同批其它任务的重试 / 运营重做） | 首次生成还没结束（排队 / 切图 / 反推中，或生图中仍有首轮任务在跑）`4002`「批次还在生成中，请等全部结束后再重试」；已取消（7）`4002`「批次已取消，不能重试」 |
+| 该任务已有生图提示词（切图 / 反推阶段整批失败的没有） | `4002`「这张图还没生成提示词，无法单独重试，请重新提交」 |
+| 该任务累计重做 <3 轮（含运营重做） | `4002`「这张图已重试多次，请调整素材后重新提交」 |
+| 未被运营强制失败封禁 | `4002`「该任务已停止重试，请重新提交」 |
+| 上一次的计费单已了结（已退回 / 已过期 / 本来没冻结）；结果未知待对账、仍冻结中的不行 | `4002`「上一次的点数还在结算中，请稍后再试」 |
+| 点数足够 | `3003`（先按报价只读核对余额，不够直接拒绝，**不占重试次数**；核对通过后冻结仍失败（如同时在别处花掉了点数）也会把这次的次数退还） |
+
+幂等：重复点击时，若该任务已经在这次重试里（排队 / 生成中 / 交付中，且计费单号是重做轮次），直接返回当前批次详情，不会再冻结；两个请求同时到达也只有一个会冻结点数。前端建议按钮点击后置为加载态，拿到响应后以批次轮询结果为准。
+
 ### 5.3 历史（游标分页）
 
 ```
@@ -594,7 +707,7 @@ GET /api/v1/studio/history?kind=tryon&cursor=&limit=20
 | kind | 回填字段 |
 |---|---|
 | `tryon` | `model_image_urls`、`garment_images`、`items`、`set_mode`、`lengths`、`sleeves`、`fabric`、`prompt`、`model`、`resolution`、`aspect_ratio`、`count_per_model` |
-| `pose` | `source_image_url`、`pose_image_urls`、`global_prompt`、`pose_prompts`、`model`、`resolution`、`aspect_ratio` |
+| `pose` | `source_image_url`、`pose_image_urls`、`global_prompt`、`pose_prompts`、`model`、`resolution`、`aspect_ratio`；带了多人配对的批次另有 `source_person_count`、`mappings`（重新编辑时若换了图，要重新预览） |
 | `imagegen` | `prompt`、`image_urls`、`model`、`resolution`、`aspect_ratio`、`count`、`rewrite_prompt` |
 
 回填时注意：
@@ -750,7 +863,7 @@ DELETE /api/v1/studio/batches/:id
 |---|---|---|
 | GET | `/batches` | 批次列表。查询参数：`page`（默认 1）、`page_size`（默认 20）、`user_id`、`kind`（`tryon` / `pose` / `imagegen`）、`status`（-1 = 全部）、`start_at` / `end_at`（创建时间，unix 毫秒，起含止不含）。返回 `list` + `total`，每项含用户、`request_id`、`cost_cny`（上游成本合计，人民币元）、`model_group`、`payload` 等 |
 | GET | `/batches/:id` | 批次详情：`batch` + 切图框 `crop_plan`、切图质检 `crop_check`、组图 `selected_images`、每步耗时与成本 `step_log`（成本字段 `cost_cny`，均为 JSON 文本）+ 全部任务（含完整提示词 `prompt_text`、`prompt_meta`、`input_images`、`gateway_call_id`、`gateway_status`、`attempt`、`admin_locked`、`cost_cny`（人民币元）、`billing_request_id`、`billing_status`、`duration_ms`） |
-| POST | `/tasks/:task_id/retry` | 重做子任务：只收失败 / 已取消、且没被强制失败封禁的；换新计费请求号（`studio-<task_id>-r<attempt>`）重新冻结、`attempt+1`、清空错误与 gateway 字段后回到排队，由轮询器用新幂等键重新提交。批次已终态时拉回生图中（还没反推过的拉回排队重新编排）；拉回出错时撤销本次重做（任务回原状态、新冻结退回）并报错，轮询器另有兜底。成功 / 进行中 / 批次提交中的返回 4002 |
+| POST | `/tasks/:task_id/retry` | 重做子任务：只收失败 / 已取消、且没被强制失败封禁的；换新计费请求号（`studio-<task_id>-r<attempt>`）重新冻结、`attempt+1`、清空错误与 gateway 字段后回到排队，由轮询器用新幂等键重新提交。批次已终态时拉回生图中（还没反推过的拉回排队重新编排）；拉回出错时撤销本次重做（任务回原状态、新冻结退回）并报错，轮询器另有兜底。冻结失败（如点数不足）且计费服务里查无这张新单时退还本轮（`attempt` 回退，下次仍用同一个号），查不清时本轮作废、下次换下一个号。成功 / 进行中 / 批次提交中的返回 4002 |
 | POST | `/tasks/:task_id/force-fail` | 强制失败并封禁重做（`admin_locked=1`）：排队 / 生成中的改为失败并退回点数（预留单若已扣费则走已确认退款），有上游调用的先尽力取消（取消时已出图则返回 4002、照常交付）；交付中（5）的返回 4002「任务正在交付，不能强制失败」；已失败 / 已取消的只封禁、不动账；已成功的返回 4002 |
 | GET | `/sidecar/status` | 依赖状态：反推 sidecar / ai-gateway / 媒体服务的 `ok`、`latency_ms`、`version`、`detail`，外加 `running_tasks`、`queued_batches` |
 | GET | `/cost-summary` | 成本汇总。查询参数：`start_at`、`end_at`、`group_by`（`kind` 或 `model_group`，默认 `kind`）。不给时间默认最近 30 天（按任务创建时间，起含止不含）。返回 `rows` 与 `total`，每行含 `task_total`、`task_succeeded`、`task_failed`（含取消）、`cost_cny`（上游成本，人民币元，取 gateway `call.cost.amount_cny`）、`points`（汇总查询不含预留单，目前恒为 0） |

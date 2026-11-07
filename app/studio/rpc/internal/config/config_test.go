@@ -2,6 +2,7 @@ package config
 
 import (
 	"testing"
+	"time"
 
 	"github.com/zeromicro/go-zero/core/conf"
 )
@@ -23,5 +24,40 @@ func TestLoadDevConfig(t *testing.T) {
 	}
 	if c.ModelGroupMap()["Banana"] != "img.nano-banana-2.1" {
 		t.Fatalf("模型映射不对：%v", c.ModelGroupMap())
+	}
+	if c.Reverse.Concurrency != 6 || c.Reverse.PreviewConcurrency != 2 || c.PreviewSidecarSlots() != 2 {
+		t.Fatalf("预览名额不对：%+v slots=%d", c.Reverse, c.PreviewSidecarSlots())
+	}
+	if c.TryonPrompt.NewPercent != 0 {
+		t.Fatalf("提示词灰度默认必须关闭：%d", c.TryonPrompt.NewPercent)
+	}
+	n := len(c.MethodTimeouts)
+	c.EnsureMethodTimeouts()
+	if len(c.MethodTimeouts) != n || c.MethodTimeouts[0].FullMethod != PreviewPoseMethod || c.MethodTimeouts[0].Timeout != PreviewPoseTimeout {
+		t.Fatalf("配置里的预览超时应保留且不重复：%+v", c.MethodTimeouts)
+	}
+}
+
+// 没配 MethodTimeouts 时补上预览超时；已配其它方法时追加。
+func TestEnsureMethodTimeouts(t *testing.T) {
+	var c Config
+	c.EnsureMethodTimeouts()
+	c.EnsureMethodTimeouts()
+	if len(c.MethodTimeouts) != 1 || c.MethodTimeouts[0].FullMethod != PreviewPoseMethod || c.MethodTimeouts[0].Timeout != 240*time.Second {
+		t.Fatalf("MethodTimeouts = %+v", c.MethodTimeouts)
+	}
+}
+
+// 预览名额夹到 [1, Concurrency-1]：付费编排至少留一个 sidecar 名额。
+func TestPreviewSidecarSlots(t *testing.T) {
+	cases := []struct{ conc, preview, want int }{
+		{6, 2, 2}, {6, 6, 5}, {3, 2, 2}, {2, 2, 1}, {1, 2, 1}, {0, 0, 2}, {6, 0, 2},
+	}
+	for _, cs := range cases {
+		var c Config
+		c.Reverse.Concurrency, c.Reverse.PreviewConcurrency = cs.conc, cs.preview
+		if got := c.PreviewSidecarSlots(); got != cs.want {
+			t.Fatalf("Concurrency=%d PreviewConcurrency=%d → %d，期望 %d", cs.conc, cs.preview, got, cs.want)
+		}
 	}
 }

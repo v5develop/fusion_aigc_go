@@ -937,6 +937,46 @@ type (
 		Model          string            `json:"model,optional"`
 		Resolution     string            `json:"resolution,optional"`
 		AspectRatio    string            `json:"aspect_ratio,optional"` // 空=3:4
+		// 多人配对（可选，来自 /pose/preview 的确认结果）：传 mappings 时必须带 source_person_count（预览时原图人数）
+		SourcePersonCount int32               `json:"source_person_count,optional"`
+		Mappings          []StudioPoseMapping `json:"mappings,optional"` // 每张姿势图一条；不传的按默认配对（左→左、右→右）
+	}
+	// 一张姿势图的配对：mapping[i] = 原图第 i 位人物（左→右）学姿势图第几位人物（左→右，从 0 起），-1 = 保持原姿势。
+	// 校验：len(mapping) = source_person_count；值在 [-1, pose_person_count-1]；非负值不重复；至少一个非负值
+	StudioPoseMapping {
+		PoseIndex       int32   `json:"pose_index"` // 姿势图下标（从 0 起）
+		Mapping         []int32 `json:"mapping"`
+		PosePersonCount int32   `json:"pose_person_count"` // 预览时该姿势图的人数
+	}
+	// 人物配对预览：只读、不计费；与提交同一套图片地址校验
+	StudioPosePreviewReq {
+		SourceImageUrl string   `json:"source_image_url"` // 人物图（图 1）
+		PoseImageUrls  []string `json:"pose_image_urls"` // 姿势图 1–9 张
+	}
+	StudioPosePreviewPerson {
+		Label     string `json:"label"` // P1…P4，按画面左→右
+		Position  string `json:"position"` // 画面左侧 / 画面中间 / 画面右侧 …
+		Primary   bool   `json:"primary"`
+		GenderAge string `json:"gender_age"` // 原图人物有；姿势图人物为空串
+		Summary   string `json:"summary"` // 原图：服装摘要；姿势图：动作剪影
+	}
+	StudioPosePreviewImage {
+		PersonCount     int32                     `json:"person_count"`
+		People          []StudioPosePreviewPerson `json:"people"`
+		Group           string                    `json:"group"` // 整组站位
+		Interaction     string                    `json:"interaction"` // 身体接触；没有为「无」
+		PeopleTruncated bool                      `json:"people_truncated"` // 超过 4 人，只分析了前 4 位
+	}
+	StudioPosePreviewItem {
+		PoseIndex      int32                   `json:"pose_index"`
+		Pose           *StudioPosePreviewImage `json:"pose"` // 该姿势图分析失败时为 null
+		DefaultMapping []int32                 `json:"default_mapping"` // 默认配对（长度 = 原图人数）；原图单人时为 []
+		Error          string                  `json:"error"` // 该姿势图失败原因；成功为空串
+	}
+	StudioPosePreviewResp {
+		Source         StudioPosePreviewImage  `json:"source"`
+		Poses          []StudioPosePreviewItem `json:"poses"` // 每张姿势图一条（顺序同 pose_image_urls）；原图单人时也逐张给 pose.person_count，用于提示多出的人物会被忽略
+		MappingEnabled bool                    `json:"mapping_enabled"` // 原图 ≥2 人：显示配对 / 反转配对
 	}
 	StudioImageGenSubmitReq {
 		RequestId     string   `header:"Idempotency-Key"`
@@ -1084,6 +1124,10 @@ service gateway-api {
 	@handler getTask
 	get /tasks/:task_id (StudioTaskPath) returns (StudioTask)
 
+	@doc "重试单个失败子任务（仅本人、任务失败且批次为全部失败 / 部分成功）：只重跑这张图的生图一步（沿用已存提示词，不再反推），按原入口重新冻结 1 张点数；返回批次详情（同 GET /batches/:id），之后照常轮询批次。重复点击幂等"
+	@handler retryTask
+	post /tasks/:task_id/retry (StudioTaskPath) returns (StudioBatchDetail)
+
 	@doc "历史（游标分页），含提交快照供回填"
 	@handler history
 	get /history (StudioHistoryReq) returns (StudioHistoryResp)
@@ -1095,6 +1139,21 @@ service gateway-api {
 	@doc "删除批次（生成中不能删）"
 	@handler deleteBatch
 	delete /batches/:id (IdPath) returns (EmptyResp)
+}
+
+// 人物配对预览要读原图 + 每张姿势图（单次读图 60–140s），单独放宽路由超时（nginx proxy_read_timeout 为 300s）
+@server (
+	prefix:     /api/v1/studio
+	middleware: Auth
+	group:      studio
+	tags:       "商拍换装 / 姿态复刻 / 图片生成"
+	authType:   auth
+	timeout:    250s
+)
+service gateway-api {
+	@doc "姿态复刻多人配对预览（只读、不计费）：返回原图与每张姿势图的人数、人物站位与默认配对；原图 ≥2 人时前端据此让用户确认 / 反转配对，再把 mappings 随提交带回"
+	@handler previewPose
+	post /pose/preview (StudioPosePreviewReq) returns (StudioPosePreviewResp)
 }
 
 // ---------------- assetlib：资产库增强（/api/v1/asset-library，nginx 单独转发到本网关）----------------

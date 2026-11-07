@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"aigc-local-life/app/studio/model"
 	"aigc-local-life/app/studio/rpc/internal/pipeline"
@@ -40,6 +41,9 @@ type batchPayload struct {
 	PoseImageURLs  []string          `json:"pose_image_urls"`
 	GlobalPrompt   string            `json:"global_prompt"`
 	PosePrompts    map[string]string `json:"pose_prompts"`
+	// 多人配对（PreviewPose 确认后提交；没传时为 0 / nil）
+	SourcePersonCount int                `json:"source_person_count"`
+	PoseMappings      []PoseMappingInput `json:"mappings"`
 	// 图片生成
 	ImageURLs     []string `json:"image_urls"`
 	Count         int      `json:"count"`
@@ -89,6 +93,9 @@ func classify(step string, err error) error {
 		msg := ""
 		if errors.As(err, &re) {
 			msg = strings.TrimSpace(re.Message)
+		}
+		if t, ok := noPersonText(err); ok {
+			msg = t
 		}
 		if msg == "" {
 			msg = "图片无法识别"
@@ -256,12 +263,17 @@ func step(name string, fn func(ctx context.Context) (pipeline.StepLog, error)) p
 
 // prepare 下载 → 规整（长边 ≤maxLong、JPEG）→ 取字节算 SHA1、拼 data URL。maxLong=0 不规整（图片生成参考图只入库）。
 func (r *batchRun) prepare(ctx context.Context, im *pipeline.Image, maxLong int, needData bool) error {
-	res, err := r.f.media.IngestURL(ctx, im.URL, mediasvc.PurposeUserInput, "")
+	return prepareImage(ctx, r.f.media, im, maxLong, needData)
+}
+
+// prepareImage 下载（媒体服务 ingest）→ 按长边压缩 → 需要时取回字节拼 data URL。编排与姿态配对预览共用。
+func prepareImage(ctx context.Context, media pipeline.Media, im *pipeline.Image, maxLong int, needData bool) error {
+	res, err := media.IngestURL(ctx, im.URL, mediasvc.PurposeUserInput, "")
 	if err != nil {
 		return err
 	}
 	if maxLong > 0 {
-		if res, err = r.f.media.Conform(ctx, res.RID, mediasvc.ConformParams{LongEdgeMax: maxLong, Format: "jpeg"}, ""); err != nil {
+		if res, err = media.Conform(ctx, res.RID, mediasvc.ConformParams{LongEdgeMax: maxLong, Format: "jpeg"}, ""); err != nil {
 			return err
 		}
 	}
@@ -269,7 +281,7 @@ func (r *batchRun) prepare(ctx context.Context, im *pipeline.Image, maxLong int,
 	if !needData {
 		return nil
 	}
-	data, mime, err := r.f.media.FetchBytes(ctx, res.RID)
+	data, mime, err := media.FetchBytes(ctx, res.RID)
 	if err != nil {
 		return err
 	}
@@ -568,9 +580,14 @@ func (r *batchRun) tryon(ctx context.Context) error {
 	if err := r.stage(ctx, model.BatchPrompting); err != nil {
 		return err
 	}
-	prompts := map[string]*reverse.AnalyzeResp{} // 模特 sha1 → 反推结果
+	prompts := map[string]*analyzeCache{} // 模特 sha1 → 反推结果（带当时用的提示词版本）
+	var pv, pt string                     // 本批的提示词版本（首次决定后落批次缓存，重放沿用）
 	err = r.plan(ctx, step(pipeline.StepAnalyze, func(ctx context.Context) (pipeline.StepLog, error) {
 		lg := pipeline.StepLog{Images: len(sel.Images)}
+		var err error
+		if pv, pt, err = r.tryonPromptVersion(ctx); err != nil {
+			return lg, err
+		}
 		var todo []pipeline.Image
 		seen := map[string]bool{}
 		for _, m := range ms {
@@ -579,12 +596,15 @@ func (r *batchRun) tryon(ctx context.Context) error {
 				continue
 			}
 			seen[key] = true
-			var cached reverse.AnalyzeResp
+			var cached analyzeCache
 			ok, err := r.cacheGet(ctx, key, model.CacheAnalyze, &cached)
 			if err != nil {
 				return lg, err
 			}
 			if ok && cached.Prompt != "" {
+				if !cached.Versioned { // 旧缓存没记版本：按本批版本标注（尽力而为）
+					cached.PromptVersion, cached.TargetModel = pv, pt
+				}
 				prompts[key] = &cached
 				continue
 			}
@@ -595,7 +615,9 @@ func (r *batchRun) tryon(ctx context.Context) error {
 		}
 		actx, cancel := context.WithTimeout(ctx, r.f.analyzeTimeout())
 		defer cancel()
-		resp, err := r.f.rev.AnalyzeBatch(actx, pipeline.BuildTryonAnalyzeBatchReq(spec, sel, todo, r.f.cfg.Reverse.Concurrency))
+		breq := pipeline.BuildTryonAnalyzeBatchReq(spec, sel, todo, r.f.cfg.Reverse.Concurrency)
+		breq.AnalyzeReq = pipeline.WithPromptVersion(breq.AnalyzeReq, pv, pt)
+		resp, err := r.f.rev.AnalyzeBatch(actx, breq)
 		if err != nil {
 			return lg, err
 		}
@@ -611,7 +633,7 @@ func (r *batchRun) tryon(ctx context.Context) error {
 			}
 			ar := &reverse.AnalyzeResp{Prompt: res.Prompt, Meta: res.Meta, Warning: res.Warning}
 			if res.Error != "" || strings.TrimSpace(res.Prompt) == "" { // 单个模特失败：单独重试一次
-				one, err := r.f.rev.Analyze(actx, pipeline.BuildTryonAnalyzeReq(spec, withModel(sel, m)))
+				one, err := r.f.rev.Analyze(actx, pipeline.WithPromptVersion(pipeline.BuildTryonAnalyzeReq(spec, withModel(sel, m)), pv, pt))
 				if err != nil {
 					return lg, err
 				}
@@ -622,9 +644,10 @@ func (r *batchRun) tryon(ctx context.Context) error {
 				lg.Degraded = true
 			}
 			key := pipeline.AnalyzeKey(m.SHA1)
-			prompts[key] = ar
+			c := &analyzeCache{AnalyzeResp: *ar, PromptVersion: pv, TargetModel: pt, Versioned: true}
+			prompts[key] = c
 			done[m.Key] = true
-			r.cachePut(ctx, key, model.CacheAnalyze, ar)
+			r.cachePut(ctx, key, model.CacheAnalyze, c)
 		}
 		for _, m := range todo {
 			if !done[m.Key] {
@@ -662,6 +685,9 @@ func (r *batchRun) tryon(ctx context.Context) error {
 			inputs = append(inputs, inputImage(im, roleOf(im)))
 		}
 		meta := map[string]any{"model_key": m.Key, "degraded": ar.Meta.Degraded, "reverse_model": ar.Meta.Model, "gen": gp}
+		if ar.PromptVersion != "" { // 灰度命中：后台按 prompt_version 对比新旧版效果（取该反推结果实际用的版本）
+			meta["prompt_version"], meta["target_model"] = ar.PromptVersion, ar.TargetModel
+		}
 		if ar.Warning != "" || len(warns) > 0 {
 			meta["warnings"] = append(warns, ar.Warning)
 		}
@@ -671,6 +697,49 @@ func (r *batchRun) tryon(ctx context.Context) error {
 		return err
 	}
 	return r.stage(ctx, model.BatchGenerating)
+}
+
+// analyzeCache 商拍反推缓存体：sidecar 返回 + 生成它时用的提示词版本。旧缓存没有 versioned（版本未知）。
+type analyzeCache struct {
+	reverse.AnalyzeResp
+	PromptVersion string `json:"prompt_version,omitempty"`
+	TargetModel   string `json:"target_model,omitempty"`
+	Versioned     bool   `json:"versioned,omitempty"`
+}
+
+// promptVersionKey 本批提示词版本在批次缓存里的键（kind=analyze；其余 analyze 键是 40 位 sha1，不会撞）。
+const promptVersionKey = "prompt-version"
+
+// promptVersionRec 本批提示词版本的落库记录。Version 为空 = 稳定版。
+type promptVersionRec struct {
+	Version string `json:"version"`
+	Target  string `json:"target"`
+	Decided bool   `json:"decided"`
+}
+
+// tryonPromptVersion 本批商拍反推的提示词版本：批次缓存里有就沿用；没有时按当前灰度比例算一次并先落库再用，
+// 运营中途改比例不会让同一批次重放时换版本（旧版本的缓存结果也不会被贴上新版本标签）。落库失败按可重试处理（下一轮再来）。
+// 模型组映射失败时返回稳定版（不落库，后面 modelGroup 会报错）。
+func (r *batchRun) tryonPromptVersion(ctx context.Context) (string, string, error) {
+	var rec promptVersionRec
+	ok, err := r.cacheGet(ctx, promptVersionKey, model.CacheAnalyze, &rec)
+	if err != nil {
+		return "", "", err
+	}
+	if ok && rec.Decided {
+		return rec.Version, rec.Target, nil
+	}
+	g, gerr := r.modelGroup()
+	if gerr != nil {
+		return "", "", nil
+	}
+	rec.Version, rec.Target = pipeline.TryonPromptVersion(g, r.b.ID, r.f.tryonNewPromptPercent(ctx))
+	rec.Decided = true
+	raw, _ := json.Marshal(rec)
+	if err := r.f.repo.Cache.Put(ctx, r.b.ID, promptVersionKey, model.CacheAnalyze, raw); err != nil {
+		return "", "", &stepError{Step: pipeline.StepAnalyze, User: "处理失败，点数已退回", Retryable: true, Err: fmt.Errorf("记录提示词版本: %w", err)}
+	}
+	return rec.Version, rec.Target, nil
 }
 
 // withModel 组图结果里的模特换成 m（各模特共用同一组服装图）。
@@ -701,6 +770,48 @@ type poseSourceCache struct {
 	Meta   reverse.PoseMeta `json:"meta"`
 }
 
+// previewSourceTTL 配对预览读到的原图结果可被编排复用的时长（从预览时算）。超时后编排重新读图，只按人数校验配对。
+const previewSourceTTL = 2 * time.Hour
+
+// previewSourceCache 配对预览存的原图读图结果：同 poseSourceCache，另带写入时间（unix 秒）判断是否过期。
+type previewSourceCache struct {
+	Source   json.RawMessage  `json:"source"`
+	Meta     reverse.PoseMeta `json:"meta"`
+	CachedAt int64            `json:"cached_at"`
+}
+
+// previewSourceBatchID 预览结果在 afv_studio_prompt_cache 里的 batch_id：用户号取负。真实批次号是自增正数，
+// 两边不会撞键；唯一键 (batch_id, cache_key=原图 sha1, kind=source) 天然按 (用户, 原图) 去重，同图再预览覆盖为最新一次。
+func previewSourceBatchID(userID int64) int64 { return -userID }
+
+// previewSource 取本用户对这张原图（sha1）最近一次配对预览的读图结果：没有、坏数据、过期，或人数与提交时确认的
+// source_person_count 不一致时返回 nil（编排照常重新读图）。读库失败同样当没有，只记日志。
+func (r *batchRun) previewSource(ctx context.Context, sha1 string) *reverse.PoseSource {
+	if r.b.UserID <= 0 || sha1 == "" {
+		return nil
+	}
+	raw, ok, err := r.f.repo.Cache.Get(ctx, previewSourceBatchID(r.b.UserID), pipeline.SourceKey(sha1), model.CacheSource)
+	if err != nil {
+		logx.WithContext(ctx).Errorf("studio: 批次 %d 读配对预览原图结果失败，改为重新读图: %v", r.b.ID, err)
+		return nil
+	}
+	var c previewSourceCache
+	if !ok || json.Unmarshal(raw, &c) != nil || len(c.Source) == 0 || c.CachedAt <= 0 {
+		return nil
+	}
+	if age := r.f.now().Sub(time.Unix(c.CachedAt, 0)); age < 0 || age > previewSourceTTL {
+		return nil
+	}
+	s := &reverse.PoseSource{Raw: c.Source, Meta: c.Meta}
+	if json.Unmarshal(c.Source, &s.Source) != nil {
+		return nil
+	}
+	if r.p.SourcePersonCount > 0 && s.Source.PeopleCount() != r.p.SourcePersonCount {
+		return nil
+	}
+	return s
+}
+
 func (r *batchRun) pose(ctx context.Context) error {
 	p := r.p
 	src := pipeline.Image{Key: "m-1", Kind: pipeline.ImageModel, Role: pipeline.RoleModel, URL: strings.TrimSpace(p.SourceImageURL)}
@@ -713,6 +824,7 @@ func (r *batchRun) pose(ctx context.Context) error {
 	}
 	var source *reverse.PoseSource
 	results := make([]*reverse.PosePrompt, len(poses))
+	mappingWarns := make([][]string, len(poses)) // 每张姿势图的配对告警（写进子任务 meta）
 	err := r.plan(ctx,
 		step(pipeline.StepIngest, func(ctx context.Context) (pipeline.StepLog, error) {
 			all := append([]*pipeline.Image{&src}, ptrs(poses)...)
@@ -740,6 +852,13 @@ func (r *batchRun) pose(ctx context.Context) error {
 				_ = json.Unmarshal(c.Source, &source.Source)
 				return lg, nil
 			}
+			// 用户做过配对预览：直接用预览读到的那份（人物左→右顺序与用户确认配对时一致），不再让 LLM 重读一遍
+			if s := r.previewSource(ctx, src.SHA1); s != nil {
+				source = s
+				r.cachePut(ctx, key, model.CacheSource, poseSourceCache{Source: s.Raw, Meta: s.Meta})
+				logx.WithContext(ctx).Infof("studio: 批次 %d 复用配对预览的原图读图结果（%d 人）", r.b.ID, s.Source.PeopleCount())
+				return lg, nil
+			}
 			actx, cancel := context.WithTimeout(ctx, r.f.analyzeTimeout())
 			defer cancel()
 			s, err := r.f.rev.PoseSource(actx, src.Data)
@@ -764,19 +883,31 @@ func (r *batchRun) pose(ctx context.Context) error {
 				first error
 			)
 			for i := range poses {
-				notes := pipeline.BuildPoseNotes(p.GlobalPrompt, p.PosePrompts[strconv.Itoa(i)])
-				key := pipeline.PromptKey(poses[i].SHA1, notes)
-				var c reverse.PosePrompt
+				notes, mapping, want, key, warn := p.posePromptPlan(i, poses[i].SHA1, source.Source.PeopleCount())
+				if warn != "" {
+					mappingWarns[i] = append(mappingWarns[i], warn)
+					mu.Lock() // 前面已起的 goroutine 也在写 lg.Warnings
+					lg.Warnings = append(lg.Warnings, fmt.Sprintf("%s %s", poses[i].Key, warn))
+					mu.Unlock()
+				}
+				var c posePromptCache
 				if ok, err := r.cacheGet(ctx, key, model.CachePrompt, &c); err != nil {
 					return lg, err
 				} else if ok && c.Prompt != "" {
-					results[i] = &c
+					results[i] = &c.PosePrompt
+					// 重放也要把配对告警带进子任务 meta
+					if w := c.mappingWarn(want, mapping); w != "" {
+						mappingWarns[i] = append(mappingWarns[i], w)
+						mu.Lock()
+						lg.Warnings = append(lg.Warnings, fmt.Sprintf("%s %s", poses[i].Key, w))
+						mu.Unlock()
+					}
 					continue
 				}
 				wg.Add(1)
-				go func(i int, key, notes string) { // sidecar 客户端自带并发上限（Reverse.Concurrency）
+				go func(i int, key, notes string, mapping []int, want *PoseMappingInput) { // sidecar 客户端自带并发上限（Reverse.Concurrency）
 					defer wg.Done()
-					pp, err := r.f.rev.PosePrompt(actx, source, poses[i].Data, notes)
+					pp, w, err := fetchPosePrompt(actx, r.f.rev, source, poses[i].Data, notes, mapping, want)
 					mu.Lock()
 					defer mu.Unlock()
 					if err != nil {
@@ -785,9 +916,13 @@ func (r *batchRun) pose(ctx context.Context) error {
 						}
 						return
 					}
+					if w != "" {
+						mappingWarns[i] = append(mappingWarns[i], w)
+						lg.Warnings = append(lg.Warnings, fmt.Sprintf("%s %s", poses[i].Key, w))
+					}
 					results[i] = pp
-					r.cachePut(ctx, key, model.CachePrompt, pp)
-				}(i, key, notes)
+					r.cachePut(ctx, key, model.CachePrompt, posePromptCache{PosePrompt: *pp, MappingChecked: true, MappingWarn: w})
+				}(i, key, notes, mapping, want)
 			}
 			wg.Wait()
 			return lg, first
@@ -818,6 +953,12 @@ func (r *batchRun) pose(ctx context.Context) error {
 		inputs := []model.InputImage{inputImage(src, "source"), inputImage(poses[i], "pose")}
 		meta := map[string]any{"pose_key": poses[i].Key, "orientation_deg": results[i].Pose.OrientationDeg,
 			"face_visible": results[i].Pose.FaceVisible, "reverse_model": results[i].Meta.Model, "gen": gp}
+		if results[i].Mapping != nil { // 多人：实际使用的配对与两边人数（后台排查「谁学了谁」）
+			meta["mapping"] = results[i].Mapping
+			meta["source_people"] = source.Source.PeopleCount()
+			meta["pose_people"] = results[i].Pose.PeopleCount()
+		}
+		warns = append(warns, mappingWarns[i]...)
 		if len(warns) > 0 {
 			meta["warnings"] = warns
 		}
@@ -827,6 +968,112 @@ func (r *batchRun) pose(ctx context.Context) error {
 		return err
 	}
 	return r.stage(ctx, model.BatchGenerating)
+}
+
+// mappingFor 第 i 张姿势图用户确认的配对；没有返回 nil。
+func (p *batchPayload) mappingFor(i int) *PoseMappingInput {
+	for k := range p.PoseMappings {
+		if p.PoseMappings[k].PoseIndex == i {
+			return &p.PoseMappings[k]
+		}
+	}
+	return nil
+}
+
+// posePromptPlan 第 i 张姿势图的 pose/prompt 入参：补充说明、发给 sidecar 的配对（可能被放弃，见 resolvePoseMapping）、
+// 用户确认的原配对、批次内缓存键（配对进键：反转配对不会命中默认配对的缓存）与告警。
+func (p *batchPayload) posePromptPlan(i int, poseSHA1 string, srcPeople int) (notes string, mapping []int, want *PoseMappingInput, key, warn string) {
+	notes = pipeline.BuildPoseNotes(p.GlobalPrompt, p.PosePrompts[strconv.Itoa(i)])
+	want = p.mappingFor(i)
+	mapping, warn = resolvePoseMapping(want, p.SourcePersonCount, srcPeople)
+	return notes, mapping, want, pipeline.PromptKey(poseSHA1, notes, mapping), warn
+}
+
+// posePromptCache 姿态提示词缓存体：sidecar 返回 + 当时的配对结论（重放时原样带回子任务 meta）。
+// 旧缓存没有 mapping_checked，命中时按结果用 mappingDrift 重算。
+type posePromptCache struct {
+	reverse.PosePrompt
+	MappingChecked bool   `json:"mapping_checked,omitempty"`
+	MappingWarn    string `json:"mapping_warn,omitempty"`
+}
+
+// mappingWarn 缓存命中时的配对告警：新缓存存了当时的结论原样返回，旧缓存（没有 mapping_checked）按结果重算。
+func (c *posePromptCache) mappingWarn(want *PoseMappingInput, sent []int) string {
+	if c.MappingChecked {
+		return c.MappingWarn
+	}
+	return mappingDrift(want, sent, &c.PosePrompt)
+}
+
+// fetchPosePrompt 调 sidecar pose/prompt（带配对），再按用户确认时的姿势图人数核对：
+//   - 本次读出的姿势图人数与预览不同：用户的下标已指不到同一批人，丢掉这次结果、不带配对重读一次（sidecar 默认配对）并告警，
+//     与原图人数不一致时的处理（resolvePoseMapping）一致；
+//   - 人数一致但 sidecar 回的配对与提交的不同（sidecar 判定配对无效、整组退回默认）：按 sidecar 实际配对生成并告警。
+func fetchPosePrompt(ctx context.Context, rev pipeline.Reverse, source *reverse.PoseSource, data, notes string, mapping []int, want *PoseMappingInput) (*reverse.PosePrompt, string, error) {
+	pp, err := rev.PosePrompt(ctx, source, data, notes, mapping)
+	if err != nil {
+		return nil, "", err
+	}
+	if want == nil || len(mapping) == 0 {
+		return pp, "", nil
+	}
+	if n := pp.Pose.PeopleCount(); n != want.PosePersonCount {
+		def, err := rev.PosePrompt(ctx, source, data, notes, nil)
+		if err != nil {
+			return nil, "", err
+		}
+		return def, fmt.Sprintf("姿势图人数与预览不一致（预览 %d 人、本次识别 %d 人），已按默认配对生成（实际配对 %v）",
+			want.PosePersonCount, n, def.Mapping), nil
+	}
+	if !equalInts(mapping, pp.Mapping) {
+		return pp, correctedWarn(mapping, pp.Mapping), nil
+	}
+	return pp, "", nil
+}
+
+// resolvePoseMapping 决定发给 sidecar 的 mapping。用户的配对是按预览时的人数确认的（左→右下标），
+// 本次 sidecar 读出的原图人数不同时，这组下标已经指不到同一批人，宁可退回默认配对并告警，也不按错位的下标生成。
+// want 为 nil（没确认配对）或原图单人时返回 nil（sidecar 默认配对 / 单人不需要配对）。
+func resolvePoseMapping(want *PoseMappingInput, previewSrc, actualSrc int) ([]int, string) {
+	if want == nil || len(want.Mapping) == 0 {
+		return nil, ""
+	}
+	if actualSrc < 2 || previewSrc != actualSrc || len(want.Mapping) != actualSrc {
+		return nil, fmt.Sprintf("原图人数与预览不一致（预览 %d 人、本次识别 %d 人），已按默认配对生成", previewSrc, actualSrc)
+	}
+	return append([]int(nil), want.Mapping...), ""
+}
+
+// mappingDrift 只给旧缓存（没有 mapping_checked）重放用：按缓存的结果判断当时是否偏离了用户的配对。
+func mappingDrift(want *PoseMappingInput, sent []int, pp *reverse.PosePrompt) string {
+	if want == nil || len(sent) == 0 || pp == nil {
+		return ""
+	}
+	if n := pp.Pose.PeopleCount(); n != want.PosePersonCount {
+		return fmt.Sprintf("姿势图人数与预览不一致（预览 %d 人、本次识别 %d 人），实际配对 %v", want.PosePersonCount, n, pp.Mapping)
+	}
+	if !equalInts(sent, pp.Mapping) {
+		return correctedWarn(sent, pp.Mapping)
+	}
+	return ""
+}
+
+// correctedWarn sidecar 判定提交的配对无效（越界 / 重复 / 全 -1，整组退回默认配对）时的告警。
+// sidecar 不再改写有效配对里的 -1（保持原姿势），所以这句只在真被改写时出现。
+func correctedWarn(sent, got []int) string {
+	return fmt.Sprintf("配对被反推服务校正：提交 %v，实际 %v", sent, got)
+}
+
+func equalInts(a, b []int) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // ---------------------------------------------------------------- 图片生成

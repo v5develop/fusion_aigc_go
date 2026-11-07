@@ -86,7 +86,7 @@ func TestTaskTransitFillsTimes(t *testing.T) {
 func TestCacheUpsert(t *testing.T) {
 	r, mock := newMock(t)
 	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `afv_studio_prompt_cache` (`id`, `batch_id`, `cache_key`, `kind`, `payload`, `created_at`) " +
-		"VALUES (DEFAULT, 9, 'sha1x', 'analyze', '{\"p\":1}', DEFAULT) ON DUPLICATE KEY UPDATE `payload` = VALUES(`payload`)")).
+		"VALUES (DEFAULT, 9, 'sha1x', 'analyze', '{\"p\":1}', DEFAULT) ON DUPLICATE KEY UPDATE `payload` = VALUES(`payload`), `created_at` = VALUES(`created_at`)")).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	if err := r.Cache.Put(ctx, 9, "sha1x", model.CacheAnalyze, json.RawMessage(`{"p":1}`)); err != nil {
 		t.Fatal(err)
@@ -156,6 +156,24 @@ func TestSetGatewayStartedAt(t *testing.T) {
 	}
 	if err := r.Task.SetGateway(ctx, 5, "", "RUNNING"); err != nil {
 		t.Fatal(err)
+	}
+	done(t, mock)
+}
+
+// 预览缓存清理只带 batch_id < 0 的条件与 LIMIT，且返回影响行数；参数非法不发 SQL。
+func TestCacheDeleteStalePreview(t *testing.T) {
+	r, mock := newMock(t)
+	mock.ExpectExec(regexp.QuoteMeta("DELETE FROM afv_studio_prompt_cache WHERE (batch_id < 0) AND (created_at < DATE_SUB(NOW(3), INTERVAL 86400 SECOND)) LIMIT 500")).
+		WillReturnResult(sqlmock.NewResult(0, 37))
+	n, err := r.Cache.DeleteStalePreview(ctx, 86400, 500)
+	if err != nil || n != 37 {
+		t.Fatalf("n=%d err=%v", n, err)
+	}
+	if _, err := r.Cache.DeleteStalePreview(ctx, 0, 500); err == nil {
+		t.Fatal("olderThanSec<=0 应报错")
+	}
+	if _, err := r.Cache.DeleteStalePreview(ctx, 60, 0); err == nil {
+		t.Fatal("limit<=0 应报错")
 	}
 	done(t, mock)
 }

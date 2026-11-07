@@ -167,17 +167,21 @@ func (c *Client) PoseSource(ctx context.Context, imageDataURL string) (*PoseSour
 }
 
 // PosePrompt POST /api/pose/prompt：姿势参考图 → 长版提示词。source 用 PoseSource 的返回（按 Raw 原样回传）。
-func (c *Client) PosePrompt(ctx context.Context, source *PoseSource, poseDataURL, notes string) (*PosePrompt, error) {
-	return c.PosePromptMode(ctx, source, poseDataURL, notes, "")
+// mapping 可选（nil = sidecar 默认配对），见 PosePromptReq.Mapping。
+func (c *Client) PosePrompt(ctx context.Context, source *PoseSource, poseDataURL, notes string, mapping []int) (*PosePrompt, error) {
+	return c.PosePromptMode(ctx, source, poseDataURL, notes, "", mapping)
 }
 
 // PosePromptMode 同 PosePrompt，mode=short 走短版。
-func (c *Client) PosePromptMode(ctx context.Context, source *PoseSource, poseDataURL, notes, mode string) (*PosePrompt, error) {
+func (c *Client) PosePromptMode(ctx context.Context, source *PoseSource, poseDataURL, notes, mode string, mapping []int) (*PosePrompt, error) {
 	if source == nil {
 		return nil, invalid(PathPosePrompt, "缺少 source")
 	}
 	if err := checkImage(PathPosePrompt, "image", poseDataURL); err != nil {
 		return nil, err
+	}
+	if len(mapping) > MaxPosePeople {
+		return nil, invalid(PathPosePrompt, fmt.Sprintf("mapping 最多 %d 位人物", MaxPosePeople))
 	}
 	src := source.Raw
 	if len(src) == 0 {
@@ -187,12 +191,16 @@ func (c *Client) PosePromptMode(ctx context.Context, source *PoseSource, poseDat
 		}
 		src = b
 	}
-	var out PosePrompt
-	req := PosePromptReq{Source: src, Image: poseDataURL, Notes: strings.TrimSpace(notes), Mode: mode}
-	if err := c.call(ctx, http.MethodPost, PathPosePrompt, req, &out); err != nil {
+	var raw json.RawMessage
+	req := PosePromptReq{Source: src, Image: poseDataURL, Notes: strings.TrimSpace(notes), Mode: mode, Mapping: mapping}
+	if err := c.call(ctx, http.MethodPost, PathPosePrompt, req, &raw); err != nil {
 		return nil, err
 	}
-	return &out, nil
+	out := &PosePrompt{Raw: raw}
+	if err := json.Unmarshal(raw, out); err != nil {
+		return nil, &Error{Path: PathPosePrompt, Status: http.StatusOK, Kind: KindTransport, Message: "响应无法解析", Err: err}
+	}
+	return out, nil
 }
 
 // Analyze POST /api/reverse/analyze。读图失败时 sidecar 自己降级（Meta.Degraded=true），HTTP 仍是 200。

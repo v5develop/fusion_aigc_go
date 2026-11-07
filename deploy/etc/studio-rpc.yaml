@@ -2,6 +2,10 @@ Name: studio.rpc
 ListenOn: 0.0.0.0:9205
 Mode: dev
 Timeout: 30000
+# 单独放宽的方法超时：姿态配对预览要读原图 + 每张姿势图（单次读图 60–140s）。不配时代码按 240s 补上
+MethodTimeouts:
+  - FullMethod: /studio.Studio/PreviewPose
+    Timeout: 240s
 Etcd:
   Hosts: [127.0.0.1:2379]
   Key: studio.rpc
@@ -56,6 +60,7 @@ Reverse:
   BaseURL: http://127.0.0.1:8090
   Timeout: 200          # 秒，单次 HTTP（sidecar 读图单次最长 180s）
   Concurrency: 6
+  PreviewConcurrency: 2 # 姿态配对预览（免费）最多同时占用的 sidecar 名额，付费编排至少留 Concurrency-2 个
 # 共享媒体服务（下载 / 压缩 / 裁图 / 组图 / 产物转存）。NacosServerAddr 配了就订阅实例，BaseURL 只作回退
 Media:
   NacosServerAddr: 127.0.0.1:8848
@@ -73,5 +78,9 @@ Timeouts:
   Crop: 120
   Analyze: 120
   Generate: 300
+# 商拍反推提示词灰度：Seedream 批次按批次号哈希，命中 NewPercent% 走 prompt_version=new（Nano 等一律稳定版）。
+# 0 = 关闭。运行时可用 afv_system_config.studio_tryon_new_prompt_percent（0–100）覆盖，60s 内生效
+TryonPrompt:
+  NewPercent: 0
 Limits:
   MaxPromptLen: 3000

@@ -4,6 +4,7 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -32,10 +33,19 @@ func AnalyzeKey(modelSHA1 string) string { return strings.ToLower(modelSHA1) }
 func SourceKey(imageSHA1 string) string { return strings.ToLower(imageSHA1) }
 
 // PromptKey 姿态提示词缓存键 = 姿势图 sha1；补充说明不同则提示词不同，所以非空 notes 追加其 sha1 前 16 位（总长 57）。
-func PromptKey(poseSHA1, notes string) string {
+// 多人配对不同提示词也不同：非空 mapping 再追加「:m」+ 逐位下标（如 :m1.0、:m-1.0.1），反转配对不会命中旧缓存；
+// mapping 最多 4 位（reverse.MaxPosePeople），最长 57+2+11=70，不超过 cache_key varchar(80)。
+func PromptKey(poseSHA1, notes string, mapping []int) string {
 	k := strings.ToLower(poseSHA1)
 	if n := strings.TrimSpace(notes); n != "" {
 		k += ":" + SHA1String(n)[:16]
+	}
+	if len(mapping) > 0 {
+		parts := make([]string, len(mapping))
+		for i, v := range mapping {
+			parts[i] = strconv.Itoa(v)
+		}
+		k += ":m" + strings.Join(parts, ".")
 	}
 	return k
 }

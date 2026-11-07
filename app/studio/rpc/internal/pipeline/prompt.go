@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"fmt"
+	"hash/fnv"
 	"strings"
 
 	"aigc-local-life/pkg/reverse"
@@ -137,6 +138,38 @@ func BuildTryonAnalyzeBatchReq(spec TryonSpec, sel Selection, models []Image, co
 	for _, m := range models {
 		req.Models = append(req.Models, reverse.BatchModel{ID: m.Key, Data: m.Data})
 	}
+	return req
+}
+
+// 商拍反推提示词版本（sidecar AnalyzeReq.prompt_version / target_model）。
+const (
+	PromptVersionNew = "new"      // 2026-11-07.2 实验版
+	TargetSeedream   = "seedream" // 实验版的 Seedream 结构化短版（Nano 短版实测偏低，不灰度）
+)
+
+// TryonPromptBucket 批次的灰度桶号 0–99（FNV-1a("tryon-prompt:<批次号>")）：同一批次永远落同一个桶，
+// 重做 / 编排重放与批次内缓存的提示词版本一致。
+func TryonPromptBucket(batchID int64) int {
+	h := fnv.New32a()
+	_, _ = fmt.Fprintf(h, "tryon-prompt:%d", batchID)
+	return int(h.Sum32() % 100)
+}
+
+// TryonPromptVersion 商拍反推提示词灰度：只有模型组是 Seedream、且批次桶号 < percent 时返回 ("new", "seedream")；
+// 其余（percent ≤0、Nano / GPT 等）返回空串 = sidecar 默认稳定版。percent ≥100 全量。
+func TryonPromptVersion(group string, batchID int64, percent int) (version, target string) {
+	if percent <= 0 || !strings.Contains(strings.ToLower(group), TargetSeedream) {
+		return "", ""
+	}
+	if percent >= 100 || TryonPromptBucket(batchID) < percent {
+		return PromptVersionNew, TargetSeedream
+	}
+	return "", ""
+}
+
+// WithPromptVersion 给反推请求打上提示词版本（空串 = 不传，sidecar 走稳定版）。
+func WithPromptVersion(req reverse.AnalyzeReq, version, target string) reverse.AnalyzeReq {
+	req.PromptVersion, req.TargetModel = version, target
 	return req
 }
 

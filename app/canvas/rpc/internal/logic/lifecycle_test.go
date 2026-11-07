@@ -568,8 +568,9 @@ func TestOfficialSeedTemplates(t *testing.T) {
 		t.Fatal(err)
 	}
 	snaps := regexp.MustCompile(`(?m)^\s*'(\{"nodes".*\})',\s*$`).FindAllStringSubmatch(string(raw), -1)
-	if len(snaps) != 3 {
-		t.Fatalf("应解析出 3 份快照，得到 %d", len(snaps))
+	// 6 套官方模板：服装换装 / 三视图 / 元素替换 + 商品主图 / 带货短片 / 高清放大（2026-11-07 补 3 套，对齐原型 5185）
+	if len(snaps) != 6 {
+		t.Fatalf("应解析出 6 份快照，得到 %d", len(snaps))
 	}
 	c := testCore()
 	for _, m := range snaps {
@@ -621,8 +622,24 @@ func TestOfficialSeedTemplates(t *testing.T) {
 			}
 			runs++
 		}
+		// 纯工具模板（如高清放大）没有模型节点：工具节点的唯一输入口 image 必须连上一张图
+		for _, n := range d.Nodes {
+			if n.Type != "tool" {
+				continue
+			}
+			fed := false
+			for _, e := range d.Edges {
+				if e.Target == n.ID && e.TargetHandle == "image" && by[e.Source] != nil {
+					fed = true
+				}
+			}
+			if !fed {
+				t.Fatalf("工具节点 %s 的图片输入口没有连线", n.ID)
+			}
+			runs++
+		}
 		if runs == 0 {
-			t.Fatal("每份模板至少有一个可执行的模型节点")
+			t.Fatal("每份模板至少有一个可执行的模型或工具节点")
 		}
 	}
 }

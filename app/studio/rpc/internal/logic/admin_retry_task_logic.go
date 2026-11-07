@@ -57,6 +57,12 @@ func (l *AdminRetryTaskLogic) AdminRetryTask(in *studio.AdminTaskReq) (*studio.E
 // 批次已终态时拉回：prompt 已就绪 → 生图中；还没反推过（编排阶段整批失败）→ 排队，重新编排（有缓存）。
 // 任何一步失败要退新单时，先重读任务：只有库里的 billing_request_id ≠ 新号（新单确实没被用上）才退，避免退掉在用的单。
 func (f *flow) adminRetry(ctx context.Context, t *model.Task, b *model.Batch) error {
+	return f.retryTask(ctx, t, b, stepAdminRetry)
+}
+
+// retryTask 重做的公共流程（运营重做 / 用户重试共用，见 adminRetry 注释）；step 是落 step_log 的步骤名。
+// 用户重试的额外前置条件在 retry_task_logic.go 里先判，这里只做占轮次 → 冻结新单 → 排队 → 批次拉回。
+func (f *flow) retryTask(ctx context.Context, t *model.Task, b *model.Batch, step string) error {
 	log := logx.WithContext(ctx)
 	if b.Deleted != 0 {
 		return xerr.New(xerr.Conflict, "批次已删除，不能重试")
@@ -70,13 +76,9 @@ func (f *flow) adminRetry(ctx context.Context, t *model.Task, b *model.Batch) er
 	if b.Status == model.BatchSubmitting {
 		return xerr.New(xerr.Conflict, "批次正在提交，请稍后再试")
 	}
-	p, err := parsePayload(b.Payload)
+	charge, err := f.retryCharge(t, b)
 	if err != nil {
 		return err
-	}
-	res := p.Resolution
-	if r, _, err := pipeline.NormalizeForGroup(t.ModelGroup, p.Resolution, p.AspectRatio); err == nil {
-		res = r // 与提交时同口径（历史批次的快照可能是未归一的档位）
 	}
 	const stale = "任务状态已变化，请刷新后再看"
 	claimed, err := f.repo.Task.ClaimRetry(ctx, t.ID, t.Attempt)
@@ -88,14 +90,13 @@ func (f *flow) adminRetry(ctx context.Context, t *model.Task, b *model.Batch) er
 	}
 	attempt := t.Attempt + 1
 	reqID := retryBillingRequestID(t.TaskID.String, int(attempt))
-	entry := svc.EntryCode(f.cfg, t.Kind)
+	charge.RequestID = reqID
 	hctx, cancel := detached(ctx)
 	defer cancel()
-	if _, err := f.bill.Hold(hctx, billing.Charge{
-		UserID: b.UserID, RequestID: reqID, EntryCode: entry, Kind: billing.KindQuick, Count: 1,
-		Tier: tierOf(entry, res), Resolution: strings.ToUpper(res),
-	}); err != nil {
-		return err // 轮次已占掉，下次重做换下一个号
+	if _, err := f.bill.Hold(hctx, charge); err != nil {
+		// 冻结没成功：确认计费服务里没有这张新单后退还轮次，否则（结果未知）轮次作废、下次换下一个号
+		f.releaseUnheldRetry(hctx, t, b.UserID, attempt, reqID)
+		return err
 	}
 	const undoReason = "未能开始重做，点数已退回"
 	if f.bill.Mode() == billing.ModeOn {
@@ -137,9 +138,72 @@ func (f *flow) adminRetry(ctx context.Context, t *model.Task, b *model.Batch) er
 			f.undoRetry(hctx, t, b, reqID, undoReason)
 			return err
 		}
+	} else {
+		f.reopenIfConverged(ctx, b.ID)
 	}
-	f.stepLog(ctx, b.ID, model.StepLog{Step: stepAdminRetry, Detail: t.TaskID.String})
+	f.stepLog(ctx, b.ID, model.StepLog{Step: step, Detail: t.TaskID.String})
 	return nil
+}
+
+// reopenIfConverged 读到批次时它还在生图中（同批另一次重试在跑），但在本任务回到排队之前，那次重试可能已结束、
+// 批次已按当时的计数收敛成终态（收敛只在没有在途子任务时发生）。重读一次：已是 全部成功 / 全部失败 / 部分成功 就拉回生图中，
+// 让本任务照常派发、之后由 converge 按实际计数重算终态与 task_done / task_failed。CAS 失败（已被拉回）不算错；
+// 已取消的不拉回；重读失败只记日志，交给 Poller 的终态批次排队子任务兜底（rescueStrayQueued）。
+func (f *flow) reopenIfConverged(ctx context.Context, batchID int64) {
+	log := logx.WithContext(ctx)
+	cur, err := f.repo.Batch.GetByID(ctx, batchID, 0)
+	if err != nil || cur == nil {
+		log.Errorf("studio: 批次 %d 重读失败（交给 Poller 兜底）: %v", batchID, err)
+		return
+	}
+	switch cur.Status {
+	case model.BatchDone, model.BatchFailed, model.BatchPartial:
+	default:
+		return
+	}
+	if ok, err := f.repo.Batch.UpdateStatus(ctx, batchID, cur.Status, model.BatchGenerating, map[string]any{"error_reason": nil}); err != nil || !ok {
+		log.Errorf("studio: 批次 %d 已收敛，拉回生图中未成功（交给 Poller 兜底）: ok=%v err=%v", batchID, ok, err)
+	}
+}
+
+// retryCharge 重做冻结 1 张的计费参数（不含请求号）：与提交同一入口码 / 档位 / 分辨率口径。
+// 用户重试的余额预检（Enough）与 retryTask 的冻结共用它，保证两边算的是同一个价。
+func (f *flow) retryCharge(t *model.Task, b *model.Batch) (billing.Charge, error) {
+	p, err := parsePayload(b.Payload)
+	if err != nil {
+		return billing.Charge{}, err
+	}
+	res := p.Resolution
+	if r, _, err := pipeline.NormalizeForGroup(t.ModelGroup, p.Resolution, p.AspectRatio); err == nil {
+		res = r // 与提交时同口径（历史批次的快照可能是未归一的档位）
+	}
+	entry := svc.EntryCode(f.cfg, t.Kind)
+	return billing.Charge{
+		UserID: b.UserID, EntryCode: entry, Kind: billing.KindQuick, Count: 1,
+		Tier: tierOf(entry, res), Resolution: strings.ToUpper(res),
+	}, nil
+}
+
+// releaseUnheldRetry 冻结失败后退还刚占到的轮次（attempt → attempt-1），让失败的冻结（如点数不足）不白白消耗重试次数。
+// 只在能确认新号 reqID 在计费服务里没有预留单时才退：退还后下次重做会再用同一个号，若那张单其实存在（冻结超时但已落库），
+// 同号冻结会原样拿回它——仍是 HELD 就照常用上，已了结的会被 retryTask 的 HELD 核对拒绝，因此查不清（查询出错 / 单已存在）就不退，
+// 轮次作废、下次换下一个号。计费非 on（off / shadow）时 Hold 不会建单，可直接退。
+// 退还是 CAS（见 repo.ReleaseRetry）：占轮次之后任务已被别处改过就不退。尽力而为，只记日志。
+func (f *flow) releaseUnheldRetry(ctx context.Context, t *model.Task, userID int64, attempt int32, reqID string) {
+	log := logx.WithContext(ctx)
+	if f.bill.Mode() == billing.ModeOn {
+		st, err := f.bill.Status(ctx, userID, reqID)
+		if err != nil || st != "" {
+			log.Errorf("studio: 子任务 %d 冻结 %s 失败，预留单状态不明（%q, %v），第 %d 轮作废不退还", t.ID, reqID, st, err, attempt)
+			return
+		}
+	}
+	ok, err := f.repo.Task.ReleaseRetry(ctx, t.ID, attempt, t.BillingRequestID.String)
+	if err != nil || !ok {
+		log.Errorf("studio: 子任务 %d 退还第 %d 轮失败（任务已变化或库不可用）: ok=%v err=%v", t.ID, attempt, ok, err)
+		return
+	}
+	log.Infow("studio retry attempt released after hold failure", logx.Field("task_id", t.TaskID.String), logx.Field("attempt", attempt))
 }
 
 // failUnusedRetry 退回一次重做冻结的新单，但只在它确实没被用上时：重读任务，库里的 billing_request_id ≠ reqID 才退。
