@@ -11027,7 +11027,9 @@
                           "started_at",
                           "finished_at",
                           "asset_id",
-                          "color_fix_params"
+                          "color_fix_params",
+                          "mask_url",
+                          "mask_parts"
                         ],
                         "properties": {
                           "asset_id": {
@@ -11079,6 +11081,31 @@
                             "type": "integer"
                           },
                           "kind": {
+                            "type": "string"
+                          },
+                          "mask_parts": {
+                            "description": "商拍换装按所选单品分割时的逐件蒙版（mask_url 是它们的合并）；没有为空数组",
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "required": [
+                                "part",
+                                "mask_url"
+                              ],
+                              "properties": {
+                                "mask_url": {
+                                  "description": "该部位的白色+软 alpha PNG，与原图同尺寸",
+                                  "type": "string"
+                                },
+                                "part": {
+                                  "description": "tops / coat / pants / skirt / shoes / bag / hat",
+                                  "type": "string"
+                                }
+                              }
+                            }
+                          },
+                          "mask_url": {
+                            "description": "服装蒙版（白色+软 alpha PNG，公开地址）：商拍换装 / 姿态复刻成品成功后异步补；空=没有（未生成 / 没识别到服装），校色作用于整图",
                             "type": "string"
                           },
                           "model_index": {
@@ -11455,7 +11482,9 @@
                                 "started_at",
                                 "finished_at",
                                 "asset_id",
-                                "color_fix_params"
+                                "color_fix_params",
+                                "mask_url",
+                                "mask_parts"
                               ],
                               "properties": {
                                 "asset_id": {
@@ -11483,6 +11512,17 @@
                                   "type": "integer"
                                 },
                                 "kind": {
+                                  "type": "string"
+                                },
+                                "mask_parts": {
+                                  "description": "商拍换装按所选单品分割时的逐件蒙版（mask_url 是它们的合并）；没有为空数组",
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object"
+                                  }
+                                },
+                                "mask_url": {
+                                  "description": "服装蒙版（白色+软 alpha PNG，公开地址）：商拍换装 / 姿态复刻成品成功后异步补；空=没有（未生成 / 没识别到服装），校色作用于整图",
                                   "type": "string"
                                 },
                                 "model_index": {
@@ -11774,6 +11814,130 @@
                       "items": {
                         "type": "string"
                       }
+                    }
+                  }
+                },
+                "msg": {
+                  "description": "business message",
+                  "type": "string",
+                  "example": "ok"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/studio/masks": {
+      "post": {
+        "security": [
+          {
+            "auth": []
+          }
+        ],
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "商拍换装 / 姿态复刻 / 图片生成"
+        ],
+        "summary": "区域蒙版（局部校色，免费）：识别图片的服装 / 商品 / 人物 / 背景区域，返回白色+软 alpha 的 PNG 蒙版；按（去查询串的地址, 区域）缓存，重复请求立即返回。按用户限频（超出 4002「识别太频繁，请稍后再试」）；没识别到 4001「没识别到对应区域」；识别服务不可用 6001",
+        "operationId": "studioSegmentMask",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "required": [
+                "image_url",
+                "target"
+              ],
+              "properties": {
+                "image_url": {
+                  "description": "本服务存储签发 / 素材库域名的 http(s) 地址（如任务 result_url）；第三方地址拒收",
+                  "type": "string"
+                },
+                "parts": {
+                  "description": "仅 garment：只要这些部位（多选）tops 上衣 / coat 外套 / pants 下装 / skirt 裙装 / shoes 鞋 / bag 包 / hat 帽；不传 / 空=全部服装",
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "target": {
+                  "description": "garment 服装 / product 商品主体 / person 人物 / background 背景（主体之外）",
+                  "type": "string",
+                  "enum": [
+                    "garment",
+                    "product",
+                    "person",
+                    "background"
+                  ]
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
+                  "type": "integer",
+                  "example": 0
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "available_parts": {
+                      "description": "该区域支持的细分部位（garment 才有）；空数组=不支持细分（前端据此显示 / 隐藏部位选择）",
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "cached": {
+                      "description": "命中缓存（同一张图同一区域只识别一次）",
+                      "type": "boolean"
+                    },
+                    "mask_url": {
+                      "description": "蒙版公开地址（素材库桶，与 result_url 同口径，可直接给 canvas 用，需 crossOrigin）；带 parts 时 = 这些部位的合并蒙版",
+                      "type": "string"
+                    },
+                    "parts": {
+                      "description": "带 parts 时的逐件蒙版（固定顺序 tops/coat/pants/skirt/shoes/bag/hat，图里没有的部位缺省）；不带为空数组",
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "part",
+                          "mask_url"
+                        ],
+                        "properties": {
+                          "mask_url": {
+                            "description": "该部位的白色+软 alpha PNG，与原图同尺寸",
+                            "type": "string"
+                          },
+                          "part": {
+                            "description": "tops / coat / pants / skirt / shoes / bag / hat",
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "target": {
+                      "type": "string"
                     }
                   }
                 },
@@ -12395,6 +12559,31 @@
                     "kind": {
                       "type": "string"
                     },
+                    "mask_parts": {
+                      "description": "商拍换装按所选单品分割时的逐件蒙版（mask_url 是它们的合并）；没有为空数组",
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "part",
+                          "mask_url"
+                        ],
+                        "properties": {
+                          "mask_url": {
+                            "description": "该部位的白色+软 alpha PNG，与原图同尺寸",
+                            "type": "string"
+                          },
+                          "part": {
+                            "description": "tops / coat / pants / skirt / shoes / bag / hat",
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "mask_url": {
+                      "description": "服装蒙版（白色+软 alpha PNG，公开地址）：商拍换装 / 姿态复刻成品成功后异步补；空=没有（未生成 / 没识别到服装），校色作用于整图",
+                      "type": "string"
+                    },
                     "model_index": {
                       "type": "integer"
                     },
@@ -12578,6 +12767,31 @@
                     "kind": {
                       "type": "string"
                     },
+                    "mask_parts": {
+                      "description": "商拍换装按所选单品分割时的逐件蒙版（mask_url 是它们的合并）；没有为空数组",
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "part",
+                          "mask_url"
+                        ],
+                        "properties": {
+                          "mask_url": {
+                            "description": "该部位的白色+软 alpha PNG，与原图同尺寸",
+                            "type": "string"
+                          },
+                          "part": {
+                            "description": "tops / coat / pants / skirt / shoes / bag / hat",
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "mask_url": {
+                      "description": "服装蒙版（白色+软 alpha PNG，公开地址）：商拍换装 / 姿态复刻成品成功后异步补；空=没有（未生成 / 没识别到服装），校色作用于整图",
+                      "type": "string"
+                    },
                     "model_index": {
                       "type": "integer"
                     },
@@ -12752,7 +12966,9 @@
                           "started_at",
                           "finished_at",
                           "asset_id",
-                          "color_fix_params"
+                          "color_fix_params",
+                          "mask_url",
+                          "mask_parts"
                         ],
                         "properties": {
                           "asset_id": {
@@ -12804,6 +13020,31 @@
                             "type": "integer"
                           },
                           "kind": {
+                            "type": "string"
+                          },
+                          "mask_parts": {
+                            "description": "商拍换装按所选单品分割时的逐件蒙版（mask_url 是它们的合并）；没有为空数组",
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "required": [
+                                "part",
+                                "mask_url"
+                              ],
+                              "properties": {
+                                "mask_url": {
+                                  "description": "该部位的白色+软 alpha PNG，与原图同尺寸",
+                                  "type": "string"
+                                },
+                                "part": {
+                                  "description": "tops / coat / pants / skirt / shoes / bag / hat",
+                                  "type": "string"
+                                }
+                              }
+                            }
+                          },
+                          "mask_url": {
+                            "description": "服装蒙版（白色+软 alpha PNG，公开地址）：商拍换装 / 姿态复刻成品成功后异步补；空=没有（未生成 / 没识别到服装），校色作用于整图",
                             "type": "string"
                           },
                           "model_index": {
@@ -13180,7 +13421,7 @@
       "in": "header"
     }
   },
-  "x-date": "2026-11-09 11:00:54",
+  "x-date": "2026-11-09 14:41:08",
   "x-description": "This is a goctl generated swagger file.",
   "x-github": "https://github.com/zeromicro/go-zero",
   "x-go-zero-doc": "https://go-zero.dev/",

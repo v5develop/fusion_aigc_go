@@ -260,6 +260,12 @@ func (f *flow) deliverCall(ctx context.Context, t *model.Task, b *model.Batch, c
 	var res mediasvc.Resource
 	if t.Status == model.TaskDelivering && t.ResultURL.Valid && t.ResultURL.String != "" {
 		res = mediasvc.Resource{RID: t.ResultRid.String, URL: t.ResultURL.String, Width: int(t.ResultWidth), Height: int(t.ResultHeight)}
+	} else if f.watermarkDelivery(ctx, b.UserID) {
+		// 免费档：原件就是网关产物（media_purpose=intermediate，私有桶），不转存公有桶；
+		// 结果与素材库写水印视图 mrw://，读时只能签成带水印参数的地址（见 free_watermark.go）
+		res = mediasvc.Resource{RID: outs[0].RID, URL: watermarkRef(outs[0].RID, firstMediaMime(call))}
+		log.Infow("studio deliver: free tier, watermark view (check=studio_free_watermark.deliver)",
+			logx.Field("task_id", t.TaskID.String), logx.Field("user_id", b.UserID))
 	} else {
 		giveUp := overdue || f.now().Sub(started) > f.generateTimeout()+transferGrace
 		if f.media == nil {
@@ -402,6 +408,8 @@ func (f *flow) finishDelivery(ctx context.Context, t *model.Task, b *model.Batch
 	if err := f.repo.Batch.UpdateCounters(ctx, b.ID, 1, 0); err != nil {
 		log.Errorf("studio: 批次 %d 更新计数失败: %v", b.ID, err)
 	}
+	// 服装蒙版（校色只作用于服装）：成功之后异步补，不拖慢、不影响交付
+	f.attachMaskAsync(t, b.UserID, res.URL, tryonMaskParts(t.Kind, b.Payload))
 	_, costCNY := pipeline.ParseOutputs(call)
 	f.logStep(ctx, b.ID, pipeline.StepLog{
 		JobID: t.TaskID.String, Step: pipeline.StepGenerate, Ms: f.now().Sub(started).Milliseconds(),

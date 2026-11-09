@@ -133,3 +133,84 @@ func TestToAssetAfterResolveNoRawRef(t *testing.T) {
 		t.Fatalf("%+v", a)
 	}
 }
+
+// processFake 支持带处理参数现签的假签名器：记下每次的处理串。
+type processFake struct {
+	fakeSigner
+	processes []string
+	failWm    bool
+}
+
+func (f *processFake) ResourceURLsWithProcess(_ context.Context, rids []string, _ time.Duration, process string) (map[string]string, error) {
+	f.processes = append(f.processes, process)
+	if f.failWm {
+		return nil, &mediasvc.Error{Status: http.StatusBadGateway, Code: "upstream", Message: "down"}
+	}
+	out := map[string]string{}
+	for _, r := range rids {
+		out[r] = "https://signed/" + r + "?x-oss-process=" + process
+	}
+	return out, nil
+}
+
+const wmProcess = "image/watermark,text_WFE,t_85,g_se,x_40,y_40"
+
+// 免费档水印视图：带处理参数现签，绝不走普通（干净）签名；同一页的 mr:// 照常签。
+func TestResolveRefsSignsWatermarkViewWithProcess(t *testing.T) {
+	f := &processFake{}
+	r := row(1, "mrw://"+ridB+".png")
+	r.ResultURL = ns("mrw://" + ridB + ".png")
+	other := row(2, "mr://"+ridA+".jpg")
+	resolveRefsWith(context.Background(), f, wmProcess, []*repo.AssetRow{r, other})
+
+	want := "https://signed/" + ridB + "?x-oss-process=" + wmProcess
+	if r.ResultURL.String != want || r.CoverURL.String != want {
+		t.Fatalf("result=%q cover=%q want %q", r.ResultURL.String, r.CoverURL.String, want)
+	}
+	if other.CoverURL.String != "https://signed/"+ridA {
+		t.Fatalf("普通引用 = %q", other.CoverURL.String)
+	}
+	for _, call := range f.calls {
+		for _, rid := range call {
+			if rid == ridB {
+				t.Fatal("水印视图的 rid 不应进入普通（干净）签名")
+			}
+		}
+	}
+	if len(f.processes) != 1 || f.processes[0] != wmProcess {
+		t.Fatalf("processes = %v", f.processes)
+	}
+}
+
+// 未配置处理串 / 签名器不支持 / 现签失败：水印视图置空（失败关闭），不下发原始引用、不签干净地址。
+func TestResolveRefsWithholdsWatermarkViewWhenItCannotBeWatermarked(t *testing.T) {
+	cases := map[string]struct {
+		signer  resourceSigner
+		process string
+	}{
+		"no process":        {&processFake{}, ""},
+		"plain signer only": {&fakeSigner{}, wmProcess},
+		"sign failure":      {&processFake{failWm: true}, wmProcess},
+		"no media service":  {nil, wmProcess},
+	}
+	for name, c := range cases {
+		r := row(1, "")
+		r.ResultURL = ns("mrw://" + ridB + ".png")
+		resolveRefsWith(context.Background(), c.signer, c.process, []*repo.AssetRow{r})
+		if r.ResultURL.Valid || r.ResultURL.String != "" {
+			t.Fatalf("%s: result = %q, want empty", name, r.ResultURL.String)
+		}
+		if fs, ok := c.signer.(*fakeSigner); ok && len(fs.calls) != 0 {
+			t.Fatalf("%s: 不应调用普通签名", name)
+		}
+	}
+}
+
+func TestWatermarkRidOf(t *testing.T) {
+	if got := watermarkRidOf("mrw://" + ridB + ".png"); got != ridB {
+		t.Fatalf("watermarkRidOf = %q", got)
+	}
+	if got := ridOf("mrw://" + ridB + ".png"); got != "" {
+		t.Fatalf("ridOf 不应认水印视图: %q", got)
+	}
+}

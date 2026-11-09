@@ -31,6 +31,7 @@ const (
 	Studio_DeleteBatch_FullMethodName        = "/studio.Studio/DeleteBatch"
 	Studio_RetryTask_FullMethodName          = "/studio.Studio/RetryTask"
 	Studio_UpdateTaskColorFix_FullMethodName = "/studio.Studio/UpdateTaskColorFix"
+	Studio_SegmentMask_FullMethodName        = "/studio.Studio/SegmentMask"
 	Studio_AdminListBatches_FullMethodName   = "/studio.Studio/AdminListBatches"
 	Studio_AdminGetBatch_FullMethodName      = "/studio.Studio/AdminGetBatch"
 	Studio_AdminRetryTask_FullMethodName     = "/studio.Studio/AdminRetryTask"
@@ -75,6 +76,9 @@ type StudioClient interface {
 	RetryTask(ctx context.Context, in *RetryTaskReq, opts ...grpc.CallOption) (*BatchDetail, error)
 	// 保存子任务的校色参数（仅本人、仅成功的任务）：前端浏览器里烘图，服务端只存五个滑杆值；返回该子任务
 	UpdateTaskColorFix(ctx context.Context, in *UpdateTaskColorFixReq, opts ...grpc.CallOption) (*TaskInfo, error)
+	// 区域蒙版（局部校色，免费）：image_url 的 garment / product / person / background 区域 → 白色+软 alpha PNG（素材库桶公开地址）。
+	// 按（去查询串的地址, 区域）缓存，重复请求直接返回；地址须为本存储签发或素材库域名。没识别到 → 4001「没识别到对应区域」
+	SegmentMask(ctx context.Context, in *SegmentMaskReq, opts ...grpc.CallOption) (*SegmentMaskResp, error)
 	// ---- 运营后台 ----
 	AdminListBatches(ctx context.Context, in *AdminListBatchesReq, opts ...grpc.CallOption) (*AdminListBatchesResp, error)
 	// 批次详情：含切图框、切图质检、组图、每步耗时与成本、每个子任务的完整 prompt
@@ -217,6 +221,16 @@ func (c *studioClient) UpdateTaskColorFix(ctx context.Context, in *UpdateTaskCol
 	return out, nil
 }
 
+func (c *studioClient) SegmentMask(ctx context.Context, in *SegmentMaskReq, opts ...grpc.CallOption) (*SegmentMaskResp, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SegmentMaskResp)
+	err := c.cc.Invoke(ctx, Studio_SegmentMask_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *studioClient) AdminListBatches(ctx context.Context, in *AdminListBatchesReq, opts ...grpc.CallOption) (*AdminListBatchesResp, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(AdminListBatchesResp)
@@ -313,6 +327,9 @@ type StudioServer interface {
 	RetryTask(context.Context, *RetryTaskReq) (*BatchDetail, error)
 	// 保存子任务的校色参数（仅本人、仅成功的任务）：前端浏览器里烘图，服务端只存五个滑杆值；返回该子任务
 	UpdateTaskColorFix(context.Context, *UpdateTaskColorFixReq) (*TaskInfo, error)
+	// 区域蒙版（局部校色，免费）：image_url 的 garment / product / person / background 区域 → 白色+软 alpha PNG（素材库桶公开地址）。
+	// 按（去查询串的地址, 区域）缓存，重复请求直接返回；地址须为本存储签发或素材库域名。没识别到 → 4001「没识别到对应区域」
+	SegmentMask(context.Context, *SegmentMaskReq) (*SegmentMaskResp, error)
 	// ---- 运营后台 ----
 	AdminListBatches(context.Context, *AdminListBatchesReq) (*AdminListBatchesResp, error)
 	// 批次详情：含切图框、切图质检、组图、每步耗时与成本、每个子任务的完整 prompt
@@ -370,6 +387,9 @@ func (UnimplementedStudioServer) RetryTask(context.Context, *RetryTaskReq) (*Bat
 }
 func (UnimplementedStudioServer) UpdateTaskColorFix(context.Context, *UpdateTaskColorFixReq) (*TaskInfo, error) {
 	return nil, status.Error(codes.Unimplemented, "method UpdateTaskColorFix not implemented")
+}
+func (UnimplementedStudioServer) SegmentMask(context.Context, *SegmentMaskReq) (*SegmentMaskResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method SegmentMask not implemented")
 }
 func (UnimplementedStudioServer) AdminListBatches(context.Context, *AdminListBatchesReq) (*AdminListBatchesResp, error) {
 	return nil, status.Error(codes.Unimplemented, "method AdminListBatches not implemented")
@@ -626,6 +646,24 @@ func _Studio_UpdateTaskColorFix_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Studio_SegmentMask_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SegmentMaskReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(StudioServer).SegmentMask(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Studio_SegmentMask_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(StudioServer).SegmentMask(ctx, req.(*SegmentMaskReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Studio_AdminListBatches_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(AdminListBatchesReq)
 	if err := dec(in); err != nil {
@@ -788,6 +826,10 @@ var Studio_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "UpdateTaskColorFix",
 			Handler:    _Studio_UpdateTaskColorFix_Handler,
+		},
+		{
+			MethodName: "SegmentMask",
+			Handler:    _Studio_SegmentMask_Handler,
 		},
 		{
 			MethodName: "AdminListBatches",

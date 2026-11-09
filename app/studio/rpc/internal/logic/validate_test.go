@@ -256,7 +256,8 @@ func TestResolutionNormalize(t *testing.T) {
 
 func TestModelMapping(t *testing.T) {
 	groups := config.DefaultModelGroups
-	for in, want := range map[string]string{"": "img.gpt-image-2", "通用": "img.gpt-image-2", "gpt": "img.gpt-image-2.6-sunburst",
+	for in, want := range map[string]string{"": "img.gpt-image-2.5-sunburst-developer", "通用": "img.gpt-image-2.5-sunburst-developer",
+		"gpt": "img.gpt-image-2.6-sunburst", "GPT25Dev": "img.gpt-image-2.5-sunburst-developer",
 		"Banana": "img.nano-banana-2.1-dev", "seedream": "img.seedream-5.5"} {
 		_, g, err := NormalizeModel(in, groups)
 		if err != nil || g != want {
@@ -404,4 +405,35 @@ func TestValidateSeedreamNormalized(t *testing.T) {
 	if tv.Resolution != "2k" || len(tv.Warnings) == 0 {
 		t.Fatalf("got %s %v", tv.Resolution, tv.Warnings)
 	}
+}
+
+// GPT Image 2.6 参考图上限：图片生成 5、商拍总参考图（模特 + 服装）6；其它模型照旧。
+func TestGPT26RefCaps(t *testing.T) {
+	groups26 := map[string]string{"通用": "img.gpt-image-2.5-sunburst-developer", "GPT": "img.gpt-image-2.6-sunburst", "Banana": "img.nano-banana-2.1-dev"}
+	gen := func(model string, n int) error {
+		_, err := ValidateImageGen(&studio.SubmitImageGenReq{UserId: 1, RequestId: "r", Prompt: "猫", Count: 1,
+			Model: model, ImageUrls: urls(n)}, groups26)
+		return err
+	}
+	wantCode(t, "2.6 五张", gen("GPT", 5), 0)
+	err := gen("GPT", 6)
+	wantCode(t, "2.6 六张", err, xerr.ParamError)
+	if _, msg, _ := xerr.Parse(err); !strings.Contains(msg, "GPT Image 2.6") || !strings.Contains(msg, "5") {
+		t.Fatalf("提示不清楚: %v", err)
+	}
+	wantCode(t, "其它模型九张", gen("Banana", 9), 0)
+
+	tr := func(model string, garments int) error {
+		r := tryon()
+		r.Model = model
+		r.GarmentImages = nil
+		for i := 0; i < garments; i++ {
+			r.GarmentImages = append(r.GarmentImages, &studio.GarmentImage{Url: fmt.Sprintf("https://x/g%d.png", i), Role: "上衣", Angle: "front"})
+		}
+		_, err := ValidateTryon(r, groups26)
+		return err
+	}
+	wantCode(t, "商拍 2.6 五张服装", tr("GPT", 5), 0)
+	wantCode(t, "商拍 2.6 六张服装", tr("GPT", 6), xerr.ParamError)
+	wantCode(t, "商拍其它模型六张服装", tr("Banana", 6), 0)
 }

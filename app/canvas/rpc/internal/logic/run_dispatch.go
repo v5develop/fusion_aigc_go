@@ -868,7 +868,11 @@ func (c *core) candidateLookup(ctx context.Context, canvasID string) candidateLo
 		if i < 0 || i >= len(list) {
 			return ""
 		}
-		return list[i].URL
+		u := list[i].URL
+		if isMediaRef(u) { // 引用读时现签（水印视图只签带水印参数的地址；签不出 → 空，调用方当「上游还没有结果」）
+			c.resolveMediaRefs(ctx, []*string{&u})
+		}
+		return u
 	}
 }
 

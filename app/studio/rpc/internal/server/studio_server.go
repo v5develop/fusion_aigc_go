@@ -95,6 +95,12 @@ func (s *StudioServer) UpdateTaskColorFix(ctx context.Context, in *studio.Update
 	return l.UpdateTaskColorFix(in)
 }
 
+// 区域蒙版（局部校色，免费）：image_url 的 garment / product / person / background 区域 → 白色+软 alpha PNG（素材库桶公开地址）。
+func (s *StudioServer) SegmentMask(ctx context.Context, in *studio.SegmentMaskReq) (*studio.SegmentMaskResp, error) {
+	l := logic.NewSegmentMaskLogic(ctx, s.svcCtx)
+	return l.SegmentMask(in)
+}
+
 // ---- 运营后台 ----
 func (s *StudioServer) AdminListBatches(ctx context.Context, in *studio.AdminListBatchesReq) (*studio.AdminListBatchesResp, error) {
 	l := logic.NewAdminListBatchesLogic(ctx, s.svcCtx)

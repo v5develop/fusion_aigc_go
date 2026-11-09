@@ -27,6 +27,7 @@ const (
 	TableBatch = "afv_studio_batch"
 	TableTask  = "afv_studio_task"
 	TableCache = "afv_studio_prompt_cache"
+	TableMask  = "afv_studio_mask_cache"
 )
 
 // Repo 数据访问入口。Batch / Task / Cache 共用同一个句柄（*bun.DB 或 bun.Tx）。
@@ -35,6 +36,7 @@ type Repo struct {
 	Batch *BatchRepo
 	Task  *TaskRepo
 	Cache *CacheRepo
+	Mask  *MaskRepo
 }
 
 // New 根 Repo。
@@ -45,7 +47,7 @@ func New(db *bun.DB) *Repo {
 }
 
 func bind(db bun.IDB) *Repo {
-	return &Repo{Batch: &BatchRepo{db: db}, Task: &TaskRepo{db: db}, Cache: &CacheRepo{db: db}}
+	return &Repo{Batch: &BatchRepo{db: db}, Task: &TaskRepo{db: db}, Cache: &CacheRepo{db: db}, Mask: &MaskRepo{db: db}}
 }
 
 // DB 底层 *bun.DB（事务内的 Repo 返回 nil）。

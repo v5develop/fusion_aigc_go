@@ -18,6 +18,7 @@ import (
 	"aigc-local-life/pkg/reverse"
 	"aigc-local-life/pkg/storage"
 	"aigc-local-life/pkg/taskcenter"
+	"aigc-local-life/pkg/usertier"
 
 	"github.com/uptrace/bun"
 	"github.com/zeromicro/go-zero/core/logx"
@@ -48,6 +49,8 @@ type ServiceContext struct {
 	PreviewSlots chan struct{}
 	// Audit 只读审计查询（sqlc，pkg/auditdb）：只给后台成本汇总用，业务读写一律走 Repo
 	Audit *auditdb.Queries
+	// Tier 免费 / 付费分层（与 Java UserTierService 同一判据，读共享库 afv_points_batch / afv_system_config）
+	Tier *usertier.Resolver
 }
 
 func NewServiceContext(c config.Config) *ServiceContext {
@@ -75,6 +78,9 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		Moderation:   moderation.New(c.Moderation.Mode, blockWords(conn)),
 		TaskCenter:   taskcenter.New(conn, 10*time.Minute, TaskSources(c)...),
 		MediaSvc:     newMediaSvc(c),
+		Tier: usertier.New(conn, usertier.Defaults{
+			UserTierEnabled: c.FreeWatermark.UserTierDefault, DisplayWatermarkEnabled: c.FreeWatermark.DisplayWatermarkDefault,
+		}),
 	}
 }
 

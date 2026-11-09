@@ -182,7 +182,7 @@ func (c *core) progressOf(r *model.NodeRun) int32 {
 var nonRetryable = map[string]bool{"CONTENT_BLOCKED": true, "INPUT_REJECTED": true, "PARAM_INVALID": true}
 
 // toResult NodeRun → RunNodeResult。
-func (c *core) toResult(r *model.NodeRun) *canvas.RunResult {
+func (c *core) toResult(ctx context.Context, r *model.NodeRun) *canvas.RunResult {
 	req := parseStored(r.Request)
 	out := &canvas.RunResult{
 		RequestId: strconv.FormatInt(r.ID, 10), RunId: r.RunID, CanvasId: r.CanvasID, NodeId: r.NodeID,
@@ -197,7 +197,7 @@ func (c *core) toResult(r *model.NodeRun) *canvas.RunResult {
 		out.FinishedAt = ms(r.FinishedAt.Time)
 	}
 	if r.Status == model.RunSucceeded {
-		for _, x := range r.CandidateList() {
+		for _, x := range c.resolvedRun(ctx, r).CandidateList() {
 			out.Candidates = append(out.Candidates, &canvas.Candidate{Url: x.URL, Width: int32(x.W), Height: int32(x.H)})
 		}
 	}

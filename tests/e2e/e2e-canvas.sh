@@ -432,7 +432,7 @@ SB=$(jq -c --arg k "$KS" '.run_id=$k|.model="SD5P"|.model_id="sd5p-v1"|.size="4K
 SR=$(ok POST "/api/v1/canvas/canvases/$CID/nodes/m1/run" "$SB" "$KS"); SRID=$(jq -r .request_id <<<"$SR")
 check "RunNode 回 warnings（Seedream 4K → 2K）" "$(jq -r '"\(.warnings|length),\(.warnings[0]|test("4K"))"' <<<"$SR")" "1,true"
 check "run.request 快照存归一值 size=2K、模型组 seedream" \
-  "$(sql "SELECT CONCAT(JSON_UNQUOTE(JSON_EXTRACT(request,'\$.size')),',',model_group) FROM afv_canvas_node_run WHERE id=$SRID")" "2K,img.seedream-5-pro"
+  "$(sql "SELECT CONCAT(JSON_UNQUOTE(JSON_EXTRACT(request,'\$.size')),',',model_group) FROM afv_canvas_node_run WHERE id=$SRID")" "2K,img.seedream-5.5"
 check "同 key 同 body（仍是 4K）→ 重放原 run、同样回 warnings" \
   "$(ok POST "/api/v1/canvas/canvases/$CID/nodes/m1/run" "$SB" "$KS" | jq -r '"\(.replayed),\(.request_id),\(.warnings|length)"')" "true,${SRID},1"
 check "Seedream run 成功" "$(poll_run "$SRID" | jq -r .status)" succeeded

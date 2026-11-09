@@ -70,11 +70,14 @@ Media:
   Token: change-me
 # 前端模型档 → ai-gateway model group；「通用」= 运营定的默认组
 # 具名档（2026-11-09 换代）：GPT Image 2.6 Sunburst / Nano Banana 2.1 Developer / Seedream 5.5，网关须先发布这三个组
+# 「通用」同日随 GPT Image 2 全线下线改为 GPT Image 2.5 Sunburst Developer（按张计费，1K / 2K / 4K）
 ModelGroups:
-  通用: img.gpt-image-2
+  通用: img.gpt-image-2.5-sunburst-developer
   GPT: img.gpt-image-2.6-sunburst
   Banana: img.nano-banana-2.1-dev
   Seedream: img.seedream-5.5
+  # GPT Image 2.5 Sunburst Developer（用户端名「GPT Image 2.5」）：按张计费，1K / 2K / 4K
+  GPT25Dev: img.gpt-image-2.5-sunburst-developer
 Timeouts:
   Crop: 120
   Analyze: 120
@@ -85,3 +88,18 @@ TryonPrompt:
   NewPercent: 0
 Limits:
   MaxPromptLen: 3000
+# 免费档图片的读时参数水印（与 Java app.free-watermark 同一语义，默认关）。开启且 Process 合法时，免费档用户
+# （afv_points_batch 没有 RECHARGE / UNION_RECHARGE 批次，且 user_tier.enabled / watermark.display_enabled 开）的成品原件留私有桶，
+# result_url 与素材库写 mrw://{rid}.{ext}，每次读签成带 x-oss-process 水印参数的地址。Process 必须与 Java
+# （启动日志 check=free_watermark.process）、assetlib FreeWatermark.Process 三处相同；服务器上由 deploy.env 的
+# FREE_WATERMARK_ENABLED / FREE_WATERMARK_OSS_PROCESS 写入。关掉后新任务照旧转存公有桶，已落库的 mrw:// 仍按 Process 签水印地址
+FreeWatermark:
+  Enabled: false
+  Process: ""
+  SignedTTLSeconds: 600   # 水印地址签名有效期（秒）
+  UserTierDefault: true          # afv_system_config 无 user_tier.enabled 时的默认（= Java USER_TIER_ENABLED）
+  DisplayWatermarkDefault: true  # afv_system_config 无 watermark.display_enabled 时的默认（= Java WATERMARK_ENABLED）
+  PromoteMinutes: 10      # 付费转存扫描间隔（分钟），<=0 关闭
+  CleanupEnabled: false   # 到期清理（= Java free-original.cleanup-enabled）：未付费超保留期的水印原件 / 素材库行 / 子任务删除
+  RetentionDays: 90       # 保留天数（从子任务结束时间算，= Java retention-days）
+  CleanupMinutes: 60      # 到期清理扫描间隔（分钟），<=0 关闭

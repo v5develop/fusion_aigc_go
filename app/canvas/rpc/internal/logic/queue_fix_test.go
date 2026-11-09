@@ -14,6 +14,7 @@ import (
 
 	"aigc-local-life/app/canvas/model"
 	"aigc-local-life/app/canvas/rpc/canvas"
+	"aigc-local-life/app/canvas/rpc/internal/config"
 	"aigc-local-life/pkg/billing"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -24,6 +25,20 @@ import (
 
 func seedreamReq(size string) *canvas.RunNodeRequest {
 	return &canvas.RunNodeRequest{Kind: "image", Model: "SD5P", Prompt: "白底棚拍", Ratio: "16:9", Size: size, Count: 1}
+}
+
+// legacySeedreamCore SD5P 档仍指向 Seedream 5 Pro（img.seedream-5-pro，只给 2K）的画布：
+// 2026-11-09 换代后默认表已是 Seedream 5.5，统一 2K 的规则只对 5 Pro 组生效（运营在 yaml 里配回旧组时仍要成立）。
+func legacySeedreamCore() *core {
+	c := testCore()
+	models := append([]config.ModelSpec(nil), config.DefaultModels...)
+	for i := range models {
+		if models[i].Model == "SD5P" {
+			models[i].ModelGroup, models[i].Sizes = "img.seedream-5-pro", []string{"2K"}
+		}
+	}
+	c.s.Config.Models = models
+	return c
 }
 
 // billingQuoteMock 计费库 sqlmock：offer / 档位 / 步骤 / 规则照常返回，单价行按分辨率参数区分（2K=20、4K=40），
@@ -38,6 +53,9 @@ func billingQuoteMock(t *testing.T, wantRes string, points int64) *billing.Servi
 	mock.MatchExpectationsInOrder(true)
 	mock.ExpectQuery("FROM `afv_billing_offer`").WithArgs("canvas_image").
 		WillReturnRows(sqlmock.NewRows([]string{"offer_code", "entry_code", "feature_code"}).AddRow("canvas_image", "canvas_image", "ecom_image_gen"))
+	// 画布生图的 Charge 带出图模型组：先按组找分模型档位（这里该组没有档位 → 空），再退回默认档位
+	mock.ExpectQuery("m.`gateway_model_group` = \\?").WithArgs("canvas_image", sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"variant_code", "quality_tier", "default_model_id", "default_resolution", "default_duration_seconds", "settlement_type"}))
 	mock.ExpectQuery("FROM `afv_billing_offer_variant`").WithArgs("canvas_image").
 		WillReturnRows(sqlmock.NewRows([]string{"variant_code", "quality_tier", "default_model_id", "default_resolution", "default_duration_seconds", "settlement_type"}).
 			AddRow("canvas_image_std", nil, 61, "1K", nil, "PER_UNIT"))
@@ -56,7 +74,7 @@ func billingQuoteMock(t *testing.T, wantRes string, points int64) *billing.Servi
 }
 
 func TestSeedream4KFreezesAs2K(t *testing.T) {
-	c := testCore()
+	c := legacySeedreamCore()
 	req := seedreamReq("4K")
 
 	// 受理：请求先归一（写回 req.Size，request 快照存 2K），回告警
@@ -85,7 +103,7 @@ func TestSeedream4KFreezesAs2K(t *testing.T) {
 		t.Fatalf("spec 应为 2K 并带告警: %+v", sp)
 	}
 	ch := c.charge(7, "canvas-cv_t", sp)
-	if ch.Resolution != "2K" || ch.EntryCode != "canvas_image" || ch.Count != 1 {
+	if ch.Resolution != "2K" || ch.EntryCode != "canvas_image" || ch.Count != 1 || ch.ModelGroup != sp.ModelGroup || ch.ModelGroup == "" {
 		t.Fatalf("冻结 Charge 应按 2K: %+v", ch)
 	}
 	// 冻结金额 = 2K 单价：计价 SQL 收到的分辨率参数是 2K（mock 只认 2K，带 4K 会不匹配报错）
@@ -118,6 +136,11 @@ func TestNormalizeImageSize(t *testing.T) {
 		{"img.seedream-5-pro", "", "2K", false},
 		{"img.gpt-image-2", "4K", "4K", false},
 		{"img.nano-banana-2.1", "1K", "1K", false},
+		// Seedream 5.5 各档都有预设尺寸：不降档、不告警
+		{"img.seedream-5.5", "4K", "4K", false},
+		{"img.seedream-5.5", "1K", "1K", false},
+		{"img.gpt-image-2.6-sunburst", "4K", "4K", false},
+		{"img.nano-banana-2.1-dev", "2K", "2K", false},
 	}
 	for _, x := range cases {
 		got, w := normalizeImageSize(x.group, x.size)
@@ -131,6 +154,32 @@ func TestNormalizeImageSize(t *testing.T) {
 	v := &canvas.RunNodeRequest{Kind: "video", Model: "Seedance 2.0", Prompt: "p", Size: "720p"}
 	if c.normalizeRunSize(g) != nil || g.Size != "4K" || c.normalizeRunSize(v) != nil || v.Size != "720p" {
 		t.Fatal("非 Seedream 请求不应改动")
+	}
+}
+
+// 2026-11-09 换代：默认表的三个图片档指向新组，SD5P（Seedream 5.5）4K 原样受理、4:5 比例在受理时拒。
+func TestDefaultImageModelsNextGen(t *testing.T) {
+	c := testCore()
+	for model, group := range map[string]string{"Image": "img.gpt-image-2.5-sunburst-developer", "通用": "img.gpt-image-2.5-sunburst-developer",
+		"GPT Image 2.6": "img.gpt-image-2.6-sunburst", "gpt-image-2-6-v1": "img.gpt-image-2.6-sunburst",
+		"Banana": "img.nano-banana-2.1-dev", "SD5P": "img.seedream-5.5", "Seedream 5 Pro": "img.seedream-5.5"} {
+		m, ok := c.s.Config.FindModel(model, "", "image")
+		if !ok || m.ModelGroup != group {
+			t.Fatalf("%s → %+v，want %s", model, m, group)
+		}
+	}
+	req := seedreamReq("4K")
+	if warns := c.normalizeRunSize(req); warns != nil || req.Size != "4K" {
+		t.Fatalf("Seedream 5.5 4K 不应归一: size=%s warns=%v", req.Size, warns)
+	}
+	sp, err := c.buildSpec(seedreamReq("4K"), nil)
+	if err != nil || sp.Size != "4K" || len(sp.Warnings) != 0 || sp.ModelGroup != "img.seedream-5.5" {
+		t.Fatalf("spec 应为 4K 无告警: %+v %v", sp, err)
+	}
+	bad := seedreamReq("2K")
+	bad.Ratio = "4:5"
+	if _, err := c.buildSpec(bad, nil); err == nil {
+		t.Fatal("Seedream 5.5 没有 4:5 预设，受理应拒")
 	}
 }
 

@@ -37,6 +37,7 @@ type (
 	GetTaskReq            = studio.GetTaskReq
 	ListHistoryReq        = studio.ListHistoryReq
 	ListHistoryResp       = studio.ListHistoryResp
+	MaskPart              = studio.MaskPart
 	PoseMapping           = studio.PoseMapping
 	PosePreviewImage      = studio.PosePreviewImage
 	PosePreviewItem       = studio.PosePreviewItem
@@ -46,6 +47,8 @@ type (
 	QuoteReq              = studio.QuoteReq
 	QuoteResp             = studio.QuoteResp
 	RetryTaskReq          = studio.RetryTaskReq
+	SegmentMaskReq        = studio.SegmentMaskReq
+	SegmentMaskResp       = studio.SegmentMaskResp
 	SidecarStatusResp     = studio.SidecarStatusResp
 	SubmitImageGenReq     = studio.SubmitImageGenReq
 	SubmitPoseReq         = studio.SubmitPoseReq
@@ -79,6 +82,8 @@ type (
 		RetryTask(ctx context.Context, in *RetryTaskReq, opts ...grpc.CallOption) (*BatchDetail, error)
 		// 保存子任务的校色参数（仅本人、仅成功的任务）：前端浏览器里烘图，服务端只存五个滑杆值；返回该子任务
 		UpdateTaskColorFix(ctx context.Context, in *UpdateTaskColorFixReq, opts ...grpc.CallOption) (*TaskInfo, error)
+		// 区域蒙版（局部校色，免费）：image_url 的 garment / product / person / background 区域 → 白色+软 alpha PNG（素材库桶公开地址）。
+		SegmentMask(ctx context.Context, in *SegmentMaskReq, opts ...grpc.CallOption) (*SegmentMaskResp, error)
 		// ---- 运营后台 ----
 		AdminListBatches(ctx context.Context, in *AdminListBatchesReq, opts ...grpc.CallOption) (*AdminListBatchesResp, error)
 		// 批次详情：含切图框、切图质检、组图、每步耗时与成本、每个子任务的完整 prompt
@@ -174,6 +179,12 @@ func (m *defaultStudio) RetryTask(ctx context.Context, in *RetryTaskReq, opts ..
 func (m *defaultStudio) UpdateTaskColorFix(ctx context.Context, in *UpdateTaskColorFixReq, opts ...grpc.CallOption) (*TaskInfo, error) {
 	client := studio.NewStudioClient(m.cli.Conn())
 	return client.UpdateTaskColorFix(ctx, in, opts...)
+}
+
+// 区域蒙版（局部校色，免费）：image_url 的 garment / product / person / background 区域 → 白色+软 alpha PNG（素材库桶公开地址）。
+func (m *defaultStudio) SegmentMask(ctx context.Context, in *SegmentMaskReq, opts ...grpc.CallOption) (*SegmentMaskResp, error) {
+	client := studio.NewStudioClient(m.cli.Conn())
+	return client.SegmentMask(ctx, in, opts...)
 }
 
 // ---- 运营后台 ----

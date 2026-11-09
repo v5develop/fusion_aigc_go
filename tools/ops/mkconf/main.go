@@ -79,6 +79,8 @@ func main() {
 	aiGatewaySecret := flag.String("ai-gateway-secret", "", "ai-gateway 调用方 HMAC 密钥（只写进 studio 配置）")
 	reverseURL := flag.String("reverse-url", "", "反推 sidecar 地址（studio 的 Reverse.BaseURL），留空保留开发配置的 127.0.0.1:8090")
 	studioInputPrefixes := flag.String("studio-input-url-prefixes", "", "studio / assetlib 额外允许的输入图地址前缀（逗号分隔，如素材库公有桶域名 https://cdn.example.com/），写进 InputURLPrefixes；留空不改")
+	freeWatermarkEnabled := flag.String("free-watermark-enabled", "", "studio 免费档读时参数水印开关 true / false（= Java FREE_WATERMARK_ENABLED），写进 studio FreeWatermark.Enabled；留空不改")
+	freeWatermarkProcess := flag.String("free-watermark-process", "", "免费水印 OSS 处理串（= Java FREE_WATERMARK_OSS_PROCESS / 启动日志 check=free_watermark.process），写进 studio / assetlib / canvas 的 FreeWatermark.Process；留空不改")
 	canvasJavaURL := flag.String("canvas-java-base-url", "", "Java 主项目内网地址（canvas 调 creaft v1 兼容工具 / 任务查询 / 价目，透传用户 Bearer）；留空 = 放大 / 扩图 / 重绘返回「暂未开放」")
 	flag.Parse()
 	for _, r := range *taskIDPrefix {
@@ -124,7 +126,8 @@ func main() {
 			listenHost: *listenHost, accessHours: *accessHours, refreshDays: *refreshDays, sessionMax: *sessionMax,
 			mediaToken: *mediaToken, mediaNacosAddr: *mediaNacosAddr, mediaNacosUser: *mediaNacosUser, mediaNacosPass: *mediaNacosPass, mediaBaseURL: *mediaBaseURL,
 			aiGatewayURL: *aiGatewayURL, aiGatewayKeyID: *aiGatewayKeyID, aiGatewaySecret: *aiGatewaySecret, reverseURL: *reverseURL,
-			studioInputPrefixes: splitList(*studioInputPrefixes), canvasJavaURL: *canvasJavaURL}
+			studioInputPrefixes: splitList(*studioInputPrefixes), canvasJavaURL: *canvasJavaURL,
+			freeWatermarkEnabled: strings.TrimSpace(*freeWatermarkEnabled), freeWatermarkProcess: strings.TrimSpace(*freeWatermarkProcess)}
 		if err := e.apply(root); err != nil {
 			log.Fatalf("%s: %v", file, err)
 		}
@@ -195,6 +198,9 @@ type editor struct {
 	studioInputPrefixes []string
 	// canvasJavaURL canvas 的 Java.BaseURL（空 = 清空，Java 工具返回「暂未开放」）
 	canvasJavaURL string
+	// freeWatermarkEnabled / freeWatermarkProcess 免费档读时参数水印（空 = 不改模板）
+	freeWatermarkEnabled string
+	freeWatermarkProcess string
 }
 
 // splitList 逗号 / 空白分隔的列表，去空项。
@@ -334,6 +340,10 @@ func (e editor) apply(root *yaml.Node) error {
 		}
 		set(root, "InputURLPrefixes", seq)
 	}
+	// 免费档读时参数水印：studio 写开关与处理串，assetlib / canvas 只写处理串（各处与 Java 必须同一个串）
+	if e.name == "studio" || e.name == "assetlib" || e.name == "canvas" {
+		e.applyFreeWatermark(root)
+	}
 	// assetlib：共享媒体服务（读时现签 mr://{rid}）
 	if e.name == "assetlib" {
 		if ms := get(root, "Media"); ms != nil {
@@ -454,5 +464,23 @@ func del(m *yaml.Node, key string) {
 			m.Content = append(m.Content[:i], m.Content[i+2:]...)
 			return
 		}
+	}
+}
+
+// applyFreeWatermark 写 FreeWatermark 段（没有就建）。开关只对 studio 有意义。
+func (e editor) applyFreeWatermark(root *yaml.Node) {
+	if e.freeWatermarkEnabled == "" && e.freeWatermarkProcess == "" {
+		return
+	}
+	fw := get(root, "FreeWatermark")
+	if fw == nil {
+		fw = mapping()
+		set(root, "FreeWatermark", fw)
+	}
+	if e.name == "studio" && e.freeWatermarkEnabled != "" {
+		set(fw, "Enabled", scalar(strconv.FormatBool(strings.EqualFold(e.freeWatermarkEnabled, "true"))))
+	}
+	if e.freeWatermarkProcess != "" {
+		set(fw, "Process", quoted(e.freeWatermarkProcess))
 	}
 }

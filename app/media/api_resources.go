@@ -58,8 +58,10 @@ func checkClassStore(class, store string) error {
 	return nil
 }
 
-// validProcessStyle 样式只允许 [A-Za-z0-9_./-]，且不能为空。OSS 的命名样式只用这些字符，
-// 因此不需要任何 URL 编码，也避免把任意字符带进签名或查询串。
+// validProcessStyle 处理串只允许 [A-Za-z0-9_./,-]，且不能为空。
+// OSS 命名样式（style/wm-view）与免费档参数水印（image/watermark,text_<base64url>,g_se,...；文字与 logo 路径都是
+// URL 安全 Base64，不含 + / =）都只用这些字符：逗号是 RFC 3986 的子分隔符，在查询串里原样合法，
+// 因此签名用的值与地址里的值逐字相同，也避免把任意字符带进签名或查询串。
 func validProcessStyle(style string) bool {
 	if style == "" {
 		return false
@@ -68,7 +70,7 @@ func validProcessStyle(style string) bool {
 		c := style[i]
 		switch {
 		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9',
-			c == '_', c == '.', c == '/', c == '-':
+			c == '_', c == '.', c == '/', c == '-', c == ',':
 		default:
 			return false
 		}

@@ -195,6 +195,8 @@ func ClassifyStudio(b *studio.BatchDetail) outcome {
 		o := outcome{done: true}
 		for _, t := range b.Tasks {
 			if t.Status == 2 && t.ResultUrl != "" {
+				// 调用 studio 时带 RawRefs：免费档成品是 mrw:// 引用（长期），原样落库、读时现签；
+				// 公有桶地址本来就长期可读。绝不把 600 秒签名地址当候选落库。
 				o.outputs = append(o.outputs, mediaOutput{URL: t.ResultUrl, W: int(t.ResultWidth), H: int(t.ResultHeight), Stable: true})
 			}
 		}
@@ -720,7 +722,7 @@ func (c *core) pollStudio(ctx context.Context, run *model.NodeRun) {
 		return
 	}
 	bid, _ := strconv.ParseInt(run.BackendRef.String, 10, 64)
-	b, err := c.s.Studio.GetBatch(ctx, &studio.GetBatchReq{BatchId: bid, UserId: run.UserID})
+	b, err := c.s.Studio.GetBatch(ctx, &studio.GetBatchReq{BatchId: bid, UserId: run.UserID, RawRefs: true})
 	if err == nil {
 		if o := ClassifyStudio(b); o.done {
 			c.apply(ctx, run, o)

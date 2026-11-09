@@ -41,5 +41,7 @@ func (l *CancelBatchLogic) CancelBatch(in *studio.BatchUserReq) (*studio.CancelB
 	if err != nil {
 		return nil, err
 	}
-	return &studio.CancelBatchResp{Batch: toBatchInfo(b, tasks), CanceledTasks: int32(canceled)}, nil
+	info := toBatchInfo(b, tasks)
+	signViews(l.ctx, l.svcCtx, []*studio.BatchInfo{info}, nil)
+	return &studio.CancelBatchResp{Batch: info, CanceledTasks: int32(canceled)}, nil
 }

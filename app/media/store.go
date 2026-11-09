@@ -229,8 +229,15 @@ func (l *LocalStore) SignedURL(_ context.Context, _, _ string, _ time.Duration) 
 	return StoredURL{Kind: "none"}, nil
 }
 
-// SignedProcessURL 本地实现忽略处理样式（开发用），与 SignedURL 一致。
-func (l *LocalStore) SignedProcessURL(ctx context.Context, store, path, _ string, ttl time.Duration) (StoredURL, error) {
+// errProcessUnsupported 本地存储不能做带处理参数的签名地址。
+var errProcessUnsupported = errors.New("media: 本地存储不支持带图片处理参数的签名地址")
+
+// SignedProcessURL 本地实现没有处理能力：要求带处理样式（免费档水印等）时返回错误，调用方按签不出处理
+// （输出占位），绝不退化成干净地址；样式为空等同 SignedURL。
+func (l *LocalStore) SignedProcessURL(ctx context.Context, store, path, style string, ttl time.Duration) (StoredURL, error) {
+	if style != "" {
+		return StoredURL{}, errProcessUnsupported
+	}
 	return l.SignedURL(ctx, store, path, ttl)
 }
 

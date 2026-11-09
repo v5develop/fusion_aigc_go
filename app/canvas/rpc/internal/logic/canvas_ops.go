@@ -142,7 +142,7 @@ func (c *core) GetCanvas(ctx context.Context, in *canvas.CanvasIdReq) (*canvas.C
 	if err != nil {
 		return nil, err
 	}
-	d.Backfill(latest, succeeded, c.progressOf)
+	d.Backfill(latest, c.resolvedRuns(ctx, succeeded), c.progressOf)
 	return toDoc(x, d.Marshal()), nil
 }
 

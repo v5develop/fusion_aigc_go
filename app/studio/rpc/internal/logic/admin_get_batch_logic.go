@@ -61,5 +61,15 @@ func (l *AdminGetBatchLogic) AdminGetBatch(in *studio.AdminGetBatchReq) (*studio
 		}
 		out.Tasks = append(out.Tasks, at)
 	}
+	// 后台同样只给水印地址（mrw:// 永不签干净原件）
+	infos := make([]*studio.TaskInfo, 0, len(out.Tasks))
+	for _, at := range out.Tasks {
+		infos = append(infos, at.Task)
+	}
+	var bi *studio.BatchInfo
+	if out.Batch != nil {
+		bi = out.Batch.Batch
+	}
+	signViews(l.ctx, l.svcCtx, []*studio.BatchInfo{bi}, infos)
 	return out, nil
 }

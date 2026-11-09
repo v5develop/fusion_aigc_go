@@ -79,7 +79,7 @@ func TestResourceURLProcessRejectsBadCharacters(t *testing.T) {
 	rid, _ := s.id.RID("", "work", "job-p3")
 	fake.putIndexed(storePrivate, classWork, s.id.ObjectKey(rid), 42)
 
-	bad := []string{"a b", "a?x=1", "a&b=c", "a%2Fb", "a,w_100", "a;b", `a"b`, "中文", "a+b", "a#b"}
+	bad := []string{"a b", "a?x=1", "a&b=c", "a%2Fb", "a=b", "a;b", `a"b`, "中文", "a+b", "a#b"}
 	for _, style := range bad {
 		resp := postResourceURL(t, ts.URL, map[string]any{"rid": rid, "class": "work", "store": "private",
 			"mode": "signed", "process": style})
@@ -167,6 +167,35 @@ func TestOSSSignedProcessURLSignsTheStyle(t *testing.T) {
 	}
 }
 
+// 免费档参数水印：内联的 image/watermark 处理串（逗号分隔、文字为 URL 安全 Base64）被接受，原样进入签名；
+// 去掉 x-oss-process 后服务端会校验的「无子资源」签名与之不同（即去参数的地址 403）。
+func TestOSSSignedProcessURLSignsInlineWatermark(t *testing.T) {
+	st, _ := newTestOSS(t)
+	const nowUnix = int64(1800000000)
+	st.now = func() time.Time { return time.Unix(nowUnix, 0) }
+	ttl := 10 * time.Minute
+	exp := strconv.FormatInt(nowUnix+int64(ttl/time.Second), 10)
+	const wm = "image/watermark,image_d2F0ZXJtYXJrL2xvZ28ucG5nP3gtb3NzLXByb2Nlc3M9aW1hZ2UvcmVzaXplLFBfMTU,text_5bCP5p-SQUk,size_56,shadow_50,order_1,align_1,interval_10,t_85,g_se,x_40,y_40"
+	if !validProcessStyle(wm) {
+		t.Fatal("内联水印处理串应被接受")
+	}
+	got, err := st.SignedProcessURL(context.Background(), storePrivate, ossWorkPath, wm, ttl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	q, _ := url.Parse(got.Value)
+	if q.Query().Get("x-oss-process") != wm {
+		t.Fatalf("x-oss-process = %q", q.Query().Get("x-oss-process"))
+	}
+	sig := q.Query().Get("Signature")
+	if want := sign("SK", "GET\n\n\n"+exp+"\n/priv/"+ossWorkPath+"?x-oss-process="+wm); sig != want {
+		t.Fatalf("签名 = %s, want %s", sig, want)
+	}
+	if stripped := sign("SK", "GET\n\n\n"+exp+"\n/priv/"+ossWorkPath); sig == stripped {
+		t.Fatal("去掉处理参数后签名不应仍然成立")
+	}
+}
+
 // 回归：空样式的 SignedProcessURL 与 SignedURL 逐字节一致；非法样式在存储层也被拒绝。
 func TestOSSSignedURLWithoutStyleIsUnchanged(t *testing.T) {
 	st, _ := newTestOSS(t)
@@ -197,18 +226,6 @@ func TestOSSSignedURLWithoutStyleIsUnchanged(t *testing.T) {
 	}
 }
 
-// 本地实现忽略样式，与 SignedURL 一致（开发用）。
-func TestLocalStoreSignedProcessURLIgnoresStyle(t *testing.T) {
-	l := &LocalStore{}
-	u, err := l.SignedProcessURL(context.Background(), storePrivate, ossWorkPath, "thumb", time.Minute)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if u.Kind != "none" || strings.Contains(u.Value, "x-oss-process") {
-		t.Fatalf("local url = %+v", u)
-	}
-}
-
 func mustSig(t *testing.T, raw string) string {
 	t.Helper()
 	u, err := url.Parse(raw)
@@ -216,4 +233,15 @@ func mustSig(t *testing.T, raw string) string {
 		t.Fatal(err)
 	}
 	return u.Query().Get("Signature")
+}
+
+// 本地存储做不了处理参数：要求样式时必须报错，不能退化成干净地址。
+func TestLocalSignedProcessURLRefusesStyle(t *testing.T) {
+	l := &LocalStore{dir: t.TempDir()}
+	if _, err := l.SignedProcessURL(context.Background(), storePrivate, "v1/work/a.png", "style/wm", time.Minute); err == nil {
+		t.Fatal("带样式应返回错误")
+	}
+	if u, err := l.SignedProcessURL(context.Background(), storePrivate, "v1/work/a.png", "", time.Minute); err != nil || u.Kind != "none" {
+		t.Fatalf("空样式等同 SignedURL: %+v %v", u, err)
+	}
 }

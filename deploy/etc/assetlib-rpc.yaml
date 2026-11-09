@@ -26,6 +26,10 @@ Media:
   NacosServiceName: aigc-media
   BaseURL: http://127.0.0.1:18090
   Token: change-me
+# 免费档图片的读时参数水印：Java 把免费用户的图片交付写成水印视图 mrw://{rid}.{ext}，这里填与 Java 同一个处理串
+# （Java 启动日志 check=free_watermark.process 打印的值）。留空则 mrw:// 输出为空（失败关闭，不签干净原件）
+FreeWatermark:
+  Process: ""
 # 服务端校验上限（改了要同步 docs/api/api-asset-library.md）
 Limits:
   TitleLen: 100

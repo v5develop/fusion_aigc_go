@@ -103,7 +103,11 @@ type Charge struct {
 	// ModelCode 模型码，对应 afv_billing_offer_variant 默认模型的 afv_ai_model.code。
 	// 一般不用填，填了优先于 Tier。
 	ModelCode string
-	Kind      Kind
+	// ModelGroup ai-gateway 模型组码（如 img.gpt-image-2.6-sunburst）：按「档位默认模型的 afv_ai_model.gateway_model_group」
+	// 选档，用于同一入口按实际出图模型分价（studio 商拍 / 姿态 / 图片生成）。优先级低于 ModelCode、高于 Tier；
+	// 该入口没有这个组的档位时不报错，退回按 Tier / 第一个档位选（未配分模型价的入口与旧配置照旧）。
+	ModelGroup string
+	Kind       Kind
 	// Count 产出数量（按张计的用），默认 1
 	Count int
 	// Seconds 时长（按秒计的用）

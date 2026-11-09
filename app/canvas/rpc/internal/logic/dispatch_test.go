@@ -86,7 +86,7 @@ func TestBuildSpecImage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sp.Backend != model.BackendGateway || sp.ModelGroup != "img.nano-banana-2.1" || sp.Count != 2 || sp.Size != "2K" {
+	if sp.Backend != model.BackendGateway || sp.ModelGroup != "img.nano-banana-2.1-dev" || sp.Count != 2 || sp.Size != "2K" {
 		t.Fatalf("spec=%+v", sp)
 	}
 	if sp.Prompt != "棚拍\n白底" {
@@ -165,20 +165,28 @@ func TestGatewayRequestsShape(t *testing.T) {
 	if strings.Contains(s, "reference_images") || strings.Contains(s, "last_frame") {
 		t.Fatalf("空字段必须省略（extra=forbid）: %s", s)
 	}
-	// 图片 count=3 → 3 个调用，Seedream 1K 升 2K，GPT 缺省 quality=medium
+	// 图片 count=3 → 3 个调用，Seedream 5 Pro 1K 升 2K（按 run 上的旧组归一），GPT 缺省 quality=medium
 	run.Kind = model.KindImage
-	m, _ := c.s.Config.FindModel("SD5P", "", "image")
+	m, _ := legacySeedreamCore().s.Config.FindModel("SD5P", "", "image")
 	reqs, _ = c.gatewayRequests(context.Background(), run, &runSpec{Kind: model.KindImage, Model: m, ModelGroup: m.ModelGroup, Prompt: "p", Count: 3, Size: "1K"})
 	b, _ = json.Marshal(reqs[0].Input)
 	if len(reqs) != 3 || !strings.Contains(string(b), `"resolution":"2K"`) || !strings.Contains(string(b), `"aspect_ratio":"1:1"`) || strings.Contains(string(b), "quality") {
 		t.Fatalf("seedream: %d %s", len(reqs), b)
 	}
-	g, _ := c.s.Config.FindModel("GPT", "", "image")
+	g, _ := c.s.Config.FindModel("GPT Image 2.6", "", "image")
 	reqs, _ = c.gatewayRequests(context.Background(), run, &runSpec{Kind: model.KindImage, Model: g, ModelGroup: g.ModelGroup, Prompt: "p", Count: 1, Size: "1K",
 		Images: []refMedia{{URL: "https://x/a.png"}}})
 	b, _ = json.Marshal(reqs[0])
 	if !strings.Contains(string(b), `"operation":"image.edit"`) || !strings.Contains(string(b), `"quality":"medium"`) || !strings.Contains(string(b), `"images":[{"uri":"https://x/a.png"}]`) {
 		t.Fatalf("gpt edit: %s", b)
+	}
+	// 「GPT」/「Image」（GPT Image 2 的接替）= GPT Image 2.5 Sunburst Developer：没有 quality 参数
+	g25, _ := c.s.Config.FindModel("GPT", "", "image")
+	reqs, _ = c.gatewayRequests(context.Background(), run, &runSpec{Kind: model.KindImage, Model: g25, ModelGroup: g25.ModelGroup, Prompt: "p", Count: 1, Size: "1K",
+		Images: []refMedia{{URL: "https://x/a.png"}}})
+	b, _ = json.Marshal(reqs[0])
+	if g25.ModelGroup != "img.gpt-image-2.5-sunburst-developer" || strings.Contains(string(b), "quality") {
+		t.Fatalf("gpt 2.5 edit: %s", b)
 	}
 	if k, err := gatewayIdem(run, 2); err != nil || k != "canvas:cv_t:2" {
 		t.Fatal("幂等键")
@@ -416,12 +424,12 @@ func TestProgressAndResult(t *testing.T) {
 		t.Fatal("运行中最多 95")
 	}
 	r.Status, r.ErrorCode, r.ErrorReason, r.BillingStatus, r.Points = model.RunFailed, sql.NullString{String: "CONTENT_BLOCKED", Valid: true}, sql.NullString{String: "x", Valid: true}, model.BillRefunded, 40
-	res := c.toResult(r)
+	res := c.toResult(context.Background(), r)
 	if res.Status != "failed" || res.Retryable || res.Credits != 0 || res.Model != "Banana" || res.RequestId != "3" {
 		t.Fatalf("失败结果: %+v", res)
 	}
 	r.ErrorCode.String = "TIMEOUT"
-	if !c.toResult(r).Retryable {
+	if !c.toResult(context.Background(), r).Retryable {
 		t.Fatal("超时可重试")
 	}
 }

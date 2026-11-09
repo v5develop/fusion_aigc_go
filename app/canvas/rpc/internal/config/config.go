@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"aigc-local-life/pkg/asset"
 	"aigc-local-life/pkg/billing"
@@ -20,6 +21,9 @@ type Config struct {
 	Billing billing.Conf
 	// Storage 须与网关一致（目前只用于识别本服务签发的地址，保留与 studio 一致的配置面）
 	Storage storage.Conf `json:",optional"`
+	// FreeWatermark 免费档水印视图（mrw://）读时签名：Process 与 studio / assetlib / Java 同一个 OSS 处理串，
+	// 只允许 [A-Za-z0-9_./,-]；没配或不合法时水印视图输出为空（绝不签干净原件）。
+	FreeWatermark FreeWatermarkConf `json:",optional"`
 	// Asset 成品写进素材库（afv_asset）：每个候选一行。EntryCode 按 kind 取 EntryCodes
 	Asset asset.Conf
 	// EntryCodes 入口码：计费 offer、素材库分类、任务中心 entry_code 三处同名（Go_V1.0.25 seed，audit.go Targets 已登记）
@@ -162,17 +166,33 @@ type ModelSpec struct {
 }
 
 var imageRatios = []string{"1:1", "3:4", "4:3", "9:16", "16:9", "2:3", "3:2", "4:5", "5:4", "21:9"}
+
+// seedream55Ratios Seedream 5.5（Atlas）只有 8 个比例的预设尺寸，没有 4:5 / 5:4（网关会拒）。
+var seedream55Ratios = []string{"1:1", "3:4", "4:3", "9:16", "16:9", "2:3", "3:2", "21:9"}
 var videoRatios = []string{"16:9", "9:16", "1:1"}
 
 // DefaultModels Models 没配时的模型表（原型 CanvasModelNode 的四个图片 / 四个视频档）。
+// 2026-11-09 图片三档换代（与 studio 同口径，GPT Image 2 全线下线）：
+// Image → GPT Image 2.5 Sunburst Developer（GPT Image 2 的接替，按张计费）、新增 GPT Image 2.6 档、
+// Banana → Nano Banana 2.1 Developer、SD5P → Seedream 5.5（网关 Atlas 组，须先发布）。
+// model / model_id 不变（已保存的画布节点照常解析），旧名留作别名；已落库的 run 记录各自的 model_group，不受影响。
 var DefaultModels = []ModelSpec{
-	{Model: "Image", ModelID: "image-v1", Aliases: []string{"GPT", "GPT Image 2", "gpt-image-2", "通用", "general"}, Kind: "image",
-		ModelGroup: "img.gpt-image-2", MaxImageRefs: 16, Ratios: imageRatios, Sizes: []string{"1K", "2K", "4K"},
+	// 「Image」（原 GPT Image 2 档）2026-11-09 起接 GPT Image 2.5 Sunburst Developer（用户端名「GPT Image 2.5」）：按张计费，
+	// 1K / 2K / 4K；没有 quality 参数；参考图不计费（上限取网关 16）。model / model_id 不变，已保存的节点照常解析。
+	{Model: "Image", ModelID: "image-v1", Aliases: []string{"GPT", "GPT Image 2.5", "GPT25Dev", "GPT Image 2.5 Sunburst Developer",
+		"gpt-image-2.5-sunburst-developer", "GPT Image 2", "gpt-image-2", "通用", "general"}, Kind: "image",
+		ModelGroup: "img.gpt-image-2.5-sunburst-developer", MaxImageRefs: 16, Ratios: imageRatios, Sizes: []string{"1K", "2K", "4K"}, CountMax: 4},
+	// GPT Image 2.6（Sunburst）作为附加档：1K / 2K / 4K、可选质量。参考图上限 14（网关 16）：画布按 high + 2 张参考图的价收，
+	// 编辑每多一张 2048² 参考图成本约 $0.056，14 张以内 1K 仍有 ≥30% 毛利（Java AtlasImagePricingMarginTest），16 张会亏。
+	{Model: "GPT Image 2.6", ModelID: "gpt-image-2-6-v1", Aliases: []string{"GPT Image 2.6 Sunburst", "gpt-image-2.6-sunburst",
+		"gpt-image-2.6"}, Kind: "image",
+		ModelGroup: "img.gpt-image-2.6-sunburst", MaxImageRefs: 14, Ratios: imageRatios, Sizes: []string{"1K", "2K", "4K"},
 		Qualities: []string{"low", "medium", "high"}, CountMax: 4},
-	{Model: "Banana", ModelID: "banana-v1", Aliases: []string{"Nano Banana", "Nano Banana Pro", "nano-banana", "nano-banana-2.1"}, Kind: "image",
-		Badge: "超强模型", ModelGroup: "img.nano-banana-2.1", MaxImageRefs: 14, Ratios: imageRatios, Sizes: []string{"1K", "2K"}, CountMax: 4},
-	{Model: "SD5P", ModelID: "sd5p-v1", Aliases: []string{"Seedream", "Seedream 5 Pro", "seedream-5-pro"}, Kind: "image",
-		ModelGroup: "img.seedream-5-pro", MaxImageRefs: 10, Ratios: imageRatios, Sizes: []string{"2K"}, CountMax: 4}, // 1K 非 1:1 会被拒、4K 静默降 2K：只给 2K
+	{Model: "Banana", ModelID: "banana-v1", Aliases: []string{"Nano Banana", "Nano Banana 2.1 Dev", "nano-banana-2.1-dev",
+		"Nano Banana Pro", "nano-banana", "nano-banana-2.1"}, Kind: "image",
+		Badge: "超强模型", ModelGroup: "img.nano-banana-2.1-dev", MaxImageRefs: 14, Ratios: imageRatios, Sizes: []string{"1K", "2K"}, CountMax: 4},
+	{Model: "SD5P", ModelID: "sd5p-v1", Aliases: []string{"Seedream", "Seedream 5.5", "seedream-5.5", "Seedream 5 Pro", "seedream-5-pro"}, Kind: "image",
+		ModelGroup: "img.seedream-5.5", MaxImageRefs: 10, Ratios: seedream55Ratios, Sizes: []string{"1K", "2K", "4K"}, CountMax: 4},
 	{Model: "Seedance 2.5", ModelID: "seedance-2-5", Aliases: []string{"dreamina-seedance-2-5"}, Kind: "video",
 		ModelGroup: "vid.seedance-2.5", MaxImageRefs: 3, MaxReferenceVideos: 1, Ratios: videoRatios, Sizes: []string{"720p", "1080p"},
 		Durations: []string{"4s", "6s", "8s"}, Sound: true, CountMax: 1},
@@ -217,4 +237,32 @@ func (c Config) FindModel(model, modelID, kind string) (ModelSpec, bool) {
 		}
 	}
 	return ModelSpec{}, false
+}
+
+// FreeWatermarkConf 免费档水印读时签名配置。
+type FreeWatermarkConf struct {
+	Process          string `json:",optional"`
+	SignedTTLSeconds int    `json:",default=600"`
+}
+
+// ValidProcess 处理串可用（非空且只含 [A-Za-z0-9_./,-]）。
+func (c FreeWatermarkConf) ValidProcess() bool {
+	if c.Process == "" {
+		return false
+	}
+	for _, r := range c.Process {
+		if !(r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || strings.ContainsRune("_./,-", r)) {
+			return false
+		}
+	}
+	return true
+}
+
+// SignedTTL 水印地址签名有效期（最少 60 秒，默认 600 秒）。
+func (c FreeWatermarkConf) SignedTTL() time.Duration {
+	s := c.SignedTTLSeconds
+	if s <= 0 {
+		s = 600
+	}
+	return time.Duration(max(60, s)) * time.Second
 }

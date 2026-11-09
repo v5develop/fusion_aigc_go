@@ -191,6 +191,20 @@ func storeForRID(rid string) (string, error) {
 // 服务端一次只签一个 rid，这里并发调用（上限 4）后合并；任一失败则整体返回第一个错误。
 // ttl<=0 取 1 小时，超过 24 小时截到 24 小时。URL 不要入库，每次需要时现签。
 func (c *Client) ResourceURLs(ctx context.Context, rids []string, ttl time.Duration) (map[string]string, error) {
+	return c.resourceURLs(ctx, rids, ttl, "")
+}
+
+// ResourceURLsWithProcess 同 ResourceURLs，但每个地址都带 OSS 图片处理参数 process（x-oss-process），
+// 且该参数由媒体服务纳入签名：客户端去掉或改动它，签名即失效。用于免费档水印视图（mrw://）的读时参数水印。
+// process 为空时返回错误（调用方必须明确给出处理串，不能意外签出干净地址）。
+func (c *Client) ResourceURLsWithProcess(ctx context.Context, rids []string, ttl time.Duration, process string) (map[string]string, error) {
+	if process == "" {
+		return nil, &Error{Status: http.StatusBadRequest, Code: "invalid_request", Message: "process 不能为空"}
+	}
+	return c.resourceURLs(ctx, rids, ttl, process)
+}
+
+func (c *Client) resourceURLs(ctx context.Context, rids []string, ttl time.Duration, process string) (map[string]string, error) {
 	if ttl <= 0 {
 		ttl = defaultURLTTL
 	}
@@ -212,9 +226,13 @@ func (c *Client) ResourceURLs(ctx context.Context, rids []string, ttl time.Durat
 		go func() {
 			defer wg.Done()
 			defer func() { <-sem }()
-			body, _ := json.Marshal(map[string]any{
+			req := map[string]any{
 				"rid": rid, "store": store, "mode": "signed", "ttl_seconds": int64(ttl / time.Second),
-			})
+			}
+			if process != "" {
+				req["process"] = process
+			}
+			body, _ := json.Marshal(req)
 			raw, err := c.post(ctx, rid, "/v1/mediasvc/resources/urls", body, "application/json", "")
 			var res struct {
 				URL string `json:"url"`
@@ -278,4 +296,15 @@ func (c *Client) FetchBytes(ctx context.Context, rid string) ([]byte, string, er
 		mt = http.DetectContentType(data)
 	}
 	return data, mt, nil
+}
+
+// Delete 删除资源（POST /v1/mediasvc/delete，软删除 + 保留期后清理）。对象本就不存在也算成功（幂等）。
+func (c *Client) Delete(ctx context.Context, rid, idem string) error {
+	if !ValidRID(rid) {
+		return &Error{Status: http.StatusBadRequest, Code: "invalid_request", Message: "rid 格式不合法: " + rid}
+	}
+	idem = pick(idem, "delete", rid)
+	body, _ := json.Marshal(map[string]any{"rid": rid})
+	_, err := c.post(ctx, rid, "/v1/mediasvc/delete", body, "application/json", idem)
+	return err
 }

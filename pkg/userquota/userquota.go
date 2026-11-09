@@ -108,3 +108,34 @@ func (l *Limiter) takeMem(mk, dk string) Result {
 	l.mem[dk]++
 	return Allowed
 }
+
+// refundScript 两个窗口的计数各 -1（不会减到负数；key 已过期 / 不存在则不动）。
+var refundScript = redis.NewScript(`
+for i = 1, 2 do
+  local v = tonumber(redis.call('GET', KEYS[i]) or '0')
+  if v > 0 then redis.call('DECR', KEYS[i]) end
+end
+return 0
+`)
+
+// Refund 退还刚 Take 到的一次额度（先占后发现没真正消耗资源，如缓存命中）。按当前窗口退，
+// 刚好跨过分钟 / 日边界时退到新窗口（最多多退一次，只会放宽、不会误拒）。l 为 nil / 不限时无操作；Redis 出错只记日志。
+func (l *Limiter) Refund(ctx context.Context, userID int64) {
+	if l == nil || (l.perMinute <= 0 && l.perDay <= 0) {
+		return
+	}
+	mk, dk := l.keys(userID, l.now())
+	if l.rds == nil {
+		l.mu.Lock()
+		defer l.mu.Unlock()
+		for _, k := range []string{mk, dk} {
+			if l.mem[k] > 0 {
+				l.mem[k]--
+			}
+		}
+		return
+	}
+	if err := refundScript.Run(ctx, l.rds, []string{mk, dk}).Err(); err != nil {
+		logx.WithContext(ctx).Errorf("userquota: %s 用户 %d 退还配额失败: %v", l.name, userID, err)
+	}
+}

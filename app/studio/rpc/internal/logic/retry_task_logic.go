@@ -75,6 +75,7 @@ func (l *RetryTaskLogic) RetryTask(in *studio.RetryTaskReq) (*studio.BatchDetail
 	}
 	out := toBatchDetail(b, tasks)
 	attachAssetIDsToDetails(l.ctx, f.repo, in.UserId, out)
+	signDetails(l.ctx, l.svcCtx, out)
 	return out, nil
 }
 

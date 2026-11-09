@@ -711,6 +711,12 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 			[]rest.Middleware{serverCtx.Auth},
 			[]rest.Route{
 				{
+					// 区域蒙版（局部校色，免费）：识别图片的服装 / 商品 / 人物 / 背景区域，返回白色+软 alpha 的 PNG 蒙版；按（去查询串的地址, 区域）缓存，重复请求立即返回。按用户限频（超出 4002「识别太频繁，请稍后再试」）；没识别到 4001「没识别到对应区域」；识别服务不可用 6001
+					Method:  http.MethodPost,
+					Path:    "/masks",
+					Handler: studio.SegmentMaskHandler(serverCtx),
+				},
+				{
 					// 姿态复刻多人配对预览（只读、不计费）：返回原图与每张姿势图的人数、人物站位与默认配对；原图 ≥2 人时前端据此让用户确认 / 反转配对，再把 mappings 随提交带回
 					Method:  http.MethodPost,
 					Path:    "/pose/preview",

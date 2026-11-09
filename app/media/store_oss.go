@@ -435,7 +435,7 @@ func (o *OSSStore) SignedURL(ctx context.Context, store, path string, ttl time.D
 
 // SignedProcessURL 签发带图片处理样式的 GET 签名地址：地址带 x-oss-process=<style>，签名的 canonical resource
 // 同时包含该子资源（OSS 只签子资源，x-oss-process 是子资源，因此改样式会改签名）。style 为空等同于 SignedURL。
-// style 必须是 validProcessStyle 允许的字符（字母数字与 _ . / -），不做 URL 编码：这些字符在查询串里原样合法，
+// style 必须是 validProcessStyle 允许的字符（字母数字与 _ . / - ,），不做 URL 编码：这些字符在查询串里原样合法，
 // 签名用的值与地址里的值完全一致。
 func (o *OSSStore) SignedProcessURL(ctx context.Context, store, path, style string, ttl time.Duration) (StoredURL, error) {
 	if style != "" && !validProcessStyle(style) {

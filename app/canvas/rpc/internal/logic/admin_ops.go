@@ -26,7 +26,7 @@ func (c *core) AdminListRuns(ctx context.Context, in *canvas.AdminListRunsReq) (
 	out := &canvas.AdminListRunsResp{Total: total, List: make([]*canvas.AdminRun, 0, len(list))}
 	for _, r := range list {
 		a := &canvas.AdminRun{
-			Run: c.toResult(r), Id: r.ID, UserId: r.UserID, Backend: string(r.Backend), BackendRef: r.BackendRef.String,
+			Run: c.toResult(ctx, r), Id: r.ID, UserId: r.UserID, Backend: string(r.Backend), BackendRef: r.BackendRef.String,
 			ModelGroup: r.ModelGroup, BillingRequestId: r.BillingRequestID.String, BillingStatus: r.BillingStatus,
 			CostCny: r.CostCNY, Attempt: r.Attempt, Request: string(r.Request),
 		}

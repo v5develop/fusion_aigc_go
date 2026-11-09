@@ -53,8 +53,20 @@ func toTask(t *studio_client.TaskInfo) types.StudioTask {
 		Status: t.Status, Progress: t.Progress, ResultUrl: t.ResultUrl, ResultWidth: t.ResultWidth, ResultHeight: t.ResultHeight,
 		ErrorReason: t.ErrorReason, PromptSummary: t.PromptSummary,
 		CreatedAt: t.CreatedAt, StartedAt: t.StartedAt, FinishedAt: t.FinishedAt,
-		AssetId: t.AssetId, ColorFixParams: toColorFix(t.ColorFixParams),
+		AssetId: t.AssetId, ColorFixParams: toColorFix(t.ColorFixParams), MaskUrl: t.MaskUrl,
+		MaskParts: toMaskParts(t.MaskParts),
 	}
+}
+
+// toMaskParts 逐件蒙版；没有为空数组（不是 null）。
+func toMaskParts(parts []*studio_client.MaskPart) []types.StudioMaskPart {
+	out := make([]types.StudioMaskPart, 0, len(parts))
+	for _, p := range parts {
+		if p != nil {
+			out = append(out, types.StudioMaskPart{Part: p.Part, MaskUrl: p.MaskUrl})
+		}
+	}
+	return out
 }
 
 // toColorFix 已保存的校色参数；没保存过为 nil（JSON null）。

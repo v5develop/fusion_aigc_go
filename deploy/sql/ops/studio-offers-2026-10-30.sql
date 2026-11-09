@@ -95,6 +95,41 @@ WHERE @img_model IS NOT NULL
   AND EXISTS (SELECT 1 FROM afv_billing_offer_variant v WHERE v.variant_code = CONCAT(t.offer_code, '_standard') COLLATE utf8mb4_unicode_ci AND v.deleted = 0)
   AND NOT EXISTS (SELECT 1 FROM afv_billing_charge_component c WHERE c.component_code = CONCAT('gen_', t.offer_code) COLLATE utf8mb4_unicode_ci);
 
+-- 1.4 分模型档位（2026-11-09 起按出图模型 × 分辨率计价）。载体与单价由 Java 迁移 V1.0.215__atlas_image_pricing_and_studio_tiers.sql 建
+--     （图片生成复用 V1.0.213 的 creaft-* 载体）；本段只在 offer 比那次迁移晚建时补档位，载体不存在的行自动跳过（JOIN 不到）。
+--     Go 提交 / 报价 / 重做带 Charge.ModelGroup，按「档位默认模型的 gateway_model_group」选档；没有对应档位退回上面的 *_standard。
+INSERT INTO afv_billing_offer_variant (variant_code, offer_code, name, quality_tier, default_model_id, included_outputs, settlement_type, status, deleted)
+SELECT s.variant_code, o.offer_code, s.name, s.tier, m.id, 1, 'PARTIAL', 'ENABLED', 0
+FROM (
+            SELECT 'studio_tryon' AS entry_code, 'studio_tryon_gpt_image_2_6' AS variant_code, 'GPT Image 2.6 Sunburst' AS name, 'gpt' AS tier, 'studio-gpt-image-2.6-sunburst-tryon' AS model_code
+  UNION ALL SELECT 'studio_tryon',    'studio_tryon_nano_banana_2_1_dev',    'Nano Banana 2.1 Dev',    'banana',   'studio-nano-banana-2.1-dev-2ref'
+  UNION ALL SELECT 'studio_tryon',    'studio_tryon_seedream_5_5',           'Seedream 5.5',           'seedream', 'studio-seedream-5.5-2ref'
+  UNION ALL SELECT 'studio_pose',     'studio_pose_gpt_image_2_6',           'GPT Image 2.6 Sunburst', 'gpt',      'studio-gpt-image-2.6-sunburst-2ref'
+  UNION ALL SELECT 'studio_pose',     'studio_pose_nano_banana_2_1_dev',     'Nano Banana 2.1 Dev',    'banana',   'studio-nano-banana-2.1-dev-2ref'
+  UNION ALL SELECT 'studio_pose',     'studio_pose_seedream_5_5',            'Seedream 5.5',           'seedream', 'studio-seedream-5.5-2ref'
+  UNION ALL SELECT 'studio_imagegen', 'studio_imagegen_gpt_image_2_6',       'GPT Image 2.6 Sunburst', 'gpt',      'creaft-gpt-image-2.6-sunburst'
+  UNION ALL SELECT 'studio_imagegen', 'studio_imagegen_nano_banana_2_1_dev', 'Nano Banana 2.1 Dev',    'banana',   'creaft-nano-banana-2.1-dev'
+  UNION ALL SELECT 'studio_imagegen', 'studio_imagegen_seedream_5_5',        'Seedream 5.5',           'seedream', 'creaft-seedream-5.5'
+  -- GPT Image 2.5 Sunburst Developer（用户端名「GPT Image 2.5」）：按张计费，三入口共用一个载体（Java V1.0.214 建）
+  UNION ALL SELECT 'studio_tryon',    'studio_tryon_gpt_image_2_5_sunburst_dev',    'GPT Image 2.5 Sunburst Developer', 'gpt25dev', 'creaft-gpt-image-2.5-sunburst-developer'
+  UNION ALL SELECT 'studio_pose',     'studio_pose_gpt_image_2_5_sunburst_dev',     'GPT Image 2.5 Sunburst Developer', 'gpt25dev', 'creaft-gpt-image-2.5-sunburst-developer'
+  UNION ALL SELECT 'studio_imagegen', 'studio_imagegen_gpt_image_2_5_sunburst_dev', 'GPT Image 2.5 Sunburst Developer', 'gpt25dev', 'creaft-gpt-image-2.5-sunburst-developer'
+) s
+JOIN afv_billing_offer o ON o.entry_code = s.entry_code COLLATE utf8mb4_unicode_ci AND o.deleted = 0
+JOIN afv_ai_model m ON m.code = s.model_code COLLATE utf8mb4_unicode_ci AND m.deleted = 0
+WHERE NOT EXISTS (SELECT 1 FROM afv_billing_offer_variant v WHERE v.variant_code = s.variant_code COLLATE utf8mb4_unicode_ci);
+
+INSERT INTO afv_billing_charge_component (component_code, variant_code, step_code, component_type, mode, cost_type, action_type, model_id, base_points, price_multiplier, sort, deleted)
+SELECT CONCAT('gen_', v.variant_code), v.variant_code, v.offer_code, 'OUTPUT', 0, 'BILLED', 'CREAFT_V1', v.default_model_id, 0, 1.000, 1, 0
+FROM afv_billing_offer_variant v
+WHERE v.variant_code IN ('studio_tryon_gpt_image_2_6', 'studio_tryon_nano_banana_2_1_dev', 'studio_tryon_seedream_5_5',
+                         'studio_pose_gpt_image_2_6', 'studio_pose_nano_banana_2_1_dev', 'studio_pose_seedream_5_5',
+                         'studio_imagegen_gpt_image_2_6', 'studio_imagegen_nano_banana_2_1_dev', 'studio_imagegen_seedream_5_5',
+                         'studio_tryon_gpt_image_2_5_sunburst_dev', 'studio_pose_gpt_image_2_5_sunburst_dev',
+                         'studio_imagegen_gpt_image_2_5_sunburst_dev')
+  AND v.deleted = 0
+  AND NOT EXISTS (SELECT 1 FROM afv_billing_charge_component c WHERE c.component_code = CONCAT('gen_', v.variant_code));
+
 -- ── 2. 复核（只读）────────────────────────────────────────────────────────────
 -- ② 三个入口 → 场景 → 档位 → 步骤 → 单价。每个入口应至少有一行带单价；
 --    「✗ 没建场景 / 没建档位 / 没建步骤 / 没有单价」就是没配好。1k / 2k / 4k 各一行，是分辨率分档的价。
@@ -148,7 +183,7 @@ HAVING `收费步骤数` IS NULL OR `收费步骤数` <> 1;
 --          ('studio_tryon_standard', 'studio_pose_standard', 'studio_imagegen_standard');
 --        UPDATE afv_billing_charge_component SET model_id = <新模型id> WHERE component_code IN
 --          ('gen_studio_tryon', 'gen_studio_pose', 'gen_studio_imagegen');
---   c) 四档模型（通用 / GPT / Banana / Seedream）要各自定价：每档一个 variant（studio_*_gpt 之类，
---      default_model_id 各指各的价格模型），并在 pkg/billing/audit.go 的 Targets 给对应入口补 Tiers，
---      代码侧提交时带 Charge.Tier 选档（pickVariant：先找 <offer_code>_<tier> 再找 quality_tier）。
+--   c) 按模型各自定价：已落地（2026-11-09，见 1.4 与 Java V1.0.215）。每个模型组一个 variant，默认模型 = 带
+--      gateway_model_group 的计费载体；代码侧带 Charge.ModelGroup 选档（pickVariant 第 2 条），不用 Tiers。
+--      改某个模型的价：改它载体的 CREAFT_V1 单价行（studio-* 载体只给 studio 用；图片生成复用的 creaft-* 载体与 Java 兼容面共用）。
 --      只按分辨率分价（同一模型 1k/2k/4k 不同价）不需要多个 variant，写在 afv_model_pricing 的 resolution 行即可。

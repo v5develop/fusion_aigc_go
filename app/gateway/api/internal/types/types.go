@@ -1045,6 +1045,25 @@ type StudioImageGenSubmitReq struct {
 	RewritePrompt bool     `json:"rewrite_prompt,optional"` // 先润色提示词
 }
 
+type StudioMaskPart struct {
+	Part    string `json:"part"`     // tops / coat / pants / skirt / shoes / bag / hat
+	MaskUrl string `json:"mask_url"` // 该部位的白色+软 alpha PNG，与原图同尺寸
+}
+
+type StudioMaskReq struct {
+	ImageUrl string   `json:"image_url"`                                        // 本服务存储签发 / 素材库域名的 http(s) 地址（如任务 result_url）；第三方地址拒收
+	Target   string   `json:"target,options=garment|product|person|background"` // garment 服装 / product 商品主体 / person 人物 / background 背景（主体之外）
+	Parts    []string `json:"parts,optional"`                                   // 仅 garment：只要这些部位（多选）tops 上衣 / coat 外套 / pants 下装 / skirt 裙装 / shoes 鞋 / bag 包 / hat 帽；不传 / 空=全部服装
+}
+
+type StudioMaskResp struct {
+	MaskUrl        string           `json:"mask_url"` // 蒙版公开地址（素材库桶，与 result_url 同口径，可直接给 canvas 用，需 crossOrigin）；带 parts 时 = 这些部位的合并蒙版
+	Target         string           `json:"target"`
+	Cached         bool             `json:"cached"`          // 命中缓存（同一张图同一区域只识别一次）
+	Parts          []StudioMaskPart `json:"parts"`           // 带 parts 时的逐件蒙版（固定顺序 tops/coat/pants/skirt/shoes/bag/hat，图里没有的部位缺省）；不带为空数组
+	AvailableParts []string         `json:"available_parts"` // 该区域支持的细分部位（garment 才有）；空数组=不支持细分（前端据此显示 / 隐藏部位选择）
+}
+
 type StudioPoseMapping struct {
 	PoseIndex       int32   `json:"pose_index"` // 姿势图下标（从 0 起）
 	Mapping         []int32 `json:"mapping"`
@@ -1149,6 +1168,8 @@ type StudioTask struct {
 	FinishedAt     int64                 `json:"finished_at"`      // 0=未结束
 	AssetId        int64                 `json:"asset_id"`         // 成品在素材库的资产 id（afv_asset.id），可直接调 POST /api/v1/asset-library/assets/{id}/versions；没入库 / 已从素材库删除为 0
 	ColorFixParams *StudioColorFixParams `json:"color_fix_params"` // 已保存的校色参数；没保存过为 null
+	MaskUrl        string                `json:"mask_url"`         // 服装蒙版（白色+软 alpha PNG，公开地址）：商拍换装 / 姿态复刻成品成功后异步补；空=没有（未生成 / 没识别到服装），校色作用于整图
+	MaskParts      []StudioMaskPart      `json:"mask_parts"`       // 商拍换装按所选单品分割时的逐件蒙版（mask_url 是它们的合并）；没有为空数组
 }
 
 type StudioTaskColorFixReq struct {

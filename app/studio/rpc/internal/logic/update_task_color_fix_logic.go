@@ -30,7 +30,12 @@ func NewUpdateTaskColorFixLogic(ctx context.Context, svcCtx *svc.ServiceContext)
 
 // 保存子任务的校色参数（仅本人、仅成功的任务）：前端浏览器里烘图，服务端只存五个滑杆值；返回该子任务
 func (l *UpdateTaskColorFixLogic) UpdateTaskColorFix(in *studio.UpdateTaskColorFixReq) (*studio.TaskInfo, error) {
-	return updateColorFix(l.ctx, l.svcCtx.Repo, in)
+	out, err := updateColorFix(l.ctx, l.svcCtx.Repo, in)
+	if err != nil {
+		return nil, err
+	}
+	signViews(l.ctx, l.svcCtx, nil, []*studio.TaskInfo{out})
+	return out, nil
 }
 
 // colorFixRange 校色五参数的取值范围，与前端 fusion-aigc-web src/utils/colorfix.ts 的 COLORFIX_RANGES 一致

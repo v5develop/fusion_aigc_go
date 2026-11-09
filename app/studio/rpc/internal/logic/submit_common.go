@@ -54,6 +54,21 @@ type deps struct {
 	now        func() time.Time
 }
 
+// ownsSigned 输入图是用户自己成品的签名水印地址（本实例刚签出的 mrw:// 视图）：反查 rid 并确认该用户有这条成品。
+// 免费档用户拿到的结果地址就是这种私有桶签名地址，不放行就没法把结果当作下一次生成的输入。
+func (d *deps) ownsSigned(ctx context.Context, userID int64, u string) bool {
+	rid := ridOfSignedURL(u, d.now())
+	if rid == "" || d.repo == nil || d.repo.Task == nil {
+		return false
+	}
+	ok, err := d.repo.Task.OwnsResultRID(ctx, userID, rid)
+	if err != nil {
+		logx.WithContext(ctx).Errorw("studio: own signed url check failed (check=studio_input_owns_signed)", logx.Field("err", err.Error()))
+		return false
+	}
+	return ok
+}
+
 func newDeps(s *svc.ServiceContext) *deps {
 	c := s.Config
 	return &deps{
@@ -189,7 +204,7 @@ func (d *deps) submit(ctx context.Context, sp *submitSpec) (*studio.SubmitResp, 
 
 	// 2. 输入图归属
 	for _, u := range sp.URLs {
-		if !d.owns(u.url) {
+		if !d.owns(u.url) && !d.ownsSigned(ctx, sp.UserID, u.url) {
 			return nil, xerr.Param(u.field + " 不是本服务上传的地址")
 		}
 	}
@@ -324,20 +339,23 @@ func (d *deps) replay(ctx context.Context, b *model.Batch, hash string) (*studio
 	}, nil
 }
 
-// charge 一个子任务的计费请求：一张图一张预留单。
+// charge 一个子任务的计费请求：一张图一张预留单。模型组取子任务上落库的组（与实际出图一致）。
 func (d *deps) charge(sp *submitSpec, t *model.Task) billing.Charge {
-	c := quoteCharge(d.entry(sp.Kind), sp.UserID, sp.Resolution)
+	c := quoteCharge(d.entry(sp.Kind), sp.UserID, orDefault(t.ModelGroup, sp.ModelGroup), sp.Resolution)
 	c.RequestID = BillingPrefix + t.TaskID.String
 	return c
 }
 
-// quoteCharge 一张图的计费请求（不带预留单号）：提交冻结与提交前报价（Quote）共用，保证两边同价。
-func quoteCharge(entry string, userID int64, resolution string) billing.Charge {
+// quoteCharge 一张图的计费请求（不带预留单号）：提交冻结、提交前报价（Quote）、重做冻结与余额预检共用，保证同价。
+// 价格 = f(入口, 模型组, 分辨率)：modelGroup 按档位默认模型的 gateway_model_group 选分模型档位
+// （该入口没配这个组的档位时退回默认档位），resolution 选该档位单价行的分辨率档。
+func quoteCharge(entry string, userID int64, modelGroup, resolution string) billing.Charge {
 	return billing.Charge{
 		UserID: userID, EntryCode: entry,
 		Kind: billing.KindQuick, Count: 1,
+		ModelGroup: modelGroup,
 		Tier:       tierOf(entry, resolution),
-		Resolution: strings.ToUpper(resolution), // afv_model_pricing.resolution 用 1K/2K/4K；匹配不到退回不限分辨率的单价
+		Resolution: strings.ToUpper(resolution), // afv_model_pricing.resolution 用 1k/2k/4k（库排序规则不分大小写）；匹配不到退回不限分辨率的单价
 	}
 }
 

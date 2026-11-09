@@ -17,6 +17,10 @@ Storage:
   Prefix: aigc-local-life
   LocalDir: data/files
   LocalBaseUrl: http://127.0.0.1:8888/files
+# 免费档水印视图（studio 试穿成品 mrw://）读时签名：Process 必须与 studio / assetlib / Java 相同；留空则水印视图输出为空（绝不签干净原件）
+FreeWatermark:
+  Process: ""
+  SignedTTLSeconds: 600
 # 素材库：gateway 生成的图 / 视频与裁剪图每个候选一行（Java 工具与 studio 试穿的成品由对方入库）
 Asset:
   Enabled: true

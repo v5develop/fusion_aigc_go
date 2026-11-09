@@ -102,8 +102,8 @@ func TestCacheUpsert(t *testing.T) {
 func TestBulkInsertAndBackfill(t *testing.T) {
 	r, mock := newMock(t)
 	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `afv_studio_task` (") + ".*" +
-		regexp.QuoteMeta("VALUES (DEFAULT, 1, 7, 'tryon', 0, 0, 0, NULL, 0, 'g', DEFAULT, NULL, DEFAULT, NULL, NULL, 0, 0, NULL, NULL, 0, 0, DEFAULT, NULL, 0, NULL, DEFAULT, NULL, NULL, 0, DEFAULT, DEFAULT), "+
-			"(DEFAULT, 1, 7, 'tryon', 0, 1, 0, NULL, 0, 'g', DEFAULT, NULL, DEFAULT, NULL, NULL, 0, 0, NULL, NULL, 0, 0, DEFAULT, NULL, 0, NULL, DEFAULT, NULL, NULL, 0, DEFAULT, DEFAULT)")).
+		regexp.QuoteMeta("VALUES (DEFAULT, 1, 7, 'tryon', 0, 0, 0, NULL, 0, 'g', DEFAULT, NULL, DEFAULT, NULL, NULL, 0, 0, NULL, NULL, 0, 0, DEFAULT, NULL, 0, NULL, DEFAULT, NULL, DEFAULT, NULL, NULL, 0, DEFAULT, DEFAULT), "+
+			"(DEFAULT, 1, 7, 'tryon', 0, 1, 0, NULL, 0, 'g', DEFAULT, NULL, DEFAULT, NULL, NULL, 0, 0, NULL, NULL, 0, 0, DEFAULT, NULL, 0, NULL, DEFAULT, NULL, DEFAULT, NULL, NULL, 0, DEFAULT, DEFAULT)")).
 		WillReturnResult(sqlmock.NewResult(10, 2))
 	tasks := []*model.Task{
 		{BatchID: 1, UserID: 7, Kind: model.KindTryon, ModelGroup: "g"},
@@ -174,6 +174,39 @@ func TestCacheDeleteStalePreview(t *testing.T) {
 	}
 	if _, err := r.Cache.DeleteStalePreview(ctx, 60, 0); err == nil {
 		t.Fatal("limit<=0 应报错")
+	}
+	done(t, mock)
+}
+
+func TestTaskSetMaskOnlyFillsEmptySucceeded(t *testing.T) {
+	r, mock := newMock(t)
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE `afv_studio_task` SET mask_url = 'https://cdn/m.png' WHERE (id = 3) AND (deleted = 0) AND (status = 2) AND (mask_url IS NULL)")).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	if ok, err := r.Task.SetMask(ctx, 3, "https://cdn/m.png", nil); !ok || err != nil {
+		t.Fatalf("ok=%v err=%v", ok, err)
+	}
+	// 带逐件蒙版：同一条 UPDATE 一起写 mask_parts
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE `afv_studio_task` SET mask_url = 'https://cdn/m.png', mask_parts = '[{\"part\":\"tops\",\"mask_url\":\"https://cdn/t.png\"}]' WHERE (id = 4) AND (deleted = 0) AND (status = 2) AND (mask_url IS NULL)")).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	if ok, err := r.Task.SetMask(ctx, 4, "https://cdn/m.png", []byte(`[{"part":"tops","mask_url":"https://cdn/t.png"}]`)); !ok || err != nil {
+		t.Fatalf("parts ok=%v err=%v", ok, err)
+	}
+	done(t, mock)
+}
+
+func TestMaskCacheKeyedByParts(t *testing.T) {
+	r, mock := newMock(t)
+	mock.ExpectQuery(regexp.QuoteMeta("FROM `afv_studio_mask_cache` AS `mc` WHERE (mc.url_key = 'k') AND (mc.target = 'garment') AND (mc.parts = 'tops,pants') LIMIT 1")).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}))
+	if c, err := r.Mask.Get(ctx, "k", "garment", "tops,pants"); c != nil || err != nil {
+		t.Fatalf("c=%v err=%v", c, err)
+	}
+	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `afv_studio_mask_cache`") + ".*'k', 'garment', 'tops,pants'.*" +
+		regexp.QuoteMeta("ON DUPLICATE KEY UPDATE") + ".*`part_masks` = VALUES\\(`part_masks`\\)").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	if err := r.Mask.Put(ctx, &model.MaskCache{URLKey: "k", Target: "garment", Parts: "tops,pants", Status: model.MaskOK,
+		CostCNY: "0", Coverage: "0"}); err != nil {
+		t.Fatal(err)
 	}
 	done(t, mock)
 }

@@ -49,7 +49,7 @@ type quoter interface {
 }
 
 // quoteStudio 报价核心：输入归一与提交（ValidateTryon / ValidatePose / ValidateImageGen）同一组函数，
-// 计费请求与提交逐张冻结的 charge 同形（入口码 + Count=1 + 分辨率档），所以单价 × 张数 = 提交回的 estimated_points。
+// 计费请求与提交逐张冻结的 charge 同形（入口码 + 模型组 + Count=1 + 分辨率档），所以单价 × 张数 = 提交回的 estimated_points。
 // 只读：不冻结、不查余额、不做准入（准入失败在提交时照常拦）。报不出价不算错误，回 available=false + 原因。
 func quoteStudio(ctx context.Context, q quoter, entry string, k model.Kind, in *studio.QuoteReq, groups map[string]string) *studio.QuoteResp {
 	total := in.TaskTotal
@@ -98,9 +98,9 @@ func quoteStudio(ctx context.Context, q quoter, entry string, k model.Kind, in *
 		out.Available = true
 		return out
 	}
-	r, err := q.Quote(ctx, quoteCharge(entry, in.UserId, res))
+	r, err := q.Quote(ctx, quoteCharge(entry, in.UserId, group, res))
 	if err != nil {
-		logx.WithContext(ctx).Errorf("studio: 报价失败 用户 %d 入口 %s 分辨率 %s: %v", in.UserId, entry, res, err)
+		logx.WithContext(ctx).Errorf("studio: 报价失败 用户 %d 入口 %s 模型组 %s 分辨率 %s: %v", in.UserId, entry, group, res, err)
 		if errors.Is(err, billing.ErrNoOffer) {
 			return unavailable("该功能暂未配置价格")
 		}

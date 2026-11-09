@@ -38,7 +38,7 @@ func TestQuoteStudio_UnitTimesTasks(t *testing.T) {
 		t.Fatalf("报价不对：%+v", r)
 	}
 	c := q.got[0]
-	if c.EntryCode != "studio_tryon" || c.Count != 1 || c.Resolution != "2K" || c.UserID != 7 || c.RequestID != "" {
+	if c.EntryCode != "studio_tryon" || c.Count != 1 || c.Resolution != "2K" || c.UserID != 7 || c.RequestID != "" || c.ModelGroup != "img.gpt-image-2" {
 		t.Fatalf("计费请求须与提交 charge 同形：%+v", c)
 	}
 }

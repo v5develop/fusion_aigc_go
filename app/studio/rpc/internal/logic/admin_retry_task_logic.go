@@ -166,7 +166,8 @@ func (f *flow) reopenIfConverged(ctx context.Context, batchID int64) {
 	}
 }
 
-// retryCharge 重做冻结 1 张的计费参数（不含请求号）：与提交同一入口码 / 档位 / 分辨率口径。
+// retryCharge 重做冻结 1 张的计费参数（不含请求号）：与提交同一入口码 / 模型组 / 分辨率口径（quoteCharge）。
+// 模型组取子任务上落库的组（原任务实际用的模型），所以重做按原任务的模型计价，不随前端模型档后来的映射变化。
 // 用户重试的余额预检（Enough）与 retryTask 的冻结共用它，保证两边算的是同一个价。
 func (f *flow) retryCharge(t *model.Task, b *model.Batch) (billing.Charge, error) {
 	p, err := parsePayload(b.Payload)
@@ -177,11 +178,7 @@ func (f *flow) retryCharge(t *model.Task, b *model.Batch) (billing.Charge, error
 	if r, _, err := pipeline.NormalizeForGroup(t.ModelGroup, p.Resolution, p.AspectRatio); err == nil {
 		res = r // 与提交时同口径（历史批次的快照可能是未归一的档位）
 	}
-	entry := svc.EntryCode(f.cfg, t.Kind)
-	return billing.Charge{
-		UserID: b.UserID, EntryCode: entry, Kind: billing.KindQuick, Count: 1,
-		Tier: tierOf(entry, res), Resolution: strings.ToUpper(res),
-	}, nil
+	return quoteCharge(svc.EntryCode(f.cfg, t.Kind), b.UserID, t.ModelGroup, res), nil
 }
 
 // releaseUnheldRetry 冻结失败后退还刚占到的轮次（attempt → attempt-1），让失败的冻结（如点数不足）不白白消耗重试次数。

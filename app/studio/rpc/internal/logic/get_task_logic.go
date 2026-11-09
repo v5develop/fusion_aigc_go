@@ -52,5 +52,6 @@ func (l *GetTaskLogic) GetTask(in *studio.GetTaskReq) (*studio.TaskInfo, error) 
 	}
 	out := toTaskInfo(t, status)
 	attachAssetIDs(l.ctx, r, in.UserId, []*studio.TaskInfo{out})
+	signViews(l.ctx, l.svcCtx, nil, []*studio.TaskInfo{out})
 	return out, nil
 }

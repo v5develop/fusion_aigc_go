@@ -104,3 +104,33 @@ func TestMemoryFallbackAndUnlimited(t *testing.T) {
 		t.Fatal("nil 应放行")
 	}
 }
+
+// 退还：命中缓存的请求不占额度；退不到负数；nil / 不限无操作。
+func TestRefund(t *testing.T) {
+	_, rds := newRedis(t)
+	l := New("t", 2, 0, rds)
+	ctx := context.Background()
+	for i := 0; i < 5; i++ {
+		if r := l.Take(ctx, 1); r != Allowed {
+			t.Fatalf("第 %d 次应放行: %v", i, r)
+		}
+		l.Refund(ctx, 1)
+	}
+	l.Take(ctx, 1)
+	l.Take(ctx, 1)
+	if r := l.Take(ctx, 1); r != MinuteExceed {
+		t.Fatalf("两次后应超限: %v", r)
+	}
+	l.Refund(ctx, 2) // 没计数的用户不会减成负数
+	if r := l.Take(ctx, 2); r != Allowed {
+		t.Fatal(r)
+	}
+	var nilL *Limiter
+	nilL.Refund(ctx, 1)
+	m := New("m", 1, 0, nil)
+	m.Take(ctx, 1)
+	m.Refund(ctx, 1)
+	if r := m.Take(ctx, 1); r != Allowed {
+		t.Fatalf("进程内退还: %v", r)
+	}
+}

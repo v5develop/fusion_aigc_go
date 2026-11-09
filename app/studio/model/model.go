@@ -165,12 +165,45 @@ type Task struct {
 	BillingStatus    int8            `bun:"billing_status,notnull"`
 	ErrorReason      sql.NullString  `bun:"error_reason"`
 	ColorFixParams   json.RawMessage `bun:"color_fix_params,type:json,nullzero"` // 校色参数（Go_V1.0.27），NULL=没保存过
+	MaskURL          sql.NullString  `bun:"mask_url"`                            // 服装蒙版（Go_V1.0.28，白色+软 alpha PNG），NULL=没有
+	MaskParts        json.RawMessage `bun:"mask_parts,type:json,nullzero"`       // 逐件服装蒙版 [{part, mask_url}]（Go_V1.0.28），NULL=没有
 	StartedAt        sql.NullTime    `bun:"started_at"`
 	FinishedAt       sql.NullTime    `bun:"finished_at"`
 	Deleted          int8            `bun:"deleted,notnull"`
 	CreatedAt        time.Time       `bun:"created_at,notnull,default:current_timestamp(3)"`
 	UpdatedAt        time.Time       `bun:"updated_at,notnull,default:current_timestamp(3)"`
 }
+
+// MaskCache afv_studio_mask_cache（Go_V1.0.28）：区域蒙版缓存，唯一键 (url_key, target, parts)。
+type MaskCache struct {
+	bun.BaseModel `bun:"table:afv_studio_mask_cache,alias:mc"`
+
+	ID            int64          `bun:"id,pk,autoincrement"`
+	URLKey        string         `bun:"url_key,notnull"`
+	Target        string         `bun:"target,notnull"`
+	Parts         string         `bun:"parts,notnull"` // 服装细分部位（固定顺序逗号拼接），空=不细分
+	SourceURL     string         `bun:"source_url,notnull"`
+	Status        int8           `bun:"status,notnull"`
+	MaskRid       sql.NullString `bun:"mask_rid"`
+	MaskURL       sql.NullString `bun:"mask_url"`
+	PartMasks     sql.NullString `bun:"part_masks"` // 多部位请求的逐件蒙版 JSON [{part, mask_url}]
+	Coverage      string         `bun:"coverage,type:decimal(7,6),notnull,default:0"`
+	Width         int32          `bun:"width,notnull"`
+	Height        int32          `bun:"height,notnull"`
+	ModelGroup    string         `bun:"model_group,notnull"`
+	GatewayCallID sql.NullString `bun:"gateway_call_id"`
+	CostCNY       string         `bun:"cost_cny,type:decimal(12,6),notnull,default:0"`
+	UserID        int64          `bun:"user_id,notnull"`
+	Hits          int32          `bun:"hits,notnull"`
+	CreatedAt     time.Time      `bun:"created_at,notnull,default:current_timestamp(3)"`
+	UpdatedAt     time.Time      `bun:"updated_at,notnull,default:current_timestamp(3)"`
+}
+
+// 蒙版缓存状态。
+const (
+	MaskOK       int8 = 1 // 成功，mask_url 有值
+	MaskNoRegion int8 = 2 // 没识别到对应区域
+)
 
 // PromptCache afv_studio_prompt_cache：批次内反推 / 切图缓存，唯一键 (batch_id, cache_key, kind)。
 type PromptCache struct {

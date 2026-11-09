@@ -23,7 +23,8 @@ func TestLoadDevConfig(t *testing.T) {
 		t.Fatalf("默认值不对：%+v %+v %+v", c.Reverse, c.Timeouts, c.AiGateway)
 	}
 	if m := c.ModelGroupMap(); m["Banana"] != "img.nano-banana-2.1-dev" || m["GPT"] != "img.gpt-image-2.6-sunburst" ||
-		m["Seedream"] != "img.seedream-5.5" || m["通用"] != "img.gpt-image-2" {
+		m["Seedream"] != "img.seedream-5.5" || m["通用"] != "img.gpt-image-2.5-sunburst-developer" ||
+		m["GPT25Dev"] != "img.gpt-image-2.5-sunburst-developer" {
 		t.Fatalf("模型映射不对：%v", c.ModelGroupMap())
 	}
 	if c.Reverse.Concurrency != 6 || c.Reverse.PreviewConcurrency != 2 || c.PreviewSidecarSlots() != 2 {

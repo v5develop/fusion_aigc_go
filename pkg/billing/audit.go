@@ -36,7 +36,8 @@ var Targets = []Target{
 	{"exploreShop", "探店视频", []string{TierCloud, TierLite}, KindVideo},
 	{"shortDrama", "带货短剧", []string{TierCloud, TierLite}, KindVideo},
 	{"videoRemake", "爆款视频复刻", []string{TierCloud, TierLite}, KindVideo},
-	// studio（ai-gateway 生图）：每张图一张预留单。按分辨率分档时在这里补 Tiers（与 Java 后台的档位码一致）。
+	// studio（ai-gateway 生图）：每张图一张预留单。按出图模型分价：提交 / 报价 / 重做都带 Charge.ModelGroup，
+	// 按档位默认模型的 gateway_model_group 选档（见 ModelGroupEntries）；分辨率差价在单价行的 resolution 上。
 	{"studio_tryon", "商拍换装", nil, KindQuick},
 	{"studio_pose", "姿态复刻", nil, KindQuick},
 	{"studio_imagegen", "图片生成", nil, KindQuick},
@@ -46,6 +47,10 @@ var Targets = []Target{
 	{"canvas_video", "画布视频", nil, KindVideo},
 	{"canvas_tool_i2p", "画布反推提示词", nil, KindQuick},
 }
+
+// ModelGroupEntries 按 Charge.ModelGroup 分模型计价的入口：检查时除了默认档位，还把每个「默认模型带 gateway_model_group」
+// 的档位各算一遍价（线上按模型组选到的就是这些档位）。没有任何分模型档位时报 WARN：所有模型都会按默认档位同价扣。
+var ModelGroupEntries = map[string]bool{"studio_tryon": true, "studio_pose": true, "studio_imagegen": true}
 
 // Level 问题级别。ERROR：这个入口现在提交会被拒或会错扣，必须修；WARN：能算出价，但看着不对，需要人看一眼。
 type Level string
@@ -92,6 +97,40 @@ func Audit(ctx context.Context, conn sqlx.SqlConn) []Finding {
 		}
 		for _, tier := range tiers {
 			out = append(out, auditOne(ctx, conn, t, tier)...)
+		}
+		if ModelGroupEntries[t.Entry] {
+			out = append(out, auditGroups(ctx, conn, t)...)
+		}
+	}
+	return out
+}
+
+// auditGroups 分模型计价的入口：逐个模型组档位按 Charge.ModelGroup 试算（与线上提交同一个 price()），
+// 并核对选中的确实是那个组的档位（没选中说明组码对不上，线上会退回默认档位按错的价扣）。
+func auditGroups(ctx context.Context, conn sqlx.SqlConn, t Target) []Finding {
+	add := func(l Level, group, d string, a ...any) Finding {
+		return Finding{Level: l, Entry: t.Entry, Name: t.Name, Tier: "组 " + group, Detail: fmt.Sprintf(d, a...)}
+	}
+	var groups []string
+	const q = "SELECT DISTINCT m.`gateway_model_group` FROM `afv_billing_offer` o " +
+		"JOIN `afv_billing_offer_variant` v ON v.`offer_code` = o.`offer_code` AND v.`status` = 'ENABLED' AND v.`deleted` = 0 " +
+		"JOIN `afv_ai_model` m ON m.`id` = v.`default_model_id` AND m.`deleted` = 0 " +
+		"WHERE o.`entry_code` = ? AND o.`status` = 'ENABLED' AND o.`deleted` = 0 " +
+		"AND m.`gateway_model_group` IS NOT NULL AND m.`gateway_model_group` <> '' ORDER BY 1"
+	if err := conn.QueryRowsCtx(ctx, &groups, q, t.Entry); err != nil {
+		return []Finding{add(LevelError, "-", "查分模型档位失败：%v", err)}
+	}
+	if len(groups) == 0 {
+		return []Finding{add(LevelWarn, "-", "没有分模型档位（默认模型带 gateway_model_group 的档位），所有模型按默认档位同价扣")}
+	}
+	var out []Finding
+	for _, g := range groups {
+		r, err := price(ctx, conn, Charge{UserID: 1, RequestID: "audit", EntryCode: t.Entry, ModelGroup: g, Kind: t.Kind, Count: 1, Seconds: 15})
+		switch {
+		case err != nil:
+			out = append(out, add(LevelError, g, "算不出价：%v", err))
+		case r.ModelGroup != g:
+			out = append(out, add(LevelError, g, "没有按组选中档位（选到 %s）", r.VariantCode))
 		}
 	}
 	return out

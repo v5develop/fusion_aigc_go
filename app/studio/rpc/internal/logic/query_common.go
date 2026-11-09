@@ -3,6 +3,7 @@ package logic
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"strings"
 
 	"aigc-local-life/app/studio/model"
@@ -82,7 +83,21 @@ func toTaskInfo(t *model.Task, batchStatus int8) *studio.TaskInfo {
 		ErrorReason: t.ErrorReason.String, PromptSummary: PromptSummary(t), ModelGroup: t.ModelGroup,
 		CreatedAt: t.CreatedAt.UnixMilli(), StartedAt: msOf(t.StartedAt), FinishedAt: msOf(t.FinishedAt),
 		ColorFixParams: parseColorFix(t.ColorFixParams),
+		MaskUrl:        t.MaskURL.String,
+		MaskParts:      parseMaskParts(t),
 	}
+}
+
+// parseMaskParts 子任务逐件服装蒙版（mask_parts JSON）；没有合并蒙版 / 没有逐件 / 解析失败都返回 nil。
+func parseMaskParts(t *model.Task) []*studio.MaskPart {
+	if !t.MaskURL.Valid || t.MaskURL.String == "" || len(t.MaskParts) == 0 {
+		return nil
+	}
+	var parts []maskPart
+	if err := json.Unmarshal(t.MaskParts, &parts); err != nil {
+		return nil
+	}
+	return toMaskParts(parts)
 }
 
 // attachAssetIDs 给成功的子任务填素材库资产 id（一次 IN 查询，不逐条查）。查询失败只记日志、asset_id 留 0，

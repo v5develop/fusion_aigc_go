@@ -161,8 +161,9 @@ v1.0 契约里的 `tool:image-generate`、`tool:ai-posture-fission`、`tool:ai-d
 | 2001 | UNAUTHORIZED | 未登录或登录过期（**HTTP 401**） | 跳登录 |
 | 2007 | ACCOUNT_DISABLED | 账号已被禁用 | 提示并退出登录 |
 | 3003 | INSUFFICIENT_POINTS | 点数不足（整批没有提交成功） | 提示充值 |
-| 4001 | RESOURCE_NOT_FOUND | 批次 / 任务不存在、不属于当前用户或已删除 | 返回上一页 |
-| 4002 | RESOURCE_CONFLICT | 状态冲突：同 key 不同 body；取消已结束的批次；删除生成中的批次；重试条件不满足（见 5.2.1）；配对预览已在进行中；配对预览超出频率配额（「识别太频繁，请稍后再试」，见 3.1.1） | 展示 `msg` |
+| 4001 | RESOURCE_NOT_FOUND | 批次 / 任务不存在、不属于当前用户或已删除；区域蒙版「没识别到对应区域」（5.8） | 返回上一页；蒙版接口提示 `msg` 后退回整图 |
+| 4002 | RESOURCE_CONFLICT | 状态冲突：同 key 不同 body；取消已结束的批次；删除生成中的批次；重试条件不满足（见 5.2.1）；配对预览已在进行中；配对预览 / 区域蒙版超出频率配额（「识别太频繁，请稍后再试」，见 3.1.1、5.8） | 展示 `msg` |
+| 6001 | THIRD_PARTY_ERROR | 区域识别服务暂不可用（5.8） | 展示 `msg`，可稍后重试 |
 | 7003 | FEATURE_NOT_READY | 功能暂未开放 | 展示 `msg` |
 | 5001 | SYSTEM_ERROR | 服务繁忙 | 提示稍后重试，**重试沿用同一个 `Idempotency-Key`** |
 
@@ -523,13 +524,25 @@ Idempotency-Key: <UUID>
 
 | 字段 | 说明 |
 |---|---|
-| `result_url` | 成品图地址（已转存到我方公有桶，长期可用）。任务成功才有 |
+| `result_url` | 成品图地址。付费用户：已转存到我方公有桶，长期可用。免费档用户（开启免费水印时）：带水印的**短期签名地址**（默认 10 分钟有效，每次查询现签，见 4.5），不要缓存或持久化，过期重新查询即可；签不出时为空串。任务成功才有 |
 | `result_width` / `result_height` | 成品像素尺寸，失败为 0 |
 | `error_reason` | 失败原因，可直接展示 |
 | `prompt_summary` | 提示词摘要（不是完整提示词） |
 | `asset_id` | 成品在素材库的资产 id（成功的任务入库后才有，没入库 / 已从素材库删除为 0），见 5.7 |
 | `color_fix_params` | 已保存的校色参数，没保存过为 `null`，见 5.7 |
-| `batch.cover_url` | 批次封面，历史列表缩略图用 |
+| `mask_url` | 服装蒙版（白色 + 软 alpha 的 PNG，公开地址），商拍换装 / 姿态复刻成品成功后异步补；空 = 没有，见 5.8 |
+| `batch.cover_url` | 批次封面，历史列表缩略图用（免费档同 `result_url`，是带水印的短期签名地址） |
+
+### 4.5 免费档水印
+
+与 Java 主项目同一口径（`app.free-watermark`，读时参数水印）。前端无需区分用户档位，照常展示 / 下载 `result_url` 即可：
+
+- **谁是免费档**：从未收到过付费来源点数批次的用户（`afv_points_batch` 中没有 `source ∈ {RECHARGE, UNION_RECHARGE}` 且未删除的行），且后台的分层开关 `user_tier.enabled`、图片展示水印开关 `watermark.display_enabled`（`afv_system_config`，没配时默认开）都开着。只看「有没有付过」，不看余额；赠送、后台调整、退款回补都不算付费。实现：`pkg/usertier`（与 Java `UserTierService` + `WatermarkPolicy` 逐条一致）。
+- **交付**：studio 开关 `FreeWatermark.Enabled` 开、`FreeWatermark.Process` 合法时，免费档用户的成品**不转存公有桶**：原件留在私有桶（网关产物 `media_purpose=intermediate`，媒体服务 `work` 类 rid），`afv_studio_task.result_url` 与素材库 `afv_asset.result_url / cover_url` 写水印视图引用 `mrw://{rid}.{ext}`。付费用户、开关关闭时与原来一样（公有桶长期地址）。
+- **读取**：批次详情 / 历史 / 单个任务 / 重试 / 取消 / 校色 / 后台详情的 `result_url`、`batch.cover_url` 遇到 `mrw://` 一律签成带 `x-oss-process=<处理串>` 的签名地址：处理参数在签名内，去掉或改动即 403，拿不到干净原图。签名失败或未配处理串 → 空串（绝不下发干净地址或 `mrw://` 原文）。下载用同一个地址（带水印）。素材库（assetlib / Java）读到 `mrw://` 同样签水印地址。
+- **蒙版**：成品服装蒙版在原图上识别（服务端用短期干净签名交给网关，不落库、不下发），`mask_url` 照常是公开地址。`POST /masks` 的 `image_url` 传水印地址时按地址路径（不含查询串）命中同一缓存；若私有桶域名不在本服务存储 / `InputURLPrefixes` 白名单内会被拒（1003），需运维把私有桶域名加进 `STUDIO_INPUT_URL_PREFIXES`。
+- **付费后**：studio-rpc 每 `FreeWatermark.PromoteMinutes`（默认 10 分钟）扫描一次 `result_url LIKE 'mrw://%'` 且用户已付过钱的子任务，把私有原件复制到公有素材库桶，先改素材库行、再按旧值 CAS 改子任务的 `result_rid / result_url`；任务中心随 `updated_at` 同步。之后该用户的历史成品与素材库都是无水印原图。私有原件不删除（与 Java 不同，Java 转存后会删）。
+- **配置**（`deploy/etc/studio-rpc.yaml` `FreeWatermark`）：`Enabled`（默认 false，= Java `FREE_WATERMARK_ENABLED`）、`Process`（= Java `FREE_WATERMARK_OSS_PROCESS` / 启动日志 `check=free_watermark.process` 的值，assetlib 与 canvas 的 `FreeWatermark.Process` 也必须相同，由同一个 `FREE_WATERMARK_OSS_PROCESS` 一次写入三处）、`SignedTTLSeconds`（600）、`UserTierDefault` / `DisplayWatermarkDefault`（true，DB 没配开关时的默认）、`PromoteMinutes`（10，≤0 关闭）、`CleanupEnabled`（默认 false）/ `RetentionDays`（90）/ `CleanupMinutes`（60）为未付费原件到期清理。服务器上由 `deploy.env` 的 `FREE_WATERMARK_ENABLED` / `FREE_WATERMARK_OSS_PROCESS` 经 mkconf 写入。
 
 ---
 
@@ -618,6 +631,8 @@ GET /api/v1/studio/batches/:id
 | `created_at` / `started_at` / `finished_at` | int | unix 毫秒；`started_at` / `finished_at` 为 0 = 未开始 / 未结束 |
 | `asset_id` | int | 成品在素材库的资产 id（`afv_asset.id`）。成功的任务入库后才有；入库与置成功不在同一步，刚成功的一两次轮询可能还是 0；素材库入库关闭、或用户已在素材库删除该图时为 0。用途见 5.7 |
 | `color_fix_params` | object \| null | 已保存的校色参数 `{hue, saturation, value, brightness, contrast}`；没保存过为 `null`。见 5.7 |
+| `mask_url` | string | 服装蒙版地址；空 = 还没有 / 没识别到服装（校色作用于整图）。成功后通常几秒内补上，轮询会带出。见 5.8 |
+| `mask_parts` | object[] | 商拍换装按所选单品分割时的逐件蒙版 `[{part, mask_url}]`（`mask_url` 是它们的合并）；没有为空数组。见 5.8 |
 
 错误：批次不存在、不是自己的、已删除，都返回 `code=4001`。
 
@@ -799,7 +814,57 @@ PATCH /api/v1/studio/tasks/:task_id/color-fix
 | 任务不存在、不是自己的、已删除 | `4001` |
 | 任务不是成功状态（2） | `4002`「只有生成成功的图片可以保存校色参数」 |
 
-**逐件蒙版（`mask_url`）暂不提供**：当前链路（切图 → 反推 → 生图）不产出服装分割 / 软边蒙版，前端按无蒙版走整图校色。
+校色默认只作用于服装：任务带 `mask_url` 时前端按蒙版合成（见 5.8）；没有时整图校色并提示「未识别到服装区域，校色将作用于整张图」。
+
+### 5.8 区域蒙版（局部校色）
+
+蒙版 = 与原图同尺寸的 PNG：**白色 + 软 alpha**（区域内不透明、区域外透明、边缘半透明，不要二值化）。前端合成顺序：
+原图 → 校色层（canvas filter）→ `destination-in` 蒙版 → 盖回原图。蒙版是公开地址（素材库桶），canvas 读像素需 `crossOrigin="anonymous"`。
+
+**① 子任务自带服装蒙版 `mask_url`**：商拍换装 / 姿态复刻的成品置成功后，服务端**异步**识别服装（不拖慢、不影响交付与计费），
+写进任务的 `mask_url`。识别失败 / 图里没有服装时一直为空，前端整图校色。图片生成任务不自动补，需要时调 ②。
+商拍换装按用户选的单品分割：`mask_url` 是**恰好这些单品**的合并蒙版，`mask_parts[{part, mask_url}]` 是逐件蒙版（前端可按件切换）。
+单品 → 部位：`top`/`bra`→`tops`、`bottom`/`panties`→`pants`、`dress`→`skirt`、`outer`→`coat`、`shoes`→`shoes`、`accessory`→`bag`+`hat`。
+按单品识别服务不可用时退回整体服装蒙版（此时 `mask_parts` 为空）；姿态复刻始终是整体服装。
+
+**② 通用蒙版接口**（任意页面、任意本服务生成或上传的图）：
+
+```
+POST /api/v1/studio/masks
+```
+
+```json
+{"image_url": "https://cdn.example.com/…/result.png", "target": "garment", "parts": ["tops", "pants"]}
+```
+
+| 字段 | 说明 |
+|---|---|
+| `image_url` | 必填。本服务存储签发或素材库域名的 http(s) 地址（如任务 `result_url`、素材库图片）；第三方地址拒收（1003） |
+| `target` | 必填。`garment` 服装 / `product` 商品主体 / `person` 人物 / `background` 背景（主体之外，= 主体蒙版取反） |
+| `parts` | 选填，仅 `garment`（多选）：`tops` 上衣 / `coat` 外套 / `pants` 下装 / `skirt` 裙装 / `shoes` 鞋 / `bag` 包 / `hat` 帽；不传 / 空 = 全部服装。其它值或非服装区域带 `parts` 返回 `1003` |
+
+```json
+{"code": 0, "data": {"mask_url": "https://cdn.example.com/…/mask.png", "target": "garment", "cached": false,
+  "parts": [{"part": "tops", "mask_url": "https://cdn.example.com/…/tops.png"}, {"part": "pants", "mask_url": "https://cdn.example.com/…/pants.png"}],
+  "available_parts": ["tops", "coat", "pants", "skirt", "shoes", "bag", "hat"]}}
+```
+
+- **部位**：带 `parts` 时 `mask_url` = 这些部位的合并蒙版，`parts` = 逐件蒙版（固定顺序，图里没有的部位缺省；全都没有 → `4001`）；不带为空数组。
+  `available_parts` = 该区域支持的部位（只有 `garment` 有，其它区域空数组）；**旧版服务端没有这个字段**，前端据此显示 / 隐藏部位选择。
+- **缓存**：按（去掉查询串的地址, `target`, 部位组合）缓存，多部位识别出的逐件蒙版也按单部位落缓存（之后单选某件立即返回）；同一张图同一区域只识别一次，之后立即返回 `cached: true`；签名参数不同不影响命中。子任务的 `mask_url` 与本接口共用缓存。
+- **免费**：不扣点数（识别成本由平台承担）。按用户限频：每分钟 30 次、每天 500 次（网关 `Studio.MaskPerMinute / MaskPerDay` 可调，命中缓存也计数），超出 `4002`「识别太频繁，请稍后再试」。
+- **耗时**：未命中缓存一般数秒（背景走高清抠图会更久），上限约 120 秒；前端请自行加 loading，失败退回整图校色。
+
+| 情况 | 返回 |
+|---|---|
+| 缺地址 / 区域不支持 / 地址不是本服务的 | `1002` / `1003` |
+| 没识别到对应区域（图里没有服装 / 人物 / 主体） | `4001`「没识别到对应区域」（24 小时内同一张图同一区域直接返回该结果） |
+| 超出频率 | `4002`「识别太频繁，请稍后再试」 |
+| 识别服务暂不可用 | `6001`「区域识别暂不可用，请稍后再试」（不缓存，可重试） |
+| 网关 / 媒体服务未配置 | `7003` |
+
+识别走 ai-gateway `image.segment`：服装 `imgseg.aliyun-cloth`（阿里云 SegmentCloth）、商品 `imgseg.aliyun-commodity`（SegmentCommodity）、
+人物 `imgseg.aliyun-body`（SegmentBody）、背景 `imgseg.aliyun-hd`（SegmentHDCommonImage 取反）。
 
 ---
 

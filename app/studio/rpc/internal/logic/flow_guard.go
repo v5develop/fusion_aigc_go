@@ -78,6 +78,8 @@ func (f *flow) maintain(ctx context.Context) {
 	f.rescueStrayQueued(ctx)
 	f.reconcileBilling(ctx)
 	f.cleanPreviewCache(ctx)
+	f.promoteFreeOriginals(ctx)        // 自带间隔（FreeWatermark.PromoteMinutes），未配媒体服务 / 关闭时不做
+	f.cleanupExpiredFreeOriginals(ctx) // 自带间隔与开关（FreeWatermark.CleanupEnabled / CleanupMinutes）
 }
 
 const (

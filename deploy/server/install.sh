@@ -368,6 +368,7 @@ gen_conf() {
     -media-base-url "$MEDIA_SVC_BASE_URL" \
     -ai-gateway-url "$AI_GATEWAY_URL" -ai-gateway-key-id "$AI_GATEWAY_KEY_ID" -ai-gateway-secret "$AI_GATEWAY_SECRET" \
     -reverse-url "$REVERSE_SIDECAR_URL" -studio-input-url-prefixes "$STUDIO_INPUT_URL_PREFIXES" \
+    -free-watermark-enabled "${FREE_WATERMARK_ENABLED:-}" -free-watermark-process "${FREE_WATERMARK_OSS_PROCESS:-}" \
     -canvas-java-base-url "$CANVAS_JAVA_BASE_URL" \
     -session-redis "$SESSION_REDIS_ADDR" -session-redis-pass "$SESSION_REDIS_PASS" \
     -session-redis-db "$SESSION_REDIS_DB" -session-max "$SESSION_MAX_CONCURRENT" \

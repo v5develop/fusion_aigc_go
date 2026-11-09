@@ -54,6 +54,10 @@ type Config struct {
 		// <= 0 表示该窗口不限。
 		PosePreviewPerMinute int `json:",default=6"`
 		PosePreviewPerDay    int `json:",default=200"`
+		// MaskPerMinute / MaskPerDay 区域蒙版（POST /studio/masks，免费、未命中缓存时要调分割）每用户每分钟 / 每天上限，
+		// 超出回 4002「识别太频繁，请稍后再试」；计数同上（命中缓存的请求也计数）。<= 0 表示该窗口不限。
+		MaskPerMinute int `json:",default=30"`
+		MaskPerDay    int `json:",default=500"`
 	}
 	Upload struct {
 		// MaxImageBytes 仅网关代传（开发用）时生效；直传的大小与类型由前端控制

@@ -333,6 +333,10 @@ func ValidateTryon(in *studio.SubmitTryonReq, groups map[string]string) (*TryonI
 	if err != nil {
 		return nil, err
 	}
+	// 一次生图的参考图 = 模特图 1 张 + 全部服装图；GPT Image 2.6 总数不得超过 6（与计费最坏档一致）
+	if lim := pipeline.GPT26MaxRefs(group, pipeline.KindTryon); lim > 0 && len(gs)+1 > lim {
+		return nil, xerr.Param(fmt.Sprintf("GPT Image 2.6 服装图最多 %d 张（连同模特图共 %d 张参考图），请减少服装图或换用其它模型", lim-1, lim))
+	}
 	models := make([]string, 0, len(in.ModelImageUrls))
 	for _, u := range in.ModelImageUrls {
 		models = append(models, strings.TrimSpace(u))
@@ -544,6 +548,9 @@ func ValidateImageGen(in *studio.SubmitImageGenReq, groups map[string]string) (*
 	res, warns, err := pipeline.NormalizeForGroup(group, res, ar)
 	if err != nil {
 		return nil, err
+	}
+	if lim := pipeline.GPT26MaxRefs(group, pipeline.KindImageGen); lim > 0 && len(in.ImageUrls) > lim {
+		return nil, xerr.Param(fmt.Sprintf("GPT Image 2.6 参考图最多 %d 张，请减少参考图或换用其它模型", lim))
 	}
 	imgs := make([]string, 0, len(in.ImageUrls))
 	for _, u := range in.ImageUrls {

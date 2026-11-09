@@ -1065,6 +1065,8 @@ type (
 		FinishedAt     int64                 `json:"finished_at"` // 0=未结束
 		AssetId        int64                 `json:"asset_id"` // 成品在素材库的资产 id（afv_asset.id），可直接调 POST /api/v1/asset-library/assets/{id}/versions；没入库 / 已从素材库删除为 0
 		ColorFixParams *StudioColorFixParams `json:"color_fix_params"` // 已保存的校色参数；没保存过为 null
+		MaskUrl        string                `json:"mask_url"` // 服装蒙版（白色+软 alpha PNG，公开地址）：商拍换装 / 姿态复刻成品成功后异步补；空=没有（未生成 / 没识别到服装），校色作用于整图
+		MaskParts      []StudioMaskPart      `json:"mask_parts"` // 商拍换装按所选单品分割时的逐件蒙版（mask_url 是它们的合并）；没有为空数组
 	}
 	// 校色五参数（整数，步长 1）：hue [-30,30]、saturation [-60,70]、value 明度 [-40,40]、brightness 亮度 [-80,80]、contrast [-50,50]；全 0 = 不校色
 	StudioColorFixParams {
@@ -1073,6 +1075,24 @@ type (
 		Value      int32 `json:"value"`
 		Brightness int32 `json:"brightness"`
 		Contrast   int32 `json:"contrast"`
+	}
+	// 区域蒙版（局部校色）：target 区域内不透明、区域外透明的「白色 + 软 alpha」PNG，与原图同尺寸
+	StudioMaskReq {
+		ImageUrl string   `json:"image_url"` // 本服务存储签发 / 素材库域名的 http(s) 地址（如任务 result_url）；第三方地址拒收
+		Target   string   `json:"target,options=garment|product|person|background"` // garment 服装 / product 商品主体 / person 人物 / background 背景（主体之外）
+		Parts    []string `json:"parts,optional"` // 仅 garment：只要这些部位（多选）tops 上衣 / coat 外套 / pants 下装 / skirt 裙装 / shoes 鞋 / bag 包 / hat 帽；不传 / 空=全部服装
+	}
+	// 一个部位的蒙版
+	StudioMaskPart {
+		Part    string `json:"part"` // tops / coat / pants / skirt / shoes / bag / hat
+		MaskUrl string `json:"mask_url"` // 该部位的白色+软 alpha PNG，与原图同尺寸
+	}
+	StudioMaskResp {
+		MaskUrl        string           `json:"mask_url"` // 蒙版公开地址（素材库桶，与 result_url 同口径，可直接给 canvas 用，需 crossOrigin）；带 parts 时 = 这些部位的合并蒙版
+		Target         string           `json:"target"`
+		Cached         bool             `json:"cached"` // 命中缓存（同一张图同一区域只识别一次）
+		Parts          []StudioMaskPart `json:"parts"` // 带 parts 时的逐件蒙版（固定顺序 tops/coat/pants/skirt/shoes/bag/hat，图里没有的部位缺省）；不带为空数组
+		AvailableParts []string         `json:"available_parts"` // 该区域支持的细分部位（garment 才有）；空数组=不支持细分（前端据此显示 / 隐藏部位选择）
 	}
 	StudioTaskColorFixReq {
 		TaskId string               `path:"task_id"`
@@ -1161,7 +1181,7 @@ service gateway-api {
 	delete /batches/:id (IdPath) returns (EmptyResp)
 }
 
-// 人物配对预览要读原图 + 每张姿势图（单次读图 60–140s），单独放宽路由超时（nginx proxy_read_timeout 为 300s）
+// 人物配对预览要读原图 + 每张姿势图（单次读图 60–140s）、区域蒙版要等分割调用（最长约 120s），单独放宽路由超时（nginx proxy_read_timeout 为 300s）
 @server (
 	prefix:     /api/v1/studio
 	middleware: Auth
@@ -1174,6 +1194,10 @@ service gateway-api {
 	@doc "姿态复刻多人配对预览（只读、不计费）：返回原图与每张姿势图的人数、人物站位与默认配对；原图 ≥2 人时前端据此让用户确认 / 反转配对，再把 mappings 随提交带回"
 	@handler previewPose
 	post /pose/preview (StudioPosePreviewReq) returns (StudioPosePreviewResp)
+
+	@doc "区域蒙版（局部校色，免费）：识别图片的服装 / 商品 / 人物 / 背景区域，返回白色+软 alpha 的 PNG 蒙版；按（去查询串的地址, 区域）缓存，重复请求立即返回。按用户限频（超出 4002「识别太频繁，请稍后再试」）；没识别到 4001「没识别到对应区域」；识别服务不可用 6001"
+	@handler segmentMask
+	post /masks (StudioMaskReq) returns (StudioMaskResp)
 }
 
 // ---------------- assetlib：资产库增强（/api/v1/asset-library，nginx 单独转发到本网关）----------------

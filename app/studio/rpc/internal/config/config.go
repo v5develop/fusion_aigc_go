@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"time"
 
 	"aigc-local-life/pkg/asset"
@@ -123,7 +124,53 @@ type Config struct {
 	Limits struct {
 		MaxPromptLen int `json:",default=3000"`
 	}
+	// FreeWatermark 免费档图片的读时参数水印（与 Java app.free-watermark 同一套语义，见 docs/api/api-studio.md「免费档水印」）。
+	// Enabled 且 Process 合法时，免费档用户（pkg/usertier.WatermarkedImage）的新成品不转存公有素材库桶：原件留在私有桶，
+	// result_url 与素材库行写水印视图 mrw://{rid}.{ext}，每次读都签成带 x-oss-process 水印参数的地址（参数在签名内）。
+	// 关掉 → 新任务照旧转存公有桶；已落库的 mrw:// 仍按 Process 签水印地址（Process 为空则输出空，绝不签干净原件）。
+	FreeWatermark FreeWatermarkConf
 }
+
+// FreeWatermarkConf 免费档水印配置。
+type FreeWatermarkConf struct {
+	// Enabled 总开关（默认关），对应 Java FREE_WATERMARK_ENABLED。
+	Enabled bool `json:",default=false"`
+	// Process 与 Java 同一个 OSS 处理串（Java 启动日志 check=free_watermark.process 的值 / FREE_WATERMARK_OSS_PROCESS），
+	// 也与 assetlib FreeWatermark.Process 相同。只允许 [A-Za-z0-9_./,-]，不合法按未配置处理。
+	Process string `json:",optional"`
+	// SignedTTLSeconds 水印地址签名有效期（秒，最少 60），对应 Java app.free-watermark.signed-ttl-seconds。
+	SignedTTLSeconds int `json:",default=600"`
+	// UserTierDefault / DisplayWatermarkDefault afv_system_config 没有 user_tier.enabled / watermark.display_enabled 行时的默认值，
+	// 对应 Java USER_TIER_ENABLED / WATERMARK_ENABLED（默认都是 true）。
+	UserTierDefault         bool `json:",default=true"`
+	DisplayWatermarkDefault bool `json:",default=true"`
+	// PromoteMinutes 付费转存扫描间隔（分钟，<=0 关闭）：已付费用户的 mrw:// 成品复制到公有素材库桶并改写引用。
+	PromoteMinutes int `json:",default=10"`
+	// CleanupEnabled 到期清理开关（默认关，对应 Java free-original.cleanup-enabled）：免费档用户超过保留期的水印视图成品
+	// （仅终态成功、且用户仍未付费的未删除子任务）删掉私有原件、素材库行与子任务（逻辑删除）。
+	CleanupEnabled bool `json:",default=false"`
+	// RetentionDays 保留天数（从子任务结束时间算，默认 90，对应 Java free-original.retention-days）。
+	RetentionDays int `json:",default=90"`
+	// CleanupMinutes 到期清理扫描间隔（分钟，<=0 关闭）。
+	CleanupMinutes int `json:",default=60"`
+}
+
+// ValidProcess 处理串可用（非空且只含 [A-Za-z0-9_./,-]，与媒体服务签名校验同一字符集）。
+func (c FreeWatermarkConf) ValidProcess() bool {
+	p := c.Process
+	if p == "" {
+		return false
+	}
+	for _, r := range p {
+		if !(r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || strings.ContainsRune("_./,-", r)) {
+			return false
+		}
+	}
+	return true
+}
+
+// Active 新任务是否走水印视图（Java FreeImageWatermark.enabled()：开关开且处理串可用）。
+func (c FreeWatermarkConf) Active() bool { return c.Enabled && c.ValidProcess() }
 
 // PreviewPoseMethod / PreviewPoseTimeout 姿态配对预览要读原图 + 每张姿势图（sidecar 单次读图可达 60–140s），
 // 远超 RPC 默认 30s：没在 MethodTimeouts 里单独配时由 EnsureMethodTimeouts 补上。gateway-api 侧同样按方法放宽调用超时。
@@ -159,12 +206,16 @@ func (c Config) PreviewSidecarSlots() int {
 // DefaultModelGroups ModelGroups 没配时的映射（设计方案 §4.4）。
 // 2026-11-09 三个具名模型档换代：GPT → GPT Image 2.6 Sunburst、Banana → Nano Banana 2.1 Developer、
 // Seedream → Seedream 5.5（网关 Atlas 组）。旧组 img.gpt-image-2 / img.nano-banana-2.1 / img.seedream-5-pro 网关里保留，
-// 已入库任务的 model_group 照旧（重做沿用任务上的组）。「通用」是运营定的默认组，不随具名档换代。
+// 已入库任务的 model_group 照旧（重做沿用任务上的组）。
+// 同日（2026-11-09）产品决定全线下线 GPT Image 2：「通用」默认组改为按张计费的 GPT Image 2.5 Sunburst Developer
+// （img.gpt-image-2.5-sunburst-developer，1K / 2K / 4K）；具名档「GPT」仍是 2.6 Sunburst。
 var DefaultModelGroups = map[string]string{
-	"通用":       "img.gpt-image-2",
+	"通用":       "img.gpt-image-2.5-sunburst-developer",
 	"GPT":      "img.gpt-image-2.6-sunburst",
 	"Banana":   "img.nano-banana-2.1-dev",
 	"Seedream": "img.seedream-5.5",
+	// GPT25Dev GPT Image 2.5 Sunburst Developer（2026-11-09 新增，用户端名「GPT Image 2.5」）：按张计费，1K / 2K / 4K。
+	"GPT25Dev": "img.gpt-image-2.5-sunburst-developer",
 }
 
 // ModelGroupMap 生效的模型档映射。

@@ -590,9 +590,10 @@ func strokeBounds(strokes []any) (NormBox, bool) {
 	return b, b.W > 0 && b.H > 0
 }
 
-// isSeedreamGroup 是否 Seedream 模型组（img.seedream-*）。
+// isSeedreamGroup 是否需要「统一 2K」规则的 Seedream 5 Pro 模型组（img.seedream-5-pro*）。
+// Seedream 5.5（img.seedream-5.5）1K / 2K / 4K 各比例都有预设尺寸，不套这条降档规则（与 studio 换代同口径）。
 func isSeedreamGroup(group string) bool {
-	return strings.Contains(strings.ToLower(group), "seedream")
+	return strings.Contains(strings.ToLower(group), "seedream-5-pro")
 }
 
 // normalizeImageSize 按模型组归一图片分辨率。Seedream 1K 下非 1:1 比例会被拒、4K 会被静默降 2K（studio 的

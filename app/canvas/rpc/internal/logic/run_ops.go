@@ -174,6 +174,9 @@ func (c *core) charge(userID int64, requestID string, sp *runSpec) billing.Charg
 	switch sp.Kind {
 	case model.KindImage:
 		ch.Resolution = strings.ToUpper(sp.Size)
+		// 按实际出图模型选档（Java V1.0.215 给 canvas_image 建了按模型组分价的档位）：GPT Image 2.6 / 2.5、Banana、
+		// Seedream 各扣各的价；该组没有档位时 pickVariant 退回 canvas_image_standard（旧配置照旧）。
+		ch.ModelGroup = sp.ModelGroup
 	case model.KindVideo:
 		ch.Kind, ch.Count, ch.Seconds, ch.Resolution = billing.KindVideo, 1, sp.DurationS, strings.ToLower(sp.Size)
 	}
@@ -269,7 +272,7 @@ func (c *core) GetRun(ctx context.Context, in *canvas.RunIdReq) (*canvas.RunResu
 	if err != nil {
 		return nil, err
 	}
-	return c.toResult(r), nil
+	return c.toResult(ctx, r), nil
 }
 
 // CancelRun 取消执行：gateway 后端退回冻结并取消上游调用；studio 取消批次（由 studio 退款）；
@@ -291,7 +294,7 @@ func (c *core) CancelRun(ctx context.Context, in *canvas.RunIdReq) (*canvas.RunR
 		if got, err := c.s.Repo.Run.Get(ctx, r.ID); err == nil && got != nil {
 			r = got // 可能已按成功交付（候选）或仍在运行中（待重试取消）
 		}
-		return c.toResult(r), nil
+		return c.toResult(ctx, r), nil
 	}
 	if !c.endRun(ctx, r, r.Status, model.RunCanceled, "CANCELED", "已取消执行", true, false) {
 		return nil, xerr.New(xerr.Conflict, "执行状态已变化，请刷新")
@@ -301,7 +304,7 @@ func (c *core) CancelRun(ctx context.Context, in *canvas.RunIdReq) (*canvas.RunR
 	if c.s.TaskCenter != nil {
 		_ = c.s.TaskCenter.Sync(ctx)
 	}
-	return c.toResult(r), nil
+	return c.toResult(ctx, r), nil
 }
 
 func (c *core) ListRuns(ctx context.Context, in *canvas.ListRunsReq) (*canvas.ListRunsResp, error) {
@@ -320,7 +323,7 @@ func (c *core) ListRuns(ctx context.Context, in *canvas.ListRunsReq) (*canvas.Li
 	}
 	out := &canvas.ListRunsResp{List: make([]*canvas.RunResult, 0, len(list))}
 	for _, r := range list {
-		out.List = append(out.List, c.toResult(r))
+		out.List = append(out.List, c.toResult(ctx, r))
 	}
 	return out, nil
 }
@@ -360,5 +363,5 @@ func (c *core) SelectCandidate(ctx context.Context, in *canvas.SelectCandidateRe
 		}
 		r.SelectedIndex = in.Index
 	}
-	return c.toResult(r), nil
+	return c.toResult(ctx, r), nil
 }

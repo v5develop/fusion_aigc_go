@@ -32,6 +32,13 @@ type Config struct {
 		BaseURLs         []string `json:",optional"`
 		Token            string   `json:",optional"`
 	}
+	// FreeWatermark 免费档图片的读时参数水印：Java 把免费用户的图片交付写成水印视图 mrw://{rid}.{ext}（原件在私有桶，
+	// 不存副本），读时必须以「签名覆盖 x-oss-process 水印参数」的形态下发。Process 填与 Java 同一个处理串
+	// （Java 启动日志 check=free_watermark.process 打印的值，或 FREE_WATERMARK_OSS_PROCESS）；留空则 mrw:// 一律输出为空
+	// （失败关闭：绝不签出干净原件）。只允许 [A-Za-z0-9_./,-]，与媒体服务校验一致。
+	FreeWatermark struct {
+		Process string `json:",optional"`
+	} `json:",optional"`
 	// Limits 服务端校验上限（与前端一致，改了要同步 docs/api/api-asset-library.md）
 	Limits struct {
 		TitleLen         int `json:",default=100"`  // 标题字数（afv_asset.name 是 varchar(128)）

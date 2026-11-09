@@ -240,6 +240,8 @@ type Result struct {
 	// Image / Mask image.segment
 	Image *MediaOut `json:"image,omitempty"`
 	Mask  *MediaOut `json:"mask,omitempty"`
+	// Parts image.segment 按 input.classes 分割时的逐类抠图（请求顺序；图里没有的类缺省）
+	Parts []SegmentPart `json:"parts,omitempty"`
 	// Preview image.layer
 	Preview *MediaOut `json:"preview,omitempty"`
 	// Video / Cover / LastFrame video.generate、video.enhance、video.subtitle_erase
@@ -251,6 +253,13 @@ type Result struct {
 
 	// Raw 原始 JSON
 	Raw json.RawMessage `json:"-"`
+}
+
+// SegmentPart image.segment 的一类抠图。
+type SegmentPart struct {
+	// Label 请求的类名（如 tops / coat / pants）
+	Label string    `json:"label"`
+	Image *MediaOut `json:"image,omitempty"`
 }
 
 // UnmarshalJSON 解出常用字段并保留原文。

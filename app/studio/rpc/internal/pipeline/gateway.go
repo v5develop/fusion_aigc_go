@@ -54,6 +54,35 @@ func IsSeedream55Group(modelGroup string) bool {
 	return strings.Contains(strings.ToLower(modelGroup), "seedream-5.5")
 }
 
+// IsGPT25DevGroup 是否 GPT Image 2.5 Sunburst Developer 组（img.gpt-image-2.5-sunburst-developer，网关 atlas.gpt-image-2-5-sunburst-dev）：
+// 按张计费（1K $0.03，2K / 4K 为网关价格模型里的估价），没有 quality 参数。
+func IsGPT25DevGroup(modelGroup string) bool {
+	return strings.Contains(strings.ToLower(modelGroup), "gpt-image-2.5-sunburst-developer")
+}
+
+// IsGPT26Group 是否 GPT Image 2.6 Sunburst 组（img.gpt-image-2.6-sunburst）。
+func IsGPT26Group(modelGroup string) bool {
+	return strings.Contains(strings.ToLower(modelGroup), "gpt-image-2.6")
+}
+
+// GPT Image 2.6 的参考图上限（与 Java 计费最坏档一致：编辑每多一张参考图成本约 $0.056，超出会亏）：
+// 图片生成 5 张；商拍 / 姿态一次生图 6 张（模特 / 人物图 + 服装 / 姿势图）。其它模型不受影响。
+const (
+	GPT26ImageGenMaxRefs = 5
+	GPT26EditMaxRefs     = 6
+)
+
+// GPT26MaxRefs GPT 2.6 组该 kind 的参考图硬上限；非 2.6 组返回 0（不限制）。
+func GPT26MaxRefs(modelGroup, kind string) int {
+	if !IsGPT26Group(modelGroup) {
+		return 0
+	}
+	if kind == KindImageGen {
+		return GPT26ImageGenMaxRefs
+	}
+	return GPT26EditMaxRefs
+}
+
 // seedream55Aspect Seedream 5.5 缺的比例 → 最近的预设比例。
 var seedream55Aspect = map[string]string{"4:5": "3:4", "5:4": "4:3"}
 
@@ -78,7 +107,7 @@ const (
 
 // QualityFor 生图质量：只给 GPT 组下发（其余组不接收）。用户指定优先；商拍 high，其余 medium。
 func QualityFor(modelGroup, kind, user string) string {
-	if !IsGPTGroup(modelGroup) {
+	if !IsGPTGroup(modelGroup) || IsGPT25DevGroup(modelGroup) { // 2.5 Developer 没有 quality 参数
 		return ""
 	}
 	switch q := strings.ToLower(strings.TrimSpace(user)); q {
@@ -92,7 +121,8 @@ func QualityFor(modelGroup, kind, user string) string {
 }
 
 // NormalizeForGroup 按 model group 修正分辨率：Seedream（5 Pro）1K 下非 1:1 比例会被拒、4K 会被静默降 2K，
-// 所以 4k → 2k，1k 且比例不是 1:1 → 2k，并返回告警。Seedream 5.5 各档比例齐全、支持 4K，不修正。返回小写分辨率。
+// 所以 4k → 2k，1k 且比例不是 1:1 → 2k，并返回告警。Seedream 5.5 各档比例齐全、支持 4K，不修正。
+// 返回小写分辨率。
 func NormalizeForGroup(modelGroup, resolution, aspectRatio string) (string, []string, error) {
 	res, err := NormalizeResolution(resolution)
 	if err != nil {
@@ -156,7 +186,7 @@ func (o GenOptions) maxRefs(modelGroup string) int {
 }
 
 func (o GenOptions) quality(modelGroup string) string {
-	if !IsGPTGroup(modelGroup) {
+	if !IsGPTGroup(modelGroup) || IsGPT25DevGroup(modelGroup) {
 		return ""
 	}
 	return o.Quality
@@ -177,6 +207,8 @@ const (
 	ModelGPT      = "GPT"
 	ModelBanana   = "Banana"
 	ModelSeedream = "Seedream"
+	// ModelGPT25Dev GPT Image 2.5 Sunburst Developer（用户端名「GPT Image 2.5」，按张计费）
+	ModelGPT25Dev = "GPT25Dev"
 )
 
 // modelAliases 小写别名 → 档名（商拍页中文名 / 英文 id、姿态页 nano / seedream 都认）。
@@ -187,6 +219,8 @@ var modelAliases = map[string]string{
 	"banana": ModelBanana, "nano-banana": ModelBanana, "nano-banana-2.1": ModelBanana, "nano": ModelBanana,
 	"nano-banana-2.1-dev": ModelBanana, "nano-banana-dev": ModelBanana,
 	"seedream": ModelSeedream, "seedream-5-pro": ModelSeedream, "seedream-5.5": ModelSeedream,
+	"gpt25dev": ModelGPT25Dev, "gpt-image-2.5": ModelGPT25Dev, "gpt-image-2.5-sunburst-developer": ModelGPT25Dev,
+	"gpt image 2.5": ModelGPT25Dev, "gpt image 2.5 sunburst developer": ModelGPT25Dev,
 }
 
 // ErrUnknownModel 不认识的模型档。
@@ -305,7 +339,11 @@ func BuildImageEditRequestRefs(kind, modelGroup, prompt string, images []aigatew
 	if len(refs) == 0 {
 		return aigateway.CallRequest{}, nil, errors.New("image.edit 至少需要 1 张参考图")
 	}
-	if lim := opt.maxRefs(modelGroup); len(refs) > lim {
+	lim := opt.maxRefs(modelGroup)
+	if hard := GPT26MaxRefs(modelGroup, kind); hard > 0 && hard < lim {
+		lim = hard
+	}
+	if len(refs) > lim {
 		warns = append(warns, fmt.Sprintf("参考图 %d 张超过 %s 上限 %d，已截断", len(refs), modelGroup, lim))
 		refs = refs[:lim]
 	}

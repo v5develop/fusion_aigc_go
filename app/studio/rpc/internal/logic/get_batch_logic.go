@@ -39,5 +39,8 @@ func (l *GetBatchLogic) GetBatch(in *studio.GetBatchReq) (*studio.BatchDetail, e
 	}
 	out := toBatchDetail(b, tasks)
 	attachAssetIDsToDetails(l.ctx, d.repo, in.UserId, out)
+	if !in.RawRefs { // 内部调用方（canvas）要原始引用：自己持久化引用、读时再签，不落短期签名地址
+		signDetails(l.ctx, l.svcCtx, out)
+	}
 	return out, nil
 }

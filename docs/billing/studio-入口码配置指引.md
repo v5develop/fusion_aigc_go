@@ -53,7 +53,22 @@
 
 ## 四、价格怎么来、什么时候要改
 
-**现在是占位价，待产品定价。** 步骤指向 `creaft-image-2` 的 `CREAFT_V1` 单价行，按分辨率取价（提交时的 `resolution`，小写 1k / 2k / 4k）：
+**2026-11-09 起按出图模型 × 分辨率计价**（Java 迁移 `V1.0.214__retire_gpt_image_2_switch_to_2_5_sunburst_developer.sql` + `V1.0.215__atlas_image_pricing_and_studio_tiers.sql`，晚建 offer 的环境由本仓库 `studio-offers-2026-10-30.sql` 第 1.4 段补档位）。每个入口按模型组各一个档位，档位默认模型是带 `gateway_model_group` 的计费载体；报价、提交冻结、重做冻结都带子任务的模型组（`Charge.ModelGroup`）选档，再按分辨率取单价行。
+
+定价规则：本站 **1 点 = 0.01 元**，每档点数 = ceil(该档最坏参数组合的成本美元 × 7.2 × 1.3 / 0.01)（30% 最低毛利；Java `AtlasImageListPrice` / `AtlasImagePricingMarginTest`）。成本取 Atlas 实际计费（GPT 2.6 按定价页预扣上限；Banana / Seedream 为 readme 分档价 × 目录折扣；GPT 2.5 按张 1K $0.03、2K $0.06 / 4K $0.12 为估价）：
+
+| 入口 | GPT Image 2.6 | GPT Image 2.5（= 通用） | Nano Banana 2.1 Dev | Seedream 5.5 |
+|---|---|---|---|---|
+| 商拍换装（≤6 张参考图 + 辅助调用） | 420 / 898 / 1727 | 29 / 57 / 113 | 25 / 33 / 54 | 53 / 59 / 78 |
+| 姿态复刻（同上） | 420 / 898 / 1727 | 29 / 57 / 113 | 25 / 33 / 54 | 53 / 59 / 78 |
+| 图片生成（复用 creaft-* 载体） | 367 / 898 / 1727 | 29 / 57 / 113 | 29 / 37 / 59 | 76 / 82 / 101 |
+
+画布生图（`canvas_image`，同一规则）：GPT Image 2.6 836 / 1144 / 1723（≤14 张参考图），「Image」= GPT Image 2.5 29 / 57 / 113，Banana / Seedream 同图片生成。
+（1k / 2k / 4k 点 / 张。）没有对应模型组档位的任务（换代前的旧组重做、未跑迁移的环境）退回下面的 `*_standard` 原价。改某个模型的价：改它载体的 `CREAFT_V1` 单价行（`studio-*` 载体只给 studio 用；`creaft-*` 载体与 Java 兼容面共用）。
+
+以下是分模型之前的说明（`*_standard` 档位仍保留作兜底）。
+
+**原占位价。** 步骤指向 `creaft-image-2` 的 `CREAFT_V1` 单价行，按分辨率取价（提交时的 `resolution`，小写 1k / 2k / 4k）：
 
 | 分辨率 | 单价（2026-10-20 调价后） |
 |---|---|

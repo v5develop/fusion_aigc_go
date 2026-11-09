@@ -51,6 +51,8 @@ type Quote struct {
 	OfferCode   string
 	FeatureCode string
 	VariantCode string
+	// ModelGroup 按模型组选中档位时的组码（Charge.ModelGroup 命中了分模型档位）；退回默认档位时为空
+	ModelGroup  string
 	ModelID     int64
 	PricingID   int64 // 主计费步骤用的单价行，写进预留单
 	PricePoints int64
@@ -81,7 +83,7 @@ type QuoteLine struct {
 func (q *Quote) Snapshot() string {
 	b, err := json.Marshal(map[string]any{
 		"entryCode": q.EntryCode, "offerCode": q.OfferCode, "variantCode": q.VariantCode,
-		"modelId": q.ModelID, "priceUnit": q.PriceUnit, "quantity": q.Quantity,
+		"modelGroup": q.ModelGroup, "modelId": q.ModelID, "priceUnit": q.PriceUnit, "quantity": q.Quantity,
 		"pricePoints": q.PricePoints, "settlement": q.Settlement, "lines": q.Lines,
 		"source": "aigc-local-life", // 一眼看出这单是 Go 写的
 	})
@@ -140,7 +142,7 @@ func price(ctx context.Context, conn sqlx.SqlConn, c Charge) (*Quote, error) {
 		return nil, err
 	}
 
-	v, err := pickVariant(ctx, conn, o.OfferCode, c.ModelCode, c.Tier)
+	v, group, err := pickVariant(ctx, conn, o.OfferCode, c.ModelCode, c.ModelGroup, c.Tier)
 	if err != nil {
 		return nil, err
 	}
@@ -168,7 +170,7 @@ func price(ctx context.Context, conn sqlx.SqlConn, c Charge) (*Quote, error) {
 	}
 	q := &Quote{
 		EntryCode: o.EntryCode, OfferCode: o.OfferCode, FeatureCode: o.FeatureCode,
-		VariantCode: v.VariantCode, ModelID: v.DefaultModelID.Int64,
+		VariantCode: v.VariantCode, ModelGroup: group, ModelID: v.DefaultModelID.Int64,
 		Settlement: or(v.Settlement.String, "ALL_OR_NOTHING"),
 	}
 	for _, cp := range comps {
@@ -199,17 +201,21 @@ func price(ctx context.Context, conn sqlx.SqlConn, c Charge) (*Quote, error) {
 
 // pickVariant 选档位，按这个顺序：
 //
-//  1. 给了 modelCode → 按档位的默认模型匹配
-//  2. 给了 tier      → 先找 <offer_code>_<tier> 这个档位码，再找 quality_tier
-//  3. 都没给         → 第一个启用的
+//  1. 给了 modelCode  → 按档位的默认模型匹配
+//  2. 给了 modelGroup → 按档位默认模型的 gateway_model_group 匹配；没有这个组的档位**不报错**，往下走 3 / 4
+//     （该入口还没配分模型价、或任务是换代前的旧组，按原来的档位扣，与没传组时完全一样）
+//  3. 给了 tier       → 先找 <offer_code>_<tier> 这个档位码，再找 quality_tier
+//  4. 都没给          → 第一个启用的
 //
 // 常用的是 2：一个 offer 下的多档差别就是模型，而两边的模型码对不上
 // （见 Charge.Tier 的注释），按档次选才稳。
 //
 // 选不到就报错，**不退回"第一个档位"**——那会把用户选的 lite 按云端价扣。
-func pickVariant(ctx context.Context, conn sqlx.SqlConn, offerCode, modelCode, tier string) (*variantRow, error) {
+func pickVariant(ctx context.Context, conn sqlx.SqlConn, offerCode, modelCode, modelGroup, tier string) (_ *variantRow, matchedGroup string, _ error) {
 	const cols = "`variant_code`,`quality_tier`,`default_model_id`,`default_resolution`," +
 		"`default_duration_seconds`,`settlement_type`"
+	const vcols = "v.`variant_code`,v.`quality_tier`,v.`default_model_id`,v.`default_resolution`," +
+		"v.`default_duration_seconds`,v.`settlement_type`"
 	if strings.TrimSpace(modelCode) != "" {
 		var v variantRow
 		const q = "SELECT " + cols + " FROM `afv_billing_offer_variant` v " +
@@ -218,11 +224,25 @@ func pickVariant(ctx context.Context, conn sqlx.SqlConn, offerCode, modelCode, t
 			"ORDER BY v.`id` LIMIT 1"
 		switch err := conn.QueryRowCtx(ctx, &v, q, offerCode, modelCode); {
 		case err == nil:
-			return &v, nil
+			return &v, "", nil
 		case !errors.Is(err, sqlx.ErrNotFound):
-			return nil, err
+			return nil, "", err
 		}
-		return nil, fmt.Errorf("%w: %s 下没有模型 %s 的档位", ErrNoOffer, offerCode, modelCode)
+		return nil, "", fmt.Errorf("%w: %s 下没有模型 %s 的档位", ErrNoOffer, offerCode, modelCode)
+	}
+	if g := strings.TrimSpace(modelGroup); g != "" {
+		var v variantRow
+		const q = "SELECT " + vcols + " FROM `afv_billing_offer_variant` v " +
+			"JOIN `afv_ai_model` m ON m.`id` = v.`default_model_id` AND m.`deleted` = 0 " +
+			"WHERE v.`offer_code` = ? AND v.`status` = 'ENABLED' AND v.`deleted` = 0 AND m.`gateway_model_group` = ? " +
+			"ORDER BY v.`id` LIMIT 1"
+		switch err := conn.QueryRowCtx(ctx, &v, q, offerCode, g); {
+		case err == nil:
+			return &v, g, nil
+		case !errors.Is(err, sqlx.ErrNotFound):
+			return nil, "", err
+		}
+		// 没有这个组的档位：按 tier / 第一个档位选（见函数注释第 2 条）
 	}
 	if tier = strings.TrimSpace(tier); tier != "" {
 		var v variantRow
@@ -234,11 +254,11 @@ func pickVariant(ctx context.Context, conn sqlx.SqlConn, offerCode, modelCode, t
 		full := offerCode + "_" + tier
 		switch err := conn.QueryRowCtx(ctx, &v, q, offerCode, full, tier, full); {
 		case err == nil:
-			return &v, nil
+			return &v, "", nil
 		case !errors.Is(err, sqlx.ErrNotFound):
-			return nil, err
+			return nil, "", err
 		}
-		return nil, fmt.Errorf("%w: %s 下没有 %s 档（找过档位码 %s 和 quality_tier）",
+		return nil, "", fmt.Errorf("%w: %s 下没有 %s 档（找过档位码 %s 和 quality_tier）",
 			ErrNoOffer, offerCode, tier, full)
 	}
 	var v variantRow
@@ -246,11 +266,11 @@ func pickVariant(ctx context.Context, conn sqlx.SqlConn, offerCode, modelCode, t
 		"WHERE `offer_code` = ? AND `status` = 'ENABLED' AND `deleted` = 0 ORDER BY `id` LIMIT 1"
 	switch err := conn.QueryRowCtx(ctx, &v, q, offerCode); {
 	case errors.Is(err, sqlx.ErrNotFound):
-		return nil, fmt.Errorf("%w: %s 没有启用的档位", ErrNoOffer, offerCode)
+		return nil, "", fmt.Errorf("%w: %s 没有启用的档位", ErrNoOffer, offerCode)
 	case err != nil:
-		return nil, err
+		return nil, "", err
 	}
-	return &v, nil
+	return &v, "", nil
 }
 
 // priceLine 算一个计费步骤。

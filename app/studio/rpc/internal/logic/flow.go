@@ -51,6 +51,7 @@ type Poller struct {
 }
 
 func NewPoller(svcCtx *svc.ServiceContext) *Poller {
+	logFreeWatermark(svcCtx.Config.FreeWatermark)
 	return &Poller{f: newFlow(svcCtx), svcCtx: svcCtx, done: make(chan struct{})}
 }
 
@@ -117,6 +118,9 @@ type flow struct {
 	catAt    time.Time
 	catLimit map[string]int // 启用的模型组 → max_reference_images
 
+	// mask 区域蒙版服务（成品服装蒙版的异步后置步骤）；nil = 不补蒙版
+	mask *masker
+
 	// promptPct 商拍提示词灰度比例（afv_system_config 覆盖 yaml）；nil 时直接用 cfg.TryonPrompt.NewPercent
 	promptPct *intKnob
 
@@ -129,6 +133,16 @@ type flow struct {
 
 	previewCleanAt time.Time // 上次清理配对预览缓存的时间（零值 = 下一轮立刻做）
 	renewAfter     int64     // 续期游标：上一轮续到的子任务主键（超过 renewLimit 时分轮轮转，0 = 从头）
+
+	// tier 免费档判定（免费水印视图交付用）；nil = 不区分（全部按付费交付）
+	tier freeTier
+	// promoteAt / promoteAfter 免费原图付费转存：上次扫描时间、扫描游标（主键）
+	promoteAt    time.Time
+	promoteAfter int64
+	// cleanAt / cleanAfter 到期清理：上次扫描时间、扫描游标；dropAssets 逻辑删除该任务的素材库行
+	cleanAt    time.Time
+	cleanAfter int64
+	dropAssets func(ctx context.Context, userID int64, sourceTaskID string) error
 }
 
 // semaphore.Group 的 key：批次编排、子任务轮询各一个全局名额池。
@@ -150,6 +164,9 @@ func newFlow(s *svc.ServiceContext) *flow {
 		cfg: s.Config, repo: s.Repo, rev: s.Reverse, bill: s.Billing,
 		sem: semaphore.NewGroup(), now: time.Now, owner: lease.Owner(),
 		asset: func(ctx context.Context, list []asset.Asset) error { return s.Asset.InsertSet(ctx, list) },
+		dropAssets: func(ctx context.Context, userID int64, sourceTaskID string) error {
+			return s.Asset.SoftDeleteByTask(ctx, userID, sourceTaskID)
+		},
 		sync: func(ctx context.Context) {
 			if s.TaskCenter != nil {
 				_ = s.TaskCenter.Sync(ctx) // 失败已在 taskcenter 里记日志
@@ -158,6 +175,12 @@ func newFlow(s *svc.ServiceContext) *flow {
 	}
 	if s.MediaSvc != nil { // 别把 nil 指针装进接口
 		f.media = s.MediaSvc
+	}
+	if s.Repo != nil {
+		f.mask = newMasker(s)
+	}
+	if s.Tier != nil { // 别把 nil 指针装进接口
+		f.tier = s.Tier
 	}
 	if s.Conn != nil {
 		f.promptPct = newIntKnob(KnobTryonNewPromptPercent, s.Config.TryonPrompt.NewPercent, 0, 100, systemConfigLoader(s.Conn))

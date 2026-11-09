@@ -42,6 +42,8 @@ type ServiceContext struct {
 	Session      *session.Store
 	// PosePreviewQuota 姿态配对预览的按用户配额（Config.Studio.PosePreview*，计数在会话 Redis）
 	PosePreviewQuota *userquota.Limiter
+	// MaskQuota 区域蒙版的按用户配额（Config.Studio.Mask*，计数在会话 Redis）
+	MaskQuota *userquota.Limiter
 }
 
 func NewServiceContext(c config.Config) *ServiceContext {
@@ -72,5 +74,6 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		AppUser:          appuser.New(conn).WithRegistrar(fusionRegistrar{fusion.New(c.Fusion)}),
 		Session:          sess,
 		PosePreviewQuota: userquota.New("studio:pose_preview", c.Studio.PosePreviewPerMinute, c.Studio.PosePreviewPerDay, quotaRedis),
+		MaskQuota:        userquota.New("studio:mask", c.Studio.MaskPerMinute, c.Studio.MaskPerDay, quotaRedis),
 	}
 }
