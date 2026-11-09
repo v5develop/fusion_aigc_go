@@ -678,6 +678,12 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 					Handler: studio.GetTaskHandler(serverCtx),
 				},
 				{
+					// 保存单张结果的校色参数（仅本人、仅成功的任务；校色在前端烘图，服务端只存五个滑杆值）；返回该任务（同 GET /tasks/:task_id）
+					Method:  http.MethodPatch,
+					Path:    "/tasks/:task_id/color-fix",
+					Handler: studio.UpdateTaskColorFixHandler(serverCtx),
+				},
+				{
 					// 重试单个失败子任务（仅本人、任务失败且批次为全部失败 / 部分成功）：只重跑这张图的生图一步（沿用已存提示词，不再反推），按原入口重新冻结 1 张点数；返回批次详情（同 GET /batches/:id），之后照常轮询批次。重复点击幂等
 					Method:  http.MethodPost,
 					Path:    "/tasks/:task_id/retry",

@@ -73,7 +73,9 @@ func (l *RetryTaskLogic) RetryTask(in *studio.RetryTaskReq) (*studio.BatchDetail
 	if err != nil {
 		return nil, err
 	}
-	return toBatchDetail(b, tasks), nil
+	out := toBatchDetail(b, tasks)
+	attachAssetIDsToDetails(l.ctx, f.repo, in.UserId, out)
+	return out, nil
 }
 
 // ownedTask 用户侧取子任务与批次：不存在 / 不是本人 / 已删除一律 NotFound（不暴露别人的任务是否存在）。

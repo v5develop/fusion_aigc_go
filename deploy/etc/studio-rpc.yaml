@@ -69,11 +69,12 @@ Media:
   BaseURL: http://127.0.0.1:18090
   Token: change-me
 # 前端模型档 → ai-gateway model group；「通用」= 运营定的默认组
+# 具名档（2026-11-09 换代）：GPT Image 2.6 Sunburst / Nano Banana 2.1 Developer / Seedream 5.5，网关须先发布这三个组
 ModelGroups:
   通用: img.gpt-image-2
-  GPT: img.gpt-image-2
-  Banana: img.nano-banana-2.1
-  Seedream: img.seedream-5-pro
+  GPT: img.gpt-image-2.6-sunburst
+  Banana: img.nano-banana-2.1-dev
+  Seedream: img.seedream-5.5
 Timeouts:
   Crop: 120
   Analyze: 120

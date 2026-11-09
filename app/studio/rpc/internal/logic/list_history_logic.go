@@ -63,5 +63,6 @@ func (l *ListHistoryLogic) ListHistory(in *studio.ListHistoryReq) (*studio.ListH
 	for _, b := range list {
 		resp.Items = append(resp.Items, toBatchDetail(b, tasks[b.ID]))
 	}
+	attachAssetIDsToDetails(l.ctx, r, in.UserId, resp.Items...)
 	return resp, nil
 }

@@ -1,4 +1,4 @@
-// Package model studio 三张表（deploy/sql/Go_V1.0.21__studio.sql）的 bun 结构体。
+// Package model studio 三张表（deploy/sql/Go_V1.0.21__studio.sql，afv_studio_task.color_fix_params 见 Go_V1.0.27）的 bun 结构体。
 //
 // 按设计方案 §9.5：新模块业务数据访问用 bun，不再用 goctl 生成 model。
 // 这里只放结构体与常量；数据访问（插入、CAS 状态迁移、Upsert 缓存、游标分页）在 app/studio/rpc/internal/repo。
@@ -164,6 +164,7 @@ type Task struct {
 	BillingRequestID sql.NullString  `bun:"billing_request_id"`
 	BillingStatus    int8            `bun:"billing_status,notnull"`
 	ErrorReason      sql.NullString  `bun:"error_reason"`
+	ColorFixParams   json.RawMessage `bun:"color_fix_params,type:json,nullzero"` // 校色参数（Go_V1.0.27），NULL=没保存过
 	StartedAt        sql.NullTime    `bun:"started_at"`
 	FinishedAt       sql.NullTime    `bun:"finished_at"`
 	Deleted          int8            `bun:"deleted,notnull"`

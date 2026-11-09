@@ -89,6 +89,12 @@ func (s *StudioServer) RetryTask(ctx context.Context, in *studio.RetryTaskReq) (
 	return l.RetryTask(in)
 }
 
+// 保存子任务的校色参数（仅本人、仅成功的任务）：前端浏览器里烘图，服务端只存五个滑杆值；返回该子任务
+func (s *StudioServer) UpdateTaskColorFix(ctx context.Context, in *studio.UpdateTaskColorFixReq) (*studio.TaskInfo, error) {
+	l := logic.NewUpdateTaskColorFixLogic(ctx, s.svcCtx)
+	return l.UpdateTaskColorFix(in)
+}
+
 // ---- 运营后台 ----
 func (s *StudioServer) AdminListBatches(ctx context.Context, in *studio.AdminListBatchesReq) (*studio.AdminListBatchesResp, error) {
 	l := logic.NewAdminListBatchesLogic(ctx, s.svcCtx)

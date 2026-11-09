@@ -37,5 +37,7 @@ func (l *GetBatchLogic) GetBatch(in *studio.GetBatchReq) (*studio.BatchDetail, e
 	if err != nil {
 		return nil, err
 	}
-	return toBatchDetail(b, tasks), nil
+	out := toBatchDetail(b, tasks)
+	attachAssetIDsToDetails(l.ctx, d.repo, in.UserId, out)
+	return out, nil
 }

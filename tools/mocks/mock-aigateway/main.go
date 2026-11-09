@@ -5,7 +5,8 @@
 //	GET  /v1/calls/{id}[?wait=N]    每次读取推进一步 PENDING→RUNNING→SUCCEEDED；带 wait 直接到终态
 //	POST /v1/calls/{id}/cancel      PENDING 变 CANCELLED；其它状态原样返回
 //	POST /v1/calls:batchGet         {"ids":[...]} → {"items":[...],"missing":[...]}（每条同样推进一步）
-//	GET  /v1/catalog/model-groups   img.gpt-image-2 / img.nano-banana-2.1 / img.seedream-5-pro
+//	GET  /v1/catalog/model-groups   img.gpt-image-2 / img.nano-banana-2.1 / img.seedream-5-pro（及换代后的 img.gpt-image-2.6-sunburst /
+//	                                img.nano-banana-2.1-dev / img.seedream-5.5）
 //	POST /v1/catalog/readiness      请求里的模型组全部 ready
 //	GET  /img/{n}.png               产物图（64×64 PNG，不验签）
 //
@@ -450,6 +451,8 @@ func (s *server) modelGroups(w http.ResponseWriter, r *http.Request) {
 		"feature_limits": map[string]any{"supports_vision": true}}
 	writeJSON(w, 200, map[string]any{"items": []any{
 		mg("img.gpt-image-2", "GPT Image 2"), mg("img.nano-banana-2.1", "Nano Banana 2.1"), mg("img.seedream-5-pro", "Seedream 5 Pro"),
+		mg("img.gpt-image-2.6-sunburst", "GPT Image 2.6 Sunburst"), mg("img.nano-banana-2.1-dev", "Nano Banana 2.1 Developer"),
+		mg("img.seedream-5.5", "Seedream 5.5"),
 		vid("vid.seedance-2.5", "Seedance 2.5", true), vid("vid.seedance-2", "Seedance 2.0", true), vid("vid.seedance-2-fast", "Seedance 2.0 Fast", true),
 		vid("vid.seedance-2-mini", "Seedance 2.0 Mini", false), vlm}})
 }

@@ -11025,11 +11025,45 @@
                           "prompt_summary",
                           "created_at",
                           "started_at",
-                          "finished_at"
+                          "finished_at",
+                          "asset_id",
+                          "color_fix_params"
                         ],
                         "properties": {
+                          "asset_id": {
+                            "description": "成品在素材库的资产 id（afv_asset.id），可直接调 POST /api/v1/asset-library/assets/{id}/versions；没入库 / 已从素材库删除为 0",
+                            "type": "integer"
+                          },
                           "batch_id": {
                             "type": "integer"
+                          },
+                          "color_fix_params": {
+                            "description": "已保存的校色参数；没保存过为 null",
+                            "type": "object",
+                            "required": [
+                              "hue",
+                              "saturation",
+                              "value",
+                              "brightness",
+                              "contrast"
+                            ],
+                            "properties": {
+                              "brightness": {
+                                "type": "integer"
+                              },
+                              "contrast": {
+                                "type": "integer"
+                              },
+                              "hue": {
+                                "type": "integer"
+                              },
+                              "saturation": {
+                                "type": "integer"
+                              },
+                              "value": {
+                                "type": "integer"
+                              }
+                            }
                           },
                           "created_at": {
                             "type": "integer"
@@ -11419,11 +11453,21 @@
                                 "prompt_summary",
                                 "created_at",
                                 "started_at",
-                                "finished_at"
+                                "finished_at",
+                                "asset_id",
+                                "color_fix_params"
                               ],
                               "properties": {
+                                "asset_id": {
+                                  "description": "成品在素材库的资产 id（afv_asset.id），可直接调 POST /api/v1/asset-library/assets/{id}/versions；没入库 / 已从素材库删除为 0",
+                                  "type": "integer"
+                                },
                                 "batch_id": {
                                   "type": "integer"
+                                },
+                                "color_fix_params": {
+                                  "description": "已保存的校色参数；没保存过为 null",
+                                  "type": "object"
                                 },
                                 "created_at": {
                                   "type": "integer"
@@ -12137,6 +12181,10 @@
                   "description": "空=3:4",
                   "type": "string"
                 },
+                "color_fix": {
+                  "description": "「默认校色」开关，同商拍",
+                  "type": "boolean"
+                },
                 "global_prompt": {
                   "description": "全局补充说明，≤3000 字",
                   "type": "string"
@@ -12296,8 +12344,223 @@
                 "data": {
                   "type": "object",
                   "properties": {
+                    "asset_id": {
+                      "description": "成品在素材库的资产 id（afv_asset.id），可直接调 POST /api/v1/asset-library/assets/{id}/versions；没入库 / 已从素材库删除为 0",
+                      "type": "integer"
+                    },
                     "batch_id": {
                       "type": "integer"
+                    },
+                    "color_fix_params": {
+                      "description": "已保存的校色参数；没保存过为 null",
+                      "type": "object",
+                      "required": [
+                        "hue",
+                        "saturation",
+                        "value",
+                        "brightness",
+                        "contrast"
+                      ],
+                      "properties": {
+                        "brightness": {
+                          "type": "integer"
+                        },
+                        "contrast": {
+                          "type": "integer"
+                        },
+                        "hue": {
+                          "type": "integer"
+                        },
+                        "saturation": {
+                          "type": "integer"
+                        },
+                        "value": {
+                          "type": "integer"
+                        }
+                      }
+                    },
+                    "created_at": {
+                      "type": "integer"
+                    },
+                    "error_reason": {
+                      "type": "string"
+                    },
+                    "finished_at": {
+                      "description": "0=未结束",
+                      "type": "integer"
+                    },
+                    "id": {
+                      "type": "integer"
+                    },
+                    "kind": {
+                      "type": "string"
+                    },
+                    "model_index": {
+                      "type": "integer"
+                    },
+                    "pose_index": {
+                      "type": "integer"
+                    },
+                    "progress": {
+                      "description": "0–100（估算）",
+                      "type": "integer"
+                    },
+                    "prompt_summary": {
+                      "type": "string"
+                    },
+                    "result_height": {
+                      "type": "integer"
+                    },
+                    "result_url": {
+                      "type": "string"
+                    },
+                    "result_width": {
+                      "type": "integer"
+                    },
+                    "shot_index": {
+                      "type": "integer"
+                    },
+                    "started_at": {
+                      "description": "0=未开始",
+                      "type": "integer"
+                    },
+                    "status": {
+                      "description": "0-排队 1-生成中 2-成功 3-失败 4-已取消",
+                      "type": "integer"
+                    },
+                    "task_id": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "msg": {
+                  "description": "business message",
+                  "type": "string",
+                  "example": "ok"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/studio/tasks/{task_id}/color-fix": {
+      "patch": {
+        "security": [
+          {
+            "auth": []
+          }
+        ],
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "商拍换装 / 姿态复刻 / 图片生成"
+        ],
+        "summary": "保存单张结果的校色参数（仅本人、仅成功的任务；校色在前端烘图，服务端只存五个滑杆值）；返回该任务（同 GET /tasks/:task_id）",
+        "operationId": "studioUpdateTaskColorFix",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "task_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "required": [
+                "params"
+              ],
+              "properties": {
+                "params": {
+                  "type": "object",
+                  "required": [
+                    "hue",
+                    "saturation",
+                    "value",
+                    "brightness",
+                    "contrast"
+                  ],
+                  "properties": {
+                    "brightness": {
+                      "type": "integer"
+                    },
+                    "contrast": {
+                      "type": "integer"
+                    },
+                    "hue": {
+                      "type": "integer"
+                    },
+                    "saturation": {
+                      "type": "integer"
+                    },
+                    "value": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
+                  "type": "integer",
+                  "example": 0
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "asset_id": {
+                      "description": "成品在素材库的资产 id（afv_asset.id），可直接调 POST /api/v1/asset-library/assets/{id}/versions；没入库 / 已从素材库删除为 0",
+                      "type": "integer"
+                    },
+                    "batch_id": {
+                      "type": "integer"
+                    },
+                    "color_fix_params": {
+                      "description": "已保存的校色参数；没保存过为 null",
+                      "type": "object",
+                      "required": [
+                        "hue",
+                        "saturation",
+                        "value",
+                        "brightness",
+                        "contrast"
+                      ],
+                      "properties": {
+                        "brightness": {
+                          "type": "integer"
+                        },
+                        "contrast": {
+                          "type": "integer"
+                        },
+                        "hue": {
+                          "type": "integer"
+                        },
+                        "saturation": {
+                          "type": "integer"
+                        },
+                        "value": {
+                          "type": "integer"
+                        }
+                      }
                     },
                     "created_at": {
                       "type": "integer"
@@ -12487,11 +12750,45 @@
                           "prompt_summary",
                           "created_at",
                           "started_at",
-                          "finished_at"
+                          "finished_at",
+                          "asset_id",
+                          "color_fix_params"
                         ],
                         "properties": {
+                          "asset_id": {
+                            "description": "成品在素材库的资产 id（afv_asset.id），可直接调 POST /api/v1/asset-library/assets/{id}/versions；没入库 / 已从素材库删除为 0",
+                            "type": "integer"
+                          },
                           "batch_id": {
                             "type": "integer"
+                          },
+                          "color_fix_params": {
+                            "description": "已保存的校色参数；没保存过为 null",
+                            "type": "object",
+                            "required": [
+                              "hue",
+                              "saturation",
+                              "value",
+                              "brightness",
+                              "contrast"
+                            ],
+                            "properties": {
+                              "brightness": {
+                                "type": "integer"
+                              },
+                              "contrast": {
+                                "type": "integer"
+                              },
+                              "hue": {
+                                "type": "integer"
+                              },
+                              "saturation": {
+                                "type": "integer"
+                              },
+                              "value": {
+                                "type": "integer"
+                              }
+                            }
                           },
                           "created_at": {
                             "type": "integer"
@@ -12733,6 +13030,10 @@
                   "description": "旧版兼容位，新前端不要传",
                   "type": "string"
                 },
+                "color_fix": {
+                  "description": "「默认校色」开关：开启时写进批次 payload（color_fix=true），前端据此给结果套默认校色参数；不影响生图与计费",
+                  "type": "boolean"
+                },
                 "count_per_model": {
                   "description": "每位模特张数 1–9",
                   "type": "integer"
@@ -12879,7 +13180,7 @@
       "in": "header"
     }
   },
-  "x-date": "2026-11-07 17:21:07",
+  "x-date": "2026-11-09 11:00:54",
   "x-description": "This is a goctl generated swagger file.",
   "x-github": "https://github.com/zeromicro/go-zero",
   "x-go-zero-doc": "https://go-zero.dev/",

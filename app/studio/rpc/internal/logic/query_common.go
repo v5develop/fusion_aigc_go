@@ -81,7 +81,43 @@ func toTaskInfo(t *model.Task, batchStatus int8) *studio.TaskInfo {
 		ResultUrl: t.ResultURL.String, ResultWidth: t.ResultWidth, ResultHeight: t.ResultHeight,
 		ErrorReason: t.ErrorReason.String, PromptSummary: PromptSummary(t), ModelGroup: t.ModelGroup,
 		CreatedAt: t.CreatedAt.UnixMilli(), StartedAt: msOf(t.StartedAt), FinishedAt: msOf(t.FinishedAt),
+		ColorFixParams: parseColorFix(t.ColorFixParams),
 	}
+}
+
+// attachAssetIDs 给成功的子任务填素材库资产 id（一次 IN 查询，不逐条查）。查询失败只记日志、asset_id 留 0，
+// 不让轮询 / 历史因为素材库读不到而报错。
+func attachAssetIDs(ctx context.Context, r *repo.Repo, userID int64, tasks []*studio.TaskInfo) {
+	ids := make([]string, 0, len(tasks))
+	for _, t := range tasks {
+		if t != nil && t.Status == int32(model.TaskSucceeded) && t.TaskId != "" {
+			ids = append(ids, t.TaskId)
+		}
+	}
+	if len(ids) == 0 {
+		return
+	}
+	m, err := r.Task.AssetIDs(ctx, userID, ids)
+	if err != nil {
+		logx.WithContext(ctx).Errorf("studio: 查子任务的素材库资产失败（asset_id 留 0）: %v", err)
+		return
+	}
+	for _, t := range tasks {
+		if t != nil {
+			t.AssetId = m[t.TaskId]
+		}
+	}
+}
+
+// attachAssetIDsToDetails 多个批次详情一次查齐。
+func attachAssetIDsToDetails(ctx context.Context, r *repo.Repo, userID int64, details ...*studio.BatchDetail) {
+	var all []*studio.TaskInfo
+	for _, d := range details {
+		if d != nil {
+			all = append(all, d.Tasks...)
+		}
+	}
+	attachAssetIDs(ctx, r, userID, all)
 }
 
 func toBatchInfo(b *model.Batch, tasks []*model.Task) *studio.BatchInfo {

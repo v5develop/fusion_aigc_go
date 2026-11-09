@@ -157,11 +157,14 @@ func (c Config) PreviewSidecarSlots() int {
 }
 
 // DefaultModelGroups ModelGroups 没配时的映射（设计方案 §4.4）。
+// 2026-11-09 三个具名模型档换代：GPT → GPT Image 2.6 Sunburst、Banana → Nano Banana 2.1 Developer、
+// Seedream → Seedream 5.5（网关 Atlas 组）。旧组 img.gpt-image-2 / img.nano-banana-2.1 / img.seedream-5-pro 网关里保留，
+// 已入库任务的 model_group 照旧（重做沿用任务上的组）。「通用」是运营定的默认组，不随具名档换代。
 var DefaultModelGroups = map[string]string{
 	"通用":       "img.gpt-image-2",
-	"GPT":      "img.gpt-image-2",
-	"Banana":   "img.nano-banana-2.1",
-	"Seedream": "img.seedream-5-pro",
+	"GPT":      "img.gpt-image-2.6-sunburst",
+	"Banana":   "img.nano-banana-2.1-dev",
+	"Seedream": "img.seedream-5.5",
 }
 
 // ModelGroupMap 生效的模型档映射。

@@ -30,6 +30,7 @@ const (
 	Studio_CancelBatch_FullMethodName        = "/studio.Studio/CancelBatch"
 	Studio_DeleteBatch_FullMethodName        = "/studio.Studio/DeleteBatch"
 	Studio_RetryTask_FullMethodName          = "/studio.Studio/RetryTask"
+	Studio_UpdateTaskColorFix_FullMethodName = "/studio.Studio/UpdateTaskColorFix"
 	Studio_AdminListBatches_FullMethodName   = "/studio.Studio/AdminListBatches"
 	Studio_AdminGetBatch_FullMethodName      = "/studio.Studio/AdminGetBatch"
 	Studio_AdminRetryTask_FullMethodName     = "/studio.Studio/AdminRetryTask"
@@ -72,6 +73,8 @@ type StudioClient interface {
 	// 用户重试单个失败子任务：只重跑该任务的生图一步（沿用已存的提示词 / 图序，不再反推），
 	// 按原入口重新冻结 1 张的点数（新计费请求号 studio-<task_id>-r<n>，原单不再动）；返回批次详情（同 GetBatch）
 	RetryTask(ctx context.Context, in *RetryTaskReq, opts ...grpc.CallOption) (*BatchDetail, error)
+	// 保存子任务的校色参数（仅本人、仅成功的任务）：前端浏览器里烘图，服务端只存五个滑杆值；返回该子任务
+	UpdateTaskColorFix(ctx context.Context, in *UpdateTaskColorFixReq, opts ...grpc.CallOption) (*TaskInfo, error)
 	// ---- 运营后台 ----
 	AdminListBatches(ctx context.Context, in *AdminListBatchesReq, opts ...grpc.CallOption) (*AdminListBatchesResp, error)
 	// 批次详情：含切图框、切图质检、组图、每步耗时与成本、每个子任务的完整 prompt
@@ -204,6 +207,16 @@ func (c *studioClient) RetryTask(ctx context.Context, in *RetryTaskReq, opts ...
 	return out, nil
 }
 
+func (c *studioClient) UpdateTaskColorFix(ctx context.Context, in *UpdateTaskColorFixReq, opts ...grpc.CallOption) (*TaskInfo, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(TaskInfo)
+	err := c.cc.Invoke(ctx, Studio_UpdateTaskColorFix_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *studioClient) AdminListBatches(ctx context.Context, in *AdminListBatchesReq, opts ...grpc.CallOption) (*AdminListBatchesResp, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(AdminListBatchesResp)
@@ -298,6 +311,8 @@ type StudioServer interface {
 	// 用户重试单个失败子任务：只重跑该任务的生图一步（沿用已存的提示词 / 图序，不再反推），
 	// 按原入口重新冻结 1 张的点数（新计费请求号 studio-<task_id>-r<n>，原单不再动）；返回批次详情（同 GetBatch）
 	RetryTask(context.Context, *RetryTaskReq) (*BatchDetail, error)
+	// 保存子任务的校色参数（仅本人、仅成功的任务）：前端浏览器里烘图，服务端只存五个滑杆值；返回该子任务
+	UpdateTaskColorFix(context.Context, *UpdateTaskColorFixReq) (*TaskInfo, error)
 	// ---- 运营后台 ----
 	AdminListBatches(context.Context, *AdminListBatchesReq) (*AdminListBatchesResp, error)
 	// 批次详情：含切图框、切图质检、组图、每步耗时与成本、每个子任务的完整 prompt
@@ -352,6 +367,9 @@ func (UnimplementedStudioServer) DeleteBatch(context.Context, *BatchUserReq) (*E
 }
 func (UnimplementedStudioServer) RetryTask(context.Context, *RetryTaskReq) (*BatchDetail, error) {
 	return nil, status.Error(codes.Unimplemented, "method RetryTask not implemented")
+}
+func (UnimplementedStudioServer) UpdateTaskColorFix(context.Context, *UpdateTaskColorFixReq) (*TaskInfo, error) {
+	return nil, status.Error(codes.Unimplemented, "method UpdateTaskColorFix not implemented")
 }
 func (UnimplementedStudioServer) AdminListBatches(context.Context, *AdminListBatchesReq) (*AdminListBatchesResp, error) {
 	return nil, status.Error(codes.Unimplemented, "method AdminListBatches not implemented")
@@ -590,6 +608,24 @@ func _Studio_RetryTask_Handler(srv interface{}, ctx context.Context, dec func(in
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Studio_UpdateTaskColorFix_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateTaskColorFixReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(StudioServer).UpdateTaskColorFix(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Studio_UpdateTaskColorFix_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(StudioServer).UpdateTaskColorFix(ctx, req.(*UpdateTaskColorFixReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Studio_AdminListBatches_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(AdminListBatchesReq)
 	if err := dec(in); err != nil {
@@ -748,6 +784,10 @@ var Studio_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "RetryTask",
 			Handler:    _Studio_RetryTask_Handler,
+		},
+		{
+			MethodName: "UpdateTaskColorFix",
+			Handler:    _Studio_UpdateTaskColorFix_Handler,
 		},
 		{
 			MethodName: "AdminListBatches",

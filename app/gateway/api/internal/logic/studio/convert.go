@@ -53,7 +53,16 @@ func toTask(t *studio_client.TaskInfo) types.StudioTask {
 		Status: t.Status, Progress: t.Progress, ResultUrl: t.ResultUrl, ResultWidth: t.ResultWidth, ResultHeight: t.ResultHeight,
 		ErrorReason: t.ErrorReason, PromptSummary: t.PromptSummary,
 		CreatedAt: t.CreatedAt, StartedAt: t.StartedAt, FinishedAt: t.FinishedAt,
+		AssetId: t.AssetId, ColorFixParams: toColorFix(t.ColorFixParams),
 	}
+}
+
+// toColorFix 已保存的校色参数；没保存过为 nil（JSON null）。
+func toColorFix(p *studio_client.ColorFixParams) *types.StudioColorFixParams {
+	if p == nil {
+		return nil
+	}
+	return &types.StudioColorFixParams{Hue: p.Hue, Saturation: p.Saturation, Value: p.Value, Brightness: p.Brightness, Contrast: p.Contrast}
 }
 
 func toDetail(d *studio_client.BatchDetail) types.StudioBatchDetail {

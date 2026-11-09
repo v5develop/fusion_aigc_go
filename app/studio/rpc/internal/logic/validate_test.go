@@ -256,8 +256,8 @@ func TestResolutionNormalize(t *testing.T) {
 
 func TestModelMapping(t *testing.T) {
 	groups := config.DefaultModelGroups
-	for in, want := range map[string]string{"": "img.gpt-image-2", "通用": "img.gpt-image-2", "gpt": "img.gpt-image-2",
-		"Banana": "img.nano-banana-2.1", "seedream": "img.seedream-5-pro"} {
+	for in, want := range map[string]string{"": "img.gpt-image-2", "通用": "img.gpt-image-2", "gpt": "img.gpt-image-2.6-sunburst",
+		"Banana": "img.nano-banana-2.1-dev", "seedream": "img.seedream-5.5"} {
 		_, g, err := NormalizeModel(in, groups)
 		if err != nil || g != want {
 			t.Fatalf("NormalizeModel(%q)=%q,%v want %q", in, g, err, want)

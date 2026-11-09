@@ -220,6 +220,7 @@ Idempotency-Key: <UUID>
 | `aspect_ratio` | string | 否 | `宽:高` 格式 | 空 = 自动：按模特图宽高取 6.3 里最近的一档 |
 | `count_per_model` | int | 是 | 1–9 | 每位模特生成几张 |
 | `cloth_image_url` | string | 否 | — | 旧版兼容位，**新前端不要传** |
+| `color_fix` | bool | 否 | — | 「默认校色」开关。`true` 时写进批次 `payload`（`"color_fix": true`），前端据此给这批结果套默认校色参数（见 5.7）；不影响生图与计费。不传 / `false` 时 `payload` 里没有这个键 |
 
 `garment_images[]` 每项：
 
@@ -330,6 +331,7 @@ Idempotency-Key: <UUID>
 | `aspect_ratio` | string | 否 | `宽:高` 格式 | 空 = 自动：按人物图宽高取 6.3 里最近的一档 |
 | `source_person_count` | int | 传 `mappings` 时必填 | 2–4 | 3.1.1 预览返回的 `source.person_count` 原样带回 |
 | `mappings` | object[] | 否 | 每张姿势图至多一条 | 多人配对（3.1.1 用户确认 / 反转后的结果）。不传的姿势图按默认配对（左→左、右→右） |
+| `color_fix` | bool | 否 | — | 「默认校色」开关，同商拍 2.1 |
 | `mappings[].pose_index` | int | 是 | `0` ~ 姿势图张数-1，不重复 | 姿势序号 |
 | `mappings[].mapping` | int[] | 是 | 长度 = `source_person_count`；值在 `-1` ~ `pose_person_count-1`；非负值不重复；至少一个非负值 | `mapping[i]` = 原图第 i 位人物（左→右）学姿势图第几位人物（左→右，从 0 起）；`-1` = 保持原姿势 |
 | `mappings[].pose_person_count` | int | 是 | 1–4 | 3.1.1 预览返回的该姿势图 `pose.person_count` 原样带回 |
@@ -525,6 +527,8 @@ Idempotency-Key: <UUID>
 | `result_width` / `result_height` | 成品像素尺寸，失败为 0 |
 | `error_reason` | 失败原因，可直接展示 |
 | `prompt_summary` | 提示词摘要（不是完整提示词） |
+| `asset_id` | 成品在素材库的资产 id（成功的任务入库后才有，没入库 / 已从素材库删除为 0），见 5.7 |
+| `color_fix_params` | 已保存的校色参数，没保存过为 `null`，见 5.7 |
 | `batch.cover_url` | 批次封面，历史列表缩略图用 |
 
 ---
@@ -563,7 +567,9 @@ GET /api/v1/studio/batches/:id
         "result_url": "https://bucket.oss-cn-hangzhou.aliyuncs.com/aigc-local-life/image/123/20261030/r1.jpg",
         "result_width": 1536, "result_height": 2048,
         "error_reason": "", "prompt_summary": "上衣：真丝长袖，下装：棉麻及踝长裤……",
-        "created_at": 1790755825451, "started_at": 1790755840000, "finished_at": 1790755885451
+        "created_at": 1790755825451, "started_at": 1790755840000, "finished_at": 1790755885451,
+        "asset_id": 88001,
+        "color_fix_params": {"hue": 3, "saturation": -16, "value": -6, "brightness": -17, "contrast": 10}
       },
       {
         "id": 5002, "task_id": "tyo_a1b2c3d5", "batch_id": 1024, "kind": "tryon",
@@ -571,7 +577,8 @@ GET /api/v1/studio/batches/:id
         "status": 1, "progress": 40,
         "result_url": "", "result_width": 0, "result_height": 0,
         "error_reason": "", "prompt_summary": "上衣：真丝长袖，下装：棉麻及踝长裤……",
-        "created_at": 1790755825451, "started_at": 1790755840000, "finished_at": 0
+        "created_at": 1790755825451, "started_at": 1790755840000, "finished_at": 0,
+        "asset_id": 0, "color_fix_params": null
       }
     ]
   }
@@ -609,6 +616,8 @@ GET /api/v1/studio/batches/:id
 | `error_reason` | string | 失败原因 |
 | `prompt_summary` | string | 提示词摘要 |
 | `created_at` / `started_at` / `finished_at` | int | unix 毫秒；`started_at` / `finished_at` 为 0 = 未开始 / 未结束 |
+| `asset_id` | int | 成品在素材库的资产 id（`afv_asset.id`）。成功的任务入库后才有；入库与置成功不在同一步，刚成功的一两次轮询可能还是 0；素材库入库关闭、或用户已在素材库删除该图时为 0。用途见 5.7 |
+| `color_fix_params` | object \| null | 已保存的校色参数 `{hue, saturation, value, brightness, contrast}`；没保存过为 `null`。见 5.7 |
 
 错误：批次不存在、不是自己的、已删除，都返回 `code=4001`。
 
@@ -706,8 +715,8 @@ GET /api/v1/studio/history?kind=tryon&cursor=&limit=20
 
 | kind | 回填字段 |
 |---|---|
-| `tryon` | `model_image_urls`、`garment_images`、`items`、`set_mode`、`lengths`、`sleeves`、`fabric`、`prompt`、`model`、`resolution`、`aspect_ratio`、`count_per_model` |
-| `pose` | `source_image_url`、`pose_image_urls`、`global_prompt`、`pose_prompts`、`model`、`resolution`、`aspect_ratio`；带了多人配对的批次另有 `source_person_count`、`mappings`（重新编辑时若换了图，要重新预览） |
+| `tryon` | `model_image_urls`、`garment_images`、`items`、`set_mode`、`lengths`、`sleeves`、`fabric`、`prompt`、`model`、`resolution`、`aspect_ratio`、`count_per_model`；开了「默认校色」的批次另有 `color_fix: true` |
+| `pose` | `source_image_url`、`pose_image_urls`、`global_prompt`、`pose_prompts`、`model`、`resolution`、`aspect_ratio`；带了多人配对的批次另有 `source_person_count`、`mappings`（重新编辑时若换了图，要重新预览）；开了「默认校色」的批次另有 `color_fix: true` |
 | `imagegen` | `prompt`、`image_urls`、`model`、`resolution`、`aspect_ratio`、`count`、`rewrite_prompt` |
 
 回填时注意：
@@ -754,6 +763,43 @@ DELETE /api/v1/studio/batches/:id
 - 逻辑删除：批次和它的任务从历史里消失；已经入素材库的成品图不受影响。
 - **进行中的批次不能删**（状态 0–3、8）：`code=4002`，「生成中不能删除」。要删先取消并等它到终态。
 - 批次不存在或不是自己的：`code=4001`。
+
+### 5.7 校色（商拍换装 / 姿态复刻结果页）
+
+校色在**前端浏览器里**完成：五个滑杆值烘进像素、导出 PNG。服务端不处理像素，只提供三件事：
+
+1. **「默认校色」开关**：提交时带 `color_fix: true`（2.1 / 3.1），批次详情 `batch.payload` 里原样回显 `"color_fix": true`；前端初始化这批结果时，`color_fix_params` 为 `null` 的任务套默认参数，已保存过的用保存值。
+2. **存成素材库版本**：成功的任务带 `asset_id`（该成品在素材库的资产）。前端把烘好的 PNG 先用 Go 上传（`goUploadImage`，地址须为本服务签发），再调资产库已有接口
+   `POST /api/v1/asset-library/assets/{asset_id}/versions`（`{"image_url": "…", "params": "{\"color_fix\":{…}}"}`，见 `api-asset-library.md`）追加「校色后」版本。
+   归属校验与素材库一致：资产须是本人、未删除；studio 成品入库时 `user_id` 就是提交人，所以本人的 `asset_id` 都能追加版本。`asset_id` 为 0 时（刚成功还没入库 / 已从素材库删除）不要调用。
+3. **保存参数（可选）**：
+
+```
+PATCH /api/v1/studio/tasks/:task_id/color-fix
+```
+
+```json
+{"params": {"hue": 3, "saturation": -16, "value": -6, "brightness": -17, "contrast": 10}}
+```
+
+| 字段 | 类型 | 范围 | 前端 `colorfix.ts` 键名 |
+|---|---|---|---|
+| `params.hue` | int | -30 – 30 | `hue`（色相） |
+| `params.saturation` | int | -60 – 70 | `sat`（饱和度） |
+| `params.value` | int | -40 – 40 | `light`（明度） |
+| `params.brightness` | int | -80 – 80 | `bright`（亮度） |
+| `params.contrast` | int | -50 – 50 | `contrast`（对比度） |
+
+五个键都要传、只收整数（滑杆步长 1）；全 0 = 不校色（也会保存）。成功返回该任务（结构同 5.1 `tasks[]`，`color_fix_params` 为刚保存的值），之后批次详情 / 历史 / 单个任务都会带上。每次保存整体覆盖。
+
+| 情况 | 返回 |
+|---|---|
+| 某个值越界 | `1003`「色相（hue）取值范围 -30–30」（报第一个越界的） |
+| 缺 `params` 或缺某个键 | `1002` / `1003` |
+| 任务不存在、不是自己的、已删除 | `4001` |
+| 任务不是成功状态（2） | `4002`「只有生成成功的图片可以保存校色参数」 |
+
+**逐件蒙版（`mask_url`）暂不提供**：当前链路（切图 → 反推 → 生图）不产出服装分割 / 软边蒙版，前端按无蒙版走整图校色。
 
 ---
 

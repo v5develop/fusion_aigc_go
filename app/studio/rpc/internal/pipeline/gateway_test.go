@@ -203,3 +203,50 @@ func TestQualityAndAspect(t *testing.T) {
 		t.Fatal("label 值超 256 应拒")
 	}
 }
+
+// 2026-11-09 具名档换代：Seedream 5.5 各档比例齐全、支持 4K，不套 5 Pro 的降档规则；只缺 4:5 / 5:4，出图时改最近比例并告警。
+func TestSeedream55Group(t *testing.T) {
+	const sd55 = "img.seedream-5.5"
+	if !IsSeedreamGroup(sd55) || !IsSeedream55Group(sd55) || IsSeedream55Group("img.seedream-5-pro") {
+		t.Fatal("Seedream 5.5 组识别不对")
+	}
+	for _, c := range []struct{ res, ar, want string }{{"4k", "1:1", "4k"}, {"1k", "16:9", "1k"}, {"", "3:4", "1k"}, {"2k", "21:9", "2k"}} {
+		got, warns, err := NormalizeForGroup(sd55, c.res, c.ar)
+		if err != nil || got != c.want || len(warns) != 0 {
+			t.Errorf("%+v: got %s %v %v", c, got, warns, err)
+		}
+	}
+	req, warns, err := BuildImageEditRequest(KindTryon, sd55, "x", []string{"mr://a"}, "4k", "4:5", nil)
+	in := req.Input.(ImageEditInput)
+	if err != nil || in.Resolution != "4K" || in.AspectRatio != "3:4" || len(warns) != 1 {
+		t.Fatalf("5.5 4:5 应改 3:4 并告警、4K 保留：%+v %v %v", in, warns, err)
+	}
+	gen, warns, err := BuildImageGenerateRequestOpt(sd55, "x", "1k", "5:4", nil, GenOptions{})
+	if err != nil || gen.Input.(ImageGenerateInput).AspectRatio != "4:3" || len(warns) != 1 {
+		t.Fatalf("5.5 5:4 应改 4:3：%+v %v %v", gen.Input, warns, err)
+	}
+	// 其它组比例原样（Nano Banana 有 4:5）
+	if ar, w := AspectForGroup("img.nano-banana-2.1-dev", "4:5"); ar != "4:5" || w != nil {
+		t.Fatalf("非 5.5 组不改比例：%s %v", ar, w)
+	}
+	if MaxRefImages(sd55) != 10 || MaxRefImages("img.gpt-image-2.6-sunburst") != 16 || MaxRefImages("img.nano-banana-2.1-dev") != 14 {
+		t.Fatal("新组的参考图兜底上限不对")
+	}
+	if QualityFor("img.gpt-image-2.6-sunburst", KindTryon, "") != "high" || QualityFor("img.nano-banana-2.1-dev", KindTryon, "high") != "" {
+		t.Fatal("新组 quality 规则不对")
+	}
+}
+
+func TestMapModelNamedTiersAfterSwap(t *testing.T) {
+	groups := map[string]string{"通用": "img.gpt-image-2", "GPT": "img.gpt-image-2.6-sunburst",
+		"Banana": "img.nano-banana-2.1-dev", "Seedream": "img.seedream-5.5"}
+	for in, want := range map[string]string{
+		"GPT": "img.gpt-image-2.6-sunburst", "gpt-image-2.6-sunburst": "img.gpt-image-2.6-sunburst", "gpt-image-2": "img.gpt-image-2.6-sunburst",
+		"nano-banana-2.1-dev": "img.nano-banana-2.1-dev", "nano": "img.nano-banana-2.1-dev",
+		"seedream-5.5": "img.seedream-5.5", "seedream-5-pro": "img.seedream-5.5", "": "img.gpt-image-2",
+	} {
+		if got, err := MapModel(in, groups); err != nil || got != want {
+			t.Errorf("MapModel(%q)=%q,%v want %q", in, got, err, want)
+		}
+	}
+}

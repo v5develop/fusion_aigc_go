@@ -386,6 +386,11 @@ func (f *flow) finishDelivery(ctx context.Context, t *model.Task, b *model.Batch
 	if f.bill.Mode() == billing.ModeOn {
 		extra["billing_status"] = model.BillingSettled
 	}
+	// 先入素材库再置成功：批次收敛按子任务状态计数，置成功之后才写资产会出现「批次已终态、资产行还没有」的窗口，
+	// 前端在这个窗口里点「存为资产」拿到 asset_id=0。入库失败只记日志不拦交付（saveAsset 内部吞错）；
+	// 置成功失败留在交付中下一轮续做时，saveAsset 按 source_task_id 查重，不会重复写。
+	t.ResultURL.String = res.URL
+	f.saveAsset(ctx, t, b, res.URL)
 	ok, err := f.repo.Task.TransitStatus(ctx, t.ID, model.TaskDelivering, model.TaskSucceeded, extra)
 	if err != nil {
 		log.Errorf("studio: 子任务 %d 置成功失败（留在交付中，下一轮续做）: %v", t.ID, err)
@@ -397,8 +402,6 @@ func (f *flow) finishDelivery(ctx context.Context, t *model.Task, b *model.Batch
 	if err := f.repo.Batch.UpdateCounters(ctx, b.ID, 1, 0); err != nil {
 		log.Errorf("studio: 批次 %d 更新计数失败: %v", b.ID, err)
 	}
-	t.ResultURL.String = res.URL
-	f.saveAsset(ctx, t, b, res.URL)
 	_, costCNY := pipeline.ParseOutputs(call)
 	f.logStep(ctx, b.ID, pipeline.StepLog{
 		JobID: t.TaskID.String, Step: pipeline.StepGenerate, Ms: f.now().Sub(started).Milliseconds(),
@@ -569,6 +572,12 @@ var kindNames = map[model.Kind]string{model.KindTryon: "商拍换装", model.Kin
 func (f *flow) saveAsset(ctx context.Context, t *model.Task, b *model.Batch, url string) {
 	cfg := f.cfg.Asset
 	if !cfg.Enabled || f.asset == nil {
+		return
+	}
+	// 查重：交付在置成功前入库，置成功失败下一轮重来时这里已有一行，不再写第二条（查询失败照写，资产比去重要紧）
+	if m, err := f.repo.Task.AssetIDs(ctx, b.UserID, []string{t.TaskID.String}); err != nil {
+		logx.WithContext(ctx).Errorf("studio: 子任务 %d 入库前查重失败，照常写入: %v", t.ID, err)
+	} else if m[t.TaskID.String] > 0 {
 		return
 	}
 	p, _ := parsePayload(b.Payload)

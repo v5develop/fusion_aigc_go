@@ -22,7 +22,8 @@ func TestLoadDevConfig(t *testing.T) {
 	if c.Reverse.BaseURL != "http://127.0.0.1:8090" || c.Timeouts.Generate != 300 || c.AiGateway.LongPollWait != 20 {
 		t.Fatalf("默认值不对：%+v %+v %+v", c.Reverse, c.Timeouts, c.AiGateway)
 	}
-	if c.ModelGroupMap()["Banana"] != "img.nano-banana-2.1" {
+	if m := c.ModelGroupMap(); m["Banana"] != "img.nano-banana-2.1-dev" || m["GPT"] != "img.gpt-image-2.6-sunburst" ||
+		m["Seedream"] != "img.seedream-5.5" || m["通用"] != "img.gpt-image-2" {
 		t.Fatalf("模型映射不对：%v", c.ModelGroupMap())
 	}
 	if c.Reverse.Concurrency != 6 || c.Reverse.PreviewConcurrency != 2 || c.PreviewSidecarSlots() != 2 {

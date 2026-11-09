@@ -254,7 +254,7 @@ WHERE p.permission_code LIKE 'asset_library:%';
 
 1. 迁移：`Go_V1.0.25__canvas.sql`、`Go_V1.0.26__admin_canvas_permission.sql` 已执行（install.sh 的 migrate 会跑）；种子 `deploy/sql/seed/canvas-official-prompts.sql`、`canvas-official-templates.sql` **手工执行**（19 条官方提示词全部 `enabled=1`，含已确认授权的 8 条第三方条目；官方模板封面由运营补）。
 2. 计费方案：Java 库执行 `deploy/sql/ops/canvas-offers-2026-10-31.sql`（`canvas_image` / `canvas_video` / `canvas_tool_i2p`，价格是占位，待产品定价），`bash install.sh check-billing` 全过；没有 offer 时 RunNode 会被准入拦下（2005）。用户需有 `ecom_image_gen` / `ecom_video_gen` 能力。
-3. ai-gateway：`AI_GATEWAY_URL / KEY_ID / SECRET` 已配（与 studio 同一调用方 fusion-go）；`GET /v1/catalog/model-groups` 里 `img.gpt-image-2`、`img.nano-banana-2.1`、`img.seedream-5-pro`、`vid.seedance-2.5`、`vid.seedance-2`、`vid.seedance-2-fast`、`vid.seedance-2-mini`、`vlm.qwen-3.8-flash` 均 `enabled=true`（用 `POST /v1/catalog/readiness` 核对）。
+3. ai-gateway：`AI_GATEWAY_URL / KEY_ID / SECRET` 已配（与 studio 同一调用方 fusion-go）；`GET /v1/catalog/model-groups` 里 `img.gpt-image-2`、`img.nano-banana-2.1`、`img.seedream-5-pro`（画布）、`img.gpt-image-2.6-sunburst`、`img.nano-banana-2.1-dev`、`img.seedream-5.5`（商拍具名档）、`vid.seedance-2.5`、`vid.seedance-2`、`vid.seedance-2-fast`、`vid.seedance-2-mini`、`vlm.qwen-3.8-flash` 均 `enabled=true`（用 `POST /v1/catalog/readiness` 核对）。
 4. 媒体服务：canvas-rpc 的 `Media.Token` 与 media-svc 一致（mkconf 已写 `MEDIA_SVC_TOKEN`）；参考图经媒体服务拉成 `mr://` 后交给 gateway，媒体服务要能访问我方 OSS / 素材库地址。
 5. Java：`CANVAS_JAVA_BASE_URL` 填 Java **内网**地址；Java 兼容层 `/api/v1/tools/ai-image-upscaler|ai-ratio-convert|ai-inpaint` 与 `/api/v1/tasks/{taskUid}` 可用，Bearer 两边共用（Go 网关与 Java 同一套 Redis 会话）。
 6. studio：`studio-rpc` 在跑；studio 的 `STUDIO_INPUT_URL_PREFIXES` 包含素材库公有桶域名（画布候选在素材库桶，否则试穿报「不是本服务上传的地址」）。

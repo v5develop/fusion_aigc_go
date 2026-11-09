@@ -102,8 +102,8 @@ func TestCacheUpsert(t *testing.T) {
 func TestBulkInsertAndBackfill(t *testing.T) {
 	r, mock := newMock(t)
 	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `afv_studio_task` (") + ".*" +
-		regexp.QuoteMeta("VALUES (DEFAULT, 1, 7, 'tryon', 0, 0, 0, NULL, 0, 'g', DEFAULT, NULL, DEFAULT, NULL, NULL, 0, 0, NULL, NULL, 0, 0, DEFAULT, NULL, 0, NULL, NULL, NULL, 0, DEFAULT, DEFAULT), "+
-			"(DEFAULT, 1, 7, 'tryon', 0, 1, 0, NULL, 0, 'g', DEFAULT, NULL, DEFAULT, NULL, NULL, 0, 0, NULL, NULL, 0, 0, DEFAULT, NULL, 0, NULL, NULL, NULL, 0, DEFAULT, DEFAULT)")).
+		regexp.QuoteMeta("VALUES (DEFAULT, 1, 7, 'tryon', 0, 0, 0, NULL, 0, 'g', DEFAULT, NULL, DEFAULT, NULL, NULL, 0, 0, NULL, NULL, 0, 0, DEFAULT, NULL, 0, NULL, DEFAULT, NULL, NULL, 0, DEFAULT, DEFAULT), "+
+			"(DEFAULT, 1, 7, 'tryon', 0, 1, 0, NULL, 0, 'g', DEFAULT, NULL, DEFAULT, NULL, NULL, 0, 0, NULL, NULL, 0, 0, DEFAULT, NULL, 0, NULL, DEFAULT, NULL, NULL, 0, DEFAULT, DEFAULT)")).
 		WillReturnResult(sqlmock.NewResult(10, 2))
 	tasks := []*model.Task{
 		{BatchID: 1, UserID: 7, Kind: model.KindTryon, ModelGroup: "g"},

@@ -459,7 +459,7 @@ func tryonSpec(in *studio.SubmitTryonReq, v *TryonInput) *submitSpec {
 			texts = append(texts, textCheck{"studio_tryon_attr", s})
 		}
 	}
-	return &submitSpec{
+	sp := &submitSpec{
 		Kind: model.KindTryon, UserID: in.UserId, WorkspaceID: in.WorkspaceId, RequestID: strings.TrimSpace(in.RequestId),
 		Payload: map[string]any{
 			"workspace_id": in.WorkspaceId, "model_image_urls": v.Models, "garment_images": garments,
@@ -469,6 +469,16 @@ func tryonSpec(in *studio.SubmitTryonReq, v *TryonInput) *submitSpec {
 		},
 		URLs: urls, Texts: texts, ModelGroup: v.ModelGroup, Resolution: v.Resolution, Warnings: v.Warnings,
 		Slots: tryonSlots(len(v.Models), int(v.CountPerModel)),
+	}
+	withColorFix(sp, in.ColorFix)
+	return sp
+}
+
+// withColorFix 「默认校色」开关写进 payload（GET 批次详情的 batch.payload 原样回显，前端据此给结果套默认校色参数）。
+// 只在开启时写入：不开的提交 payload（及其幂等哈希）与旧版逐字一致，老批次重放不受影响。生图与计费都不看它。
+func withColorFix(sp *submitSpec, on bool) {
+	if on {
+		sp.Payload["color_fix"] = true
 	}
 }
 
@@ -495,6 +505,7 @@ func poseSpec(in *studio.SubmitPoseReq, v *PoseInput) *submitSpec {
 		sp.Payload["source_person_count"] = v.SourcePersonCount
 		sp.Payload["mappings"] = v.Mappings
 	}
+	withColorFix(sp, in.ColorFix)
 	return sp
 }
 

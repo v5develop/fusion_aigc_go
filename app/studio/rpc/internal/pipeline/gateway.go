@@ -48,6 +48,28 @@ func IsSeedreamGroup(modelGroup string) bool {
 	return strings.Contains(strings.ToLower(modelGroup), "seedream")
 }
 
+// IsSeedream55Group 是否 Seedream 5.5 组（img.seedream-5.5，网关 atlas.seedream-5-5）：1K / 2K / 4K 各有 8 个比例的预设
+// （4K 落 Atlas 3K 最大档），不套 Seedream 5 Pro 的降档规则；只是没有 4:5 / 5:4（见 AspectForGroup）。
+func IsSeedream55Group(modelGroup string) bool {
+	return strings.Contains(strings.ToLower(modelGroup), "seedream-5.5")
+}
+
+// seedream55Aspect Seedream 5.5 缺的比例 → 最近的预设比例。
+var seedream55Aspect = map[string]string{"4:5": "3:4", "5:4": "4:3"}
+
+// AspectForGroup 按 model group 修正比例：Seedream 5.5 没有 4:5 / 5:4 预设（网关会拒），改用最近的 3:4 / 4:3 并告警；
+// 其它组原样返回。只在出图请求上修正（快照与计费不受比例影响）。
+func AspectForGroup(modelGroup, aspectRatio string) (string, []string) {
+	ar := strings.TrimSpace(aspectRatio)
+	if !IsSeedream55Group(modelGroup) {
+		return ar, nil
+	}
+	if to, ok := seedream55Aspect[ar]; ok {
+		return to, []string{fmt.Sprintf("Seedream 5.5 不支持 %s，已按 %s 生成", ar, to)}
+	}
+	return ar, nil
+}
+
 // 图片质量（gateway quality：auto/low/medium/high；Atlas 部署缺省 low，所以要显式传）。
 const (
 	QualityHigh   = "high"
@@ -69,14 +91,14 @@ func QualityFor(modelGroup, kind, user string) string {
 	return QualityMedium
 }
 
-// NormalizeForGroup 按 model group 修正分辨率：Seedream 1K 下非 1:1 比例会被拒、4K 会被静默降 2K，
-// 所以 4k → 2k，1k 且比例不是 1:1 → 2k，并返回告警。返回小写分辨率。
+// NormalizeForGroup 按 model group 修正分辨率：Seedream（5 Pro）1K 下非 1:1 比例会被拒、4K 会被静默降 2K，
+// 所以 4k → 2k，1k 且比例不是 1:1 → 2k，并返回告警。Seedream 5.5 各档比例齐全、支持 4K，不修正。返回小写分辨率。
 func NormalizeForGroup(modelGroup, resolution, aspectRatio string) (string, []string, error) {
 	res, err := NormalizeResolution(resolution)
 	if err != nil {
 		return "", nil, err
 	}
-	if !IsSeedreamGroup(modelGroup) {
+	if !IsSeedreamGroup(modelGroup) || IsSeedream55Group(modelGroup) {
 		return res, nil, nil
 	}
 	ar := strings.TrimSpace(aspectRatio)
@@ -161,8 +183,10 @@ const (
 var modelAliases = map[string]string{
 	"通用": ModelGeneral, "general": ModelGeneral, "default": ModelGeneral,
 	"gpt": ModelGPT, "gpt-image-2": ModelGPT, "gpt-image": ModelGPT,
+	"gpt-image-2.6": ModelGPT, "gpt-image-2.6-sunburst": ModelGPT,
 	"banana": ModelBanana, "nano-banana": ModelBanana, "nano-banana-2.1": ModelBanana, "nano": ModelBanana,
-	"seedream": ModelSeedream, "seedream-5-pro": ModelSeedream,
+	"nano-banana-2.1-dev": ModelBanana, "nano-banana-dev": ModelBanana,
+	"seedream": ModelSeedream, "seedream-5-pro": ModelSeedream, "seedream-5.5": ModelSeedream,
 }
 
 // ErrUnknownModel 不认识的模型档。
@@ -291,6 +315,8 @@ func BuildImageEditRequestRefs(kind, modelGroup, prompt string, images []aigatew
 		return aigateway.CallRequest{}, nil, err
 	}
 	warns = append(warns, w...)
+	ar, w = AspectForGroup(modelGroup, ar)
+	warns = append(warns, w...)
 	full := WithImageOrderLine(prompt, kind, len(refs))
 	if len([]rune(full)) > MaxPromptRunes {
 		return aigateway.CallRequest{}, nil, fmt.Errorf("提示词超过 %d 字", MaxPromptRunes)
@@ -328,6 +354,8 @@ func BuildImageGenerateRequestOpt(modelGroup, prompt, resolution, aspectRatio st
 	if err != nil {
 		return aigateway.CallRequest{}, nil, err
 	}
+	ar, w := AspectForGroup(modelGroup, ar)
+	warns = append(warns, w...)
 	lb, err := withKindLabel(KindImageGen, labels)
 	if err != nil {
 		return aigateway.CallRequest{}, nil, err

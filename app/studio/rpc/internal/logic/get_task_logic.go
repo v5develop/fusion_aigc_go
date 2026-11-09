@@ -50,5 +50,7 @@ func (l *GetTaskLogic) GetTask(in *studio.GetTaskReq) (*studio.TaskInfo, error) 
 	if b != nil {
 		status = b.Status
 	}
-	return toTaskInfo(t, status), nil
+	out := toTaskInfo(t, status)
+	attachAssetIDs(l.ctx, r, in.UserId, []*studio.TaskInfo{out})
+	return out, nil
 }

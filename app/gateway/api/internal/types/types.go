@@ -1001,6 +1001,14 @@ type StudioCancelResp struct {
 	CanceledTasks int32       `json:"canceled_tasks"`
 }
 
+type StudioColorFixParams struct {
+	Hue        int32 `json:"hue"`
+	Saturation int32 `json:"saturation"`
+	Value      int32 `json:"value"`
+	Brightness int32 `json:"brightness"`
+	Contrast   int32 `json:"contrast"`
+}
+
 type StudioGarmentImage struct {
 	Url   string `json:"url"`            // 只收 http(s) 地址；blob: 表示还没上传完，会被拒绝
 	Role  string `json:"role,optional"`  // 单品中文名（上衣 / 下装 / 连衣裙 …）或「整套」
@@ -1095,7 +1103,8 @@ type StudioPoseSubmitReq struct {
 	Resolution        string              `json:"resolution,optional"`
 	AspectRatio       string              `json:"aspect_ratio,optional"` // 空=3:4
 	SourcePersonCount int32               `json:"source_person_count,optional"`
-	Mappings          []StudioPoseMapping `json:"mappings,optional"` // 每张姿势图一条；不传的按默认配对（左→左、右→右）
+	Mappings          []StudioPoseMapping `json:"mappings,optional"`  // 每张姿势图一条；不传的按默认配对（左→左、右→右）
+	ColorFix          bool                `json:"color_fix,optional"` // 「默认校色」开关，同商拍
 }
 
 type StudioQuoteResp struct {
@@ -1121,23 +1130,30 @@ type StudioSubmitResp struct {
 }
 
 type StudioTask struct {
-	Id            int64  `json:"id"`
-	TaskId        string `json:"task_id"`
-	BatchId       int64  `json:"batch_id"`
-	Kind          string `json:"kind"`
-	ModelIndex    int32  `json:"model_index"`
-	ShotIndex     int32  `json:"shot_index"`
-	PoseIndex     int32  `json:"pose_index"`
-	Status        int32  `json:"status"`   // 0-排队 1-生成中 2-成功 3-失败 4-已取消
-	Progress      int32  `json:"progress"` // 0–100（估算）
-	ResultUrl     string `json:"result_url"`
-	ResultWidth   int32  `json:"result_width"`
-	ResultHeight  int32  `json:"result_height"`
-	ErrorReason   string `json:"error_reason"`
-	PromptSummary string `json:"prompt_summary"`
-	CreatedAt     int64  `json:"created_at"`
-	StartedAt     int64  `json:"started_at"`  // 0=未开始
-	FinishedAt    int64  `json:"finished_at"` // 0=未结束
+	Id             int64                 `json:"id"`
+	TaskId         string                `json:"task_id"`
+	BatchId        int64                 `json:"batch_id"`
+	Kind           string                `json:"kind"`
+	ModelIndex     int32                 `json:"model_index"`
+	ShotIndex      int32                 `json:"shot_index"`
+	PoseIndex      int32                 `json:"pose_index"`
+	Status         int32                 `json:"status"`   // 0-排队 1-生成中 2-成功 3-失败 4-已取消
+	Progress       int32                 `json:"progress"` // 0–100（估算）
+	ResultUrl      string                `json:"result_url"`
+	ResultWidth    int32                 `json:"result_width"`
+	ResultHeight   int32                 `json:"result_height"`
+	ErrorReason    string                `json:"error_reason"`
+	PromptSummary  string                `json:"prompt_summary"`
+	CreatedAt      int64                 `json:"created_at"`
+	StartedAt      int64                 `json:"started_at"`       // 0=未开始
+	FinishedAt     int64                 `json:"finished_at"`      // 0=未结束
+	AssetId        int64                 `json:"asset_id"`         // 成品在素材库的资产 id（afv_asset.id），可直接调 POST /api/v1/asset-library/assets/{id}/versions；没入库 / 已从素材库删除为 0
+	ColorFixParams *StudioColorFixParams `json:"color_fix_params"` // 已保存的校色参数；没保存过为 null
+}
+
+type StudioTaskColorFixReq struct {
+	TaskId string               `path:"task_id"`
+	Params StudioColorFixParams `json:"params"`
 }
 
 type StudioTaskPath struct {
@@ -1168,6 +1184,7 @@ type StudioTryonSubmitReq struct {
 	AspectRatio    string               `json:"aspect_ratio,optional"`    // 空=3:4
 	CountPerModel  int32                `json:"count_per_model"`          // 每位模特张数 1–9
 	ClothImageUrl  string               `json:"cloth_image_url,optional"` // 旧版兼容位，新前端不要传
+	ColorFix       bool                 `json:"color_fix,optional"`       // 「默认校色」开关：开启时写进批次 payload（color_fix=true），前端据此给结果套默认校色参数；不影响生图与计费
 }
 
 type UpdateNoteReq struct {

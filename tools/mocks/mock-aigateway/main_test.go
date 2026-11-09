@@ -56,7 +56,7 @@ func TestSubmitPollAndAuth(t *testing.T) {
 	if code, _ = do(s, signed(t, "test-secret", "catalog", "GET", "/v1/calls/"+id, "")); code != 401 {
 		t.Fatalf("purpose mismatch want 401 got %d", code)
 	}
-	if code, c = do(s, signed(t, "test-secret", "catalog", "GET", "/v1/catalog/model-groups", "")); code != 200 || len(c["items"].([]any)) != 8 { // 3 个图片组 + 4 个视频组 + 1 个视觉对话组
+	if code, c = do(s, signed(t, "test-secret", "catalog", "GET", "/v1/catalog/model-groups", "")); code != 200 || len(c["items"].([]any)) != 11 { // 6 个图片组（旧 3 + 换代 3）+ 4 个视频组 + 1 个视觉对话组
 		t.Fatalf("catalog %d %v", code, c)
 	}
 }

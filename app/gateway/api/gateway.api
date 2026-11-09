@@ -926,6 +926,7 @@ type (
 		AspectRatio    string               `json:"aspect_ratio,optional"` // 空=3:4
 		CountPerModel  int32                `json:"count_per_model"` // 每位模特张数 1–9
 		ClothImageUrl  string               `json:"cloth_image_url,optional"` // 旧版兼容位，新前端不要传
+		ColorFix       bool                 `json:"color_fix,optional"` // 「默认校色」开关：开启时写进批次 payload（color_fix=true），前端据此给结果套默认校色参数；不影响生图与计费
 	}
 	StudioPoseSubmitReq {
 		RequestId      string            `header:"Idempotency-Key"`
@@ -940,6 +941,7 @@ type (
 		// 多人配对（可选，来自 /pose/preview 的确认结果）：传 mappings 时必须带 source_person_count（预览时原图人数）
 		SourcePersonCount int32               `json:"source_person_count,optional"`
 		Mappings          []StudioPoseMapping `json:"mappings,optional"` // 每张姿势图一条；不传的按默认配对（左→左、右→右）
+		ColorFix          bool                `json:"color_fix,optional"` // 「默认校色」开关，同商拍
 	}
 	// 一张姿势图的配对：mapping[i] = 原图第 i 位人物（左→右）学姿势图第几位人物（左→右，从 0 起），-1 = 保持原姿势。
 	// 校验：len(mapping) = source_person_count；值在 [-1, pose_person_count-1]；非负值不重复；至少一个非负值
@@ -1044,23 +1046,37 @@ type (
 		UpdatedAt       int64  `json:"updated_at"`
 	}
 	StudioTask {
-		Id            int64  `json:"id"`
-		TaskId        string `json:"task_id"`
-		BatchId       int64  `json:"batch_id"`
-		Kind          string `json:"kind"`
-		ModelIndex    int32  `json:"model_index"`
-		ShotIndex     int32  `json:"shot_index"`
-		PoseIndex     int32  `json:"pose_index"`
-		Status        int32  `json:"status"` // 0-排队 1-生成中 2-成功 3-失败 4-已取消
-		Progress      int32  `json:"progress"` // 0–100（估算）
-		ResultUrl     string `json:"result_url"`
-		ResultWidth   int32  `json:"result_width"`
-		ResultHeight  int32  `json:"result_height"`
-		ErrorReason   string `json:"error_reason"`
-		PromptSummary string `json:"prompt_summary"`
-		CreatedAt     int64  `json:"created_at"`
-		StartedAt     int64  `json:"started_at"` // 0=未开始
-		FinishedAt    int64  `json:"finished_at"` // 0=未结束
+		Id             int64                 `json:"id"`
+		TaskId         string                `json:"task_id"`
+		BatchId        int64                 `json:"batch_id"`
+		Kind           string                `json:"kind"`
+		ModelIndex     int32                 `json:"model_index"`
+		ShotIndex      int32                 `json:"shot_index"`
+		PoseIndex      int32                 `json:"pose_index"`
+		Status         int32                 `json:"status"` // 0-排队 1-生成中 2-成功 3-失败 4-已取消
+		Progress       int32                 `json:"progress"` // 0–100（估算）
+		ResultUrl      string                `json:"result_url"`
+		ResultWidth    int32                 `json:"result_width"`
+		ResultHeight   int32                 `json:"result_height"`
+		ErrorReason    string                `json:"error_reason"`
+		PromptSummary  string                `json:"prompt_summary"`
+		CreatedAt      int64                 `json:"created_at"`
+		StartedAt      int64                 `json:"started_at"` // 0=未开始
+		FinishedAt     int64                 `json:"finished_at"` // 0=未结束
+		AssetId        int64                 `json:"asset_id"` // 成品在素材库的资产 id（afv_asset.id），可直接调 POST /api/v1/asset-library/assets/{id}/versions；没入库 / 已从素材库删除为 0
+		ColorFixParams *StudioColorFixParams `json:"color_fix_params"` // 已保存的校色参数；没保存过为 null
+	}
+	// 校色五参数（整数，步长 1）：hue [-30,30]、saturation [-60,70]、value 明度 [-40,40]、brightness 亮度 [-80,80]、contrast [-50,50]；全 0 = 不校色
+	StudioColorFixParams {
+		Hue        int32 `json:"hue"`
+		Saturation int32 `json:"saturation"`
+		Value      int32 `json:"value"`
+		Brightness int32 `json:"brightness"`
+		Contrast   int32 `json:"contrast"`
+	}
+	StudioTaskColorFixReq {
+		TaskId string               `path:"task_id"`
+		Params StudioColorFixParams `json:"params"`
 	}
 	StudioBatchDetail {
 		Batch StudioBatch  `json:"batch"`
@@ -1127,6 +1143,10 @@ service gateway-api {
 	@doc "重试单个失败子任务（仅本人、任务失败且批次为全部失败 / 部分成功）：只重跑这张图的生图一步（沿用已存提示词，不再反推），按原入口重新冻结 1 张点数；返回批次详情（同 GET /batches/:id），之后照常轮询批次。重复点击幂等"
 	@handler retryTask
 	post /tasks/:task_id/retry (StudioTaskPath) returns (StudioBatchDetail)
+
+	@doc "保存单张结果的校色参数（仅本人、仅成功的任务；校色在前端烘图，服务端只存五个滑杆值）；返回该任务（同 GET /tasks/:task_id）"
+	@handler updateTaskColorFix
+	patch /tasks/:task_id/color-fix (StudioTaskColorFixReq) returns (StudioTask)
 
 	@doc "历史（游标分页），含提交快照供回填"
 	@handler history

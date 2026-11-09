@@ -33,6 +33,8 @@ service Studio {
   // 用户重试单个失败子任务：只重跑该任务的生图一步（沿用已存的提示词 / 图序，不再反推），
   // 按原入口重新冻结 1 张的点数（新计费请求号 studio-<task_id>-r<n>，原单不再动）；返回批次详情（同 GetBatch）
   rpc RetryTask(RetryTaskReq) returns (BatchDetail);
+  // 保存子任务的校色参数（仅本人、仅成功的任务）：前端浏览器里烘图，服务端只存五个滑杆值；返回该子任务
+  rpc UpdateTaskColorFix(UpdateTaskColorFixReq) returns (TaskInfo);
 
   // ---- 运营后台 ----
   rpc AdminListBatches(AdminListBatchesReq) returns (AdminListBatchesResp);
@@ -77,6 +79,7 @@ message SubmitTryonReq {
   string aspect_ratio = 14;              // 比例，如 3:4；空=3:4
   int32 count_per_model = 15;            // 每位模特生成张数 1–9
   string cloth_image_url = 16;           // 旧版兼容位（首张服装图），新前端不要传；有 garment_images 时忽略
+  bool color_fix = 17;                   // 「默认校色」开关：只记进批次 payload（color_fix=true），前端据此给结果套默认校色参数；不影响生图与计费
 }
 
 // 姿态复刻（前端 s1.1 aiPostureFission，改为整批一次提交）
@@ -95,6 +98,7 @@ message SubmitPoseReq {
   // 只在原图 ≥2 人时有意义；传了 mappings 就必须带 source_person_count（预览时原图人数）
   int32 source_person_count = 11;
   repeated PoseMapping mappings = 12;
+  bool color_fix = 13;                   // 「默认校色」开关，同 SubmitTryonReq.color_fix
 }
 
 // 一张姿势图的人物配对。mapping[i] = 原图第 i 位人物（左→右）学姿势图第几位人物（左→右，从 0 起）；-1 = 该人物保持原姿势。
@@ -207,6 +211,21 @@ message RetryTaskReq {
   int64 user_id = 2;
 }
 
+// 校色五参数（整数，与前端滑杆一致）：色相 [-30,30]、饱和度 [-60,70]、明度 [-40,40]、亮度 [-80,80]、对比度 [-50,50]；全 0 = 不校色
+message ColorFixParams {
+  int32 hue = 1;
+  int32 saturation = 2;
+  int32 value = 3;                       // 明度
+  int32 brightness = 4;                  // 亮度
+  int32 contrast = 5;
+}
+
+message UpdateTaskColorFixReq {
+  string task_id = 1;
+  int64 user_id = 2;
+  ColorFixParams params = 3;             // 必填
+}
+
 message BatchUserReq {
   int64 batch_id = 1;
   int64 user_id = 2;
@@ -249,6 +268,8 @@ message TaskInfo {
   int64 created_at = 16;
   int64 started_at = 17;                 // 0=未开始
   int64 finished_at = 18;                // 0=未结束
+  ColorFixParams color_fix_params = 19;  // 已保存的校色参数；没保存过为空
+  int64 asset_id = 20;                   // 成品入素材库后的 afv_asset.id（按 source_task_id 查，取未删除的最新一条）；没入库 / 已删除为 0。仅用户侧接口填
 }
 
 message BatchDetail {

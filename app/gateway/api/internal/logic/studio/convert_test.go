@@ -44,3 +44,17 @@ func TestPoseMappings(t *testing.T) {
 		t.Fatalf("got = %+v", got)
 	}
 }
+
+// 任务：asset_id 原样透传；没保存过校色参数时 color_fix_params 为 null，保存过的五个键齐全。
+func TestToTaskColorFixAndAsset(t *testing.T) {
+	raw, _ := json.Marshal(toTask(&studio_client.TaskInfo{TaskId: "tyo_1", Status: 2}))
+	if s := string(raw); !strings.Contains(s, `"asset_id":0`) || !strings.Contains(s, `"color_fix_params":null`) {
+		t.Fatalf("未入库 / 未保存：%s", s)
+	}
+	raw, _ = json.Marshal(toTask(&studio_client.TaskInfo{TaskId: "tyo_1", Status: 2, AssetId: 501,
+		ColorFixParams: &studio_client.ColorFixParams{Hue: 3, Saturation: -16, Value: -6, Brightness: -17, Contrast: 10}}))
+	want := `"asset_id":501,"color_fix_params":{"hue":3,"saturation":-16,"value":-6,"brightness":-17,"contrast":10}`
+	if !strings.Contains(string(raw), want) {
+		t.Fatalf("缺 %s：%s", want, raw)
+	}
+}

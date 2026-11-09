@@ -14,43 +14,45 @@ import (
 )
 
 type (
-	AdminBatch           = studio.AdminBatch
-	AdminBatchDetail     = studio.AdminBatchDetail
-	AdminCostSummaryReq  = studio.AdminCostSummaryReq
-	AdminCostSummaryResp = studio.AdminCostSummaryResp
-	AdminGetBatchReq     = studio.AdminGetBatchReq
-	AdminListBatchesReq  = studio.AdminListBatchesReq
-	AdminListBatchesResp = studio.AdminListBatchesResp
-	AdminTask            = studio.AdminTask
-	AdminTaskReq         = studio.AdminTaskReq
-	BatchDetail          = studio.BatchDetail
-	BatchInfo            = studio.BatchInfo
-	BatchUserReq         = studio.BatchUserReq
-	CancelBatchResp      = studio.CancelBatchResp
-	CostRow              = studio.CostRow
-	DateRange            = studio.DateRange
-	DependencyStatus     = studio.DependencyStatus
-	Empty                = studio.Empty
-	GarmentImage         = studio.GarmentImage
-	GetBatchReq          = studio.GetBatchReq
-	GetTaskReq           = studio.GetTaskReq
-	ListHistoryReq       = studio.ListHistoryReq
-	ListHistoryResp      = studio.ListHistoryResp
-	PoseMapping          = studio.PoseMapping
-	PosePreviewImage     = studio.PosePreviewImage
-	PosePreviewItem      = studio.PosePreviewItem
-	PosePreviewPerson    = studio.PosePreviewPerson
-	PreviewPoseReq       = studio.PreviewPoseReq
-	PreviewPoseResp      = studio.PreviewPoseResp
-	QuoteReq             = studio.QuoteReq
-	QuoteResp            = studio.QuoteResp
-	RetryTaskReq         = studio.RetryTaskReq
-	SidecarStatusResp    = studio.SidecarStatusResp
-	SubmitImageGenReq    = studio.SubmitImageGenReq
-	SubmitPoseReq        = studio.SubmitPoseReq
-	SubmitResp           = studio.SubmitResp
-	SubmitTryonReq       = studio.SubmitTryonReq
-	TaskInfo             = studio.TaskInfo
+	AdminBatch            = studio.AdminBatch
+	AdminBatchDetail      = studio.AdminBatchDetail
+	AdminCostSummaryReq   = studio.AdminCostSummaryReq
+	AdminCostSummaryResp  = studio.AdminCostSummaryResp
+	AdminGetBatchReq      = studio.AdminGetBatchReq
+	AdminListBatchesReq   = studio.AdminListBatchesReq
+	AdminListBatchesResp  = studio.AdminListBatchesResp
+	AdminTask             = studio.AdminTask
+	AdminTaskReq          = studio.AdminTaskReq
+	BatchDetail           = studio.BatchDetail
+	BatchInfo             = studio.BatchInfo
+	BatchUserReq          = studio.BatchUserReq
+	CancelBatchResp       = studio.CancelBatchResp
+	ColorFixParams        = studio.ColorFixParams
+	CostRow               = studio.CostRow
+	DateRange             = studio.DateRange
+	DependencyStatus      = studio.DependencyStatus
+	Empty                 = studio.Empty
+	GarmentImage          = studio.GarmentImage
+	GetBatchReq           = studio.GetBatchReq
+	GetTaskReq            = studio.GetTaskReq
+	ListHistoryReq        = studio.ListHistoryReq
+	ListHistoryResp       = studio.ListHistoryResp
+	PoseMapping           = studio.PoseMapping
+	PosePreviewImage      = studio.PosePreviewImage
+	PosePreviewItem       = studio.PosePreviewItem
+	PosePreviewPerson     = studio.PosePreviewPerson
+	PreviewPoseReq        = studio.PreviewPoseReq
+	PreviewPoseResp       = studio.PreviewPoseResp
+	QuoteReq              = studio.QuoteReq
+	QuoteResp             = studio.QuoteResp
+	RetryTaskReq          = studio.RetryTaskReq
+	SidecarStatusResp     = studio.SidecarStatusResp
+	SubmitImageGenReq     = studio.SubmitImageGenReq
+	SubmitPoseReq         = studio.SubmitPoseReq
+	SubmitResp            = studio.SubmitResp
+	SubmitTryonReq        = studio.SubmitTryonReq
+	TaskInfo              = studio.TaskInfo
+	UpdateTaskColorFixReq = studio.UpdateTaskColorFixReq
 
 	Studio interface {
 		// ---- 用户侧 ----
@@ -75,6 +77,8 @@ type (
 		DeleteBatch(ctx context.Context, in *BatchUserReq, opts ...grpc.CallOption) (*Empty, error)
 		// 用户重试单个失败子任务：只重跑该任务的生图一步（沿用已存的提示词 / 图序，不再反推），
 		RetryTask(ctx context.Context, in *RetryTaskReq, opts ...grpc.CallOption) (*BatchDetail, error)
+		// 保存子任务的校色参数（仅本人、仅成功的任务）：前端浏览器里烘图，服务端只存五个滑杆值；返回该子任务
+		UpdateTaskColorFix(ctx context.Context, in *UpdateTaskColorFixReq, opts ...grpc.CallOption) (*TaskInfo, error)
 		// ---- 运营后台 ----
 		AdminListBatches(ctx context.Context, in *AdminListBatchesReq, opts ...grpc.CallOption) (*AdminListBatchesResp, error)
 		// 批次详情：含切图框、切图质检、组图、每步耗时与成本、每个子任务的完整 prompt
@@ -164,6 +168,12 @@ func (m *defaultStudio) DeleteBatch(ctx context.Context, in *BatchUserReq, opts 
 func (m *defaultStudio) RetryTask(ctx context.Context, in *RetryTaskReq, opts ...grpc.CallOption) (*BatchDetail, error) {
 	client := studio.NewStudioClient(m.cli.Conn())
 	return client.RetryTask(ctx, in, opts...)
+}
+
+// 保存子任务的校色参数（仅本人、仅成功的任务）：前端浏览器里烘图，服务端只存五个滑杆值；返回该子任务
+func (m *defaultStudio) UpdateTaskColorFix(ctx context.Context, in *UpdateTaskColorFixReq, opts ...grpc.CallOption) (*TaskInfo, error) {
+	client := studio.NewStudioClient(m.cli.Conn())
+	return client.UpdateTaskColorFix(ctx, in, opts...)
 }
 
 // ---- 运营后台 ----
