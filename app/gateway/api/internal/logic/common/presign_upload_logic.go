@@ -41,11 +41,23 @@ func NewPresignUploadLogic(ctx context.Context, svcCtx *svc.ServiceContext) *Pre
 	}
 }
 
+// resolvePresignContentType 取请求的文件类型：content_type 优先，其次 contentType（与 Java 统一），都没有返回空串。
+func resolvePresignContentType(snake, camel string) string {
+	if v := strings.TrimSpace(snake); v != "" {
+		return v
+	}
+	return strings.TrimSpace(camel)
+}
+
 func (l *PresignUploadLogic) PresignUpload(req *types.PresignUploadReq) (resp *types.PresignUploadResp, err error) {
-	ct := strings.ToLower(strings.TrimSpace(req.ContentType))
+	raw := resolvePresignContentType(req.ContentType, req.ContentTypeCamel)
+	if raw == "" {
+		return nil, xerr.New(xerr.ParamError, "缺少文件类型：请传 content_type（或 contentType）")
+	}
+	ct := strings.ToLower(raw)
 	ext, ok := uploadExts[ct]
 	if !ok || !strings.HasPrefix(ct, req.Kind+"/") {
-		return nil, xerr.Newf(xerr.ParamError, "不支持的文件类型 %s（图片 jpeg/png/webp/gif/heic，视频 mp4/mov/avi/mkv/flv/wmv）", req.ContentType)
+		return nil, xerr.Newf(xerr.ParamError, "不支持的文件类型 %s（图片 jpeg/png/webp/gif/heic，视频 mp4/mov/avi/mkv/flv/wmv）", raw)
 	}
 	key := storage.ObjectKey(l.svcCtx.Config.Storage.Prefix, req.Kind, ctxdata.UserID(l.ctx), ext)
 	ttl := time.Duration(l.svcCtx.Config.Upload.CredentialTTLMinutes) * time.Minute

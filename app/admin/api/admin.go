@@ -5,6 +5,7 @@ package main
 
 import (
 	"aigc-local-life/app/admin/api/doc"
+	"aigc-local-life/pkg/jsoncase"
 	"aigc-local-life/pkg/result"
 	"aigc-local-life/pkg/swaggerui"
 
@@ -33,6 +34,8 @@ func main() {
 	}
 	server := rest.MustNewServer(c.RestConf, opts...)
 	defer server.Stop()
+	// JSON 字段 snake_case / camelCase 双写（与 Java 命名对齐，迁移期两者并存）
+	server.Use(jsoncase.Middleware)
 
 	result.Setup()
 	ctx := svc.NewServiceContext(c)

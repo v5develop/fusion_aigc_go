@@ -895,8 +895,9 @@ type Portrait struct {
 }
 
 type PresignUploadReq struct {
-	Kind        string `json:"kind,options=image|video"`
-	ContentType string `json:"content_type"` // 文件类型，如 image/jpeg；PUT 时 Content-Type 必须与它完全一致
+	Kind             string `json:"kind,options=image|video"`
+	ContentType      string `json:"content_type,optional"` // 文件类型，如 image/jpeg；PUT 时 Content-Type 必须与它完全一致。与 contentType 二选一
+	ContentTypeCamel string `json:"contentType,optional"`  // 同 content_type，与 Java 直传接口（DirectUploadReqVO）字段名一致；两者都给时以 content_type 为准
 }
 
 type PresignUploadResp struct {

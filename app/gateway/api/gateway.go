@@ -10,6 +10,7 @@ import (
 	"aigc-local-life/app/gateway/api/internal/handler"
 	"aigc-local-life/app/gateway/api/internal/svc"
 	"aigc-local-life/pkg/idempotency"
+	"aigc-local-life/pkg/jsoncase"
 	"aigc-local-life/pkg/result"
 	"aigc-local-life/pkg/swaggerui"
 
@@ -38,6 +39,8 @@ func main() {
 	defer server.Stop()
 	// 幂等键：Idempotency-Key（AIGC 口径）同步成 X-Request-Id，旧头仍接受
 	server.Use(idempotency.Middleware)
+	// JSON 字段 snake_case / camelCase 双写（与 Java 命名对齐，迁移期两者并存）
+	server.Use(jsoncase.Middleware)
 
 	result.Setup()
 	ctx := svc.NewServiceContext(c)

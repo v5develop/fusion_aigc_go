@@ -9542,12 +9542,15 @@
             "schema": {
               "type": "object",
               "required": [
-                "kind",
-                "content_type"
+                "kind"
               ],
               "properties": {
+                "contentType": {
+                  "description": "同 content_type，与 Java 直传接口（DirectUploadReqVO）字段名一致；两者都给时以 content_type 为准",
+                  "type": "string"
+                },
                 "content_type": {
-                  "description": "文件类型，如 image/jpeg；PUT 时 Content-Type 必须与它完全一致",
+                  "description": "文件类型，如 image/jpeg；PUT 时 Content-Type 必须与它完全一致。与 contentType 二选一",
                   "type": "string"
                 },
                 "kind": {
@@ -14563,7 +14566,7 @@
       "in": "header"
     }
   },
-  "x-date": "2026-11-10 16:36:07",
+  "x-date": "2026-11-10 17:25:30",
   "x-description": "This is a goctl generated swagger file.",
   "x-github": "https://github.com/zeromicro/go-zero",
   "x-go-zero-doc": "https://go-zero.dev/",
