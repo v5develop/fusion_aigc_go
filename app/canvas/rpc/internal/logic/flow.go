@@ -18,6 +18,7 @@ import (
 	"aigc-local-life/pkg/asset"
 	"aigc-local-life/pkg/billing"
 	"aigc-local-life/pkg/lease"
+	"aigc-local-life/pkg/modellabel"
 	"aigc-local-life/pkg/xerr"
 
 	"github.com/zeromicro/go-zero/core/logx"
@@ -375,7 +376,8 @@ func (c *core) insertAssets(ctx context.Context, run *model.NodeRun, cands []mod
 			related = append(related, r.AssetID)
 		}
 	}
-	label := firstNonEmpty(req.Model, map[model.RunKind]string{model.KindToolCrop: "裁剪"}[run.Kind], string(run.Kind))
+	// 素材名用完整模型名（Image / Banana / SD5P 是节点 wire 值，不给用户看）
+	label := firstNonEmpty(c.runModelLabel(run.Kind, run.ModelGroup, req), map[model.RunKind]string{model.KindToolCrop: "裁剪"}[run.Kind], string(run.Kind))
 	name := fmt.Sprintf("%s · 画布 %s", label, c.now().Format("01-02 15:04"))
 	props, _ := json.Marshal(map[string]any{
 		"source": "generated",
@@ -750,4 +752,22 @@ func billingStatusOf(mode string, r *billing.Reservation) string {
 		return model.BillHeld
 	}
 	return model.BillNone
+}
+
+// runModelLabel run 请求里模型的用户可见名：生图 / 生视频在模型表里找得到就用完整名；工具（试穿的「通用」等 studio 档）
+// 与找不到的按 pkg/modellabel 映射；没有模型返回空。
+// frozenGroup 是 run 受理时冻结的模型组：档位后来换了组（SD5P 曾出 Seedream 5.5）时，按实际出图的组命名。
+func (c *core) runModelLabel(kind model.RunKind, frozenGroup string, req storedRequest) string {
+	if strings.TrimSpace(req.Model) == "" && strings.TrimSpace(req.ModelID) == "" {
+		return ""
+	}
+	if kind == model.KindImage || kind == model.KindVideo {
+		if l, ok := modellabel.Registered(frozenGroup); ok {
+			return l
+		}
+		if m, ok := c.s.Config.FindModel(req.Model, req.ModelID, string(kind)); ok {
+			return m.DisplayName()
+		}
+	}
+	return modellabel.Of(firstNonEmpty(req.Model, req.ModelID))
 }

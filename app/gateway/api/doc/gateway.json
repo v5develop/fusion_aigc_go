@@ -3464,6 +3464,7 @@
                         "type": "object",
                         "required": [
                           "model",
+                          "label",
                           "model_id",
                           "badge",
                           "max_image_refs",
@@ -3514,6 +3515,10 @@
                               "type": "string"
                             }
                           },
+                          "label": {
+                            "description": "用户可见的完整模型名（GPT Image 2.5 / Nano Banana 2.1 / Seedream 5.5 …）",
+                            "type": "string"
+                          },
                           "max_image_refs": {
                             "description": "gateway 模型组 feature_limits 为准",
                             "type": "integer"
@@ -3522,6 +3527,7 @@
                             "type": "integer"
                           },
                           "model": {
+                            "description": "wire 值（节点 data.model：Image / Banana / SD5P / SD55 …），不给用户看",
                             "type": "string"
                           },
                           "model_id": {
@@ -3627,6 +3633,7 @@
                         "type": "object",
                         "required": [
                           "model",
+                          "label",
                           "model_id",
                           "badge",
                           "max_image_refs",
@@ -3677,6 +3684,10 @@
                               "type": "string"
                             }
                           },
+                          "label": {
+                            "description": "用户可见的完整模型名（GPT Image 2.5 / Nano Banana 2.1 / Seedream 5.5 …）",
+                            "type": "string"
+                          },
                           "max_image_refs": {
                             "description": "gateway 模型组 feature_limits 为准",
                             "type": "integer"
@@ -3685,6 +3696,7 @@
                             "type": "integer"
                           },
                           "model": {
+                            "description": "wire 值（节点 data.model：Image / Banana / SD5P / SD55 …），不给用户看",
                             "type": "string"
                           },
                           "model_id": {
@@ -12018,6 +12030,13 @@
                 "count": {
                   "description": "任务数 = count",
                   "type": "integer"
+                },
+                "image_urls": {
+                  "description": "只用张数（GPT Image 2.6 按参考图张数报「最多扣多少」）；不传 = 按该模型参考图上限报，传 [] = 文生图",
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
                 },
                 "model": {
                   "type": "string"

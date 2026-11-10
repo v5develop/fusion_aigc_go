@@ -8,6 +8,7 @@ import (
 	"aigc-local-life/pkg/asset"
 	"aigc-local-life/pkg/billing"
 	"aigc-local-life/pkg/modelgroup"
+	"aigc-local-life/pkg/modellabel"
 	"aigc-local-life/pkg/storage"
 
 	"github.com/zeromicro/go-zero/zrpc"
@@ -147,8 +148,10 @@ type PriceSpec struct {
 
 // ModelSpec 画布一个模型档。
 type ModelSpec struct {
-	Model   string   // 显示名，= 节点 data.model（Image / Banana / SD5P / Seedance 2.5 …）
-	ModelID string   // = data.modelId（image-v1 / banana-v1 / sd5p-v1 / seedance-2-5 …）
+	Model   string // wire 值，= 节点 data.model（Image / Banana / SD5P / SD55 / Seedance 2.5 …）；不是给用户看的名字
+	ModelID string // = data.modelId（image-v1 / banana-v1 / sd5p-v1 / seedream-5-5-v1 / seedance-2-5 …）
+	// Label 用户可见的完整模型名（GPT Image 2.5 / Nano Banana 2.1 …）；空时按模型组 / 模型码经 pkg/modellabel 推导（见 DisplayName）
+	Label   string   `json:",optional"`
 	Aliases []string `json:",optional"` // 其它叫法（GPT / Nano Banana Pro / Seedream / 通用 …），大小写不敏感
 	Kind    string   `json:",default=image,options=image|video"`
 	Badge   string   `json:",optional"`
@@ -172,44 +175,68 @@ var imageRatios = []string{"1:1", "3:4", "4:3", "9:16", "16:9", "2:3", "3:2", "4
 var seedream55Ratios = []string{"1:1", "3:4", "4:3", "9:16", "16:9", "2:3", "3:2", "21:9"}
 var videoRatios = []string{"16:9", "9:16", "1:1"}
 
-// DefaultModels Models 没配时的模型表（原型 CanvasModelNode 的四个图片 / 四个视频档）。
+// DefaultModels Models 没配时的模型表（原型 CanvasModelNode 的四个图片 / 四个视频档）。顺序 = 目录 / 下拉顺序。
 // 2026-11-09 图片三档换代（与 studio 同口径，GPT Image 2 全线下线）：
-// Image → GPT Image 2.5（GPT Image 2 的接替，按张计费）、新增 GPT Image 2.6 档、
-// Banana → Nano Banana 2.1、SD5P → Seedream 5.5（网关 Atlas 组，须先发布）。
+// Image → GPT Image 2.5（GPT Image 2 的接替，按张计费）、新增 GPT Image 2.6 档、Banana → Nano Banana 2.1。
+// 2026-11-10 Seedream 5.5 独立成档（SD55，排在 Seedream 5.0 Pro 前），SD5P 回到 Seedream 5.0 Pro（img.seedream-5-pro，只出 2K）。
+// 用户端一律显示 Label（完整模型名），Model 只是 wire 值。
 // 2026-11-10 起应用侧不区分厂商 Dev 档：组码用规范组（pkg/modelgroup），部署由网关挑；旧 Dev 名只作输入别名。
 // model / model_id 不变（已保存的画布节点照常解析），旧名留作别名；已落库的 run 记录各自的 model_group，不受影响。
 var DefaultModels = []ModelSpec{
 	// 「Image」（原 GPT Image 2 档）2026-11-09 起接 GPT Image 2.5：按张计费，
 	// 1K / 2K / 4K；没有 quality 参数；参考图不计费（上限取网关 16）。model / model_id 不变，已保存的节点照常解析。
 	// 别名里的 GPT25Dev / *Sunburst Developer / *-developer 是旧名，永久兼容旧草稿，不对外输出。
-	{Model: "Image", ModelID: "image-v1", Aliases: []string{"GPT", "GPT Image 2.5", "GPT25", "gpt-image-2.5-sunburst", "gpt-image-2.5",
+	{Model: "Image", ModelID: "image-v1", Label: "GPT Image 2.5", Aliases: []string{"GPT", "GPT Image 2.5", "GPT25", "gpt-image-2.5-sunburst", "gpt-image-2.5",
 		"GPT25Dev", "GPT Image 2.5 Sunburst Developer", "gpt-image-2.5-sunburst-developer",
 		"GPT Image 2", "gpt-image-2", "通用", "general"}, Kind: "image",
 		ModelGroup: modelgroup.GPTImage25Sunburst, MaxImageRefs: 16, Ratios: imageRatios, Sizes: []string{"1K", "2K", "4K"}, CountMax: 4},
 	// GPT Image 2.6（Sunburst）作为附加档：1K / 2K / 4K、可选质量。参考图上限 14（网关 16）：画布按 high + 2 张参考图的价收，
 	// 编辑每多一张 2048² 参考图成本约 $0.056，14 张以内 1K 仍有 ≥30% 毛利（Java AtlasImagePricingMarginTest），16 张会亏。
-	{Model: "GPT Image 2.6", ModelID: "gpt-image-2-6-v1", Aliases: []string{"GPT Image 2.6 Sunburst", "gpt-image-2.6-sunburst",
-		"gpt-image-2.6"}, Kind: "image",
+	{Model: "GPT Image 2.6", ModelID: "gpt-image-2-6-v1", Label: "GPT Image 2.6", Aliases: []string{"GPT Image 2.6 Sunburst", "gpt-image-2.6-sunburst",
+		"gpt-image-2.6", "GPT26"}, Kind: "image",
 		ModelGroup: "img.gpt-image-2.6-sunburst", MaxImageRefs: 14, Ratios: imageRatios, Sizes: []string{"1K", "2K", "4K"},
 		Qualities: []string{"low", "medium", "high"}, CountMax: 4},
 	// 别名里的 Nano Banana 2.1 Dev / nano-banana-2.1-dev 是旧名，永久兼容旧草稿。
-	{Model: "Banana", ModelID: "banana-v1", Aliases: []string{"Nano Banana", "Nano Banana 2.1", "nano-banana-2.1",
+	{Model: "Banana", ModelID: "banana-v1", Label: "Nano Banana 2.1", Aliases: []string{"Nano Banana", "Nano Banana 2.1", "nano-banana-2.1",
 		"Nano Banana 2.1 Dev", "nano-banana-2.1-dev", "Nano Banana Pro", "nano-banana"}, Kind: "image",
 		Badge: "超强模型", ModelGroup: modelgroup.NanoBanana21, MaxImageRefs: 14, Ratios: imageRatios, Sizes: []string{"1K", "2K"}, CountMax: 4},
-	{Model: "SD5P", ModelID: "sd5p-v1", Aliases: []string{"Seedream", "Seedream 5.5", "seedream-5.5", "Seedream 5 Pro", "seedream-5-pro"}, Kind: "image",
+	// Seedream 5.5（Atlas）：1K / 2K / 4K（4K 落 Atlas 3K 最大档）、8 个比例、参考图 ≤10（网关 feature_limits 为准）。
+	// 计费：组码 img.seedream-5.5 命中 canvas_image_seedream_5_5 档位（Java V1.0.215，载体 creaft-seedream-5.5）。
+	// 「Seedream」别名跟 studio 的 Seedream 档同口径（= 5.5）。
+	{Model: "SD55", ModelID: "seedream-5-5-v1", Label: "Seedream 5.5", Aliases: []string{"Seedream 5.5", "seedream-5.5", "seedream-5-5",
+		"Seedream55", "Seedream"}, Kind: "image",
 		ModelGroup: "img.seedream-5.5", MaxImageRefs: 10, Ratios: seedream55Ratios, Sizes: []string{"1K", "2K", "4K"}, CountMax: 4},
-	{Model: "Seedance 2.5", ModelID: "seedance-2-5", Aliases: []string{"dreamina-seedance-2-5"}, Kind: "video",
+	// Seedream 5.0 Pro：1K 非 1:1 会被拒、4K 静默降 2K，只给 2K（受理时 normalizeImageSize 统一按 2K）。
+	// 计费：组码 img.seedream-5-pro 命中 canvas_image_seedream_5_pro 档位（Java V1.0.224，载体 canvas-seedream-5-pro，68 点 / 张）；
+	// 该档位未建的环境 pickVariant 退回 canvas_image_standard。已保存的 SD5P 节点若是 1K / 4K，受理时按 2K 归一并回告警。
+	{Model: "SD5P", ModelID: "sd5p-v1", Label: "Seedream 5.0 Pro", Aliases: []string{"Seedream 5.0 Pro", "Seedream 5 Pro", "seedream-5-pro"}, Kind: "image",
+		ModelGroup: "img.seedream-5-pro", MaxImageRefs: 10, Ratios: imageRatios, Sizes: []string{"2K"}, CountMax: 4},
+	{Model: "Seedance 2.5", ModelID: "seedance-2-5", Label: "Seedance 2.5", Aliases: []string{"dreamina-seedance-2-5"}, Kind: "video",
 		ModelGroup: "vid.seedance-2.5", MaxImageRefs: 3, MaxReferenceVideos: 1, Ratios: videoRatios, Sizes: []string{"720p", "1080p"},
 		Durations: []string{"4s", "6s", "8s"}, Sound: true, CountMax: 1},
-	{Model: "Seedance 2.0", ModelID: "seedance-2-0", Aliases: []string{"dreamina-seedance-2-0", "Seedance 2"}, Kind: "video",
+	{Model: "Seedance 2.0", ModelID: "seedance-2-0", Label: "Seedance 2.0", Aliases: []string{"dreamina-seedance-2-0", "Seedance 2"}, Kind: "video",
 		ModelGroup: "vid.seedance-2", MaxImageRefs: 3, MaxReferenceVideos: 1, Ratios: videoRatios, Sizes: []string{"720p", "1080p"},
 		Durations: []string{"4s", "6s", "8s"}, Sound: true, CountMax: 1},
-	{Model: "Seedance Fast", ModelID: "seedance-2-0-fast", Aliases: []string{"dreamina-seedance-2-0-fast", "Seedance 2.0 Fast"}, Kind: "video",
+	{Model: "Seedance Fast", ModelID: "seedance-2-0-fast", Label: "Seedance 2.0 Fast", Aliases: []string{"dreamina-seedance-2-0-fast", "Seedance 2.0 Fast"}, Kind: "video",
 		ModelGroup: "vid.seedance-2-fast", MaxImageRefs: 3, MaxReferenceVideos: 1, Ratios: videoRatios, Sizes: []string{"720p", "1080p"},
 		Durations: []string{"4s", "6s", "8s"}, Sound: true, CountMax: 1},
-	{Model: "Seedance Mini", ModelID: "seedance-2-0-mini", Aliases: []string{"dreamina-seedance-2-0-mini", "Seedance 2.0 Mini"}, Kind: "video",
+	{Model: "Seedance Mini", ModelID: "seedance-2-0-mini", Label: "Seedance 2.0 Mini", Aliases: []string{"dreamina-seedance-2-0-mini", "Seedance 2.0 Mini"}, Kind: "video",
 		ModelGroup: "vid.seedance-2-mini", MaxImageRefs: 2, Ratios: videoRatios, Sizes: []string{"720p", "1080p"},
 		Durations: []string{"4s", "6s", "8s"}, Sound: true, CountMax: 1},
+}
+
+// DisplayName 用户可见的完整模型名：Label > 模型组登记名 > 模型码映射（pkg/modellabel）。不会返回 Image / Banana / SD5P 这类 wire 值。
+func (m ModelSpec) DisplayName() string {
+	if l := strings.TrimSpace(m.Label); l != "" {
+		return l
+	}
+	if l, ok := modellabel.Registered(m.ModelGroup); ok {
+		return l
+	}
+	if l := modellabel.Of(m.ModelID); l != "" && !strings.EqualFold(l, m.ModelID) {
+		return l
+	}
+	return modellabel.Of(m.Model)
 }
 
 // ModelTable 生效的模型表。

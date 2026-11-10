@@ -1139,11 +1139,12 @@ func (x *SubmitResp) GetWarnings() []string {
 type QuoteReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
-	Kind          string                 `protobuf:"bytes,2,opt,name=kind,proto3" json:"kind,omitempty"`                                  // tryon / pose / imagegen
-	Model         string                 `protobuf:"bytes,3,opt,name=model,proto3" json:"model,omitempty"`                                // 模型档：通用 / GPT / Banana / Seedream；空=通用
-	Resolution    string                 `protobuf:"bytes,4,opt,name=resolution,proto3" json:"resolution,omitempty"`                      // 1k / 2k / 4k；空=1k
-	AspectRatio   string                 `protobuf:"bytes,5,opt,name=aspect_ratio,json=aspectRatio,proto3" json:"aspect_ratio,omitempty"` // 空：商拍 / 姿态 = 自动，图片生成 = 1:1
-	TaskTotal     int32                  `protobuf:"varint,6,opt,name=task_total,json=taskTotal,proto3" json:"task_total,omitempty"`      // 本次提交的任务（图片）数；0 = 还没传够素材，只回单价
+	Kind          string                 `protobuf:"bytes,2,opt,name=kind,proto3" json:"kind,omitempty"`                                                 // tryon / pose / imagegen
+	Model         string                 `protobuf:"bytes,3,opt,name=model,proto3" json:"model,omitempty"`                                               // 模型档：通用 / GPT / Banana / Seedream；空=通用
+	Resolution    string                 `protobuf:"bytes,4,opt,name=resolution,proto3" json:"resolution,omitempty"`                                     // 1k / 2k / 4k；空=1k
+	AspectRatio   string                 `protobuf:"bytes,5,opt,name=aspect_ratio,json=aspectRatio,proto3" json:"aspect_ratio,omitempty"`                // 空：商拍 / 姿态 = 自动，图片生成 = 1:1
+	TaskTotal     int32                  `protobuf:"varint,6,opt,name=task_total,json=taskTotal,proto3" json:"task_total,omitempty"`                     // 本次提交的任务（图片）数；0 = 还没传够素材，只回单价
+	RefImageCount *int32                 `protobuf:"varint,7,opt,name=ref_image_count,json=refImageCount,proto3,oneof" json:"ref_image_count,omitempty"` // 图片生成的参考图张数（按请求参数冻结的载体用，如 GPT Image 2.6）；不传 = 按该模型参考图上限报（最多扣多少）
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1216,6 +1217,13 @@ func (x *QuoteReq) GetAspectRatio() string {
 func (x *QuoteReq) GetTaskTotal() int32 {
 	if x != nil {
 		return x.TaskTotal
+	}
+	return 0
+}
+
+func (x *QuoteReq) GetRefImageCount() int32 {
+	if x != nil && x.RefImageCount != nil {
+		return *x.RefImageCount
 	}
 	return 0
 }
@@ -4135,7 +4143,7 @@ const file_studio_proto_rawDesc = "" +
 	"\x10estimated_points\x18\x03 \x01(\x03R\x0festimatedPoints\x12\x19\n" +
 	"\btask_ids\x18\x04 \x03(\tR\ataskIds\x12\x1a\n" +
 	"\breplayed\x18\x05 \x01(\bR\breplayed\x12\x1a\n" +
-	"\bwarnings\x18\x06 \x03(\tR\bwarnings\"\xaf\x01\n" +
+	"\bwarnings\x18\x06 \x03(\tR\bwarnings\"\xf0\x01\n" +
 	"\bQuoteReq\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x14\n" +
@@ -4145,7 +4153,9 @@ const file_studio_proto_rawDesc = "" +
 	"resolution\x12!\n" +
 	"\faspect_ratio\x18\x05 \x01(\tR\vaspectRatio\x12\x1d\n" +
 	"\n" +
-	"task_total\x18\x06 \x01(\x05R\ttaskTotal\"\xf1\x02\n" +
+	"task_total\x18\x06 \x01(\x05R\ttaskTotal\x12+\n" +
+	"\x0fref_image_count\x18\a \x01(\x05H\x00R\rrefImageCount\x88\x01\x01B\x12\n" +
+	"\x10_ref_image_count\"\xf1\x02\n" +
 	"\tQuoteResp\x12\x1c\n" +
 	"\tavailable\x18\x01 \x01(\bR\tavailable\x12\x16\n" +
 	"\x06points\x18\x02 \x01(\x03R\x06points\x12\x1f\n" +
@@ -4604,6 +4614,7 @@ func file_studio_proto_init() {
 	if File_studio_proto != nil {
 		return
 	}
+	file_studio_proto_msgTypes[13].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

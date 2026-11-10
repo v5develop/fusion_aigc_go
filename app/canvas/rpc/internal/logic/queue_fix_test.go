@@ -27,8 +27,15 @@ func seedreamReq(size string) *canvas.RunNodeRequest {
 	return &canvas.RunNodeRequest{Kind: "image", Model: "SD5P", Prompt: "白底棚拍", Ratio: "16:9", Size: size, Count: 1}
 }
 
-// legacySeedreamCore SD5P 档仍指向 Seedream 5 Pro（img.seedream-5-pro，只给 2K）的画布：
-// 2026-11-09 换代后默认表已是 Seedream 5.5，统一 2K 的规则只对 5 Pro 组生效（运营在 yaml 里配回旧组时仍要成立）。
+// seedream55Req Seedream 5.5 档（SD55）的生图请求。
+func seedream55Req(size string) *canvas.RunNodeRequest {
+	r := seedreamReq(size)
+	r.Model = "SD55"
+	return r
+}
+
+// legacySeedreamCore SD5P 档指向 Seedream 5.0 Pro（img.seedream-5-pro，只给 2K）的画布。
+// 2026-11-10 起默认表的 SD5P 已回到 Seedream 5.0 Pro（Seedream 5.5 另立 SD55 档），这里显式配一遍，规则对 yaml 配置同样成立。
 func legacySeedreamCore() *core {
 	c := testCore()
 	models := append([]config.ModelSpec(nil), config.DefaultModels...)
@@ -157,26 +164,29 @@ func TestNormalizeImageSize(t *testing.T) {
 	}
 }
 
-// 2026-11-09 换代：默认表的三个图片档指向新组，SD5P（Seedream 5.5）4K 原样受理、4:5 比例在受理时拒。
+// 2026-11-09 换代 + 2026-11-10 Seedream 5.5 独立成档：SD55（Seedream 5.5）4K 原样受理、4:5 比例在受理时拒；
+// SD5P 回到 Seedream 5.0 Pro。
 func TestDefaultImageModelsNextGen(t *testing.T) {
 	c := testCore()
 	for model, group := range map[string]string{"Image": "img.gpt-image-2.5-sunburst", "通用": "img.gpt-image-2.5-sunburst",
 		"GPT Image 2.6": "img.gpt-image-2.6-sunburst", "gpt-image-2-6-v1": "img.gpt-image-2.6-sunburst",
-		"Banana": "img.nano-banana-2.1", "SD5P": "img.seedream-5.5", "Seedream 5 Pro": "img.seedream-5.5"} {
+		"Banana": "img.nano-banana-2.1", "SD55": "img.seedream-5.5", "seedream-5-5-v1": "img.seedream-5.5", "Seedream 5.5": "img.seedream-5.5",
+		"Seedream": "img.seedream-5.5", "SD5P": "img.seedream-5-pro", "sd5p-v1": "img.seedream-5-pro", "Seedream 5 Pro": "img.seedream-5-pro",
+		"Seedream 5.0 Pro": "img.seedream-5-pro"} {
 		m, ok := c.s.Config.FindModel(model, "", "image")
 		if !ok || m.ModelGroup != group {
 			t.Fatalf("%s → %+v，want %s", model, m, group)
 		}
 	}
-	req := seedreamReq("4K")
+	req := seedream55Req("4K")
 	if warns := c.normalizeRunSize(req); warns != nil || req.Size != "4K" {
 		t.Fatalf("Seedream 5.5 4K 不应归一: size=%s warns=%v", req.Size, warns)
 	}
-	sp, err := c.buildSpec(seedreamReq("4K"), nil)
+	sp, err := c.buildSpec(seedream55Req("4K"), nil)
 	if err != nil || sp.Size != "4K" || len(sp.Warnings) != 0 || sp.ModelGroup != "img.seedream-5.5" {
 		t.Fatalf("spec 应为 4K 无告警: %+v %v", sp, err)
 	}
-	bad := seedreamReq("2K")
+	bad := seedream55Req("2K")
 	bad.Ratio = "4:5"
 	if _, err := c.buildSpec(bad, nil); err == nil {
 		t.Fatal("Seedream 5.5 没有 4:5 预设，受理应拒")

@@ -114,6 +114,9 @@ type Charge struct {
 	Seconds int
 	// Resolution 分辨率，影响单价（afv_model_pricing.resolution）。空则用 variant 默认。
 	Resolution string
+	// Usage 每张出图的质量与参考图张数：载体按实际成本结算且配了 freeze_cap_json（Java V1.0.223）时按它压低冻结
+	// （见 freeze_cap.go）；nil = 按价目表冻结。报价与冻结必须传同一个值。
+	Usage *ImageUsage
 }
 
 // bizID 和 Java 一致：{userId}_{requestId}。
@@ -146,6 +149,7 @@ type Service struct {
 	conn sqlx.SqlConn
 	// 按实际用量结算用：载体结算方式缓存、汇率 / 默认加价倍率（afv_system_config）
 	carriers   *carrierCache
+	caps       *capCache
 	rateKnob   *ratKnob
 	markupKnob *ratKnob
 }
@@ -165,6 +169,7 @@ func New(c Conf, conn sqlx.SqlConn) *Service {
 	}
 	return &Service{conf: c, conn: conn,
 		carriers:   &carrierCache{m: map[int64]cachedCarrier{}},
+		caps:       &capCache{m: map[int64]cachedCap{}},
 		rateKnob:   &ratKnob{key: KeyUSDCNYRate, def: mustRat(DefaultUSDCNYRate)},
 		markupKnob: &ratKnob{key: KeyDefaultMarkup, def: mustRat(DefaultMarkup)},
 	}
@@ -190,6 +195,7 @@ func (s *Service) Quote(ctx context.Context, c Charge) (*Quote, error) {
 		return nil, err
 	}
 	q.SettleMode = s.settleModeOf(ctx, q)
+	s.applyFreezeCap(ctx, q, c)
 	return q, nil
 }
 
@@ -246,6 +252,7 @@ func (s *Service) Freeze(ctx context.Context, c Charge) (*Reservation, error) {
 	if err != nil {
 		return nil, err
 	}
+	s.applyFreezeCap(ctx, q, c) // 与 Quote 同一处压低：报价 = 冻结
 	if s.conf.CheckEntitlement {
 		ok, err := hasEntitlement(ctx, s.conn, c.UserID, q.FeatureCode)
 		if err != nil {

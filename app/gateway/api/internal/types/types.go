@@ -237,7 +237,8 @@ type CanvasCapabilities struct {
 }
 
 type CanvasCatalogModel struct {
-	Model              string             `json:"model"`
+	Model              string             `json:"model"` // wire 值（节点 data.model：Image / Banana / SD5P / SD55 …），不给用户看
+	Label              string             `json:"label"` // 用户可见的完整模型名（GPT Image 2.5 / Nano Banana 2.1 / Seedream 5.5 …）
 	ModelId            string             `json:"model_id"`
 	Badge              string             `json:"badge"`
 	MaxImageRefs       int32              `json:"max_image_refs"` // gateway 模型组 feature_limits 为准
@@ -1097,10 +1098,11 @@ type StudioHistoryResp struct {
 }
 
 type StudioImageGenQuoteReq struct {
-	Count       int32  `json:"count,optional"` // 任务数 = count
-	Model       string `json:"model,optional"`
-	Resolution  string `json:"resolution,optional"`
-	AspectRatio string `json:"aspect_ratio,optional"` // 空=1:1
+	Count       int32    `json:"count,optional"` // 任务数 = count
+	Model       string   `json:"model,optional"`
+	Resolution  string   `json:"resolution,optional"`
+	AspectRatio string   `json:"aspect_ratio,optional"` // 空=1:1
+	ImageUrls   []string `json:"image_urls,optional"`   // 只用张数（GPT Image 2.6 按参考图张数报「最多扣多少」）；不传 = 按该模型参考图上限报，传 [] = 文生图
 }
 
 type StudioImageGenSubmitReq struct {

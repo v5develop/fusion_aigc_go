@@ -17,21 +17,31 @@ var groups = map[string]string{
 	"img.gpt-image-2":            "GPT Image 2",
 	"img.nano-banana-2.1":        "Nano Banana 2.1",
 	"img.seedream-5.5":           "Seedream 5.5",
-	"img.seedream-5-pro":         "Seedream 5 Pro",
+	"img.seedream-5-pro":         "Seedream 5.0 Pro",
 	"vid.seedance-2.5":           "Seedance 2.5",
 	"vid.seedance-2":             "Seedance 2.0",
 	"vid.seedance-2-fast":        "Seedance 2.0 Fast",
 	"vid.seedance-2-mini":        "Seedance 2.0 Mini",
 }
 
-// tiers 档位码 → 展示名（studio 模型档 / 计费档次，小写）。旧档次 gpt25dev 先经 pkg/modelgroup 归一。
+// tiers 档位码 / 画布模型码（data.model / data.modelId）→ 展示名（小写）。旧档次 gpt25dev 先经 pkg/modelgroup 归一。
+// 画布的 Image / Banana / SD5P / SD55 是 wire 值（已保存的节点、提示词标签里都有），用户端一律显示全名。
 var tiers = map[string]string{
 	"gpt25":    "GPT Image 2.5",
 	"gpt":      "GPT Image 2.6",
 	"banana":   "Nano Banana 2.1",
 	"seedream": "Seedream 5.5",
-	"sd5p":     "Seedream 5.5",
 	"image":    "GPT Image 2.5",
+	"sd5p":     "Seedream 5.0 Pro",
+	"sd55":     "Seedream 5.5",
+	// 旧简称
+	"seedream 5 pro": "Seedream 5.0 Pro",
+	// 画布 model_id
+	"image-v1":         "GPT Image 2.5",
+	"gpt-image-2-6-v1": "GPT Image 2.6",
+	"banana-v1":        "Nano Banana 2.1",
+	"sd5p-v1":          "Seedream 5.0 Pro",
+	"seedream-5-5-v1":  "Seedream 5.5",
 }
 
 var (

@@ -386,7 +386,7 @@ Idempotency-Key: <run_id>
 | `credits` | 本次 run 预留（冻结）的点数；不是最终扣费，以终态 `credits` 为准 |
 | `settle_mode` | 新增（可选）：结算方式，`FIXED` 按冻结扣 / `ACTUAL_COST` 成功后按供应商实际用量结算（`credits` 是最多扣多少，终态 `credits` 是实扣）；未冻结（工具 / 计费关闭）不返回 |
 | `max_points` | 新增（可选）：本次最多扣多少点（= 冻结的 `credits`）；`ACTUAL_COST` 时显示「按实际用量结算，最多 N 点」 |
-| `warnings` | string[]，参数归一告警，没有时为 `[]`。目前只有 Seedream：`size` 传 `4K` / `1K` 会按 **2K** 受理并回一条告警（如「Seedream 不支持 4K（会被降为 2K），已按 2K 生成并计费」）；幂等重放同样回告警。前端可 toast 提示，不需要重提 |
+| `warnings` | string[]，参数归一告警，没有时为 `[]`。目前只有 Seedream 5.0 Pro（`SD5P`）：`size` 传 `4K` / `1K` 会按 **2K** 受理并回一条告警（如「Seedream 5.0 Pro 只出 2K（不支持 4K），已按 2K 生成并计费」；已保存的旧节点同样适用）；幂等重放同样回告警。前端可 toast 提示，不需要重提 |
 
 提交时的失败（都是整次 run 没有创建）：
 
@@ -560,14 +560,14 @@ GET /api/v1/canvas/catalog
   "code": 0, "msg": "ok",
   "data": {
     "image_models": [
-      {"model": "Banana", "model_id": "banana-v1", "badge": "超强模型", "max_image_refs": 14, "max_reference_videos": 0,
+      {"model": "Banana", "label": "Nano Banana 2.1", "model_id": "banana-v1", "badge": "超强模型", "max_image_refs": 14, "max_reference_videos": 0,
        "ratios": ["1:1", "3:4", "4:3", "9:16", "16:9", "2:3", "3:2", "4:5", "5:4", "21:9"], "sizes": ["1K", "2K"],
        "qualities": [], "durations": [], "sound": false, "count_max": 4,
        "capabilities": {"quality": false, "count": true, "duration": false, "sound": false},
        "prices": [], "ready": true}
     ],
     "video_models": [
-      {"model": "Seedance 2.5", "model_id": "seedance-2-5", "badge": "", "max_image_refs": 3, "max_reference_videos": 1,
+      {"model": "Seedance 2.5", "label": "Seedance 2.5", "model_id": "seedance-2-5", "badge": "", "max_image_refs": 3, "max_reference_videos": 1,
        "ratios": ["16:9", "9:16", "1:1"], "sizes": ["720p", "1080p"], "qualities": [],
        "durations": ["4s", "6s", "8s"], "sound": true, "count_max": 1,
        "capabilities": {"quality": false, "count": false, "duration": true, "sound": true},
@@ -587,11 +587,12 @@ GET /api/v1/canvas/catalog
 }
 ```
 
-缺省模型表（`model` / `model_id` → gateway 组）：`Image` / `image-v1` → `img.gpt-image-2`（参考图 16，质量 low/medium/high）；`Banana` / `banana-v1` → `img.nano-banana-2.1`（14）；`SD5P` / `sd5p-v1` → `img.seedream-5-pro`（10，**只给 2K**：Seedream 1K 非 1:1 会被拒、4K 静默降 2K）；视频 `Seedance 2.5` / `seedance-2-5`、`Seedance 2.0` / `seedance-2-0`、`Seedance Fast` / `seedance-2-0-fast`、`Seedance Mini` / `seedance-2-0-mini` → `vid.seedance-2.5` / `-2` / `-2-fast` / `-2-mini`。别名（GPT、Nano Banana Pro、Seedream 5 Pro、通用…）也认。视频带首尾帧（`image1` / `image2`）时：不能再接参考图 / 参考视频；选了 Seedance 2.5 会自动改用 `vid.seedance-2`（2.5 不支持首尾帧）。`prices` 由配置给（缺省空），实扣以提交回包 `credits` 为准。
+缺省模型表（顺序即下拉顺序；`model` / `model_id` → `label` → gateway 组）：`Image` / `image-v1` → GPT Image 2.5 → `img.gpt-image-2.5-sunburst`（参考图 16，1K/2K/4K）；`GPT Image 2.6` / `gpt-image-2-6-v1` → GPT Image 2.6 → `img.gpt-image-2.6-sunburst`（14，质量 low/medium/high）；`Banana` / `banana-v1` → Nano Banana 2.1 → `img.nano-banana-2.1`（14）；`SD55` / `seedream-5-5-v1` → Seedream 5.5 → `img.seedream-5.5`（10，1K/2K/4K，无 4:5 / 5:4）；`SD5P` / `sd5p-v1` → Seedream 5.0 Pro → `img.seedream-5-pro`（10，**只给 2K**：Seedream 5.0 Pro 1K 非 1:1 会被拒、4K 静默降 2K）；视频 `Seedance 2.5` / `seedance-2-5`、`Seedance 2.0` / `seedance-2-0`、`Seedance Fast` / `seedance-2-0-fast`（Seedance 2.0 Fast）、`Seedance Mini` / `seedance-2-0-mini`（Seedance 2.0 Mini）→ `vid.seedance-2.5` / `-2` / `-2-fast` / `-2-mini`。别名（GPT、Nano Banana Pro、Seedream、Seedream 5 Pro、通用…）也认。视频带首尾帧（`image1` / `image2`）时：不能再接参考图 / 参考视频；选了 Seedance 2.5 会自动改用 `vid.seedance-2`（2.5 不支持首尾帧）。`prices` 由配置给（缺省空），实扣以提交回包 `credits` 为准。
 
 | 字段 | 说明 |
 |---|---|
-| `model` / `model_id` | 显示名 / 提交用 id |
+| `model` / `model_id` | 提交用 wire 值（存进节点 `data.model` / `data.modelId`，不给用户看） |
+| `label` | 用户可见的完整模型名（GPT Image 2.5 / Nano Banana 2.1 / Seedream 5.5 / Seedream 5.0 Pro …），展示一律用它 |
 | `max_image_refs` | 参考图上限（连线校验用它，原型里 Image 14 / Banana 5 / SD5P 3 / 视频 2 或 3 的不一致都以这里为准） |
 | `ratios` / `sizes` / `durations` / `qualities` | 可选项 |
 | `count_max` | `count` 上限 |

@@ -101,7 +101,7 @@ func (c *core) modelReady(group string) bool {
 
 func (c *core) catalogModel(m config.ModelSpec) *canvas.CatalogModel {
 	out := &canvas.CatalogModel{
-		Model: m.Model, ModelId: m.ModelID, Kind: m.Kind, Badge: m.Badge, ModelGroup: m.ModelGroup,
+		Model: m.Model, Label: m.DisplayName(), ModelId: m.ModelID, Kind: m.Kind, Badge: m.Badge, ModelGroup: m.ModelGroup,
 		MaxImageRefs: int32(c.catalogImageRefs(m)), Ratios: m.Ratios, Sizes: m.Sizes, Qualities: m.Qualities,
 		Durations: m.Durations, Sound: m.Sound, CountMax: int32(m.CountMax),
 		CapQuality: len(m.Qualities) > 0, CapCount: m.Kind == "image" && m.CountMax > 1,

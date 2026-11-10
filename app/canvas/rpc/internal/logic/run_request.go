@@ -611,9 +611,9 @@ func normalizeImageSize(group, size string) (string, []string) {
 	case "", "2K":
 		return "2K", nil
 	case "4K":
-		return "2K", []string{"Seedream 不支持 4K（会被降为 2K），已按 2K 生成并计费"}
+		return "2K", []string{"Seedream 5.0 Pro 只出 2K（不支持 4K），已按 2K 生成并计费"}
 	case "1K":
-		return "2K", []string{"Seedream 1K 只支持 1:1、画布统一按 2K，已按 2K 生成并计费"}
+		return "2K", []string{"Seedream 5.0 Pro 只出 2K（1K 仅支持 1:1），已按 2K 生成并计费"}
 	}
 	return size, nil
 }
@@ -643,12 +643,7 @@ func (c *core) normalizeRunSize(req *canvas.RunNodeRequest) []string {
 	return warns
 }
 
-// modelDisplay 用户可见的模型名：节点 data.model（Image / Banana / SD5P …）是 wire 值，错误文案里按模型组映射成友好名。
+// modelDisplay 用户可见的模型名：节点 data.model（Image / Banana / SD5P …）是 wire 值，错误文案里用完整模型名（ModelSpec.DisplayName）。
 func modelDisplay(m config.ModelSpec) string {
-	if m.ModelGroup != "" {
-		if l := modellabel.Group(m.ModelGroup); l != "" && l != "其他模型" {
-			return l
-		}
-	}
-	return modellabel.Of(m.Model)
+	return m.DisplayName()
 }

@@ -1762,7 +1762,7 @@ func (x *CatalogPrice) GetPoints() int64 {
 
 type CatalogModel struct {
 	state              protoimpl.MessageState `protogen:"open.v1"`
-	Model              string                 `protobuf:"bytes,1,opt,name=model,proto3" json:"model,omitempty"` // 显示名（前端 data.model）
+	Model              string                 `protobuf:"bytes,1,opt,name=model,proto3" json:"model,omitempty"` // wire 值（前端 data.model：Image / Banana / SD5P / SD55 …）；展示用 label
 	ModelId            string                 `protobuf:"bytes,2,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
 	Kind               string                 `protobuf:"bytes,3,opt,name=kind,proto3" json:"kind,omitempty"` // image / video
 	Badge              string                 `protobuf:"bytes,4,opt,name=badge,proto3" json:"badge,omitempty"`
@@ -1781,6 +1781,7 @@ type CatalogModel struct {
 	Prices             []*CatalogPrice        `protobuf:"bytes,17,rep,name=prices,proto3" json:"prices,omitempty"`
 	Ready              bool                   `protobuf:"varint,18,opt,name=ready,proto3" json:"ready,omitempty"` // gateway 模型组启用且存在
 	MaxReferenceVideos int32                  `protobuf:"varint,19,opt,name=max_reference_videos,json=maxReferenceVideos,proto3" json:"max_reference_videos,omitempty"`
+	Label              string                 `protobuf:"bytes,20,opt,name=label,proto3" json:"label,omitempty"` // 用户可见的完整模型名（GPT Image 2.5 / Nano Banana 2.1 …）；model 是 wire 值，不给用户看
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
 }
@@ -1946,6 +1947,13 @@ func (x *CatalogModel) GetMaxReferenceVideos() int32 {
 		return x.MaxReferenceVideos
 	}
 	return 0
+}
+
+func (x *CatalogModel) GetLabel() string {
+	if x != nil {
+		return x.Label
+	}
+	return ""
 }
 
 type CatalogTool struct {
@@ -4210,7 +4218,7 @@ const file_canvas_proto_rawDesc = "" +
 	"\fCatalogPrice\x12\x12\n" +
 	"\x04size\x18\x01 \x01(\tR\x04size\x12\x1a\n" +
 	"\bduration\x18\x02 \x01(\tR\bduration\x12\x16\n" +
-	"\x06points\x18\x03 \x01(\x03R\x06points\"\xc1\x04\n" +
+	"\x06points\x18\x03 \x01(\x03R\x06points\"\xd7\x04\n" +
 	"\fCatalogModel\x12\x14\n" +
 	"\x05model\x18\x01 \x01(\tR\x05model\x12\x19\n" +
 	"\bmodel_id\x18\x02 \x01(\tR\amodelId\x12\x12\n" +
@@ -4233,7 +4241,8 @@ const file_canvas_proto_rawDesc = "" +
 	"\tcap_sound\x18\x10 \x01(\bR\bcapSound\x12,\n" +
 	"\x06prices\x18\x11 \x03(\v2\x14.canvas.CatalogPriceR\x06prices\x12\x14\n" +
 	"\x05ready\x18\x12 \x01(\bR\x05ready\x120\n" +
-	"\x14max_reference_videos\x18\x13 \x01(\x05R\x12maxReferenceVideos\"\x97\x01\n" +
+	"\x14max_reference_videos\x18\x13 \x01(\x05R\x12maxReferenceVideos\x12\x14\n" +
+	"\x05label\x18\x14 \x01(\tR\x05label\"\x97\x01\n" +
 	"\vCatalogTool\x12\x12\n" +
 	"\x04tool\x18\x01 \x01(\tR\x04tool\x12\x14\n" +
 	"\x05label\x18\x02 \x01(\tR\x05label\x12\x18\n" +

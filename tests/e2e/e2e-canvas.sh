@@ -426,13 +426,13 @@ check "再刷新一次仍是第 2 张" "$(jq -r '.snapshot.nodes[]|select(.id=="
 want_code "不带 if_match_revision 又不 force 的保存 → 1002" 1002 "$(call PUT "/api/v1/canvas/canvases/$CID" "$(save "$SNAP" "" false)")"
 check "同节点在途唯一（uk_active_node 生成列存在）" "$(sql "SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name='afv_canvas_node_run' AND index_name='uk_active_node'")" 1
 
-echo "== Seedream 4K：受理即按 2K 归一（快照 / 冻结 / gateway 请求一致），回 warnings"
+echo "== Seedream 5.0 Pro 4K：受理即按 2K 归一（快照 / 冻结 / gateway 请求一致），回 warnings"
 KS=$(uuidgen)
 SB=$(jq -c --arg k "$KS" '.run_id=$k|.model="SD5P"|.model_id="sd5p-v1"|.size="4K"|.ratio="16:9"' <<<"$B")
 SR=$(ok POST "/api/v1/canvas/canvases/$CID/nodes/m1/run" "$SB" "$KS"); SRID=$(jq -r .request_id <<<"$SR")
 check "RunNode 回 warnings（Seedream 4K → 2K）" "$(jq -r '"\(.warnings|length),\(.warnings[0]|test("4K"))"' <<<"$SR")" "1,true"
 check "run.request 快照存归一值 size=2K、模型组 seedream" \
-  "$(sql "SELECT CONCAT(JSON_UNQUOTE(JSON_EXTRACT(request,'\$.size')),',',model_group) FROM afv_canvas_node_run WHERE id=$SRID")" "2K,img.seedream-5.5"
+  "$(sql "SELECT CONCAT(JSON_UNQUOTE(JSON_EXTRACT(request,'\$.size')),',',model_group) FROM afv_canvas_node_run WHERE id=$SRID")" "2K,img.seedream-5-pro"
 check "同 key 同 body（仍是 4K）→ 重放原 run、同样回 warnings" \
   "$(ok POST "/api/v1/canvas/canvases/$CID/nodes/m1/run" "$SB" "$KS" | jq -r '"\(.replayed),\(.request_id),\(.warnings|length)"')" "true,${SRID},1"
 check "Seedream run 成功" "$(poll_run "$SRID" | jq -r .status)" succeeded

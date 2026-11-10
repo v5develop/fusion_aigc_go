@@ -98,7 +98,12 @@ func quoteStudio(ctx context.Context, q quoter, entry string, k model.Kind, in *
 		out.Available = true
 		return out
 	}
-	r, err := q.Quote(ctx, quoteCharge(entry, in.UserId, group, res))
+	// 用量与提交同口径（imageUsage）：图片生成没传参考图张数时按该组上限报（「最多扣多少」不能比提交冻得少）
+	userRefs := -1
+	if in.RefImageCount != nil {
+		userRefs = max(0, int(*in.RefImageCount))
+	}
+	r, err := q.Quote(ctx, quoteCharge(entry, in.UserId, group, res, imageUsage(k, group, userRefs)))
 	if err != nil {
 		logx.WithContext(ctx).Errorf("studio: 报价失败 用户 %d 入口 %s 模型组 %s 分辨率 %s: %v", in.UserId, entry, group, res, err)
 		if errors.Is(err, billing.ErrNoOffer) {

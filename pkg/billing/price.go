@@ -63,8 +63,13 @@ type Quote struct {
 	SettleMode  string
 	PricingID   int64 // 主计费步骤用的单价行，写进预留单
 	PricePoints int64
-	PriceUnit   string // PER_IMAGE / PER_SECOND
-	Quantity    int    // 计量：张数或秒数
+	// Resolution 算价用的分辨率（请求的，空则档位默认），按请求参数冻结（freeze_cap.go）用
+	Resolution string
+	// TierUnitPoints / UnitPointsCap 按请求参数冻结生效时：价目表单价与本次每张上限（未生效为 0）
+	TierUnitPoints int64
+	UnitPointsCap  int64
+	PriceUnit      string // PER_IMAGE / PER_SECOND
+	Quantity       int    // 计量：张数或秒数
 	// Settlement ALL_OR_NOTHING / PARTIAL。PARTIAL 才允许部分成功按实际结算。
 	Settlement string
 	Lines      []QuoteLine
@@ -88,12 +93,16 @@ type QuoteLine struct {
 // Snapshot 价格快照，落进 afv_billing_reservation.price_snapshot。
 // 单价以后会改，账要能还原成当时的样子。
 func (q *Quote) Snapshot() string {
-	b, err := json.Marshal(map[string]any{
+	m := map[string]any{
 		"entryCode": q.EntryCode, "offerCode": q.OfferCode, "variantCode": q.VariantCode,
 		"modelGroup": q.ModelGroup, "modelId": q.ModelID, "priceUnit": q.PriceUnit, "quantity": q.Quantity,
 		"pricePoints": q.PricePoints, "settlement": q.Settlement, "lines": q.Lines, "carrierModelId": q.CarrierModelID,
 		"source": "aigc-local-life", // 一眼看出这单是 Go 写的
-	})
+	}
+	if q.UnitPointsCap > 0 { // 按请求参数冻结生效才写，其余快照逐字不变
+		m["tierUnitPoints"], m["unitPointsCap"] = q.TierUnitPoints, q.UnitPointsCap
+	}
+	b, err := json.Marshal(m)
 	if err != nil {
 		return "{}"
 	}
@@ -178,7 +187,7 @@ func price(ctx context.Context, conn sqlx.SqlConn, c Charge) (*Quote, error) {
 	q := &Quote{
 		EntryCode: o.EntryCode, OfferCode: o.OfferCode, FeatureCode: o.FeatureCode,
 		VariantCode: v.VariantCode, ModelGroup: group, ModelID: v.DefaultModelID.Int64, CarrierModelID: v.DefaultModelID.Int64,
-		Settlement: or(v.Settlement.String, "ALL_OR_NOTHING"),
+		Settlement: or(v.Settlement.String, "ALL_OR_NOTHING"), Resolution: res,
 	}
 	for _, cp := range comps {
 		line, err := priceLine(ctx, conn, cp, c, v, res)

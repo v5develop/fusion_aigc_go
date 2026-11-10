@@ -98,7 +98,7 @@ func toRunResult(r *canvas_client.RunResult) types.CanvasRunResult {
 
 func toCatalogModel(m *canvas_client.CatalogModel) types.CanvasCatalogModel {
 	out := types.CanvasCatalogModel{
-		Model: m.Model, ModelId: m.ModelId, Badge: m.Badge, MaxImageRefs: m.MaxImageRefs, MaxReferenceVideos: m.MaxReferenceVideos,
+		Model: m.Model, Label: m.Label, ModelId: m.ModelId, Badge: m.Badge, MaxImageRefs: m.MaxImageRefs, MaxReferenceVideos: m.MaxReferenceVideos,
 		Ratios: nz(m.Ratios), Sizes: nz(m.Sizes), Qualities: nz(m.Qualities), Durations: nz(m.Durations), Sound: m.Sound,
 		CountMax: m.CountMax, Ready: m.Ready, Prices: []types.CanvasPrice{},
 		Capabilities: types.CanvasCapabilities{Quality: m.CapQuality, Count: m.CapCount, Duration: m.CapDuration, Sound: m.CapSound},

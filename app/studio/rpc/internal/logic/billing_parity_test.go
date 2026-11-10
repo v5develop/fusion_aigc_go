@@ -3,6 +3,7 @@ package logic
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"testing"
 
 	"aigc-local-life/app/studio/model"
@@ -46,8 +47,9 @@ func TestQuoteHoldParityPerModelAndResolution(t *testing.T) {
 						t.Fatalf("提交模型组=%s，期望 %s", sp.ModelGroup, group)
 					}
 					q := &groupPriceQuoter{}
+					refs := int32(sp.UserRefs)
 					r := quoteStudio(context.Background(), q, d.entry(kind), kind,
-						&studio.QuoteReq{Kind: string(kind), UserId: 7, Model: name, Resolution: res, TaskTotal: 2}, groups)
+						&studio.QuoteReq{Kind: string(kind), UserId: 7, Model: name, Resolution: res, TaskTotal: 2, RefImageCount: &refs}, groups)
 					if !r.Available || len(q.got) != 1 {
 						t.Fatalf("报价不可用：%+v", r)
 					}
@@ -59,7 +61,7 @@ func TestQuoteHoldParityPerModelAndResolution(t *testing.T) {
 						t.Fatalf("冻结请求号=%s", hold.RequestID)
 					}
 					hold.RequestID = ""
-					if quote != hold {
+					if !reflect.DeepEqual(quote, hold) {
 						t.Fatalf("报价与冻结的计费请求不同：\n报价 %+v\n冻结 %+v", quote, hold)
 					}
 					if quote.ModelGroup != group {
@@ -103,7 +105,7 @@ func TestRetryChargeUsesTaskModelGroup(t *testing.T) {
 	if c.ModelGroup != "img.nano-banana-2.1" || c.Resolution != "2K" || c.EntryCode != "studio_tryon" || c.Count != 1 || c.UserID != 7 {
 		t.Fatalf("重做计费请求：%+v", c)
 	}
-	if want := quoteCharge("studio_tryon", 7, "img.nano-banana-2.1", "2k"); c != want {
+	if want := quoteCharge("studio_tryon", 7, "img.nano-banana-2.1", "2k", imageUsage(model.KindTryon, "img.nano-banana-2.1", 0)); !reflect.DeepEqual(c, want) {
 		t.Fatalf("重做与提交报价口径不同：\n重做 %+v\n报价 %+v", c, want)
 	}
 }
@@ -137,4 +139,44 @@ func specFor(t *testing.T, kind model.Kind, name, res string, groups map[string]
 		t.Fatal(err)
 	}
 	return imageGenSpec(in, v)
+}
+
+// 按请求参数冻结的用量（GPT Image 2.6）：质量与编排同口径、参考图取上界；报价没传参考图张数时按上限（不比提交冻得少）。
+func TestImageUsageUpperBounds(t *testing.T) {
+	const gpt26 = "img.gpt-image-2.6-sunburst"
+	cases := []struct {
+		kind     model.Kind
+		group    string
+		userRefs int
+		quality  string
+		refs     int
+	}{
+		{model.KindTryon, gpt26, 0, "high", 6},      // 商拍：细节裁图编排时才知道 → 按 2.6 上限 6
+		{model.KindPose, gpt26, 0, "medium", 2},     // 姿态：原图 + 姿势
+		{model.KindImageGen, gpt26, 0, "medium", 0}, // 文生图
+		{model.KindImageGen, gpt26, 3, "medium", 3},
+		{model.KindImageGen, gpt26, 9, "medium", 5},  // 超过 2.6 图片生成上限 5 会被截断
+		{model.KindImageGen, gpt26, -1, "medium", 5}, // 报价没传 → 上限
+		{model.KindImageGen, "img.nano-banana-2.1", 2, "", 2},
+	}
+	for _, c := range cases {
+		u := imageUsage(c.kind, c.group, c.userRefs)
+		if u == nil || u.Quality != c.quality || u.RefImages != c.refs {
+			t.Errorf("%s %s refs=%d: %+v，期望 quality=%q refs=%d", c.kind, c.group, c.userRefs, u, c.quality, c.refs)
+		}
+	}
+}
+
+// 报价带不带参考图张数：带了按张数，没带按上限。
+func TestQuoteImageGenRefCount(t *testing.T) {
+	groups := map[string]string{"GPT": "img.gpt-image-2.6-sunburst"}
+	q := &groupPriceQuoter{}
+	two := int32(2)
+	quoteStudio(context.Background(), q, "studio_imagegen", model.KindImageGen,
+		&studio.QuoteReq{Kind: "imagegen", UserId: 7, Model: "GPT", Resolution: "1k", TaskTotal: 1, RefImageCount: &two}, groups)
+	quoteStudio(context.Background(), q, "studio_imagegen", model.KindImageGen,
+		&studio.QuoteReq{Kind: "imagegen", UserId: 7, Model: "GPT", Resolution: "1k", TaskTotal: 1}, groups)
+	if len(q.got) != 2 || q.got[0].Usage.RefImages != 2 || q.got[1].Usage.RefImages != 5 {
+		t.Fatalf("%+v", q.got)
+	}
 }

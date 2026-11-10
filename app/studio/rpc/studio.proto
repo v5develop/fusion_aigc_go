@@ -205,6 +205,7 @@ message QuoteReq {
   string resolution = 4;                 // 1k / 2k / 4k；空=1k
   string aspect_ratio = 5;               // 空：商拍 / 姿态 = 自动，图片生成 = 1:1
   int32 task_total = 6;                  // 本次提交的任务（图片）数；0 = 还没传够素材，只回单价
+  optional int32 ref_image_count = 7;    // 图片生成的参考图张数（按请求参数冻结的载体用，如 GPT Image 2.6）；不传 = 按该模型参考图上限报（最多扣多少）
 }
 
 message QuoteResp {

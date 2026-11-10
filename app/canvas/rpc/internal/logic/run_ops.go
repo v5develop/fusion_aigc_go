@@ -174,6 +174,9 @@ func (c *core) charge(userID int64, requestID string, sp *runSpec) billing.Charg
 		// 按实际出图模型选档（Java V1.0.215 给 canvas_image 建了按模型组分价的档位）：GPT Image 2.6 / 2.5、Banana、
 		// Seedream 各扣各的价；该组没有档位时 pickVariant 退回 canvas_image_standard（旧配置照旧）。
 		ch.ModelGroup = sp.ModelGroup
+		// 按请求参数冻结（Java V1.0.223，只对 ACTUAL_COST 且配了 freeze_cap_json 的载体生效，如 GPT Image 2.6）：
+		// 质量与派发同一取值，参考图张数 = 派发送网关的张数（每张出图一次调用、各带全部参考图）
+		ch.Usage = &billing.ImageUsage{Quality: imageQuality(sp), RefImages: len(sp.Images)}
 	case model.KindVideo:
 		ch.Kind, ch.Count, ch.Seconds, ch.Resolution = billing.KindVideo, 1, sp.DurationS, strings.ToLower(sp.Size)
 	}

@@ -30,10 +30,15 @@ func NewQuoteImageGenLogic(ctx context.Context, svcCtx *svc.ServiceContext) *Quo
 }
 
 func (l *QuoteImageGenLogic) QuoteImageGen(req *types.StudioImageGenQuoteReq) (resp *types.StudioQuoteResp, err error) {
-	out, err := l.svcCtx.StudioRpc.Quote(l.ctx, &studio_client.QuoteReq{
+	in := &studio_client.QuoteReq{
 		UserId: ctxdata.UserID(l.ctx), Kind: "imagegen", Model: req.Model, Resolution: req.Resolution,
 		AspectRatio: req.AspectRatio, TaskTotal: req.Count,
-	})
+	}
+	if req.ImageUrls != nil { // 传了（含 []）才告诉 studio 张数；没传按参考图上限报，不比提交冻得少
+		n := int32(len(req.ImageUrls))
+		in.RefImageCount = &n
+	}
+	out, err := l.svcCtx.StudioRpc.Quote(l.ctx, in)
 	if err != nil {
 		return nil, err
 	}

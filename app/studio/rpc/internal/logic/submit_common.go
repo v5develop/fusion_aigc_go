@@ -167,6 +167,8 @@ type submitSpec struct {
 	Resolution  string // 1k / 2k / 4k（已按 model group 归一，与实际下发、计费一致）
 	Slots       []slot
 	Warnings    []string // 归一告警（如 Seedream 4K → 2K），随 SubmitResp 回给前端
+	// UserRefs 图片生成用户给的参考图张数（按请求参数冻结用，见 imageUsage）；商拍 / 姿态不用
+	UserRefs int
 }
 
 // payloadOf 快照 JSON 与指纹（SHA-256 十六进制）。
@@ -342,22 +344,46 @@ func (d *deps) replay(ctx context.Context, b *model.Batch, hash string) (*studio
 
 // charge 一个子任务的计费请求：一张图一张预留单。模型组取子任务上落库的组（与实际出图一致）。
 func (d *deps) charge(sp *submitSpec, t *model.Task) billing.Charge {
-	c := quoteCharge(d.entry(sp.Kind), sp.UserID, orDefault(t.ModelGroup, sp.ModelGroup), sp.Resolution)
+	group := orDefault(t.ModelGroup, sp.ModelGroup)
+	c := quoteCharge(d.entry(sp.Kind), sp.UserID, group, sp.Resolution, imageUsage(sp.Kind, group, sp.UserRefs))
 	c.RequestID = BillingPrefix + t.TaskID.String
 	return c
 }
 
 // quoteCharge 一张图的计费请求（不带预留单号）：提交冻结、提交前报价（Quote）、重做冻结与余额预检共用，保证同价。
-// 价格 = f(入口, 模型组, 分辨率)：modelGroup 按档位默认模型的 gateway_model_group 选分模型档位
-// （该入口没配这个组的档位时退回默认档位），resolution 选该档位单价行的分辨率档。
-func quoteCharge(entry string, userID int64, modelGroup, resolution string) billing.Charge {
+// 价格 = f(入口, 模型组, 分辨率, 用量)：modelGroup 按档位默认模型的 gateway_model_group 选分模型档位
+// （该入口没配这个组的档位时退回默认档位），resolution 选该档位单价行的分辨率档；usage 只对按实际成本结算、
+// 配了冻结上限参数的载体（GPT Image 2.6）生效，按本次质量与参考图张数压低冻结（billing.ImageUsage）。
+func quoteCharge(entry string, userID int64, modelGroup, resolution string, usage *billing.ImageUsage) billing.Charge {
 	return billing.Charge{
 		UserID: userID, EntryCode: entry,
 		Kind: billing.KindQuick, Count: 1,
 		ModelGroup: modelGroup,
 		Tier:       tierOf(entry, resolution),
 		Resolution: strings.ToUpper(resolution), // afv_model_pricing.resolution 用 1k/2k/4k（库排序规则不分大小写）；匹配不到退回不限分辨率的单价
+		Usage:      usage,
 	}
+}
+
+// poseRefs 姿态复刻一次生图的参考图：图 1 原图 + 图 2 姿势（flow_batch.go pose）。
+const poseRefs = 2
+
+// imageUsage 一张子任务出图的质量与参考图张数（上界）：质量与编排同一取值（pipeline.QualityFor，用户不能改）；
+// 参考图 商拍 = 该组上限（细节裁图要编排时才知道，按最坏）、姿态 = 2、图片生成 = min(用户参考图, 该组上限)，
+// userRefs < 0 表示不知道（报价没传参考图张数）→ 按上限。多算只会多冻，成功后按实际成本退回；少算会冻少，所以只取上界。
+func imageUsage(kind model.Kind, group string, userRefs int) *billing.ImageUsage {
+	k := string(kind)
+	limit := pipeline.RefCap(group, k, 0)
+	refs := limit
+	switch kind {
+	case model.KindPose:
+		refs = min(poseRefs, limit)
+	case model.KindImageGen:
+		if userRefs >= 0 {
+			refs = min(userRefs, limit)
+		}
+	}
+	return &billing.ImageUsage{Quality: pipeline.QualityFor(group, k, ""), RefImages: refs}
 }
 
 // tierOf 分辨率档位：只有 billing.Targets 给该入口登记了 Tiers 且包含该分辨率时才分档，否则不分档。
@@ -545,6 +571,6 @@ func imageGenSpec(in *studio.SubmitImageGenReq, v *ImageGenInput) *submitSpec {
 			"resolution": v.Resolution, "aspect_ratio": v.AspectRatio, "count": v.Count, "rewrite_prompt": in.RewritePrompt,
 		},
 		URLs: urlChecks("参考图", v.Images), Texts: []textCheck{{"studio_imagegen_prompt", v.Prompt}}, ModelGroup: v.ModelGroup, Resolution: v.Resolution, Warnings: v.Warnings,
-		Slots: imageGenSlots(int(v.Count)),
+		Slots: imageGenSlots(int(v.Count)), UserRefs: len(v.Images),
 	}
 }

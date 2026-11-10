@@ -221,15 +221,7 @@ func (c *core) gatewayRequests(ctx context.Context, run *model.NodeRun, sp *runS
 		// 受理时已按模型组归一（normalizeImageSize）；这里再过一遍只为兼容改版前落库的请求，新 run 是空操作
 		res, _ := normalizeImageSize(sp.ModelGroup, sp.Size)
 		res = strings.ToUpper(res)
-		quality := sp.Quality
-		if len(sp.Model.Qualities) > 0 && quality == "" {
-			quality = "medium" // GPT：Atlas 部署缺省 low，显式给 medium
-		}
-		// GPT Image 2.5 / Nano Banana 2.1（规范组或换代前的旧 Dev 组码）的部署没有 quality 参数：一律不发，
-		// 兜住改版前落库、带了 quality 的 run 重新派发
-		if modelgroup.Is(sp.ModelGroup, modelgroup.GPTImage25Sunburst) || modelgroup.Is(sp.ModelGroup, modelgroup.NanoBanana21) {
-			quality = ""
-		}
+		quality := imageQuality(sp)
 		var in any
 		req := base
 		if len(sp.Images) > 0 {
@@ -851,9 +843,24 @@ func (c *core) specFromRun(ctx context.Context, run *model.NodeRun) (*runSpec, e
 			AssetId: r.AssetID, MediaId: r.MediaID, SourceHandle: r.SourceHandle, CandidateIndex: r.CandidateIndex, Mime: r.Mime,
 		})
 	}
-	sp, err := c.buildSpec(req, c.candidateLookup(ctx, run.CanvasID))
+	lookup := c.candidateLookup(ctx, run.CanvasID)
+	sp, err := c.buildSpec(req, lookup)
 	if err != nil {
 		return nil, err
+	}
+	// 档位后来换了模型组（如 2026-11-10 SD5P 从 Seedream 5.5 回到 Seedream 5.0 Pro）：冻结组码与现配置不等价、
+	// 但现配置里还有出这个组的档位（SD55）→ 按冻结组码的档位重建，在途 run 仍按受理时的模型 / 分辨率出图（与冻结的价一致，
+	// 同一幂等键的请求体不变）。现配置里已没有这个组 → 按现配置（与此前一致）。
+	if run.ModelGroup != "" && sp.ModelGroup != "" && !modelgroup.Equal(run.ModelGroup, sp.ModelGroup) &&
+		(sp.Kind == model.KindImage || sp.Kind == model.KindVideo) {
+		if m, ok := c.s.Config.FindModel(run.ModelGroup, "", sp.Model.Kind); ok && modelgroup.Equal(m.ModelGroup, run.ModelGroup) {
+			req.Model, req.ModelId = m.Model, m.ModelID // req 是本函数现拼的，改它不影响落库请求
+			if fsp, ferr := c.buildSpec(req, lookup); ferr == nil {
+				sp = fsp
+			} else {
+				logx.WithContext(ctx).Errorf("canvas: run %d 按冻结组 %s 重建失败，按现配置 %s 重提: %v", run.ID, run.ModelGroup, sp.ModelGroup, ferr)
+			}
+		}
 	}
 	// 受理时冻结的组码与现配置等价（如换代前落库的旧 Dev 组码 vs 现在的规范组，见 pkg/modelgroup）：
 	// 重提沿用冻结值，同一幂等键的请求体不变，网关不会判幂等冲突；计费按等价组选档，同价。
@@ -1036,3 +1043,17 @@ const linkMaxAttempts = 3
 var linkBackoff = []time.Duration{time.Second, 3 * time.Second}
 
 const linkAttemptTimeout = 5 * time.Second
+
+// imageQuality 生图实际下发给网关的 quality（派发与计费共用，按请求参数冻结的质量与出图一致）。
+func imageQuality(sp *runSpec) string {
+	quality := sp.Quality
+	if len(sp.Model.Qualities) > 0 && quality == "" {
+		quality = "medium" // GPT：Atlas 部署缺省 low，显式给 medium
+	}
+	// GPT Image 2.5 / Nano Banana 2.1（规范组或换代前的旧 Dev 组码）的部署没有 quality 参数：一律不发，
+	// 兜住改版前落库、带了 quality 的 run 重新派发
+	if modelgroup.Is(sp.ModelGroup, modelgroup.GPTImage25Sunburst) || modelgroup.Is(sp.ModelGroup, modelgroup.NanoBanana21) {
+		quality = ""
+	}
+	return quality
+}

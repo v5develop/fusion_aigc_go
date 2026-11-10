@@ -250,7 +250,7 @@ message CatalogPrice {
 }
 
 message CatalogModel {
-  string model = 1;              // 显示名（前端 data.model）
+  string model = 1;              // wire 值（前端 data.model：Image / Banana / SD5P / SD55 …）；展示用 label
   string model_id = 2;
   string kind = 3;               // image / video
   string badge = 4;
@@ -269,6 +269,7 @@ message CatalogModel {
   repeated CatalogPrice prices = 17;
   bool ready = 18;               // gateway 模型组启用且存在
   int32 max_reference_videos = 19;
+  string label = 20;             // 用户可见的完整模型名（GPT Image 2.5 / Nano Banana 2.1 …）；model 是 wire 值，不给用户看
 }
 
 message CatalogTool {

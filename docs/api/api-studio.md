@@ -1031,6 +1031,10 @@ POST /api/v1/studio/masks
 - **按实际用量结算（2026-11-10 起，GPT Image 2.6）**：载体模型（档位默认模型）`afv_ai_model.settle_mode=ACTUAL_COST` 的档位（目前 `studio-gpt-image-2.6-sunburst-tryon` / `-2ref`、`creaft-gpt-image-2.6-sunburst`）冻结照旧按配置价（= **最多扣多少**）；任务成功时按 ai-gateway 返回的供应商**实报成本**（调用 `cost.source=reported` 且 `final=true`，单位美元；网关内多次尝试已合计，或按各扣费尝试求和）确认：
   `实扣 = min(冻结, max(1, ceil(成本USD × 汇率 × 加价倍率 × 100)))`，差额在同一事务退回原批次。汇率 / 默认倍率读 `afv_system_config` 的 `billing_actual_cost_usd_cny_rate`（缺省 7.2）/ `billing_actual_cost_default_markup`（缺省 1.3），载体 `cost_markup` 非空时用它。拿不到实报成本时按冻结全额确认，服务端 ERROR 日志 `判据=ACTUAL_COST_UNAVAILABLE`（事后可用 `tools/ops/actual-cost-refund` 补退）。用户重试 / 重新生成的新一轮同样按实际结算。
   报价 / 模型价目里 `settle_mode=ACTUAL_COST` 时，前端把「消耗 N 点」换成「**按实际用量结算，最多 N 点**」（N = `max_points`，与 `points` 相同）；`estimated_points` 仍是冻结额。
+- **按本次参数冻结（2026-11-10 起，Java V1.0.223）**：上面这些载体配了 `afv_ai_model.freeze_cap_json` 时，冻结不再按价目表最坏档，而是按本次的分辨率、质量与参考图张数，用 Atlas 公布的预扣上限算每张最多扣多少：
+  `每张 = min(价目表单价, max(1, ceil((输出上限 + 参考图张数 × $0.056192 + 辅助 $0.005) × 汇率 × 加价倍率 × 100)))`（输出上限 1024² low $0.0687 / medium $0.1061 / high $0.2326，2K / 4K 按档位最大面积放大；有参考图时网关固定 medium）。
+  质量与编排同口径（商拍 high、其余 medium，有参考图一律 medium）；参考图张数取上界：商拍 6（细节裁图编排时才知道）、姿态 2、图片生成 = 用户参考图张数（≤5）。例：图片生成 1k 文生图 104 点、1k 3 张参考图 262 点，姿态 1k 210 点，商拍 1k 仍 420 点。成功后照旧按实际用量结算（上限 = 冻结额）。
+  `max_points` / `points` / `estimated_points` 都是这个按参数算出的数。图片生成的报价要知道参考图张数：请求体带 `image_urls`（只用张数，可直接发提交体；文生图传 `[]`），不带时按该模型参考图上限报（最多扣多少不会比提交冻得少）。
 - **历史多扣补退**：按实际用量结算上线前（Java V1.0.215 起）已按冻结上限确认的画布 / 商拍单，用 `go run ./tools/ops/actual-cost-refund -dsn … -gateway … -secret … -since '<V1.0.215 上线时间>'`（默认 dry-run，加 `-apply` 才退）按同一公式补退差额；每张预留单只退一次（流水幂等键 `actual-cost-refund:{reservationNo}`），预留单置 `PARTIALLY_REFUNDED`。**先跑 ai-gateway 的历史调用成本回填脚本**（让 `GET /v1/calls/{id}` 的 `cost` 变成 `source=reported, final=true`），否则这些单会判为 `no_reported_cost` 跳过；回填后重跑即可。成功后又「重新生成」的旧轮次（请求号被新一轮覆盖）对不上调用号，工具只列为 `UNMATCHED` 供人工处理。
 
 ### 7.1 提交前报价（只读）
@@ -1039,7 +1043,7 @@ POST /api/v1/studio/masks
 |---|---|---|
 | 商拍换装 | `POST /tryon/quote` | `model_image_urls` 张数 × `count_per_model` |
 | 姿态复刻 | `POST /pose/quote` | `pose_image_urls` 张数 |
-| 图片生成 | `POST /image-generate/quote` | `count` |
+| 图片生成 | `POST /image-generate/quote` | `count`（另读 `image_urls` 张数，见上文「按本次参数冻结」） |
 
 - 请求体与对应的提交接口**同构**，可以直接把提交体发过来；只读取上表的张数字段和 `model` / `resolution` / `aspect_ratio`，其余字段忽略。字段全部选填，**不需要** `Idempotency-Key`。
 - 只读：不建批次、不冻结、不查余额、不校验素材与准入（这些在提交时照常拦）。
