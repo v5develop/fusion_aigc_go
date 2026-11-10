@@ -35,6 +35,8 @@ type (
 	PortraitInfo        = pb.PortraitInfo
 	PublicInfo          = pb.PublicInfo
 	PublicList          = pb.PublicList
+	QuoteReq            = pb.QuoteReq
+	QuoteResp           = pb.QuoteResp
 	RegenerateReq       = pb.RegenerateReq
 	ResolvePortraitReq  = pb.ResolvePortraitReq
 	VoiceInfo           = pb.VoiceInfo
@@ -42,6 +44,8 @@ type (
 
 	DigitalHuman interface {
 		// ---- App ----
+		Quote(ctx context.Context, in *QuoteReq, opts ...grpc.CallOption) (*QuoteResp, error)
+		// AIGC 功能使用约定：是否已同意当前版本 / 同意
 		GetAgreement(ctx context.Context, in *AgreementReq, opts ...grpc.CallOption) (*AgreementInfo, error)
 		AcceptAgreement(ctx context.Context, in *AgreementReq, opts ...grpc.CallOption) (*AgreementInfo, error)
 		// 公共数字人：复用现有模板素材（afv_public_template_*），运营在现有后台维护，这里只读
@@ -90,6 +94,12 @@ func NewDigitalHuman(cli zrpc.Client) DigitalHuman {
 }
 
 // ---- App ----
+func (m *defaultDigitalHuman) Quote(ctx context.Context, in *QuoteReq, opts ...grpc.CallOption) (*QuoteResp, error) {
+	client := pb.NewDigitalHumanClient(m.cli.Conn())
+	return client.Quote(ctx, in, opts...)
+}
+
+// AIGC 功能使用约定：是否已同意当前版本 / 同意
 func (m *defaultDigitalHuman) GetAgreement(ctx context.Context, in *AgreementReq, opts ...grpc.CallOption) (*AgreementInfo, error) {
 	client := pb.NewDigitalHumanClient(m.cli.Conn())
 	return client.GetAgreement(ctx, in, opts...)

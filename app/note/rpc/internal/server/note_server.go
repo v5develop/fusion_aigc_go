@@ -24,6 +24,12 @@ func NewNoteServer(svcCtx *svc.ServiceContext) *NoteServer {
 }
 
 // ---- App ----
+func (s *NoteServer) Quote(ctx context.Context, in *pb.QuoteReq) (*pb.QuoteResp, error) {
+	l := logic.NewQuoteLogic(ctx, s.svcCtx)
+	return l.Quote(in)
+}
+
+// 表单配置：笔记类型、素材与套图上限
 func (s *NoteServer) Options(ctx context.Context, in *pb.Empty) (*pb.OptionsResp, error) {
 	l := logic.NewOptionsLogic(ctx, s.svcCtx)
 	return l.Options(in)

@@ -18,7 +18,7 @@ import (
 
 // 表名。
 const (
-	TableAsset    = "afv_asset" // Java 表，只读（唯一的写入例外见 repo.AssetRepo.Rename）
+	TableAsset    = "afv_asset" // Java 表，只读（受控写入例外：repo.AssetRepo.Rename / SoftDelete）
 	TableExt      = "afv_asset_ext"
 	TableVersion  = "afv_asset_version"
 	TableRelation = "afv_asset_relation"

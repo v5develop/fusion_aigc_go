@@ -31,6 +31,8 @@
        compose 读 fabric 标注、material 拼「用户标注面料（按件）」）：11-07.2 分支早于 10-30.1，
        合并时会被删掉，按验收 E4（上衣真丝 + 鞋皮革）恢复。
   合并后本仓另改：_norm_pose_mapping 不再把显式配对里的 -1（保持原姿势）按默认配对补位；配对无效时整组退回默认。
+  2026-11-10 本仓另加「精细读图」fine=true（analyze / analyze-batch，验收 F7 / T2）：强制 deep、读图提示词末尾追加一句
+    逐块检查小细节、设计细节上限 +3；不带 fine 时与交付包逐字一致（见 _fine_read）。
   提示词模板、清洗函数、CATS、读图字段整理逻辑以交付包为准，未另改。
 
 模型调用经 ai-gateway（POST /v1/calls，模型组 REVERSE_MODEL_GROUP，默认 vlm.deepseek-flash），不再直连 DeepSeek；
@@ -49,7 +51,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-VERSION = "2026-11-07.merged"
+VERSION = "2026-11-10.merged"
 
 
 def load_dotenv():
@@ -1420,6 +1422,23 @@ def _balance_crops(crops, limit):
     return out
 
 
+# ---- 精细读图（fusion 2026-11-10，验收 F7 / T2）
+# 请求带 fine=true：强制 deep（完整思考、全部 high、最多 9 张），读图提示词末尾追加一句逐块检查小细节的要求，
+# 设计细节编号上限多 FINE_EXTRA_DETAILS 条（单件 8→11、组合 12→15）。不带 fine 时行为与交付包逐字一致（黄金回归不变）。
+FINE_EXTRA_DETAILS = 3
+FINE_READ_HINT = ("精细读图：请逐块检查领口、门襟、袖口、下摆、口袋、腰头、走线、五金、刺绣、印花、拼接、"
+                  "镂空、绑带等小细节；design_details 尽量写全（写清位置、方向、数量、大小比例），"
+                  "看不清的不要编造。")
+
+
+def _fine_read(payload):
+    return bool((payload or {}).get("fine"))
+
+
+def _deep_read(payload):
+    return bool((payload or {}).get("deep")) or _fine_read(payload)
+
+
 def select_images(payload):
     """从上传图里挑最多 9 张：主图 + 细节 + 模特 1，去重。"""
     raw = payload.get("images") or []
@@ -1514,7 +1533,9 @@ def vision_content(payload, picked):
     lines.extend(labels)
     lines.append("请分析服装并输出 JSON。用户填写的信息只作参考，画面事实以图片为准。")
 
-    deep = bool(payload.get("deep"))
+    deep = _deep_read(payload)
+    if _fine_read(payload):
+        lines.append(FINE_READ_HINT)
     content = [{"type": "text", "text": "\n".join(lines)}]
     for im in picked:
         role = str(im.get("role") or "")
@@ -1527,7 +1548,7 @@ def vision_content(payload, picked):
 def vision_fields(payload, picked):
     if not llm_configured():
         raise RuntimeError(NOT_CONFIGURED)
-    deep = bool(payload.get("deep"))
+    deep = _deep_read(payload)
     messages = [
         {"role": "system", "content": VISION_SYSTEM_PROMPT},
         {"role": "user", "content": vision_content(payload, picked)},
@@ -1853,7 +1874,7 @@ def vision_to_fields(v, payload):
         if key and key not in seen_design:
             seen_design.add(key)
             deduped.append(d)
-    design_details = deduped[:(12 if cat_key == "compose" else 8)]
+    design_details = deduped[:(12 if cat_key == "compose" else 8) + (FINE_EXTRA_DETAILS if _fine_read(payload) else 0)]
 
     if not design_details or design_details == ["无明显特殊设计"]:
         design_words = ("不对称", "开衩", "镂空", "绑带", "抽绳", "褶皱", "拼接", "撞色",
@@ -4551,6 +4572,8 @@ def analyze(payload):
         "vision": False,
         "images": 0,
     }
+    if _fine_read(payload):
+        meta["fine"] = True
 
     picked = select_images(payload)
     if picked:

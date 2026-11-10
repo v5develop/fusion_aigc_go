@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"aigc-local-life/app/canvas/model"
+	"aigc-local-life/app/canvas/rpc/canvas"
 )
 
 func TestNodeCountAndCover(t *testing.T) {
@@ -139,5 +140,35 @@ func TestRevisionShape(t *testing.T) {
 	}
 	if id := NewCanvasID(); !strings.HasPrefix(id, "cv_") || len(id) != 19 {
 		t.Fatalf("canvas id=%s", id)
+	}
+}
+
+// 用户侧模板详情：快照只带结构（model / tool 成品与运行态剥掉，输入节点内容与连线保留）。
+func TestStructureOnlyStripsResults(t *testing.T) {
+	in := &canvas.TemplateInfo{Id: 1, Snapshot: `{"nodes":[` +
+		`{"id":"a","type":"image","position":{"x":0,"y":0},"data":{"image":"https://x/in.png","status":"done"}},` +
+		`{"id":"b","type":"model","position":{"x":300,"y":0},"data":{"prompt":"p","image":"https://x/out.png","candidates":["c"],"runId":"r1","status":"done"}},` +
+		`{"id":"v","type":"model","position":{"x":0,"y":300},"data":{"inputOnly":true,"video":"https://x/ref.mp4","image":"https://x/ref.jpg"}}],` +
+		`"edges":[{"id":"e1","source":"a","target":"b"}]}`}
+	out := structureOnly(in)
+	d, err := ParseSnapshot([]byte(out.Snapshot), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(d.Nodes) != 3 || len(d.Edges) != 1 {
+		t.Fatalf("结构丢了: %s", out.Snapshot)
+	}
+	a, b := d.Nodes[0].Data, d.Nodes[1].Data
+	if a["image"] == nil || a["status"] != nil {
+		t.Fatalf("输入节点应保留内容、去状态: %v", a)
+	}
+	if b["image"] != nil || b["candidates"] != nil || b["runId"] != nil || b["status"] != nil || b["prompt"] == nil {
+		t.Fatalf("模型节点应只留参数: %v", b)
+	}
+	if v := d.Nodes[2].Data; v["video"] == nil || v["image"] == nil {
+		t.Fatalf("参考素材节点（inputOnly）应保留素材: %v", v)
+	}
+	if structureOnly(&canvas.TemplateInfo{Snapshot: "not json"}).Snapshot != "not json" {
+		t.Fatal("解析失败应原样返回")
 	}
 }

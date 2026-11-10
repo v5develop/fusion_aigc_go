@@ -24,6 +24,12 @@ func NewImageGenServer(svcCtx *svc.ServiceContext) *ImageGenServer {
 }
 
 // ---- App ----
+func (s *ImageGenServer) Quote(ctx context.Context, in *pb.QuoteReq) (*pb.QuoteResp, error) {
+	l := logic.NewQuoteLogic(ctx, s.svcCtx)
+	return l.Quote(in)
+}
+
+// 表单配置：海报类型 / 风格 / 比例 / 数量与素材上限
 func (s *ImageGenServer) Options(ctx context.Context, in *pb.KindReq) (*pb.OptionsResp, error) {
 	l := logic.NewOptionsLogic(ctx, s.svcCtx)
 	return l.Options(in)

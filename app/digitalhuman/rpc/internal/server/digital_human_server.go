@@ -24,6 +24,12 @@ func NewDigitalHumanServer(svcCtx *svc.ServiceContext) *DigitalHumanServer {
 }
 
 // ---- App ----
+func (s *DigitalHumanServer) Quote(ctx context.Context, in *pb.QuoteReq) (*pb.QuoteResp, error) {
+	l := logic.NewQuoteLogic(ctx, s.svcCtx)
+	return l.Quote(in)
+}
+
+// AIGC 功能使用约定：是否已同意当前版本 / 同意
 func (s *DigitalHumanServer) GetAgreement(ctx context.Context, in *pb.AgreementReq) (*pb.AgreementInfo, error) {
 	l := logic.NewGetAgreementLogic(ctx, s.svcCtx)
 	return l.GetAgreement(in)

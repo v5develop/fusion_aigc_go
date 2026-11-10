@@ -31,6 +31,10 @@ type (
 	CostRow               = studio.CostRow
 	DateRange             = studio.DateRange
 	DependencyStatus      = studio.DependencyStatus
+	DetailCrop            = studio.DetailCrop
+	DetailPlan            = studio.DetailPlan
+	DetectDetailsReq      = studio.DetectDetailsReq
+	DetectDetailsResp     = studio.DetectDetailsResp
 	Empty                 = studio.Empty
 	GarmentImage          = studio.GarmentImage
 	GetBatchReq           = studio.GetBatchReq
@@ -38,6 +42,10 @@ type (
 	ListHistoryReq        = studio.ListHistoryReq
 	ListHistoryResp       = studio.ListHistoryResp
 	MaskPart              = studio.MaskPart
+	ModelCapability       = studio.ModelCapability
+	ModelResolutionPrice  = studio.ModelResolutionPrice
+	ModelsReq             = studio.ModelsReq
+	ModelsResp            = studio.ModelsResp
 	PoseMapping           = studio.PoseMapping
 	PosePreviewImage      = studio.PosePreviewImage
 	PosePreviewItem       = studio.PosePreviewItem
@@ -46,6 +54,7 @@ type (
 	PreviewPoseResp       = studio.PreviewPoseResp
 	QuoteReq              = studio.QuoteReq
 	QuoteResp             = studio.QuoteResp
+	RegenerateTaskReq     = studio.RegenerateTaskReq
 	RetryTaskReq          = studio.RetryTaskReq
 	SegmentMaskReq        = studio.SegmentMaskReq
 	SegmentMaskResp       = studio.SegmentMaskResp
@@ -68,6 +77,8 @@ type (
 		PreviewPose(ctx context.Context, in *PreviewPoseReq, opts ...grpc.CallOption) (*PreviewPoseResp, error)
 		// 提交前报价（只读）：与提交同一套模型 / 分辨率归一与计费入口，返回本次提交会冻结的点数；不落库、不冻结、不校验素材
 		Quote(ctx context.Context, in *QuoteReq, opts ...grpc.CallOption) (*QuoteResp, error)
+		// 模型档能力（只读）：每个模型档（通用 / GPT / GPT25Dev / Banana / Seedream）的展示名、实际可用的分辨率与比例、参考图上限；
+		Models(ctx context.Context, in *ModelsReq, opts ...grpc.CallOption) (*ModelsResp, error)
 		// 批次详情 + 全部子任务（生成中轮询此接口）
 		GetBatch(ctx context.Context, in *GetBatchReq, opts ...grpc.CallOption) (*BatchDetail, error)
 		// 单个子任务
@@ -84,6 +95,10 @@ type (
 		UpdateTaskColorFix(ctx context.Context, in *UpdateTaskColorFixReq, opts ...grpc.CallOption) (*TaskInfo, error)
 		// 区域蒙版（局部校色，免费）：image_url 的 garment / product / person / background 区域 → 白色+软 alpha PNG（素材库桶公开地址）。
 		SegmentMask(ctx context.Context, in *SegmentMaskReq, opts ...grpc.CallOption) (*SegmentMaskResp, error)
+		// 商拍「AI 找细节」（免费、不建任务）：对服装图跑 sidecar crop-plan，回每张图的细节框（归一化 [x,y,w,h]）与部位名，
+		DetectDetails(ctx context.Context, in *DetectDetailsReq, opts ...grpc.CallOption) (*DetectDetailsResp, error)
+		// 编辑提示词后重新生成单张（仅姿态复刻）：用用户改过的提示词重跑该子任务的生图一步（失败 / 成功的都可以），
+		RegenerateTask(ctx context.Context, in *RegenerateTaskReq, opts ...grpc.CallOption) (*BatchDetail, error)
 		// ---- 运营后台 ----
 		AdminListBatches(ctx context.Context, in *AdminListBatchesReq, opts ...grpc.CallOption) (*AdminListBatchesResp, error)
 		// 批次详情：含切图框、切图质检、组图、每步耗时与成本、每个子任务的完整 prompt
@@ -139,6 +154,12 @@ func (m *defaultStudio) Quote(ctx context.Context, in *QuoteReq, opts ...grpc.Ca
 	return client.Quote(ctx, in, opts...)
 }
 
+// 模型档能力（只读）：每个模型档（通用 / GPT / GPT25Dev / Banana / Seedream）的展示名、实际可用的分辨率与比例、参考图上限；
+func (m *defaultStudio) Models(ctx context.Context, in *ModelsReq, opts ...grpc.CallOption) (*ModelsResp, error) {
+	client := studio.NewStudioClient(m.cli.Conn())
+	return client.Models(ctx, in, opts...)
+}
+
 // 批次详情 + 全部子任务（生成中轮询此接口）
 func (m *defaultStudio) GetBatch(ctx context.Context, in *GetBatchReq, opts ...grpc.CallOption) (*BatchDetail, error) {
 	client := studio.NewStudioClient(m.cli.Conn())
@@ -185,6 +206,18 @@ func (m *defaultStudio) UpdateTaskColorFix(ctx context.Context, in *UpdateTaskCo
 func (m *defaultStudio) SegmentMask(ctx context.Context, in *SegmentMaskReq, opts ...grpc.CallOption) (*SegmentMaskResp, error) {
 	client := studio.NewStudioClient(m.cli.Conn())
 	return client.SegmentMask(ctx, in, opts...)
+}
+
+// 商拍「AI 找细节」（免费、不建任务）：对服装图跑 sidecar crop-plan，回每张图的细节框（归一化 [x,y,w,h]）与部位名，
+func (m *defaultStudio) DetectDetails(ctx context.Context, in *DetectDetailsReq, opts ...grpc.CallOption) (*DetectDetailsResp, error) {
+	client := studio.NewStudioClient(m.cli.Conn())
+	return client.DetectDetails(ctx, in, opts...)
+}
+
+// 编辑提示词后重新生成单张（仅姿态复刻）：用用户改过的提示词重跑该子任务的生图一步（失败 / 成功的都可以），
+func (m *defaultStudio) RegenerateTask(ctx context.Context, in *RegenerateTaskReq, opts ...grpc.CallOption) (*BatchDetail, error) {
+	client := studio.NewStudioClient(m.cli.Conn())
+	return client.RegenerateTask(ctx, in, opts...)
 }
 
 // ---- 运营后台 ----

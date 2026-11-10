@@ -326,6 +326,36 @@ HTTP 状态码一律 200，用 `code` 判断：
 - `model`：`seedance2.5`（默认，云端）或 `lite`（执行面本地 GPU，慢很多）。出视频耗时见第四节的说明，超时 60 分钟。
 - 成品在 `video_url`，封面用出镜人物图（没传人物图就用成片地址）。
 
+## 五点五、提交前报价（十个工具共用）
+
+`POST /quote`（需登录，只读：不冻结、不落库）。按工具与当前表单参数，返回提交会冻结的点数。报价由**真正冻结点数的那个服务**
+用提交时同一个计费请求构造函数算（`imageCharge` / `videoCharge` / `noteCharge` / `humanCharge` / `copywritingCharge` → `pkg/billing` 同一个 `price()`），
+网关只转发，所以「报价 = 冻结」。参数不合法，以及 `billing_mode=on` 时会拦提交的未配价格、未开通该功能（只读查权益）不报错，回 `available=false` + `reason`；`shadow` 下提交不会因计费问题被拦（只记日志、冻结 0 点），报价也照常 `available=true`、`charged=false`。
+
+十个工具：海报 `poster`、长图 `longImage`、动作迁移 `actionTransfer`、口播 `voiceover`、数字人 `digitalHuman`、文案 `copywriting`、
+图文笔记 `imageTextNote`、探店 `exploreShop`、短剧 `shortDrama`、复刻 `videoRemake`。文案只有「提交生成 / 重新生成」收费，
+输入框旁的「AI 帮写 / AI 优化」（`POST /copywriting/ai-write`）免费，不要给它挂价格。
+
+| 请求字段 | 说明 |
+|---|---|
+| `tool` | 必填：`poster` / `longImage` / `actionTransfer` / `voiceover` / `digitalHuman` / `copywriting` / `imageTextNote` / `exploreShop` / `shortDrama` / `videoRemake` |
+| `model` | 模型档位，不传用后台默认（海报的档位不影响价格） |
+| `duration` | 口播 / 探店 / 短剧的视频时长（秒），不传用后台默认 |
+| `image_count` | 海报 / 长图张数（不传 1），图文笔记套图张数（不传用默认 4） |
+| `id` | 探店 / 短剧 / 复刻：已构思 / 已解析的记录 id，按记录的档位与时长报；图文笔记：方案已出（配图阶段）时传笔记 id，按记录张数报（`image_count` 非 0 时覆盖），超过方案张数回 `available=false`，提示与出图相同 |
+
+| 响应字段 | 说明 |
+|---|---|
+| `available` / `reason` | 能否报出价；不能时 `points=0`，`reason` 给用户看 |
+| `billing_mode` / `charged` | `on` 才真扣（`charged=true`）；`off` / `shadow` 时提交冻结 0 点 |
+| `points` | 本次会冻结的点数；`exact=false` 时：数字人 = 最短时长（4 秒）的价，复刻（未解析）= 最短计费时长（4 秒）的价，每秒单价看 `unit_points` |
+| `exact` / `points_max` | `points` 是否准数；数字人按配音实际时长计费，`points_max` = 该档最长时长的价 |
+| `unit_points` / `price_unit` / `quantity` | 单价（每张 / 每秒 / 每次）、计价单位、计量 |
+| `stage` | `submit` 提交即冻结；`generate` 构思免费、出片 / 出图时冻结（图文笔记、探店、短剧、复刻） |
+| `balance` / `balance_known` / `sufficient` | 可用余额、是否查到、够不够 `points`（`charged=false` 或余额未知时为 `true`） |
+| `sufficient_max` | 余额够不够 `points_max`（只有数字人有最高价；其余工具同 `sufficient`）。不够只提示「余额可能不足以覆盖较长配音」，不拦提交 |
+| `free_quota` | 本地生活冻结不扣免费额度，恒为 `0` |
+
 ## 六、产物地址
 
 生成成功后返回的图片 / 视频地址都在我们自己的公有桶上（`https://xx-shop-img.oss-cn-hangzhou.aliyuncs.com/aigc-local-life/...`），

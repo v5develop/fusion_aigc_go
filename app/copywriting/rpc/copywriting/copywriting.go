@@ -35,6 +35,8 @@ type (
 	OptionInfo          = pb.OptionInfo
 	OptionList          = pb.OptionList
 	OptionsResp         = pb.OptionsResp
+	QuoteReq            = pb.QuoteReq
+	QuoteResp           = pb.QuoteResp
 	RegenerateReq       = pb.RegenerateReq
 	ShopProfile         = pb.ShopProfile
 	ShopProfileForm     = pb.ShopProfileForm
@@ -45,6 +47,7 @@ type (
 
 	Copywriting interface {
 		// ---- App ----
+		Quote(ctx context.Context, in *QuoteReq, opts ...grpc.CallOption) (*QuoteResp, error)
 		Options(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*OptionsResp, error)
 		// AI 帮写 / AI 优化（同步）
 		AiWrite(ctx context.Context, in *AiWriteReq, opts ...grpc.CallOption) (*AiWriteResp, error)
@@ -92,6 +95,11 @@ func NewCopywriting(cli zrpc.Client) Copywriting {
 }
 
 // ---- App ----
+func (m *defaultCopywriting) Quote(ctx context.Context, in *QuoteReq, opts ...grpc.CallOption) (*QuoteResp, error) {
+	client := pb.NewCopywritingClient(m.cli.Conn())
+	return client.Quote(ctx, in, opts...)
+}
+
 func (m *defaultCopywriting) Options(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*OptionsResp, error) {
 	client := pb.NewCopywritingClient(m.cli.Conn())
 	return client.Options(ctx, in, opts...)

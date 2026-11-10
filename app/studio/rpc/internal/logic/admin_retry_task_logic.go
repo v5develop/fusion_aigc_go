@@ -3,6 +3,7 @@ package logic
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -63,6 +64,27 @@ func (f *flow) adminRetry(ctx context.Context, t *model.Task, b *model.Batch) er
 // retryTask 重做的公共流程（运营重做 / 用户重试共用，见 adminRetry 注释）；step 是落 step_log 的步骤名。
 // 用户重试的额外前置条件在 retry_task_logic.go 里先判，这里只做占轮次 → 冻结新单 → 排队 → 批次拉回。
 func (f *flow) retryTask(ctx context.Context, t *model.Task, b *model.Batch, step string) error {
+	return f.retryTaskOpts(ctx, t, b, step, retryOpts{})
+}
+
+// retryOpts 重做的附加选项（编辑提示词后重新生成用）。零值 = 普通重做。
+type retryOpts struct {
+	// Prompt 非空：换成这段提示词（已含首行图序）重跑，prompt_meta 记 edited；Meta 为改好的 prompt_meta（JSON）
+	Prompt string
+	Meta   json.RawMessage
+	// FromSucceeded 允许从 成功 重做（编辑提示词重新生成成功的图）：清掉成品 / 蒙版 / 校色字段，成功计数 -1
+	FromSucceeded bool
+}
+
+// retryFromStatuses 允许重做的子任务状态。
+func (o retryOpts) retryFromStatuses() []int8 {
+	if o.FromSucceeded {
+		return []int8{model.TaskFailed, model.TaskCanceled, model.TaskSucceeded}
+	}
+	return []int8{model.TaskFailed, model.TaskCanceled}
+}
+
+func (f *flow) retryTaskOpts(ctx context.Context, t *model.Task, b *model.Batch, step string, opts retryOpts) error {
 	log := logx.WithContext(ctx)
 	if b.Deleted != 0 {
 		return xerr.New(xerr.Conflict, "批次已删除，不能重试")
@@ -70,7 +92,8 @@ func (f *flow) retryTask(ctx context.Context, t *model.Task, b *model.Batch, ste
 	if t.AdminLocked != 0 {
 		return xerr.New(xerr.Conflict, "已强制失败，不能重试")
 	}
-	if t.Status != model.TaskFailed && t.Status != model.TaskCanceled {
+	fromOK := t.Status == model.TaskFailed || t.Status == model.TaskCanceled || (opts.FromSucceeded && t.Status == model.TaskSucceeded)
+	if !fromOK {
 		return xerr.New(xerr.Conflict, "只有失败或已取消的任务可以重试")
 	}
 	if b.Status == model.BatchSubmitting {
@@ -81,7 +104,7 @@ func (f *flow) retryTask(ctx context.Context, t *model.Task, b *model.Batch, ste
 		return err
 	}
 	const stale = "任务状态已变化，请刷新后再看"
-	claimed, err := f.repo.Task.ClaimRetry(ctx, t.ID, t.Attempt)
+	claimed, err := f.repo.Task.ClaimRetryFrom(ctx, t.ID, t.Attempt, opts.retryFromStatuses())
 	if err != nil {
 		return err
 	}
@@ -95,7 +118,7 @@ func (f *flow) retryTask(ctx context.Context, t *model.Task, b *model.Batch, ste
 	defer cancel()
 	if _, err := f.bill.Hold(hctx, charge); err != nil {
 		// 冻结没成功：确认计费服务里没有这张新单后退还轮次，否则（结果未知）轮次作废、下次换下一个号
-		f.releaseUnheldRetry(hctx, t, b.UserID, attempt, reqID)
+		f.releaseUnheldRetry(hctx, t, b.UserID, attempt, reqID, opts)
 		return err
 	}
 	const undoReason = "未能开始重做，点数已退回"
@@ -116,6 +139,20 @@ func (f *flow) retryTask(ctx context.Context, t *model.Task, b *model.Batch, ste
 		"billing_request_id": reqID, "billing_status": billingStatusOf(f.bill.Mode()),
 		"started_at": nil, "finished_at": nil,
 	}
+	if opts.Prompt != "" {
+		extra["prompt_text"] = opts.Prompt
+		if len(opts.Meta) > 0 {
+			extra["prompt_meta"] = string(opts.Meta)
+		}
+	}
+	if t.Status == model.TaskSucceeded { // 重新生成成功的图：旧成品已在素材库，任务行清成品让新结果覆盖
+		extra["result_rid"], extra["result_url"], extra["result_width"], extra["result_height"] = nil, nil, 0, 0
+		extra["mask_url"], extra["mask_parts"], extra["color_fix_params"] = nil, nil, nil
+	}
+	doneDelta, failedDelta := 0, -1
+	if t.Status == model.TaskSucceeded {
+		doneDelta, failedDelta = -1, 0
+	}
 	ok, err := f.repo.Task.TransitStatus(ctx, t.ID, t.Status, model.TaskQueued, extra)
 	if err != nil || !ok {
 		f.failUnusedRetry(hctx, t.ID, b.UserID, reqID, undoReason)
@@ -124,7 +161,7 @@ func (f *flow) retryTask(ctx context.Context, t *model.Task, b *model.Batch, ste
 		}
 		return xerr.New(xerr.Conflict, stale)
 	}
-	if err := f.repo.Batch.UpdateCounters(ctx, b.ID, 0, -1); err != nil {
+	if err := f.repo.Batch.UpdateCounters(ctx, b.ID, doneDelta, failedDelta); err != nil {
 		log.Errorf("studio: 批次 %d 更新计数失败: %v", b.ID, err)
 	}
 	if model.BatchFinal(b.Status) {
@@ -186,7 +223,7 @@ func (f *flow) retryCharge(t *model.Task, b *model.Batch) (billing.Charge, error
 // 同号冻结会原样拿回它——仍是 HELD 就照常用上，已了结的会被 retryTask 的 HELD 核对拒绝，因此查不清（查询出错 / 单已存在）就不退，
 // 轮次作废、下次换下一个号。计费非 on（off / shadow）时 Hold 不会建单，可直接退。
 // 退还是 CAS（见 repo.ReleaseRetry）：占轮次之后任务已被别处改过就不退。尽力而为，只记日志。
-func (f *flow) releaseUnheldRetry(ctx context.Context, t *model.Task, userID int64, attempt int32, reqID string) {
+func (f *flow) releaseUnheldRetry(ctx context.Context, t *model.Task, userID int64, attempt int32, reqID string, opts retryOpts) {
 	log := logx.WithContext(ctx)
 	if f.bill.Mode() == billing.ModeOn {
 		st, err := f.bill.Status(ctx, userID, reqID)
@@ -195,7 +232,7 @@ func (f *flow) releaseUnheldRetry(ctx context.Context, t *model.Task, userID int
 			return
 		}
 	}
-	ok, err := f.repo.Task.ReleaseRetry(ctx, t.ID, attempt, t.BillingRequestID.String)
+	ok, err := f.repo.Task.ReleaseRetryFrom(ctx, t.ID, attempt, t.BillingRequestID.String, opts.retryFromStatuses())
 	if err != nil || !ok {
 		log.Errorf("studio: 子任务 %d 退还第 %d 轮失败（任务已变化或库不可用）: ok=%v err=%v", t.ID, attempt, ok, err)
 		return
@@ -225,6 +262,12 @@ func (f *flow) undoRetry(ctx context.Context, t *model.Task, b *model.Batch, req
 		"error_reason": nullStr(t.ErrorReason), "gateway_call_id": nullStr(t.GatewayCallID),
 		"gateway_status": nullStr(t.GatewayStatus), "billing_request_id": nullStr(t.BillingRequestID),
 		"billing_status": t.BillingStatus, "started_at": nullTime(t.StartedAt), "finished_at": nullTime(t.FinishedAt),
+		"prompt_text": nullStr(t.PromptText), "prompt_meta": nullJSON(t.PromptMeta),
+	}
+	if t.Status == model.TaskSucceeded {
+		back["result_rid"], back["result_url"] = nullStr(t.ResultRid), nullStr(t.ResultURL)
+		back["result_width"], back["result_height"] = t.ResultWidth, t.ResultHeight
+		back["mask_url"], back["mask_parts"], back["color_fix_params"] = nullStr(t.MaskURL), nullJSON(t.MaskParts), nullJSON(t.ColorFixParams)
 	}
 	ok, err := f.repo.Task.TransitStatus(ctx, t.ID, model.TaskQueued, t.Status, back)
 	if err != nil || !ok {
@@ -236,9 +279,21 @@ func (f *flow) undoRetry(ctx context.Context, t *model.Task, b *model.Batch, req
 		return
 	}
 	f.failUnusedRetry(ctx, t.ID, b.UserID, reqID, reason)
-	if err := f.repo.Batch.UpdateCounters(ctx, b.ID, 0, 1); err != nil {
+	doneDelta, failedDelta := 0, 1
+	if t.Status == model.TaskSucceeded {
+		doneDelta, failedDelta = 1, 0
+	}
+	if err := f.repo.Batch.UpdateCounters(ctx, b.ID, doneDelta, failedDelta); err != nil {
 		log.Errorf("studio: 批次 %d 更新计数失败: %v", b.ID, err)
 	}
+}
+
+// nullJSON JSON 列写回：空写 NULL，否则按 JSON 文本。
+func nullJSON(v json.RawMessage) any {
+	if len(v) == 0 || string(v) == "null" {
+		return nil
+	}
+	return string(v)
 }
 
 func nullStr(v sql.NullString) any {

@@ -95,7 +95,7 @@ func (l *GenerateVideoLogic) applyRemakeOverrides(c *model.AfvVideoCreation, in 
 	if prompt == "" && mdl == "" && size == "" {
 		return nil
 	}
-	if mdl != "" && !validModel(optionsOf(l.ctx, l.svcCtx, genRemakeModels, remakeModels), mdl) {
+	if mdl != "" && !validRemakeModel(l.ctx, l.svcCtx, mdl) {
 		return xerr.Newf(xerr.ParamError, "不支持的模型 %s", mdl)
 	}
 	if size != "" && !validModel(optionsOf(l.ctx, l.svcCtx, genVideoSizes, videoSizes), size) {
@@ -122,4 +122,9 @@ func (l *GenerateVideoLogic) applyRemakeOverrides(c *model.AfvVideoCreation, in 
 		return xerr.New(xerr.ServerError, "保存失败，请重试")
 	}
 	return nil
+}
+
+// validRemakeModel 复刻出片的档位是否在后台选项里。出片与报价共用。
+func validRemakeModel(ctx context.Context, svcCtx *svc.ServiceContext, mdl string) bool {
+	return validModel(optionsOf(ctx, svcCtx, genRemakeModels, remakeModels), mdl)
 }

@@ -24,7 +24,31 @@ const (
 	GPTMaxRefImages      = 16
 	SeedreamMaxRefImages = 10
 	QwenMaxRefImages     = 3
+	// GlobalMaxRefImages 一次生图送出的参考图硬上限：无论模型 / catalog 标称多少（GPT 标称 16），一律不超过 14，
+	// 验收口径「任何情况都不发 16 张」。
+	GlobalMaxRefImages = 14
 )
+
+// ClampRefCap 参考图上限归一：<=0 视为未知（取全局上限），>14 压到 14。
+func ClampRefCap(n int) int {
+	if n <= 0 || n > GlobalMaxRefImages {
+		return GlobalMaxRefImages
+	}
+	return n
+}
+
+// RefCap 某模型组在某 kind 下实际能送的参考图张数：catalogCap（0=未知，用兜底表）→ GPT 2.6 硬上限 → 全局 14。
+// /studio/models 的 max_ref_images、提交预警、生图组装用同一个口径。
+func RefCap(modelGroup, kind string, catalogCap int) int {
+	lim := ClampRefCap(MaxRefImages(modelGroup))
+	if catalogCap > 0 {
+		lim = ClampRefCap(catalogCap)
+	}
+	if hard := GPT26MaxRefs(modelGroup, kind); hard > 0 && hard < lim {
+		lim = hard
+	}
+	return lim
+}
 
 // MaxRefImages 按 model group 取参考图上限（兜底值）。
 func MaxRefImages(modelGroup string) int {
@@ -180,9 +204,9 @@ type GenOptions struct {
 
 func (o GenOptions) maxRefs(modelGroup string) int {
 	if o.MaxRefImages > 0 {
-		return o.MaxRefImages
+		return ClampRefCap(o.MaxRefImages)
 	}
-	return MaxRefImages(modelGroup)
+	return ClampRefCap(MaxRefImages(modelGroup))
 }
 
 func (o GenOptions) quality(modelGroup string) string {

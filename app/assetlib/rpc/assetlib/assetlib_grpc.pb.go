@@ -31,6 +31,7 @@ const (
 	Assetlib_DeleteTag_FullMethodName      = "/assetlib.Assetlib/DeleteTag"
 	Assetlib_RenameTag_FullMethodName      = "/assetlib.Assetlib/RenameTag"
 	Assetlib_BatchTag_FullMethodName       = "/assetlib.Assetlib/BatchTag"
+	Assetlib_Delete_FullMethodName         = "/assetlib.Assetlib/Delete"
 	Assetlib_AdminListTags_FullMethodName  = "/assetlib.Assetlib/AdminListTags"
 	Assetlib_AdminKindStats_FullMethodName = "/assetlib.Assetlib/AdminKindStats"
 )
@@ -65,6 +66,9 @@ type AssetlibClient interface {
 	RenameTag(ctx context.Context, in *RenameTagReq, opts ...grpc.CallOption) (*Tag, error)
 	// 批量给资产加标签（追加，不删已有）
 	BatchTag(ctx context.Context, in *BatchTagReq, opts ...grpc.CallOption) (*BatchTagResp, error)
+	// 删除资产（逻辑删除 afv_asset.deleted=1，并解除本人标签关联）：只删本人的上传 / 生成资产，官方素材不删；
+	// 不删存储对象、不动任务结果与版本 / 关系旁表（列表与详情只认未删除资产）。
+	Delete(ctx context.Context, in *DeleteReq, opts ...grpc.CallOption) (*DeleteResp, error)
 	// ---- 运营后台 ----
 	AdminListTags(ctx context.Context, in *AdminListTagsReq, opts ...grpc.CallOption) (*AdminListTagsResp, error)
 	// 按 kind × 来源计数（全量用户，或指定 user_id）
@@ -199,6 +203,16 @@ func (c *assetlibClient) BatchTag(ctx context.Context, in *BatchTagReq, opts ...
 	return out, nil
 }
 
+func (c *assetlibClient) Delete(ctx context.Context, in *DeleteReq, opts ...grpc.CallOption) (*DeleteResp, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeleteResp)
+	err := c.cc.Invoke(ctx, Assetlib_Delete_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *assetlibClient) AdminListTags(ctx context.Context, in *AdminListTagsReq, opts ...grpc.CallOption) (*AdminListTagsResp, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(AdminListTagsResp)
@@ -249,6 +263,9 @@ type AssetlibServer interface {
 	RenameTag(context.Context, *RenameTagReq) (*Tag, error)
 	// 批量给资产加标签（追加，不删已有）
 	BatchTag(context.Context, *BatchTagReq) (*BatchTagResp, error)
+	// 删除资产（逻辑删除 afv_asset.deleted=1，并解除本人标签关联）：只删本人的上传 / 生成资产，官方素材不删；
+	// 不删存储对象、不动任务结果与版本 / 关系旁表（列表与详情只认未删除资产）。
+	Delete(context.Context, *DeleteReq) (*DeleteResp, error)
 	// ---- 运营后台 ----
 	AdminListTags(context.Context, *AdminListTagsReq) (*AdminListTagsResp, error)
 	// 按 kind × 来源计数（全量用户，或指定 user_id）
@@ -298,6 +315,9 @@ func (UnimplementedAssetlibServer) RenameTag(context.Context, *RenameTagReq) (*T
 }
 func (UnimplementedAssetlibServer) BatchTag(context.Context, *BatchTagReq) (*BatchTagResp, error) {
 	return nil, status.Error(codes.Unimplemented, "method BatchTag not implemented")
+}
+func (UnimplementedAssetlibServer) Delete(context.Context, *DeleteReq) (*DeleteResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method Delete not implemented")
 }
 func (UnimplementedAssetlibServer) AdminListTags(context.Context, *AdminListTagsReq) (*AdminListTagsResp, error) {
 	return nil, status.Error(codes.Unimplemented, "method AdminListTags not implemented")
@@ -542,6 +562,24 @@ func _Assetlib_BatchTag_Handler(srv interface{}, ctx context.Context, dec func(i
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Assetlib_Delete_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AssetlibServer).Delete(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Assetlib_Delete_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AssetlibServer).Delete(ctx, req.(*DeleteReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Assetlib_AdminListTags_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(AdminListTagsReq)
 	if err := dec(in); err != nil {
@@ -632,6 +670,10 @@ var Assetlib_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "BatchTag",
 			Handler:    _Assetlib_BatchTag_Handler,
+		},
+		{
+			MethodName: "Delete",
+			Handler:    _Assetlib_Delete_Handler,
 		},
 		{
 			MethodName: "AdminListTags",

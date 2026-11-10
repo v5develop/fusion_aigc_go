@@ -90,6 +90,12 @@ func (s *AssetlibServer) BatchTag(ctx context.Context, in *assetlib.BatchTagReq)
 	return l.BatchTag(in)
 }
 
+// 删除资产（逻辑删除 afv_asset.deleted=1，并解除本人标签关联）：只删本人的上传 / 生成资产，官方素材不删；
+func (s *AssetlibServer) Delete(ctx context.Context, in *assetlib.DeleteReq) (*assetlib.DeleteResp, error) {
+	l := logic.NewDeleteLogic(ctx, s.svcCtx)
+	return l.Delete(in)
+}
+
 // ---- 运营后台 ----
 func (s *AssetlibServer) AdminListTags(ctx context.Context, in *assetlib.AdminListTagsReq) (*assetlib.AdminListTagsResp, error) {
 	l := logic.NewAdminListTagsLogic(ctx, s.svcCtx)

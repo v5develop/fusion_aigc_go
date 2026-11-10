@@ -29,6 +29,9 @@ service Assetlib {
   rpc RenameTag(RenameTagReq) returns (Tag);
   // 批量给资产加标签（追加，不删已有）
   rpc BatchTag(BatchTagReq) returns (BatchTagResp);
+  // 删除资产（逻辑删除 afv_asset.deleted=1，并解除本人标签关联）：只删本人的上传 / 生成资产，官方素材不删；
+  // 不删存储对象、不动任务结果与版本 / 关系旁表（列表与详情只认未删除资产）。
+  rpc Delete(DeleteReq) returns (DeleteResp);
 
   // ---- 运营后台 ----
   rpc AdminListTags(AdminListTagsReq) returns (AdminListTagsResp);
@@ -108,6 +111,7 @@ message ListReq {
   string kind_group = 10;   // 空=不限；image = 5 个图片 kind；video = 视频 kind（键表见 model.VideoKinds，数据来源待定）
   string aspect_ratio = 11; // 空=不限；如 1:1 / 3:4 / 4:3 / 9:16 / 16:9，按 afv_asset.aspect_ratio 精确匹配
   string entry_codes = 12;  // 空=不限；逗号分隔的入口码（每项 [A-Za-z0-9_.-]{1,64}，最多 200 个），按 afv_asset.entry_code IN (...)
+  bool untagged = 13;       // true=只要没挂本人任何标签的资产（「未分类」，口径同 ListTagsResp.untagged_count）；与 tag 互斥
 }
 
 message ListResp {
@@ -189,6 +193,21 @@ message RelationReq {
   int64 user_id = 2;
   int64 related_asset_id = 3;
   string relation_type = 4;  // reference / generated_from / version_of
+}
+
+message DeleteReq {
+  int64 user_id = 1;
+  repeated int64 asset_ids = 2;  // ≤ Limits.BatchAssets（默认 100）
+  // true=单删口径：不存在 / 不属于本人报 4001，官方素材报 2005「官方素材不可删除」；
+  // false=批量口径：不存在与官方的静默跳过，分别计入 missing / official_skipped
+  bool strict = 3;
+}
+
+message DeleteResp {
+  int64 deleted = 1;           // 实际删除条数
+  int64 official_skipped = 2;  // 官方素材，未删除
+  int64 missing = 3;           // 不存在 / 不属于本人 / 已删除
+  repeated int64 deleted_ids = 4;
 }
 
 // ---------------- 标签 ----------------

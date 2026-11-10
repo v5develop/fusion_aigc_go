@@ -40,6 +40,7 @@ func (l *SubmitTryonLogic) SubmitTryon(req *types.StudioTryonSubmitReq) (resp *t
 		Lengths: req.Lengths, Sleeves: req.Sleeves, Fabric: req.Fabric, Prompt: req.Prompt, Model: req.Model,
 		Resolution: req.Resolution, AspectRatio: req.AspectRatio, CountPerModel: req.CountPerModel,
 		ClothImageUrl: req.ClothImageUrl, ColorFix: req.ColorFix,
+		FineRead: req.FineRead, DetailCrops: detailCrops(req.DetailCrops), DetailCropsManual: req.DetailCropsManual,
 	})
 	if err != nil {
 		return nil, err

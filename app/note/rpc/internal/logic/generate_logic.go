@@ -58,16 +58,9 @@ func (l *GenerateLogic) Generate(in *pb.GenerateReq) (*pb.NoteInfo, error) {
 			return nil, err
 		}
 	}
-	count := int(n.ImageCount)
-	if in.ImageCount != 0 {
-		count = int(in.ImageCount)
-	}
-	// 套图数量不设上限，但出图提示词是构思时按张数生成的：改少直接取前几张，改多需要重新构思
-	switch {
-	case count < 1:
-		return nil, xerr.Param("套图数量至少 1 张")
-	case count > len(s.Images):
-		return nil, xerr.Newf(xerr.ParamError, "当前方案只有 %d 张图，增加数量请点「重新生成」重新构思", len(s.Images))
+	count, err := generateImageCount(n.ImageCount, in.ImageCount, len(s.Images))
+	if err != nil {
+		return nil, err
 	}
 	task := imagesTask(l.svcCtx, s, count)
 	if err := task.Validate(); err != nil {
@@ -95,4 +88,20 @@ func (l *GenerateLogic) Generate(in *pb.GenerateReq) (*pb.NoteInfo, error) {
 		return nil, err
 	}
 	return toInfo(n), nil
+}
+
+// generateImageCount 出图张数：不传（0）沿用构思张数。套图数量不设上限，但出图提示词是构思时按张数生成的：
+// 改少直接取前几张，改多需要重新构思。出图（Generate）与配图阶段报价（Quote 带 id）共用，保证报价 = 冻结。
+func generateImageCount(recorded int64, override int32, planned int) (int, error) {
+	count := int(recorded)
+	if override != 0 {
+		count = int(override)
+	}
+	switch {
+	case count < 1:
+		return 0, xerr.Param("套图数量至少 1 张")
+	case count > planned:
+		return 0, xerr.Newf(xerr.ParamError, "当前方案只有 %d 张图，增加数量请点「重新生成」重新构思", planned)
+	}
+	return count, nil
 }

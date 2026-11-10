@@ -70,6 +70,7 @@ type TryonSpec struct {
 	Notes   string // 前端 prompt
 	Lengths map[string]string
 	Sleeves map[string]string
+	Fine    bool // 精细读图（验收 F7）：sidecar fine=true
 }
 
 func (s TryonSpec) setMode() string {
@@ -99,7 +100,7 @@ func AnalyzeImages(list []Image) []reverse.AnalyzeImage {
 	return out
 }
 
-// BuildTryonAnalyzeReq 单个模特的 analyze 请求：category 按 items 推断，deep=true；
+// BuildTryonAnalyzeReq 单个模特的 analyze 请求：category 按 items 推断，deep=true（精细读图另带 fine=true）；
 // lengths / sleeves 只保留 items 里的键，单件时同时填 length_class / sleeve_class。
 func BuildTryonAnalyzeReq(spec TryonSpec, sel Selection) reverse.AnalyzeReq {
 	req := reverse.AnalyzeReq{
@@ -112,6 +113,7 @@ func BuildTryonAnalyzeReq(spec TryonSpec, sel Selection) reverse.AnalyzeReq {
 		Lengths:  FilterByItems(spec.Lengths, spec.Items),
 		Sleeves:  FilterByItems(spec.Sleeves, spec.Items),
 		Deep:     true,
+		Fine:     spec.Fine,
 	}
 	if len(spec.Items) == 1 {
 		req.LengthClass = req.Lengths[spec.Items[0]]

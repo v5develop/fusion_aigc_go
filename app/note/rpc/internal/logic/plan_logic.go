@@ -58,12 +58,9 @@ func (l *PlanLogic) Plan(in *pb.PlanReq) (*pb.NoteInfo, error) {
 	if err := checkText(l.ctx, l.svcCtx, "note_topic", topic); err != nil {
 		return nil, err
 	}
-	count := int64(in.ImageCount)
-	if count == 0 {
-		count = int64(lim.DefaultImages)
-	}
-	if count < 1 {
-		return nil, xerr.Param("套图数量至少 1 张")
+	count, err := noteImageCount(lim.DefaultImages, in.ImageCount)
+	if err != nil {
+		return nil, err
 	}
 	materials, err := l.materials(in.MaterialUrls)
 	if err != nil {

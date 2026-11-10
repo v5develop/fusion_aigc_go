@@ -1,7 +1,6 @@
 package logic
 
 import (
-	"aigc-local-life/pkg/billing"
 	"context"
 	"errors"
 	"strings"
@@ -85,10 +84,7 @@ func (l *CreateLogic) Create(in *pb.CreateReq) (*pb.DigitalHumanInfo, error) {
 	}
 
 	// 时长要等配音出来才知道，先按最短时长拦一道明显不够的；真正冻结在配音之后
-	if err := l.svcCtx.Billing.Enough(l.ctx, billing.Charge{
-		UserID: in.UserId, EntryCode: "digitalHuman", Kind: billing.KindVideo,
-		Tier: billing.TierOf(mdl), Count: 1, Seconds: minVideoSeconds,
-	}); err != nil {
+	if err := l.svcCtx.Billing.Enough(l.ctx, minHumanCharge(in.UserId, mdl)); err != nil {
 		return nil, err
 	}
 

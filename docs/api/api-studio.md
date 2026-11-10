@@ -222,6 +222,9 @@ Idempotency-Key: <UUID>
 | `count_per_model` | int | 是 | 1–9 | 每位模特生成几张 |
 | `cloth_image_url` | string | 否 | — | 旧版兼容位，**新前端不要传** |
 | `color_fix` | bool | 否 | — | 「默认校色」开关。`true` 时写进批次 `payload`（`"color_fix": true`），前端据此给这批结果套默认校色参数（见 5.7）；不影响生图与计费。不传 / `false` 时 `payload` 里没有这个键 |
+| `fine_read` | bool | 否 | — | 「精细读图」（反推交付包验收 F7 / T2）：反推读图走 sidecar 精细模式——逐块检查领口、袖口、五金、刺绣等小细节，提示词【设计细节保留】最多多 3 条；读图更慢（单次约多 5–10 秒）。**不另收费**（交付包未定价，报价 / 冻结与不勾一致）。不勾时与旧版完全一致。`true` 时写进 `payload`（`"fine_read": true`） |
+| `detail_crops` | object[] | 否 | 总数 ≤24、每张服装图 ≤12 | 「AI 找细节」确认后的细节框（2.4 的结果，用户删减 / 重新裁切后原样带回）。每项 `{garment_index, label, box, confidence}`：`garment_index` 为 `garment_images` 下标（从 0 起），`box` 为归一化 `[x, y, w, h]`（0–1、`x+w≤1`、`y+h≤1`），`label` 部位名 ≤24 字。只在 `detail_crops_manual=true` 时生效 |
+| `detail_crops_manual` | bool | 否 | — | `true` = 用户确认过细节框：编排直接按 `detail_crops` 切细节图，**不再调 AI 找细节 / 质检**（`detail_crops` 为 `[]` = 用户删光了，不用细节图）；`false` / 不传 = 照旧由服务端自动找细节。生图时细节图仍按模型参考图上限截取（6.4），多出的不参与生成，提交响应 `warnings` 会说明「已选的 N 张中将保留 K 张」 |
 
 `garment_images[]` 每项：
 
@@ -260,7 +263,7 @@ Idempotency-Key: <UUID>
 | `estimated_points` | int | 预估消耗点数，见第 7 章 |
 | `task_ids` | string[] | 全部任务号。商拍任务号前缀 `tyo`、姿态 `pse`、图片生成 `simg`（示例里的具体值仅作形状参考） |
 | `replayed` | bool | `true` = 同一个 `Idempotency-Key` 重复提交，返回的是原批次，没有新生成也没有新扣点 |
-| `warnings` | string[] | 参数修正提示，没有为 `[]`。如选了 Seedream 4k：`["Seedream 不支持 4K（会被降为 2K），已按 2K 生成"]`，见 6.2；可直接展示。幂等重放（`replayed=true`）不回 |
+| `warnings` | string[] | 参数修正提示，没有为 `[]`。如选了 Seedream 4k：`["Seedream 不支持 4K（会被降为 2K），已按 2K 生成"]`，见 6.2；商拍还会在服装图放不下 / 细节图减少时给提示，见 6.4；可直接展示。幂等重放（`replayed=true`）不回 |
 
 ### 2.3 错误示例
 
@@ -291,6 +294,51 @@ Idempotency-Key: <UUID>
 最后一条的 `msg` 以实际返回为准，前端统一按 `reason` 展示「去充值」即可。
 
 ---
+
+### 2.4 AI 找细节 / 裁切缩略图 / 重新裁切（提交前，免费）
+
+```
+POST /api/v1/studio/tryon/details
+```
+
+对服装图找细节（反推交付包验收 F10 / F33：标签按图片内容生成，不是固定区域），返回每张图的细节框；**不建任务、不扣点、不落库**。前端按框在原图上本地显示裁切缩略图（CSS 背景定位 / canvas，**不调任何裁图接口**），用户可删除单张、「重新裁切」（再调一次本接口，结果整体替换）、清空；提交时把剩下的框原样放进 `detail_crops`，并带 `detail_crops_manual: true`。
+
+请求体（字段与 2.1 同口径、同一套校验，只用这几项）：
+
+```json
+{
+  "items": ["top", "shoes"], "set_mode": "two",
+  "garment_images": [{"url": "https://…/shoes.jpg", "role": "鞋子"}, {"url": "https://…/top.jpg", "role": "上衣", "angle": "front"}],
+  "fabric": "上衣：真丝", "prompt": "左肩金属扣"
+}
+```
+
+响应：
+
+```json
+{
+  "code": 0,
+  "data": {
+    "plans": [
+      {"garment_index": 0, "angle": "unknown", "crops": []},
+      {"garment_index": 1, "angle": "front", "crops": [
+        {"garment_index": 1, "label": "上衣·领口", "box": [0.3, 0.1, 0.4, 0.2], "confidence": 0.86},
+        {"garment_index": 1, "label": "上衣·袖口", "box": [0, 0.5, 0.2, 0.2], "confidence": 0.7}
+      ]}
+    ],
+    "total": 2,
+    "warnings": ["第 1 张服装图没有找到细节，可以点「重新裁切」再试"]
+  }
+}
+```
+
+| 字段 | 说明 |
+|---|---|
+| `plans[]` | 每张服装图一项，顺序同 `garment_images`；没找到细节的 `crops` 为 `[]` |
+| `plans[].crops[]` | 已按编排同一套规则校验：框合法、部位名带单品前缀（不串件）、同图同名去重；每张 ≤12、总数 ≤24，原样带回提交一定能通过校验 |
+| `warnings` | 给用户看的提示（全部没找到 / 部分图没找到），没有为 `[]` |
+
+限流与错误：每用户每分钟 6 次、每天 200 次（网关 `Studio.DetailsPerMinute / DetailsPerDay`），超出 `4002`「识别太频繁，请稍后再试」；同一用户上一次还没结束 `4002`「上一次 AI 找细节还在进行中，请稍候」；读图名额与姿态配对预览共享（不挤占付费编排）。地址不是本服务签发 `4000`；服装图识别不了 `4000`（中文原因，不透出上游原文）；识别服务不可用 / 超时 `6001`。耗时与配对预览同级（单次读图可达 1–3 分钟），**前置代理读超时同 3.1.1 的要求（≥260 秒）**。
 
 ## 3. 姿态复刻与图片生成
 
@@ -527,7 +575,11 @@ Idempotency-Key: <UUID>
 | `result_url` | 成品图地址。付费用户：已转存到我方公有桶，长期可用。免费档用户（开启免费水印时）：带水印的**短期签名地址**（默认 10 分钟有效，每次查询现签，见 4.5），不要缓存或持久化，过期重新查询即可；签不出时为空串。任务成功才有 |
 | `result_width` / `result_height` | 成品像素尺寸，失败为 0 |
 | `error_reason` | 失败原因，可直接展示 |
-| `prompt_summary` | 提示词摘要（不是完整提示词） |
+| `prompt_summary` | 提示词摘要（不是完整提示词，去掉了首行图序） |
+| `prompt_text` | 实际送生图的**完整**提示词（含首行图序声明，如「图序：图1 是原图，图2 是姿势参考图。」）；姿态复刻 / 商拍换装有，编排完成前为空，图片生成为空（提示词是用户自己写的）。姿态复刻在结果卡逐张展示、可「复制」「编辑后重新生成」（5.2.2）；商拍只读 |
+| `prompt_edited` | 这张图的提示词经用户编辑后重新生成过 |
+| `warnings` | 给用户看的提示（中文、不含供应商 / 网关原文，直接展示在结果卡上）：读图降级「读图失败，已改用文字信息生成」/「读图失败，已按模板生成提示词，建议检查服装图后重试」、品类不符「参考图看起来是针织毛衣，与所选「文胸」不一致，请确认品类」（多件组合：「参考图里没有找齐所选的「上衣、下装」（识别为…），请确认品类或补齐服装图」）、参考图截断（6.4）、姿态配对回退「人物数量与预览时不一致，已按默认配对生成」；没有为 `[]` |
+| `batch.warnings` | 本批各任务 `warnings` 去重合并，批次级提示条用；没有为 `[]` |
 | `asset_id` | 成品在素材库的资产 id（成功的任务入库后才有，没入库 / 已从素材库删除为 0），见 5.7 |
 | `color_fix_params` | 已保存的校色参数，没保存过为 `null`，见 5.7 |
 | `mask_url` | 服装蒙版（白色 + 软 alpha 的 PNG，公开地址），商拍换装 / 姿态复刻成品成功后异步补；空 = 没有，见 5.8 |
@@ -633,6 +685,11 @@ GET /api/v1/studio/batches/:id
 | `color_fix_params` | object \| null | 已保存的校色参数 `{hue, saturation, value, brightness, contrast}`；没保存过为 `null`。见 5.7 |
 | `mask_url` | string | 服装蒙版地址；空 = 还没有 / 没识别到服装（校色作用于整图）。成功后通常几秒内补上，轮询会带出。见 5.8 |
 | `mask_parts` | object[] | 商拍换装按所选单品分割时的逐件蒙版 `[{part, mask_url}]`（`mask_url` 是它们的合并）；没有为空数组。见 5.8 |
+| `warnings` | string[] | 给用户看的提示（读图降级 / 品类不符 / 参考图截断 / 配对回退），见 4.4；没有为 `[]` |
+| `prompt_text` | string | 实际送生图的完整提示词（姿态 / 商拍），见 4.4 |
+| `prompt_edited` | bool | 提示词经用户编辑后重新生成过 |
+
+`batch` 另有 `warnings`（string[]）：各任务 `warnings` 去重合并。
 
 错误：批次不存在、不是自己的、已删除，都返回 `code=4001`。
 
@@ -694,6 +751,21 @@ POST /api/v1/studio/tasks/:task_id/retry
 
 幂等：重复点击时，若该任务已经在这次重试里（排队 / 生成中 / 交付中，且计费单号是重做轮次），直接返回当前批次详情，不会再冻结；两个请求同时到达也只有一个会冻结点数。前端建议按钮点击后置为加载态，拿到响应后以批次轮询结果为准。
 
+### 5.2.2 编辑提示词后重新生成（姿态复刻）
+
+```
+POST /api/v1/studio/tasks/:task_id/regenerate
+{"prompt": "【任务】把图1人物摆成图2姿势，右手叉腰……"}
+```
+
+姿势裂变交付包验收 C2 / C4 / C16：每张姿势卡展示该张的 `prompt_text`（可复制、可编辑），编辑后点「重新生成」只重跑这一张。`prompt` 必填、≤3000 字、过内容审核；首行「图序：」可带可不带，服务端统一重写为「图序：图1 是原图，图2 是姿势参考图。」。
+
+- **只支持姿态复刻**（商拍提示词只读，调用返回 `4000`）；任务属于当前用户；**失败或成功**的任务都可以（成功的旧成品已在素材库，任务改由新结果覆盖，新成品照常入库）。
+- **计费同 5.2.1 重试**：按原入口、原档位重新冻结 1 张（新计费单号 `studio-<task_id>-r<n>`）；成功任务的原单已结算（那张图的钱），不退不动；出图结算新单，失败退回新单。
+- 条件与 5.2.1 相同（批次状态、封禁、余额 `3003` 不占次数），差别：成功任务可用；在途的任务 `4002`「这张图正在生成中，请等结束后再修改提示词」；累计轮次上限 6（含重试 / 运营重做），超出 `4002`「这张图已重新生成多次，请调整素材后重新提交」。
+- **幂等**：同一段提示词重复提交（任务已按它在重做中）直接回当前批次详情，不再冻结；在途时提交另一段提示词 `4002`。
+- 响应同 5.2.1（批次详情），该任务 `status=0`、`prompt_text` 为新提示词、`prompt_edited=true`、`warnings` 清空；继续轮询批次。
+
 ### 5.3 历史（游标分页）
 
 ```
@@ -730,7 +802,7 @@ GET /api/v1/studio/history?kind=tryon&cursor=&limit=20
 
 | kind | 回填字段 |
 |---|---|
-| `tryon` | `model_image_urls`、`garment_images`、`items`、`set_mode`、`lengths`、`sleeves`、`fabric`、`prompt`、`model`、`resolution`、`aspect_ratio`、`count_per_model`；开了「默认校色」的批次另有 `color_fix: true` |
+| `tryon` | `model_image_urls`、`garment_images`、`items`、`set_mode`、`lengths`、`sleeves`、`fabric`、`prompt`、`model`、`resolution`、`aspect_ratio`、`count_per_model`；开了「默认校色」的批次另有 `color_fix: true`；勾了「精细读图」另有 `fine_read: true`；确认过细节框另有 `detail_crops_manual: true` + `detail_crops`（重新编辑时若换了服装图，要清掉或重新找细节） |
 | `pose` | `source_image_url`、`pose_image_urls`、`global_prompt`、`pose_prompts`、`model`、`resolution`、`aspect_ratio`；带了多人配对的批次另有 `source_person_count`、`mappings`（重新编辑时若换了图，要重新预览）；开了「默认校色」的批次另有 `color_fix: true` |
 | `imagegen` | `prompt`、`image_urls`、`model`、`resolution`、`aspect_ratio`、`count`、`rewrite_prompt` |
 
@@ -870,6 +942,9 @@ POST /api/v1/studio/masks
 
 ## 6. 模型、分辨率、比例
 
+> **按模型取可选项**：`GET /api/v1/studio/models?kind=tryon|pose|imagegen[&with_price=true]` 返回每个模型档（`通用` / `GPT` / `GPT25Dev` / `Banana` / `Seedream`）的展示名 `label`、实际可选的 `resolutions` / `aspect_ratios`、是否支持「自动」比例 `auto_aspect`、本 kind 的参考图上限 `max_ref_images`、限制说明 `notes`、gateway 目录里是否可用 `available`；`with_price=true` 时附每档分辨率的单张点数 `prices[]`（与 quote 同一计费入口）。
+> 可选项与提交时的参数归一同源（Seedream 5.5 无 `4:5` / `5:4`、旧 Seedream 无 4K、GPT Image 2.6 参考图上限按 kind 收紧），再与 gateway 目录 `feature_limits` 求交；目录拉不到时只按组规则。前端据此收窄选项、换模型时把不支持的值落到第一个可选项；下文的表是兜底口径。
+
 ### 6.1 模型四档 `model`
 
 `model` 传下表「传值」一列的名称（空 = `通用`）。服务端按名称映射到实际模型；名称**大小写不敏感**（`gpt`、`GPT` 都行），其它名称返回 `code=1003`「不支持的模型：xxx」。
@@ -909,6 +984,38 @@ POST /api/v1/studio/masks
 | `9:16` | `16:9` | `4:5` | `5:4` | `21:9` |
 
 ---
+
+
+### 6.4 商拍参考图上限与细节图预算
+
+一次商拍生图送给模型的参考图 = 模特 1 张（图 1）+ 服装主图 + 细节裁图，**总数永远不超过该模型的参考图上限 `cap`，且任何模型都不超过 14 张**（GPT 标称 16，也按 14；不会发出 16 张）。`GET /studio/models` 的 `max_ref_images` 就是这个 `cap`，与实际组装同一口径（`pipeline.RefCap`）：
+
+| 模型 | `cap`（`max_ref_images`） |
+| --- | --- |
+| 通用 / Banana / GPT / GPT25Dev 等 | 14（目录标称更大也压到 14；目录给更小的以目录为准） |
+| Seedream 5 Pro | 10 |
+| GPT Image 2.6 | 6（计费硬上限，商拍提交时服装图 >5 张直接 `code=1003`） |
+| 目录里更小的模型（如 Qwen 3） | 目录值 |
+
+**组装规则**（每个子任务按自己的模型 `cap` 各算一次）：
+
+1. 服装主图最多 `cap − 1` 张，按单品轮询保留（每件至少 1 张），超出的不参与生成；
+2. 细节裁图名额 `crops = max(0, cap − 主图张数 − 1)`，没有主图入选的单品优先；
+3. 顺序：模特 → 主图 → 细节。
+
+**反推读图与生图参考图是两件事**：sidecar 一次反推最多读 9 张，且主图非 look/compose 品类总共最多 4 张、look/compose 最多 6 张，所以服务端另选一份 `SelectImages`（≤9 张，主图→细节→模特）给反推；每件 6 张服装图（总 9 张）都允许进入生图参考（只受 `cap` 约束），不受反推 4 张读图限制。sidecar 本身不改。
+
+**`warnings`（提交响应，中文，不含模型 / 厂商名）**。提交时尚未切图，按服装图张数推算（预估每张主图切 4 个细节框）：
+
+| 情形 | 文案 |
+| --- | --- |
+| 服装图超过 `cap − 1` | 所选模型最多支持 {cap} 张参考图，已保留 {n} 张服装图，其余 {m} 张未参与生成；可减少服装图，或换用支持更多参考图的模型 |
+| 细节名额小于预估切图数，但 >0 | 所选模型参考图数量有限，细节图已减少为 {k} 张 |
+| 细节名额为 0 | 所选模型的参考图数量已被服装图占满，细节图已省略 |
+
+切图完成后若实际仍有裁剪，同样文案写入子任务 `prompt_meta.warnings`（后台可见），并透出到任务 `warnings`（用户可见，见 4.4）。例：Seedream（cap 10）传 6 张服装图 → `细节图已减少为 3 张`；通用（cap 14）传 6 张 → 不提示。
+
+用户自选细节框（`detail_crops_manual=true`）时，「细节图将减少为约 k 张」这句换成按实际框数：`所选模型最多还能放 {k} 张细节图，已选的 {n} 张中将保留 {k} 张`（名额为 0：`…已选的 {n} 张细节图将不参与生成`）。
 
 ## 7. 计费口径
 
@@ -973,7 +1080,7 @@ POST /api/v1/studio/masks
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/batches` | 批次列表。查询参数：`page`（默认 1）、`page_size`（默认 20）、`user_id`、`kind`（`tryon` / `pose` / `imagegen`）、`status`（-1 = 全部）、`start_at` / `end_at`（创建时间，unix 毫秒，起含止不含）。返回 `list` + `total`，每项含用户、`request_id`、`cost_cny`（上游成本合计，人民币元）、`model_group`、`payload` 等 |
-| GET | `/batches/:id` | 批次详情：`batch` + 切图框 `crop_plan`、切图质检 `crop_check`、组图 `selected_images`、每步耗时与成本 `step_log`（成本字段 `cost_cny`，均为 JSON 文本）+ 全部任务（含完整提示词 `prompt_text`、`prompt_meta`、`input_images`、`gateway_call_id`、`gateway_status`、`attempt`、`admin_locked`、`cost_cny`（人民币元）、`billing_request_id`、`billing_status`、`duration_ms`） |
+| GET | `/batches/:id` | 批次详情：`batch` + 切图框 `crop_plan`、切图质检 `crop_check`、组图 `selected_images`（商拍 = 反推读图选中的图，≤9 张/模特，**不是**生图输入；实际送生图的图序看各任务 `input_images`）、每步耗时与成本 `step_log`（成本字段 `cost_cny`，均为 JSON 文本）+ 全部任务（含完整提示词 `prompt_text`、`prompt_meta`、`input_images`、`gateway_call_id`、`gateway_status`、`attempt`、`admin_locked`、`cost_cny`（人民币元）、`billing_request_id`、`billing_status`、`duration_ms`） |
 | POST | `/tasks/:task_id/retry` | 重做子任务：只收失败 / 已取消、且没被强制失败封禁的；换新计费请求号（`studio-<task_id>-r<attempt>`）重新冻结、`attempt+1`、清空错误与 gateway 字段后回到排队，由轮询器用新幂等键重新提交。批次已终态时拉回生图中（还没反推过的拉回排队重新编排）；拉回出错时撤销本次重做（任务回原状态、新冻结退回）并报错，轮询器另有兜底。冻结失败（如点数不足）且计费服务里查无这张新单时退还本轮（`attempt` 回退，下次仍用同一个号），查不清时本轮作废、下次换下一个号。成功 / 进行中 / 批次提交中的返回 4002 |
 | POST | `/tasks/:task_id/force-fail` | 强制失败并封禁重做（`admin_locked=1`）：排队 / 生成中的改为失败并退回点数（预留单若已扣费则走已确认退款），有上游调用的先尽力取消（取消时已出图则返回 4002、照常交付）；交付中（5）的返回 4002「任务正在交付，不能强制失败」；已失败 / 已取消的只封禁、不动账；已成功的返回 4002 |
 | GET | `/sidecar/status` | 依赖状态：反推 sidecar / ai-gateway / 媒体服务的 `ok`、`latency_ms`、`version`、`detail`，外加 `running_tasks`、`queued_batches` |

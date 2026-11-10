@@ -144,6 +144,13 @@
             "name": "entry_codes",
             "in": "query",
             "allowEmptyValue": true
+          },
+          {
+            "type": "boolean",
+            "description": "true=只要没挂任何标签的资产（「未分类」，口径同 GET /tags 的 untagged_count）；不能与 tag 同时传",
+            "name": "untagged",
+            "in": "query",
+            "allowEmptyValue": true
           }
         ],
         "responses": {
@@ -353,6 +360,95 @@
                       }
                     },
                     "total": {
+                      "type": "integer"
+                    }
+                  }
+                },
+                "msg": {
+                  "description": "business message",
+                  "type": "string",
+                  "example": "ok"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/asset-library/assets/batch-delete": {
+      "post": {
+        "security": [
+          {
+            "auth": []
+          }
+        ],
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "资产库增强"
+        ],
+        "summary": "批量删除资产（逻辑删除 + 解除标签）：只删本人的上传 / 生成资产，官方素材与不存在的静默跳过并计数；不删存储对象、不影响任务结果",
+        "operationId": "assetlibBatchDeleteAssets",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "required": [
+                "asset_ids"
+              ],
+              "properties": {
+                "asset_ids": {
+                  "description": "≤100；官方素材与不存在的 id 静默跳过（分别计数）",
+                  "type": "array",
+                  "items": {
+                    "type": "integer"
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
+                  "type": "integer",
+                  "example": 0
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "deleted": {
+                      "description": "实际删除条数",
+                      "type": "integer"
+                    },
+                    "deleted_ids": {
+                      "description": "已删除的资产 id",
+                      "type": "array",
+                      "items": {
+                        "type": "integer"
+                      }
+                    },
+                    "missing": {
+                      "description": "不存在 / 不属于本人 / 已删除，跳过",
+                      "type": "integer"
+                    },
+                    "official_skipped": {
+                      "description": "官方素材，未删除",
                       "type": "integer"
                     }
                   }
@@ -1265,6 +1361,79 @@
                           "type": "integer"
                         }
                       }
+                    }
+                  }
+                },
+                "msg": {
+                  "description": "business message",
+                  "type": "string",
+                  "example": "ok"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "security": [
+          {
+            "auth": []
+          }
+        ],
+        "consumes": [
+          "application/x-www-form-urlencoded"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "资产库增强"
+        ],
+        "summary": "删除单个资产：不存在 / 不属于本人 4001，官方素材 2005「官方素材不可删除」",
+        "operationId": "assetlibDeleteAsset",
+        "parameters": [
+          {
+            "type": "integer",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
+                  "type": "integer",
+                  "example": 0
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "deleted": {
+                      "description": "实际删除条数",
+                      "type": "integer"
+                    },
+                    "deleted_ids": {
+                      "description": "已删除的资产 id",
+                      "type": "array",
+                      "items": {
+                        "type": "integer"
+                      }
+                    },
+                    "missing": {
+                      "description": "不存在 / 不属于本人 / 已删除，跳过",
+                      "type": "integer"
+                    },
+                    "official_skipped": {
+                      "description": "官方素材，未删除",
+                      "type": "integer"
                     }
                   }
                 },
@@ -8555,6 +8724,164 @@
         }
       }
     },
+    "/api/v1/local-life/quote": {
+      "post": {
+        "security": [
+          {
+            "auth": []
+          }
+        ],
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "提交前报价"
+        ],
+        "summary": "提交前报价（只读，不冻结）：按工具与当前表单参数，返回提交（或出片 / 出图）会冻结的点数、余额与是否足够；与提交走同一套计费请求构造与算价",
+        "operationId": "quoteQuote",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "required": [
+                "tool"
+              ],
+              "properties": {
+                "duration": {
+                  "description": "视频时长（秒）：口播 / 探店 / 短剧，不传用后台默认",
+                  "type": "integer"
+                },
+                "id": {
+                  "description": "探店 / 短剧 / 复刻：已构思 / 已解析的记录 id，按记录的档位与时长报（复刻有了它才知道原片时长）；图文笔记：已构思的笔记 id（配图阶段），按记录张数报并校验不超过方案张数",
+                  "type": "integer"
+                },
+                "image_count": {
+                  "description": "张数：海报 / 长图（不传 1）、图文笔记套图（不传用默认）",
+                  "type": "integer"
+                },
+                "model": {
+                  "description": "模型档位（动作迁移 / 口播 / 数字人 / 探店 / 短剧 / 复刻），不传用后台默认",
+                  "type": "string"
+                },
+                "tool": {
+                  "description": "工具（即计费入口码）",
+                  "type": "string",
+                  "enum": [
+                    "poster",
+                    "longImage",
+                    "actionTransfer",
+                    "voiceover",
+                    "digitalHuman",
+                    "copywriting",
+                    "imageTextNote",
+                    "exploreShop",
+                    "shortDrama",
+                    "videoRemake"
+                  ]
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
+                  "type": "integer",
+                  "example": 0
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "available": {
+                      "description": "能否报出价；false 时 points 为 0，原因见 reason（参数不合法、未配价格等）",
+                      "type": "boolean"
+                    },
+                    "balance": {
+                      "description": "当前可用余额（balance_known=false 时为 0）",
+                      "type": "integer"
+                    },
+                    "balance_known": {
+                      "type": "boolean"
+                    },
+                    "billing_mode": {
+                      "description": "on 真扣 / shadow 只算价不扣 / off 不计费",
+                      "type": "string"
+                    },
+                    "charged": {
+                      "description": "提交是否真的冻结点数（仅 billing_mode=on）；false 时提交冻结 0 点",
+                      "type": "boolean"
+                    },
+                    "exact": {
+                      "description": "points 是否就是冻结数",
+                      "type": "boolean"
+                    },
+                    "free_quota": {
+                      "description": "本次抵扣的免费额度：本地生活冻结不扣免费额度，恒为 0",
+                      "type": "integer"
+                    },
+                    "points": {
+                      "description": "按这组参数算出的点数，与提交冻结同一套算价；exact=false 时为最低价（数字人 / 复刻未解析均按最短 4 秒）",
+                      "type": "integer"
+                    },
+                    "points_max": {
+                      "description": "exact=false 时的最高价（数字人按该档最长时长）；0 = 不知道",
+                      "type": "integer"
+                    },
+                    "price_unit": {
+                      "description": "PER_IMAGE / PER_SECOND / PER_REQUEST / PER_VIDEO",
+                      "type": "string"
+                    },
+                    "quantity": {
+                      "description": "计量：张数或秒数",
+                      "type": "integer"
+                    },
+                    "reason": {
+                      "description": "available=false 的原因（给用户看）；可用时为空",
+                      "type": "string"
+                    },
+                    "stage": {
+                      "description": "冻结在哪一步：submit 提交即冻结 / generate 构思免费、出片（出图）时冻结",
+                      "type": "string"
+                    },
+                    "sufficient": {
+                      "description": "余额是否够 points（charged=false 或余额未知时为 true）",
+                      "type": "boolean"
+                    },
+                    "sufficient_max": {
+                      "description": "余额是否够 points_max（数字人按配音最长时长的价）；没有最高价（exact=true）时同 sufficient。不够只提示、不拦提交",
+                      "type": "boolean"
+                    },
+                    "unit_points": {
+                      "description": "单价：每张 / 每秒 / 每次",
+                      "type": "integer"
+                    }
+                  }
+                },
+                "msg": {
+                  "description": "business message",
+                  "type": "string",
+                  "example": "ok"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/local-life/shop-profiles": {
       "get": {
         "security": [
@@ -10959,7 +11286,8 @@
                         "error_reason",
                         "cover_url",
                         "created_at",
-                        "updated_at"
+                        "updated_at",
+                        "warnings"
                       ],
                       "properties": {
                         "cover_url": {
@@ -11001,6 +11329,13 @@
                         },
                         "updated_at": {
                           "type": "integer"
+                        },
+                        "warnings": {
+                          "description": "读图 / 参考图提示（各任务 warnings 去重合并，中文、不含供应商信息）；没有为 []",
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
                         }
                       }
                     },
@@ -11029,7 +11364,10 @@
                           "asset_id",
                           "color_fix_params",
                           "mask_url",
-                          "mask_parts"
+                          "mask_parts",
+                          "warnings",
+                          "prompt_text",
+                          "prompt_edited"
                         ],
                         "properties": {
                           "asset_id": {
@@ -11118,7 +11456,15 @@
                             "description": "0–100（估算）",
                             "type": "integer"
                           },
+                          "prompt_edited": {
+                            "description": "提示词经用户编辑后重新生成过",
+                            "type": "boolean"
+                          },
                           "prompt_summary": {
+                            "type": "string"
+                          },
+                          "prompt_text": {
+                            "description": "实际送生图的完整提示词（含首行图序；姿态 / 商拍有，编排完成前为空）",
                             "type": "string"
                           },
                           "result_height": {
@@ -11143,6 +11489,13 @@
                           },
                           "task_id": {
                             "type": "string"
+                          },
+                          "warnings": {
+                            "description": "给用户看的提示：「已改用文字信息生成」、「参考图看起来是…，与所选「文胸」不一致」、参考图截断等；没有为 []",
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
                           }
                         }
                       }
@@ -11269,7 +11622,8 @@
                         "error_reason",
                         "cover_url",
                         "created_at",
-                        "updated_at"
+                        "updated_at",
+                        "warnings"
                       ],
                       "properties": {
                         "cover_url": {
@@ -11311,6 +11665,13 @@
                         },
                         "updated_at": {
                           "type": "integer"
+                        },
+                        "warnings": {
+                          "description": "读图 / 参考图提示（各任务 warnings 去重合并，中文、不含供应商信息）；没有为 []",
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
                         }
                       }
                     },
@@ -11414,7 +11775,8 @@
                               "error_reason",
                               "cover_url",
                               "created_at",
-                              "updated_at"
+                              "updated_at",
+                              "warnings"
                             ],
                             "properties": {
                               "cover_url": {
@@ -11456,6 +11818,13 @@
                               },
                               "updated_at": {
                                 "type": "integer"
+                              },
+                              "warnings": {
+                                "description": "读图 / 参考图提示（各任务 warnings 去重合并，中文、不含供应商信息）；没有为 []",
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
                               }
                             }
                           },
@@ -11484,7 +11853,10 @@
                                 "asset_id",
                                 "color_fix_params",
                                 "mask_url",
-                                "mask_parts"
+                                "mask_parts",
+                                "warnings",
+                                "prompt_text",
+                                "prompt_edited"
                               ],
                               "properties": {
                                 "asset_id": {
@@ -11535,7 +11907,15 @@
                                   "description": "0–100（估算）",
                                   "type": "integer"
                                 },
+                                "prompt_edited": {
+                                  "description": "提示词经用户编辑后重新生成过",
+                                  "type": "boolean"
+                                },
                                 "prompt_summary": {
+                                  "type": "string"
+                                },
+                                "prompt_text": {
+                                  "description": "实际送生图的完整提示词（含首行图序；姿态 / 商拍有，编排完成前为空）",
                                   "type": "string"
                                 },
                                 "result_height": {
@@ -11560,6 +11940,13 @@
                                 },
                                 "task_id": {
                                   "type": "string"
+                                },
+                                "warnings": {
+                                  "description": "给用户看的提示：「已改用文字信息生成」、「参考图看起来是…，与所选「文胸」不一致」、参考图截断等；没有为 []",
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string"
+                                  }
                                 }
                               }
                             }
@@ -11937,6 +12324,165 @@
                       }
                     },
                     "target": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "msg": {
+                  "description": "business message",
+                  "type": "string",
+                  "example": "ok"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/studio/models": {
+      "get": {
+        "security": [
+          {
+            "auth": []
+          }
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "商拍换装 / 姿态复刻 / 图片生成"
+        ],
+        "summary": "模型档能力（只读）：每个模型档的展示名、实际可用的分辨率 / 比例、参考图上限；with_price=true 附单张点数",
+        "operationId": "studioModels",
+        "parameters": [
+          {
+            "enum": [
+              "tryon",
+              "pose",
+              "imagegen"
+            ],
+            "type": "string",
+            "description": "空=imagegen；影响参考图上限、是否有「自动」比例、报价入口",
+            "name": "kind",
+            "in": "query",
+            "allowEmptyValue": true
+          },
+          {
+            "type": "boolean",
+            "description": "true=附每档分辨率的单张点数",
+            "name": "with_price",
+            "in": "query",
+            "allowEmptyValue": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
+                  "type": "integer",
+                  "example": 0
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "billing_mode": {
+                      "description": "with_price 时有：on / shadow / off",
+                      "type": "string"
+                    },
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "code",
+                          "label",
+                          "available",
+                          "resolutions",
+                          "aspect_ratios",
+                          "auto_aspect",
+                          "max_ref_images",
+                          "notes",
+                          "prices"
+                        ],
+                        "properties": {
+                          "aspect_ratios": {
+                            "description": "可选比例（标准 10 档子集，如 Seedream 5.5 无 4:5 / 5:4）",
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "auto_aspect": {
+                            "description": "支持「自动」比例（空串；tryon / pose 为 true）",
+                            "type": "boolean"
+                          },
+                          "available": {
+                            "description": "gateway 目录里该组已启用；目录拉不到时为 true",
+                            "type": "boolean"
+                          },
+                          "code": {
+                            "description": "传值：通用 / GPT / GPT25Dev / Banana / Seedream",
+                            "type": "string"
+                          },
+                          "label": {
+                            "description": "展示名（如 GPT Image 2.6）",
+                            "type": "string"
+                          },
+                          "max_ref_images": {
+                            "description": "本 kind 的参考图上限",
+                            "type": "integer"
+                          },
+                          "notes": {
+                            "description": "限制说明短句",
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "prices": {
+                            "description": "with_price=true 时有",
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "required": [
+                                "resolution",
+                                "available",
+                                "unit_points"
+                              ],
+                              "properties": {
+                                "available": {
+                                  "description": "能否报出价",
+                                  "type": "boolean"
+                                },
+                                "resolution": {
+                                  "description": "1k / 2k / 4k",
+                                  "type": "string"
+                                },
+                                "unit_points": {
+                                  "description": "单张点数（billing_mode=off 时为 0）",
+                                  "type": "integer"
+                                }
+                              }
+                            }
+                          },
+                          "resolutions": {
+                            "description": "可选分辨率（1k / 2k / 4k 子集）",
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "kind": {
                       "type": "string"
                     }
                   }
@@ -12594,7 +13140,15 @@
                       "description": "0–100（估算）",
                       "type": "integer"
                     },
+                    "prompt_edited": {
+                      "description": "提示词经用户编辑后重新生成过",
+                      "type": "boolean"
+                    },
                     "prompt_summary": {
+                      "type": "string"
+                    },
+                    "prompt_text": {
+                      "description": "实际送生图的完整提示词（含首行图序；姿态 / 商拍有，编排完成前为空）",
                       "type": "string"
                     },
                     "result_height": {
@@ -12619,6 +13173,13 @@
                     },
                     "task_id": {
                       "type": "string"
+                    },
+                    "warnings": {
+                      "description": "给用户看的提示：「已改用文字信息生成」、「参考图看起来是…，与所选「文胸」不一致」、参考图截断等；没有为 []",
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
                     }
                   }
                 },
@@ -12802,7 +13363,15 @@
                       "description": "0–100（估算）",
                       "type": "integer"
                     },
+                    "prompt_edited": {
+                      "description": "提示词经用户编辑后重新生成过",
+                      "type": "boolean"
+                    },
                     "prompt_summary": {
+                      "type": "string"
+                    },
+                    "prompt_text": {
+                      "description": "实际送生图的完整提示词（含首行图序；姿态 / 商拍有，编排完成前为空）",
                       "type": "string"
                     },
                     "result_height": {
@@ -12827,6 +13396,13 @@
                     },
                     "task_id": {
                       "type": "string"
+                    },
+                    "warnings": {
+                      "description": "给用户看的提示：「已改用文字信息生成」、「参考图看起来是…，与所选「文胸」不一致」、参考图截断等；没有为 []",
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
                     }
                   }
                 },
@@ -12841,7 +13417,7 @@
         }
       }
     },
-    "/api/v1/studio/tasks/{task_id}/retry": {
+    "/api/v1/studio/tasks/{task_id}/regenerate": {
       "post": {
         "security": [
           {
@@ -12849,7 +13425,7 @@
           }
         ],
         "consumes": [
-          "application/x-www-form-urlencoded"
+          "application/json"
         ],
         "produces": [
           "application/json"
@@ -12860,14 +13436,31 @@
         "tags": [
           "商拍换装 / 姿态复刻 / 图片生成"
         ],
-        "summary": "重试单个失败子任务（仅本人、任务失败且批次为全部失败 / 部分成功）：只重跑这张图的生图一步（沿用已存提示词，不再反推），按原入口重新冻结 1 张点数；返回批次详情（同 GET /batches/:id），之后照常轮询批次。重复点击幂等",
-        "operationId": "studioRetryTask",
+        "summary": "编辑提示词后重新生成单张（仅姿态复刻、仅本人；失败或成功的都可以）：用改过的提示词重跑这张图的生图一步，计费同重试（重新冻结 1 张点数）；同一提示词重复提交幂等；返回批次详情（同 GET /batches/:id）",
+        "operationId": "studioRegenerateTask",
         "parameters": [
           {
             "type": "string",
             "name": "task_id",
             "in": "path",
             "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "required": [
+                "prompt"
+              ],
+              "properties": {
+                "prompt": {
+                  "description": "编辑后的提示词（≤3000 字；首行「图序：」可带可不带，服务端统一重写）",
+                  "type": "string"
+                }
+              }
+            }
           }
         ],
         "responses": {
@@ -12898,7 +13491,8 @@
                         "error_reason",
                         "cover_url",
                         "created_at",
-                        "updated_at"
+                        "updated_at",
+                        "warnings"
                       ],
                       "properties": {
                         "cover_url": {
@@ -12940,6 +13534,13 @@
                         },
                         "updated_at": {
                           "type": "integer"
+                        },
+                        "warnings": {
+                          "description": "读图 / 参考图提示（各任务 warnings 去重合并，中文、不含供应商信息）；没有为 []",
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
                         }
                       }
                     },
@@ -12968,7 +13569,10 @@
                           "asset_id",
                           "color_fix_params",
                           "mask_url",
-                          "mask_parts"
+                          "mask_parts",
+                          "warnings",
+                          "prompt_text",
+                          "prompt_edited"
                         ],
                         "properties": {
                           "asset_id": {
@@ -13057,7 +13661,15 @@
                             "description": "0–100（估算）",
                             "type": "integer"
                           },
+                          "prompt_edited": {
+                            "description": "提示词经用户编辑后重新生成过",
+                            "type": "boolean"
+                          },
                           "prompt_summary": {
+                            "type": "string"
+                          },
+                          "prompt_text": {
+                            "description": "实际送生图的完整提示词（含首行图序；姿态 / 商拍有，编排完成前为空）",
                             "type": "string"
                           },
                           "result_height": {
@@ -13082,8 +13694,464 @@
                           },
                           "task_id": {
                             "type": "string"
+                          },
+                          "warnings": {
+                            "description": "给用户看的提示：「已改用文字信息生成」、「参考图看起来是…，与所选「文胸」不一致」、参考图截断等；没有为 []",
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
                           }
                         }
+                      }
+                    }
+                  }
+                },
+                "msg": {
+                  "description": "business message",
+                  "type": "string",
+                  "example": "ok"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/studio/tasks/{task_id}/retry": {
+      "post": {
+        "security": [
+          {
+            "auth": []
+          }
+        ],
+        "consumes": [
+          "application/x-www-form-urlencoded"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "商拍换装 / 姿态复刻 / 图片生成"
+        ],
+        "summary": "重试单个失败子任务（仅本人、任务失败且批次为全部失败 / 部分成功）：只重跑这张图的生图一步（沿用已存提示词，不再反推），按原入口重新冻结 1 张点数；返回批次详情（同 GET /batches/:id），之后照常轮询批次。重复点击幂等",
+        "operationId": "studioRetryTask",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "task_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
+                  "type": "integer",
+                  "example": 0
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "batch": {
+                      "type": "object",
+                      "required": [
+                        "id",
+                        "kind",
+                        "status",
+                        "payload",
+                        "task_total",
+                        "task_done",
+                        "task_failed",
+                        "estimated_points",
+                        "error_reason",
+                        "cover_url",
+                        "created_at",
+                        "updated_at",
+                        "warnings"
+                      ],
+                      "properties": {
+                        "cover_url": {
+                          "type": "string"
+                        },
+                        "created_at": {
+                          "description": "unix 毫秒",
+                          "type": "integer"
+                        },
+                        "error_reason": {
+                          "type": "string"
+                        },
+                        "estimated_points": {
+                          "type": "integer"
+                        },
+                        "id": {
+                          "type": "integer"
+                        },
+                        "kind": {
+                          "description": "tryon / pose / imagegen",
+                          "type": "string"
+                        },
+                        "payload": {
+                          "description": "提交时的全量字段（JSON 文本），用于回填表单",
+                          "type": "string"
+                        },
+                        "status": {
+                          "description": "0-排队 1-切图中 2-反推中 3-生图中 4-全部成功 5-全部失败 6-部分成功 7-已取消",
+                          "type": "integer"
+                        },
+                        "task_done": {
+                          "type": "integer"
+                        },
+                        "task_failed": {
+                          "type": "integer"
+                        },
+                        "task_total": {
+                          "type": "integer"
+                        },
+                        "updated_at": {
+                          "type": "integer"
+                        },
+                        "warnings": {
+                          "description": "读图 / 参考图提示（各任务 warnings 去重合并，中文、不含供应商信息）；没有为 []",
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "tasks": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "task_id",
+                          "batch_id",
+                          "kind",
+                          "model_index",
+                          "shot_index",
+                          "pose_index",
+                          "status",
+                          "progress",
+                          "result_url",
+                          "result_width",
+                          "result_height",
+                          "error_reason",
+                          "prompt_summary",
+                          "created_at",
+                          "started_at",
+                          "finished_at",
+                          "asset_id",
+                          "color_fix_params",
+                          "mask_url",
+                          "mask_parts",
+                          "warnings",
+                          "prompt_text",
+                          "prompt_edited"
+                        ],
+                        "properties": {
+                          "asset_id": {
+                            "description": "成品在素材库的资产 id（afv_asset.id），可直接调 POST /api/v1/asset-library/assets/{id}/versions；没入库 / 已从素材库删除为 0",
+                            "type": "integer"
+                          },
+                          "batch_id": {
+                            "type": "integer"
+                          },
+                          "color_fix_params": {
+                            "description": "已保存的校色参数；没保存过为 null",
+                            "type": "object",
+                            "required": [
+                              "hue",
+                              "saturation",
+                              "value",
+                              "brightness",
+                              "contrast"
+                            ],
+                            "properties": {
+                              "brightness": {
+                                "type": "integer"
+                              },
+                              "contrast": {
+                                "type": "integer"
+                              },
+                              "hue": {
+                                "type": "integer"
+                              },
+                              "saturation": {
+                                "type": "integer"
+                              },
+                              "value": {
+                                "type": "integer"
+                              }
+                            }
+                          },
+                          "created_at": {
+                            "type": "integer"
+                          },
+                          "error_reason": {
+                            "type": "string"
+                          },
+                          "finished_at": {
+                            "description": "0=未结束",
+                            "type": "integer"
+                          },
+                          "id": {
+                            "type": "integer"
+                          },
+                          "kind": {
+                            "type": "string"
+                          },
+                          "mask_parts": {
+                            "description": "商拍换装按所选单品分割时的逐件蒙版（mask_url 是它们的合并）；没有为空数组",
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "required": [
+                                "part",
+                                "mask_url"
+                              ],
+                              "properties": {
+                                "mask_url": {
+                                  "description": "该部位的白色+软 alpha PNG，与原图同尺寸",
+                                  "type": "string"
+                                },
+                                "part": {
+                                  "description": "tops / coat / pants / skirt / shoes / bag / hat",
+                                  "type": "string"
+                                }
+                              }
+                            }
+                          },
+                          "mask_url": {
+                            "description": "服装蒙版（白色+软 alpha PNG，公开地址）：商拍换装 / 姿态复刻成品成功后异步补；空=没有（未生成 / 没识别到服装），校色作用于整图",
+                            "type": "string"
+                          },
+                          "model_index": {
+                            "type": "integer"
+                          },
+                          "pose_index": {
+                            "type": "integer"
+                          },
+                          "progress": {
+                            "description": "0–100（估算）",
+                            "type": "integer"
+                          },
+                          "prompt_edited": {
+                            "description": "提示词经用户编辑后重新生成过",
+                            "type": "boolean"
+                          },
+                          "prompt_summary": {
+                            "type": "string"
+                          },
+                          "prompt_text": {
+                            "description": "实际送生图的完整提示词（含首行图序；姿态 / 商拍有，编排完成前为空）",
+                            "type": "string"
+                          },
+                          "result_height": {
+                            "type": "integer"
+                          },
+                          "result_url": {
+                            "type": "string"
+                          },
+                          "result_width": {
+                            "type": "integer"
+                          },
+                          "shot_index": {
+                            "type": "integer"
+                          },
+                          "started_at": {
+                            "description": "0=未开始",
+                            "type": "integer"
+                          },
+                          "status": {
+                            "description": "0-排队 1-生成中 2-成功 3-失败 4-已取消",
+                            "type": "integer"
+                          },
+                          "task_id": {
+                            "type": "string"
+                          },
+                          "warnings": {
+                            "description": "给用户看的提示：「已改用文字信息生成」、「参考图看起来是…，与所选「文胸」不一致」、参考图截断等；没有为 []",
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "msg": {
+                  "description": "business message",
+                  "type": "string",
+                  "example": "ok"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/studio/tryon/details": {
+      "post": {
+        "security": [
+          {
+            "auth": []
+          }
+        ],
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "商拍换装 / 姿态复刻 / 图片生成"
+        ],
+        "summary": "商拍「AI 找细节」（免费、不建任务）：对服装图找细节，返回每张图的细节框（归一化 [x,y,w,h]）与部位名；前端按框在原图上显示裁切缩略图，删减 / 重新裁切后随提交带回 detail_crops。按用户限频（超出 4002「识别太频繁，请稍后再试」）；上一次还没结束同为 4002（「上一次 AI 找细节还在进行中」）",
+        "operationId": "studioDetectDetails",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "required": [
+                "items",
+                "garment_images"
+              ],
+              "properties": {
+                "fabric": {
+                  "type": "string"
+                },
+                "garment_images": {
+                  "description": "只收本服务签发的地址",
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "url"
+                    ],
+                    "properties": {
+                      "angle": {
+                        "description": "front / back / side / detail / flat / unknown；空按 unknown",
+                        "type": "string"
+                      },
+                      "role": {
+                        "description": "单品中文名（上衣 / 下装 / 连衣裙 …）或「整套」",
+                        "type": "string"
+                      },
+                      "url": {
+                        "description": "只收 http(s) 地址；blob: 表示还没上传完，会被拒绝",
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                "items": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "prompt": {
+                  "description": "补充说明（帮助模型找设计点）",
+                  "type": "string"
+                },
+                "set_mode": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
+                  "type": "integer",
+                  "example": 0
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "plans": {
+                      "description": "每张服装图一项（顺序同 garment_images），没找到细节的 crops 为 []",
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "garment_index",
+                          "angle",
+                          "crops"
+                        ],
+                        "properties": {
+                          "angle": {
+                            "description": "front / back / side / detail / flat / unknown",
+                            "type": "string"
+                          },
+                          "crops": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "required": [
+                                "garment_index",
+                                "label",
+                                "box"
+                              ],
+                              "properties": {
+                                "box": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "number"
+                                  }
+                                },
+                                "confidence": {
+                                  "description": "0–1",
+                                  "type": "number"
+                                },
+                                "garment_index": {
+                                  "type": "integer"
+                                },
+                                "label": {
+                                  "description": "部位名，如「上衣·领口」（≤24 字）",
+                                  "type": "string"
+                                }
+                              }
+                            }
+                          },
+                          "garment_index": {
+                            "type": "integer"
+                          }
+                        }
+                      }
+                    },
+                    "total": {
+                      "type": "integer"
+                    },
+                    "warnings": {
+                      "description": "给用户看的提示；没有为 []",
+                      "type": "array",
+                      "items": {
+                        "type": "string"
                       }
                     }
                   }
@@ -13279,9 +14347,46 @@
                   "description": "每位模特张数 1–9",
                   "type": "integer"
                 },
+                "detail_crops": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "garment_index",
+                      "label",
+                      "box"
+                    ],
+                    "properties": {
+                      "box": {
+                        "type": "array",
+                        "items": {
+                          "type": "number"
+                        }
+                      },
+                      "confidence": {
+                        "description": "0–1",
+                        "type": "number"
+                      },
+                      "garment_index": {
+                        "type": "integer"
+                      },
+                      "label": {
+                        "description": "部位名，如「上衣·领口」（≤24 字）",
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                "detail_crops_manual": {
+                  "type": "boolean"
+                },
                 "fabric": {
                   "description": "按件写：「上衣：真丝；鞋子：皮革」",
                   "type": "string"
+                },
+                "fine_read": {
+                  "description": "「精细读图」：反推读图走精细模式（更慢、设计细节更多）；不另收费",
+                  "type": "boolean"
                 },
                 "garment_images": {
                   "description": "服装图 ≤9 张，每件 ≤6 张",
@@ -13421,7 +14526,7 @@
       "in": "header"
     }
   },
-  "x-date": "2026-11-09 14:41:08",
+  "x-date": "2026-11-10 10:45:55",
   "x-description": "This is a goctl generated swagger file.",
   "x-github": "https://github.com/zeromicro/go-zero",
   "x-go-zero-doc": "https://go-zero.dev/",

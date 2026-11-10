@@ -6,6 +6,8 @@ option go_package = "./pb";
 // AI 图文笔记：构思（执行面 74）→ 规划页确认 → 出图（执行面 75）
 service Note {
   // ---- App ----
+  // 提交前报价（只读，不冻结、不落库）
+  rpc Quote(QuoteReq) returns (QuoteResp);
   // 表单配置：笔记类型、素材与套图上限
   rpc Options(Empty) returns (OptionsResp);
   // 开始构思（异步，轮询 Get；完成后进入规划页）
@@ -119,4 +121,28 @@ message NoteList {
 
 message IdReq {
   int64 id = 1;
+}
+
+message QuoteReq {
+  int64 user_id = 1;
+  int32 image_count = 2;  // 套图张数；0 用默认（带 id 时 0 = 沿用构思张数）
+  int64 id = 3;           // 已构思的笔记 id（配图阶段）：按记录张数报，并与出图同口径校验不超过方案张数
+}
+
+// 提交前报价（只读，不冻结）：用提交时同一个计费请求算价，返回本次会冻结的点数。见 pkg/billing/estimate.go
+message QuoteResp {
+  bool available = 1;      // 能否报出价；false 时 points 为 0，原因见 reason
+  string reason = 2;
+  string billing_mode = 3; // off / shadow / on
+  bool charged = 4;        // 提交是否真的冻结点数（仅 on）
+  int64 points = 5;        // 按这组参数算出的点数（exact=false 时为最低）
+  int64 unit_points = 6;   // 单价：每张 / 每秒
+  string price_unit = 7;   // PER_IMAGE / PER_SECOND / PER_REQUEST / PER_VIDEO
+  int32 quantity = 8;      // 计量：张数或秒数
+  bool exact = 9;          // points 是否就是冻结数；false = 要等提交后才知道计量（配音时长 / 原片时长）
+  int64 points_max = 10;   // exact=false 时的最高点数（0 = 不知道）
+  string stage = 11;       // 冻结发生在哪一步：submit 提交即冻结 / generate 构思免费、出片（出图）时冻结
+  int64 balance = 12;      // 当前可用余额
+  bool balance_known = 13;
+  bool sufficient = 14;    // 余额是否够 points（charged=false 时恒为 true）
 }

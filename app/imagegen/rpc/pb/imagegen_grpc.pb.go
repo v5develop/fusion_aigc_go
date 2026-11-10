@@ -19,6 +19,7 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
+	ImageGen_Quote_FullMethodName                = "/imagegen.ImageGen/Quote"
 	ImageGen_Options_FullMethodName              = "/imagegen.ImageGen/Options"
 	ImageGen_ListTemplates_FullMethodName        = "/imagegen.ImageGen/ListTemplates"
 	ImageGen_Create_FullMethodName               = "/imagegen.ImageGen/Create"
@@ -53,6 +54,8 @@ const (
 // AI 海报（78）、AI 长图（76）、动作迁移（9 / 86）、数字人口播（92 / 91）。流程相同，用 kind 区分。
 type ImageGenClient interface {
 	// ---- App ----
+	// 提交前报价（只读，不冻结、不落库）
+	Quote(ctx context.Context, in *QuoteReq, opts ...grpc.CallOption) (*QuoteResp, error)
 	// 表单配置：海报类型 / 风格 / 比例 / 数量与素材上限
 	Options(ctx context.Context, in *KindReq, opts ...grpc.CallOption) (*OptionsResp, error)
 	// 模板列表（复用现有模板素材表，运营在现有后台维护）
@@ -98,6 +101,16 @@ type imageGenClient struct {
 
 func NewImageGenClient(cc grpc.ClientConnInterface) ImageGenClient {
 	return &imageGenClient{cc}
+}
+
+func (c *imageGenClient) Quote(ctx context.Context, in *QuoteReq, opts ...grpc.CallOption) (*QuoteResp, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(QuoteResp)
+	err := c.cc.Invoke(ctx, ImageGen_Quote_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *imageGenClient) Options(ctx context.Context, in *KindReq, opts ...grpc.CallOption) (*OptionsResp, error) {
@@ -357,6 +370,8 @@ func (c *imageGenClient) AdminUpdateGenKind(ctx context.Context, in *UpdateGenKi
 // AI 海报（78）、AI 长图（76）、动作迁移（9 / 86）、数字人口播（92 / 91）。流程相同，用 kind 区分。
 type ImageGenServer interface {
 	// ---- App ----
+	// 提交前报价（只读，不冻结、不落库）
+	Quote(context.Context, *QuoteReq) (*QuoteResp, error)
 	// 表单配置：海报类型 / 风格 / 比例 / 数量与素材上限
 	Options(context.Context, *KindReq) (*OptionsResp, error)
 	// 模板列表（复用现有模板素材表，运营在现有后台维护）
@@ -404,6 +419,9 @@ type ImageGenServer interface {
 // pointer dereference when methods are called.
 type UnimplementedImageGenServer struct{}
 
+func (UnimplementedImageGenServer) Quote(context.Context, *QuoteReq) (*QuoteResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method Quote not implemented")
+}
 func (UnimplementedImageGenServer) Options(context.Context, *KindReq) (*OptionsResp, error) {
 	return nil, status.Error(codes.Unimplemented, "method Options not implemented")
 }
@@ -498,6 +516,24 @@ func RegisterImageGenServer(s grpc.ServiceRegistrar, srv ImageGenServer) {
 		t.testEmbeddedByValue()
 	}
 	s.RegisterService(&ImageGen_ServiceDesc, srv)
+}
+
+func _ImageGen_Quote_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(QuoteReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ImageGenServer).Quote(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ImageGen_Quote_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ImageGenServer).Quote(ctx, req.(*QuoteReq))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _ImageGen_Options_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -957,6 +993,10 @@ var ImageGen_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "imagegen.ImageGen",
 	HandlerType: (*ImageGenServer)(nil),
 	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "Quote",
+			Handler:    _ImageGen_Quote_Handler,
+		},
 		{
 			MethodName: "Options",
 			Handler:    _ImageGen_Options_Handler,

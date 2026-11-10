@@ -33,6 +33,8 @@ type (
 	ListTemplatesReq     = pb.ListTemplatesReq
 	Option               = pb.Option
 	OptionsResp          = pb.OptionsResp
+	QuoteReq             = pb.QuoteReq
+	QuoteResp            = pb.QuoteResp
 	Template             = pb.Template
 	TemplateList         = pb.TemplateList
 	UpdateGenKindReq     = pb.UpdateGenKindReq
@@ -44,6 +46,8 @@ type (
 
 	ImageGen interface {
 		// ---- App ----
+		Quote(ctx context.Context, in *QuoteReq, opts ...grpc.CallOption) (*QuoteResp, error)
+		// 表单配置：海报类型 / 风格 / 比例 / 数量与素材上限
 		Options(ctx context.Context, in *KindReq, opts ...grpc.CallOption) (*OptionsResp, error)
 		// 模板列表（复用现有模板素材表，运营在现有后台维护）
 		ListTemplates(ctx context.Context, in *ListTemplatesReq, opts ...grpc.CallOption) (*TemplateList, error)
@@ -94,6 +98,12 @@ func NewImageGen(cli zrpc.Client) ImageGen {
 }
 
 // ---- App ----
+func (m *defaultImageGen) Quote(ctx context.Context, in *QuoteReq, opts ...grpc.CallOption) (*QuoteResp, error) {
+	client := pb.NewImageGenClient(m.cli.Conn())
+	return client.Quote(ctx, in, opts...)
+}
+
+// 表单配置：海报类型 / 风格 / 比例 / 数量与素材上限
 func (m *defaultImageGen) Options(ctx context.Context, in *KindReq, opts ...grpc.CallOption) (*OptionsResp, error) {
 	client := pb.NewImageGenClient(m.cli.Conn())
 	return client.Options(ctx, in, opts...)

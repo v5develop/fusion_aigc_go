@@ -72,6 +72,10 @@ type AssetLibAssetPage struct {
 	Total int64           `json:"total"`
 }
 
+type AssetLibBatchDeleteReq struct {
+	AssetIds []int64 `json:"asset_ids"` // ≤100；官方素材与不存在的 id 静默跳过（分别计数）
+}
+
 type AssetLibBatchTagReq struct {
 	AssetIds []int64 `json:"asset_ids"` // ≤100
 	TagIds   []int64 `json:"tag_ids"`   // ≤10
@@ -94,6 +98,13 @@ type AssetLibCategory struct {
 	Key   string `json:"key"` // all / model / scene / makeup / hair / accessory / uncategorized
 	Label string `json:"label"`
 	Count int64  `json:"count"`
+}
+
+type AssetLibDeleteResp struct {
+	Deleted         int64   `json:"deleted"`          // 实际删除条数
+	OfficialSkipped int64   `json:"official_skipped"` // 官方素材，未删除
+	Missing         int64   `json:"missing"`          // 不存在 / 不属于本人 / 已删除，跳过
+	DeletedIds      []int64 `json:"deleted_ids"`      // 已删除的资产 id
 }
 
 type AssetLibDetail struct {
@@ -123,6 +134,7 @@ type AssetLibListReq struct {
 	KindGroup    string `form:"kind_group,optional,options=|image|video"` // 大类：image = 5 个图片 kind；video = 视频 kind
 	AspectRatio  string `form:"aspect_ratio,optional"`                    // 比例，如 1:1 / 3:4 / 9:16
 	EntryCodes   string `form:"entry_codes,optional"`                     // 入口码，逗号分隔（每项 [A-Za-z0-9_.-]{1,64}，最多 200 个），按 entry_code IN (...)
+	Untagged     bool   `form:"untagged,optional"`                        // true=只要没挂任何标签的资产（「未分类」，口径同 GET /tags 的 untagged_count）；不能与 tag 同时传
 }
 
 type AssetLibListResp struct {
@@ -742,6 +754,33 @@ type ListVoicesReq struct {
 	Category string `form:"category,optional"`
 }
 
+type LocalLifeQuoteReq struct {
+	Tool       string `json:"tool,options=poster|longImage|actionTransfer|voiceover|digitalHuman|copywriting|imageTextNote|exploreShop|shortDrama|videoRemake"` // 工具（即计费入口码）
+	Model      string `json:"model,optional"`                                                                                                                   // 模型档位（动作迁移 / 口播 / 数字人 / 探店 / 短剧 / 复刻），不传用后台默认
+	Duration   int32  `json:"duration,optional"`                                                                                                                // 视频时长（秒）：口播 / 探店 / 短剧，不传用后台默认
+	ImageCount int32  `json:"image_count,optional"`                                                                                                             // 张数：海报 / 长图（不传 1）、图文笔记套图（不传用默认）
+	Id         int64  `json:"id,optional"`                                                                                                                      // 探店 / 短剧 / 复刻：已构思 / 已解析的记录 id，按记录的档位与时长报（复刻有了它才知道原片时长）；图文笔记：已构思的笔记 id（配图阶段），按记录张数报并校验不超过方案张数
+}
+
+type LocalLifeQuoteResp struct {
+	Available     bool   `json:"available"`    // 能否报出价；false 时 points 为 0，原因见 reason（参数不合法、未配价格等）
+	Reason        string `json:"reason"`       // available=false 的原因（给用户看）；可用时为空
+	BillingMode   string `json:"billing_mode"` // on 真扣 / shadow 只算价不扣 / off 不计费
+	Charged       bool   `json:"charged"`      // 提交是否真的冻结点数（仅 billing_mode=on）；false 时提交冻结 0 点
+	Points        int64  `json:"points"`       // 按这组参数算出的点数，与提交冻结同一套算价；exact=false 时为最低价（数字人 / 复刻未解析均按最短 4 秒）
+	UnitPoints    int64  `json:"unit_points"`  // 单价：每张 / 每秒 / 每次
+	PriceUnit     string `json:"price_unit"`   // PER_IMAGE / PER_SECOND / PER_REQUEST / PER_VIDEO
+	Quantity      int32  `json:"quantity"`     // 计量：张数或秒数
+	Exact         bool   `json:"exact"`        // points 是否就是冻结数
+	PointsMax     int64  `json:"points_max"`   // exact=false 时的最高价（数字人按该档最长时长）；0 = 不知道
+	Stage         string `json:"stage"`        // 冻结在哪一步：submit 提交即冻结 / generate 构思免费、出片（出图）时冻结
+	Balance       int64  `json:"balance"`      // 当前可用余额（balance_known=false 时为 0）
+	BalanceKnown  bool   `json:"balance_known"`
+	Sufficient    bool   `json:"sufficient"`     // 余额是否够 points（charged=false 或余额未知时为 true）
+	SufficientMax bool   `json:"sufficient_max"` // 余额是否够 points_max（数字人按配音最长时长的价）；没有最高价（exact=true）时同 sufficient。不够只提示、不拦提交
+	FreeQuota     int64  `json:"free_quota"`     // 本次抵扣的免费额度：本地生活冻结不扣免费额度，恒为 0
+}
+
 type LoginReq struct {
 	Token         string `json:"token,optional"`           // Java 口径：联盟的临时 token（同 AIGC 的 /api/v1/auth/union-token-login）
 	TempToken     string `json:"temp_token,optional"`      // 旧字段，仍接受：同一个临时 token
@@ -977,18 +1016,19 @@ type ShopProfileListResp struct {
 }
 
 type StudioBatch struct {
-	Id              int64  `json:"id"`
-	Kind            string `json:"kind"`    // tryon / pose / imagegen
-	Status          int32  `json:"status"`  // 0-排队 1-切图中 2-反推中 3-生图中 4-全部成功 5-全部失败 6-部分成功 7-已取消
-	Payload         string `json:"payload"` // 提交时的全量字段（JSON 文本），用于回填表单
-	TaskTotal       int32  `json:"task_total"`
-	TaskDone        int32  `json:"task_done"`
-	TaskFailed      int32  `json:"task_failed"`
-	EstimatedPoints int64  `json:"estimated_points"`
-	ErrorReason     string `json:"error_reason"`
-	CoverUrl        string `json:"cover_url"`
-	CreatedAt       int64  `json:"created_at"` // unix 毫秒
-	UpdatedAt       int64  `json:"updated_at"`
+	Id              int64    `json:"id"`
+	Kind            string   `json:"kind"`    // tryon / pose / imagegen
+	Status          int32    `json:"status"`  // 0-排队 1-切图中 2-反推中 3-生图中 4-全部成功 5-全部失败 6-部分成功 7-已取消
+	Payload         string   `json:"payload"` // 提交时的全量字段（JSON 文本），用于回填表单
+	TaskTotal       int32    `json:"task_total"`
+	TaskDone        int32    `json:"task_done"`
+	TaskFailed      int32    `json:"task_failed"`
+	EstimatedPoints int64    `json:"estimated_points"`
+	ErrorReason     string   `json:"error_reason"`
+	CoverUrl        string   `json:"cover_url"`
+	CreatedAt       int64    `json:"created_at"` // unix 毫秒
+	UpdatedAt       int64    `json:"updated_at"`
+	Warnings        []string `json:"warnings"` // 读图 / 参考图提示（各任务 warnings 去重合并，中文、不含供应商信息）；没有为 []
 }
 
 type StudioBatchDetail struct {
@@ -1007,6 +1047,33 @@ type StudioColorFixParams struct {
 	Value      int32 `json:"value"`
 	Brightness int32 `json:"brightness"`
 	Contrast   int32 `json:"contrast"`
+}
+
+type StudioDetailCrop struct {
+	GarmentIndex int32     `json:"garment_index"`
+	Label        string    `json:"label"` // 部位名，如「上衣·领口」（≤24 字）
+	Box          []float64 `json:"box"`
+	Confidence   float64   `json:"confidence,optional"` // 0–1
+}
+
+type StudioDetailPlan struct {
+	GarmentIndex int32              `json:"garment_index"`
+	Angle        string             `json:"angle"` // front / back / side / detail / flat / unknown
+	Crops        []StudioDetailCrop `json:"crops"`
+}
+
+type StudioDetailsReq struct {
+	Items         []string             `json:"items"`
+	SetMode       string               `json:"set_mode,optional"`
+	GarmentImages []StudioGarmentImage `json:"garment_images"` // 只收本服务签发的地址
+	Fabric        string               `json:"fabric,optional"`
+	Prompt        string               `json:"prompt,optional"` // 补充说明（帮助模型找设计点）
+}
+
+type StudioDetailsResp struct {
+	Plans    []StudioDetailPlan `json:"plans"` // 每张服装图一项（顺序同 garment_images），没找到细节的 crops 为 []
+	Total    int32              `json:"total"`
+	Warnings []string           `json:"warnings"` // 给用户看的提示；没有为 []
 }
 
 type StudioGarmentImage struct {
@@ -1062,6 +1129,35 @@ type StudioMaskResp struct {
 	Cached         bool             `json:"cached"`          // 命中缓存（同一张图同一区域只识别一次）
 	Parts          []StudioMaskPart `json:"parts"`           // 带 parts 时的逐件蒙版（固定顺序 tops/coat/pants/skirt/shoes/bag/hat，图里没有的部位缺省）；不带为空数组
 	AvailableParts []string         `json:"available_parts"` // 该区域支持的细分部位（garment 才有）；空数组=不支持细分（前端据此显示 / 隐藏部位选择）
+}
+
+type StudioModelCapability struct {
+	Code         string                       `json:"code"`           // 传值：通用 / GPT / GPT25Dev / Banana / Seedream
+	Label        string                       `json:"label"`          // 展示名（如 GPT Image 2.6）
+	Available    bool                         `json:"available"`      // gateway 目录里该组已启用；目录拉不到时为 true
+	Resolutions  []string                     `json:"resolutions"`    // 可选分辨率（1k / 2k / 4k 子集）
+	AspectRatios []string                     `json:"aspect_ratios"`  // 可选比例（标准 10 档子集，如 Seedream 5.5 无 4:5 / 5:4）
+	AutoAspect   bool                         `json:"auto_aspect"`    // 支持「自动」比例（空串；tryon / pose 为 true）
+	MaxRefImages int32                        `json:"max_ref_images"` // 本 kind 的参考图上限
+	Notes        []string                     `json:"notes"`          // 限制说明短句
+	Prices       []StudioModelResolutionPrice `json:"prices"`         // with_price=true 时有
+}
+
+type StudioModelResolutionPrice struct {
+	Resolution string `json:"resolution"`  // 1k / 2k / 4k
+	Available  bool   `json:"available"`   // 能否报出价
+	UnitPoints int64  `json:"unit_points"` // 单张点数（billing_mode=off 时为 0）
+}
+
+type StudioModelsReq struct {
+	Kind      string `form:"kind,optional,options=|tryon|pose|imagegen"` // 空=imagegen；影响参考图上限、是否有「自动」比例、报价入口
+	WithPrice bool   `form:"with_price,optional"`                        // true=附每档分辨率的单张点数
+}
+
+type StudioModelsResp struct {
+	Kind        string                  `json:"kind"`
+	Items       []StudioModelCapability `json:"items"`
+	BillingMode string                  `json:"billing_mode"` // with_price 时有：on / shadow / off
 }
 
 type StudioPoseMapping struct {
@@ -1139,6 +1235,11 @@ type StudioQuoteResp struct {
 	Warnings    []string `json:"warnings"`     // 参数归一告警（同提交）；没有为 []
 }
 
+type StudioRegenerateReq struct {
+	TaskId string `path:"task_id"`
+	Prompt string `json:"prompt"` // 编辑后的提示词（≤3000 字；首行「图序：」可带可不带，服务端统一重写）
+}
+
 type StudioSubmitResp struct {
 	BatchId         int64    `json:"batch_id"`
 	TaskTotal       int32    `json:"task_total"`
@@ -1170,6 +1271,9 @@ type StudioTask struct {
 	ColorFixParams *StudioColorFixParams `json:"color_fix_params"` // 已保存的校色参数；没保存过为 null
 	MaskUrl        string                `json:"mask_url"`         // 服装蒙版（白色+软 alpha PNG，公开地址）：商拍换装 / 姿态复刻成品成功后异步补；空=没有（未生成 / 没识别到服装），校色作用于整图
 	MaskParts      []StudioMaskPart      `json:"mask_parts"`       // 商拍换装按所选单品分割时的逐件蒙版（mask_url 是它们的合并）；没有为空数组
+	Warnings       []string              `json:"warnings"`         // 给用户看的提示：「已改用文字信息生成」、「参考图看起来是…，与所选「文胸」不一致」、参考图截断等；没有为 []
+	PromptText     string                `json:"prompt_text"`      // 实际送生图的完整提示词（含首行图序；姿态 / 商拍有，编排完成前为空）
+	PromptEdited   bool                  `json:"prompt_edited"`    // 提示词经用户编辑后重新生成过
 }
 
 type StudioTaskColorFixReq struct {
@@ -1190,22 +1294,25 @@ type StudioTryonQuoteReq struct {
 }
 
 type StudioTryonSubmitReq struct {
-	RequestId      string               `header:"Idempotency-Key"`
-	WorkspaceId    int64                `json:"workspace_id,optional"`    // 工作空间；不传=个人空间
-	ModelImageUrls []string             `json:"model_image_urls"`         // 模特图 1–9 张，每张一位模特
-	GarmentImages  []StudioGarmentImage `json:"garment_images,optional"`  // 服装图 ≤9 张，每件 ≤6 张
-	Items          []string             `json:"items"`                    // 单品 1–3 件：top/bottom/dress/outer/shoes/accessory/bra/panties（裙↔上衣/下装、文胸↔上衣/裙、内裤↔下装/裙 互斥）
-	SetMode        string               `json:"set_mode,optional"`        // one / two（1 件也传）；空按 one
-	Lengths        map[string]string    `json:"lengths,optional"`         // {单品: 长度}，只认 items 里有的键
-	Sleeves        map[string]string    `json:"sleeves,optional"`         // {单品: 袖长}，只认 items 里有的键
-	Fabric         string               `json:"fabric,optional"`          // 按件写：「上衣：真丝；鞋子：皮革」
-	Prompt         string               `json:"prompt,optional"`          // 补充说明，≤3000 字
-	Model          string               `json:"model,optional"`           // 通用 / GPT / Banana / Seedream；空=通用
-	Resolution     string               `json:"resolution,optional"`      // 1k / 2k / 4k（大小写均可）；空=1k
-	AspectRatio    string               `json:"aspect_ratio,optional"`    // 空=3:4
-	CountPerModel  int32                `json:"count_per_model"`          // 每位模特张数 1–9
-	ClothImageUrl  string               `json:"cloth_image_url,optional"` // 旧版兼容位，新前端不要传
-	ColorFix       bool                 `json:"color_fix,optional"`       // 「默认校色」开关：开启时写进批次 payload（color_fix=true），前端据此给结果套默认校色参数；不影响生图与计费
+	RequestId         string               `header:"Idempotency-Key"`
+	WorkspaceId       int64                `json:"workspace_id,optional"`    // 工作空间；不传=个人空间
+	ModelImageUrls    []string             `json:"model_image_urls"`         // 模特图 1–9 张，每张一位模特
+	GarmentImages     []StudioGarmentImage `json:"garment_images,optional"`  // 服装图 ≤9 张，每件 ≤6 张
+	Items             []string             `json:"items"`                    // 单品 1–3 件：top/bottom/dress/outer/shoes/accessory/bra/panties（裙↔上衣/下装、文胸↔上衣/裙、内裤↔下装/裙 互斥）
+	SetMode           string               `json:"set_mode,optional"`        // one / two（1 件也传）；空按 one
+	Lengths           map[string]string    `json:"lengths,optional"`         // {单品: 长度}，只认 items 里有的键
+	Sleeves           map[string]string    `json:"sleeves,optional"`         // {单品: 袖长}，只认 items 里有的键
+	Fabric            string               `json:"fabric,optional"`          // 按件写：「上衣：真丝；鞋子：皮革」
+	Prompt            string               `json:"prompt,optional"`          // 补充说明，≤3000 字
+	Model             string               `json:"model,optional"`           // 通用 / GPT / Banana / Seedream；空=通用
+	Resolution        string               `json:"resolution,optional"`      // 1k / 2k / 4k（大小写均可）；空=1k
+	AspectRatio       string               `json:"aspect_ratio,optional"`    // 空=3:4
+	CountPerModel     int32                `json:"count_per_model"`          // 每位模特张数 1–9
+	ClothImageUrl     string               `json:"cloth_image_url,optional"` // 旧版兼容位，新前端不要传
+	ColorFix          bool                 `json:"color_fix,optional"`       // 「默认校色」开关：开启时写进批次 payload（color_fix=true），前端据此给结果套默认校色参数；不影响生图与计费
+	FineRead          bool                 `json:"fine_read,optional"`       // 「精细读图」：反推读图走精细模式（更慢、设计细节更多）；不另收费
+	DetailCrops       []StudioDetailCrop   `json:"detail_crops,optional"`
+	DetailCropsManual bool                 `json:"detail_crops_manual,optional"`
 }
 
 type UpdateNoteReq struct {

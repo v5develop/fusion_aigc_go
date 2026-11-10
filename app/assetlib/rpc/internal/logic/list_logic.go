@@ -55,9 +55,13 @@ func (l *ListLogic) List(in *assetlib.ListReq) (*assetlib.ListResp, error) {
 	if runeLen(q) > 100 {
 		return nil, xerr.Param("关键字最多 100 字")
 	}
+	tag := strings.TrimSpace(in.Tag)
+	if in.Untagged && tag != "" {
+		return nil, xerr.Param("untagged 与 tag 不能同时使用")
+	}
 	limit, offset := listPage(in.Page, in.PageSize)
 	f := repo.Filter{UserID: in.UserId, Kind: in.Kind, KindGroup: in.KindGroup, Source: in.Source, Media: in.Media,
-		AspectRatio: ratio, EntryCodes: entryCodes, Tag: strings.TrimSpace(in.Tag), FavoriteOnly: in.FavoriteOnly, Q: q}
+		AspectRatio: ratio, EntryCodes: entryCodes, Tag: tag, Untagged: in.Untagged, FavoriteOnly: in.FavoriteOnly, Q: q}
 	rows, total, err := l.svcCtx.Repo.Asset.List(l.ctx, f, limit, offset)
 	if err != nil {
 		return nil, err

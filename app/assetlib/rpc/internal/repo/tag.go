@@ -30,12 +30,15 @@ func (r *TagRepo) List(ctx context.Context, userID int64) ([]*TagRow, error) {
 	return out, err
 }
 
+// untaggedCond 没挂本人字典里任何标签（参数：userID）。
+const untaggedCond = "NOT EXISTS (SELECT 1 FROM afv_asset_tag_link AS l JOIN afv_asset_tag AS t ON t.id = l.tag_id " +
+	"WHERE l.asset_id = a.id AND t.user_id = ?)"
+
 // UntaggedCount 本人没挂任何标签的资产数。归属 / 删除 / 草稿口径同列表（owned）；
 // 「挂了标签」只认本人字典里的标签，与列表 tag 筛选、资产卡片 tags（TagsOf）同口径。
 func (r *TagRepo) UntaggedCount(ctx context.Context, userID int64) (int64, error) {
 	n, err := owned(r.db.NewSelect().TableExpr("afv_asset AS a"), userID).
-		Where("NOT EXISTS (SELECT 1 FROM afv_asset_tag_link AS l JOIN afv_asset_tag AS t ON t.id = l.tag_id "+
-			"WHERE l.asset_id = a.id AND t.user_id = ?)", userID).Count(ctx)
+		Where(untaggedCond, userID).Count(ctx)
 	return int64(n), err
 }
 
@@ -140,6 +143,14 @@ func (r *TagRepo) Delete(ctx context.Context, id, userID int64) (bool, error) {
 	}
 	n, err := affected(r.db.NewDelete().Model((*model.Tag)(nil)).Where("id = ?", id).Where("user_id = ?", userID).Exec(ctx))
 	return n > 0, err
+}
+
+// UnlinkAssets 解除一批资产与本人标签的全部关联（删除资产时调，应在事务里）。
+func (r *TagRepo) UnlinkAssets(ctx context.Context, userID int64, assetIDs []int64) (int64, error) {
+	if len(assetIDs) == 0 {
+		return 0, nil
+	}
+	return affected(r.db.NewDelete().Model((*model.TagLink)(nil)).Where("asset_id IN (?)", bun.In(assetIDs)).Where(ownedTagSub, userID).Exec(ctx))
 }
 
 // AssetTag 资产上的一个标签。

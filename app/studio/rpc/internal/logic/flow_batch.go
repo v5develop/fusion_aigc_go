@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -36,6 +37,10 @@ type batchPayload struct {
 	Sleeves       map[string]string `json:"sleeves"`
 	Fabric        string            `json:"fabric"`
 	CountPerModel int               `json:"count_per_model"`
+	FineRead      bool              `json:"fine_read"`
+	// 用户在「AI 找细节」里确认的细节框；DetailCropsManual=true 时编排只用它们（可为空），不再自动找细节
+	DetailCrops       []pipeline.UserCrop `json:"detail_crops"`
+	DetailCropsManual bool                `json:"detail_crops_manual"`
 	// 姿态
 	SourceImageURL string            `json:"source_image_url"`
 	PoseImageURLs  []string          `json:"pose_image_urls"`
@@ -97,7 +102,7 @@ func classify(step string, err error) error {
 		if t, ok := noPersonText(err); ok {
 			msg = t
 		}
-		if msg == "" {
+		if msg == "" || !userSafeText(msg) { // sidecar 422 文案多是产品中文；带网关失败类别 / HTTP 码的原文不透出
 			msg = "图片无法识别"
 		}
 		e.User = msg + "，点数已退回"
@@ -111,6 +116,15 @@ func classify(step string, err error) error {
 		e.User = "处理失败，点数已退回"
 	}
 	return e
+}
+
+// vendorTextRe 上游原文的特征：连续 3 个以上 ASCII 字母（FAILED / HTTP / NO_CAPACITY / 模型代号）或「读图返回」「连接失败」。
+var vendorTextRe = regexp.MustCompile(`[A-Za-z]{3,}|读图返回|连接失败|返回 \d{3}`)
+
+// userSafeText 文案能否原样给用户看（验收 F12 / B2：不透出供应商 / 网关原文）。
+func userSafeText(s string) bool {
+	s = strings.TrimSpace(s)
+	return s != "" && len([]rune(s)) <= 80 && !vendorTextRe.MatchString(s)
 }
 
 // orchestrate 推进一个批次到 生成中。可重入：每次从头重放，下载 / 裁图走媒体服务幂等键，反推结果走批次缓存。
@@ -464,7 +478,7 @@ func (r *batchRun) tryon(ctx context.Context) error {
 	if len(gs) == 0 || len(ms) == 0 {
 		return &stepError{Step: pipeline.StepIngest, User: "没有可用的服装图或模特图，点数已退回", Err: errors.New("empty images")}
 	}
-	spec := pipeline.TryonSpec{Items: p.Items, SetMode: p.SetMode, Fabric: p.Fabric, Notes: p.Prompt, Lengths: p.Lengths, Sleeves: p.Sleeves}
+	spec := pipeline.TryonSpec{Items: p.Items, SetMode: p.SetMode, Fabric: p.Fabric, Notes: p.Prompt, Lengths: p.Lengths, Sleeves: p.Sleeves, Fine: p.FineRead}
 	cat := pipeline.InferCategory(p.Items)
 	if err := r.stage(ctx, model.BatchCropping); err != nil {
 		return err
@@ -482,6 +496,15 @@ func (r *batchRun) tryon(ctx context.Context) error {
 		}),
 		step(pipeline.StepCropPlan, func(ctx context.Context) (pipeline.StepLog, error) {
 			lg := pipeline.StepLog{Images: len(gs)}
+			if p.DetailCropsManual { // 用户在「AI 找细节」里确认过的框：直接用，不再调 crop-plan
+				plans, warns := pipeline.UserCropPlans(gs, p.DetailCrops)
+				plan = reverse.CropPlanResp{Plans: plans}
+				lg.Warnings = warns
+				if raw, err := json.Marshal(map[string]any{"source": "user", "plans": plans}); err == nil {
+					_ = r.f.repo.Batch.SetCropPlan(ctx, r.b.ID, raw)
+				}
+				return lg, nil
+			}
 			if ok, err := r.cacheGet(ctx, pipeline.CropPlanKey(0), model.CacheCropPlan, &plan); err != nil || ok {
 				return lg, err
 			}
@@ -534,7 +557,7 @@ func (r *batchRun) tryon(ctx context.Context) error {
 		}),
 		step(pipeline.StepCropCheck, func(ctx context.Context) (pipeline.StepLog, error) {
 			lg := pipeline.StepLog{Images: len(details)}
-			if len(details) == 0 {
+			if len(details) == 0 || p.DetailCropsManual { // 用户确认过的框不再质检删图
 				return lg, nil
 			}
 			items := make([]reverse.CropCheckItem, len(details))
@@ -559,6 +582,10 @@ func (r *batchRun) tryon(ctx context.Context) error {
 		}),
 		step(pipeline.StepSelect, func(ctx context.Context) (pipeline.StepLog, error) {
 			sel = pipeline.SelectImages(cat, gs, details, &ms[0])
+			// selected_images（后台批次详情「组图」）= **反推读图**选中的图（≤9，每个模特一组），不是生图输入：
+			// 生图参考图按各子任务模型的上限另行组装（GenerateRefs，≤14、可能多出 / 少掉若干张），
+			// 实际送生图的图序以 afv_studio_task.input_images（后台子任务「实际送生图的图序」）为准。
+			// 这里按模特在前的展示顺序写（GenerateOrder），sidecar 实际读图顺序是 主图 → 细节 → 模特。
 			out := make([]model.SelectedImages, 0, len(ms))
 			for i, m := range ms {
 				s := withModel(sel, m)
@@ -670,11 +697,16 @@ func (r *batchRun) tryon(ctx context.Context) error {
 		}
 		m := ms[t.ModelIndex]
 		ar := prompts[pipeline.AnalyzeKey(m.SHA1)]
-		order := pipeline.GenerateOrder(withModel(sel, m))
 		g := orDefault(t.ModelGroup, group)
 		opt := r.genOptions(ctx, g)
+		// 生图参考图按该模型的上限单独组装（≤14；细节图名额 = 上限 − 主图 − 1），与反推读图的 ≤9 张选择无关
+		gen := pipeline.GenerateRefs(sel, m, pipeline.RefCap(g, pipeline.KindTryon, opt.MaxRefImages))
+		order := gen.Images
+		// sidecar 正文按反推读图顺序（主图 → 细节 → 模特，模特在末位）写「参考图N」；生图是模特在图1、张数也不同，
+		// 按 Key 改号对齐生图顺序（缓存里存的是 sidecar 原文，每次从原文改，重放幂等）
+		prompt := pipeline.RemapTryonPrompt(ar.Prompt, withModel(sel, m).Images, order)
 		gp := genParams{AspectRatio: orDefault(p.AspectRatio, pipeline.NearestAspectRatio(m.Width, m.Height)), Resolution: p.Resolution, Quality: opt.Quality}
-		req, warns, err := pipeline.BuildImageEditRequestRefs(pipeline.KindTryon, g, ar.Prompt, mediaRefs(order),
+		req, warns, err := pipeline.BuildImageEditRequestRefs(pipeline.KindTryon, g, prompt, mediaRefs(order),
 			gp.Resolution, gp.AspectRatio, r.labels(t), opt)
 		if err != nil {
 			return "", nil, nil, &stepError{Step: pipeline.StepGenerate, User: "生图请求构造失败，点数已退回", Err: err}
@@ -688,6 +720,14 @@ func (r *batchRun) tryon(ctx context.Context) error {
 		if ar.PromptVersion != "" { // 灰度命中：后台按 prompt_version 对比新旧版效果（取该反推结果实际用的版本）
 			meta["prompt_version"], meta["target_model"] = ar.PromptVersion, ar.TargetModel
 		}
+		if p.FineRead {
+			meta["fine_read"] = true
+		}
+		// 给用户看的提示（任务详情 warnings）：读图降级 / 品类不符换成固定中文，参考图截断说明本来就是用户文案；sidecar 原文只留在 warnings（后台排查）
+		if uw := pipeline.DedupeStrings(append(pipeline.ReadWarnings(ar.Meta, ar.Warning, p.Items), gen.Warnings()...)); len(uw) > 0 {
+			meta[metaUserWarnings] = uw
+		}
+		warns = append(warns, gen.Warnings()...)
 		if ar.Warning != "" || len(warns) > 0 {
 			meta["warnings"] = append(warns, ar.Warning)
 		}
@@ -698,6 +738,10 @@ func (r *batchRun) tryon(ctx context.Context) error {
 	}
 	return r.stage(ctx, model.BatchGenerating)
 }
+
+// metaUserWarnings prompt_meta 里给用户看的提示（中文、不含供应商原文），任务详情 TaskInfo.warnings 原样透出。
+// prompt_meta.warnings 是排查用的技术原文，只在后台给。
+const metaUserWarnings = "user_warnings"
 
 // analyzeCache 商拍反推缓存体：sidecar 返回 + 生成它时用的提示词版本。旧缓存没有 versioned（版本未知）。
 type analyzeCache struct {
@@ -957,6 +1001,13 @@ func (r *batchRun) pose(ctx context.Context) error {
 			meta["mapping"] = results[i].Mapping
 			meta["source_people"] = source.Source.PeopleCount()
 			meta["pose_people"] = results[i].Pose.PeopleCount()
+		}
+		var uw []string
+		for _, w := range mappingWarns[i] {
+			uw = append(uw, pipeline.PoseMappingUserWarning(w))
+		}
+		if uw = pipeline.DedupeStrings(uw); len(uw) > 0 {
+			meta[metaUserWarnings] = uw
 		}
 		warns = append(warns, mappingWarns[i]...)
 		if len(warns) > 0 {

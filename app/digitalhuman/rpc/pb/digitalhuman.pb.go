@@ -1809,6 +1809,215 @@ func (x *ModelInfo) GetPlatform() string {
 	return ""
 }
 
+type QuoteReq struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	Model         string                 `protobuf:"bytes,2,opt,name=model,proto3" json:"model,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *QuoteReq) Reset() {
+	*x = QuoteReq{}
+	mi := &file_digitalhuman_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *QuoteReq) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QuoteReq) ProtoMessage() {}
+
+func (x *QuoteReq) ProtoReflect() protoreflect.Message {
+	mi := &file_digitalhuman_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QuoteReq.ProtoReflect.Descriptor instead.
+func (*QuoteReq) Descriptor() ([]byte, []int) {
+	return file_digitalhuman_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *QuoteReq) GetUserId() int64 {
+	if x != nil {
+		return x.UserId
+	}
+	return 0
+}
+
+func (x *QuoteReq) GetModel() string {
+	if x != nil {
+		return x.Model
+	}
+	return ""
+}
+
+// 提交前报价（只读，不冻结）：用提交时同一个计费请求算价，返回本次会冻结的点数。见 pkg/billing/estimate.go
+type QuoteResp struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Available     bool                   `protobuf:"varint,1,opt,name=available,proto3" json:"available,omitempty"` // 能否报出价；false 时 points 为 0，原因见 reason
+	Reason        string                 `protobuf:"bytes,2,opt,name=reason,proto3" json:"reason,omitempty"`
+	BillingMode   string                 `protobuf:"bytes,3,opt,name=billing_mode,json=billingMode,proto3" json:"billing_mode,omitempty"` // off / shadow / on
+	Charged       bool                   `protobuf:"varint,4,opt,name=charged,proto3" json:"charged,omitempty"`                           // 提交是否真的冻结点数（仅 on）
+	Points        int64                  `protobuf:"varint,5,opt,name=points,proto3" json:"points,omitempty"`                             // 按这组参数算出的点数（exact=false 时为最低）
+	UnitPoints    int64                  `protobuf:"varint,6,opt,name=unit_points,json=unitPoints,proto3" json:"unit_points,omitempty"`   // 单价：每张 / 每秒
+	PriceUnit     string                 `protobuf:"bytes,7,opt,name=price_unit,json=priceUnit,proto3" json:"price_unit,omitempty"`       // PER_IMAGE / PER_SECOND / PER_REQUEST / PER_VIDEO
+	Quantity      int32                  `protobuf:"varint,8,opt,name=quantity,proto3" json:"quantity,omitempty"`                         // 计量：张数或秒数
+	Exact         bool                   `protobuf:"varint,9,opt,name=exact,proto3" json:"exact,omitempty"`                               // points 是否就是冻结数；false = 要等提交后才知道计量（配音时长 / 原片时长）
+	PointsMax     int64                  `protobuf:"varint,10,opt,name=points_max,json=pointsMax,proto3" json:"points_max,omitempty"`     // exact=false 时的最高点数（0 = 不知道）
+	Stage         string                 `protobuf:"bytes,11,opt,name=stage,proto3" json:"stage,omitempty"`                               // 冻结发生在哪一步：submit 提交即冻结 / generate 构思免费、出片（出图）时冻结
+	Balance       int64                  `protobuf:"varint,12,opt,name=balance,proto3" json:"balance,omitempty"`                          // 当前可用余额
+	BalanceKnown  bool                   `protobuf:"varint,13,opt,name=balance_known,json=balanceKnown,proto3" json:"balance_known,omitempty"`
+	Sufficient    bool                   `protobuf:"varint,14,opt,name=sufficient,proto3" json:"sufficient,omitempty"`                            // 余额是否够 points（charged=false 时恒为 true）
+	SufficientMax bool                   `protobuf:"varint,15,opt,name=sufficient_max,json=sufficientMax,proto3" json:"sufficient_max,omitempty"` // 余额是否够 points_max（配音较长时的最高价）；exact=true / charged=false / 余额未知 / points_max=0 时同 sufficient 或为 true
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *QuoteResp) Reset() {
+	*x = QuoteResp{}
+	mi := &file_digitalhuman_proto_msgTypes[26]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *QuoteResp) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QuoteResp) ProtoMessage() {}
+
+func (x *QuoteResp) ProtoReflect() protoreflect.Message {
+	mi := &file_digitalhuman_proto_msgTypes[26]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QuoteResp.ProtoReflect.Descriptor instead.
+func (*QuoteResp) Descriptor() ([]byte, []int) {
+	return file_digitalhuman_proto_rawDescGZIP(), []int{26}
+}
+
+func (x *QuoteResp) GetAvailable() bool {
+	if x != nil {
+		return x.Available
+	}
+	return false
+}
+
+func (x *QuoteResp) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+func (x *QuoteResp) GetBillingMode() string {
+	if x != nil {
+		return x.BillingMode
+	}
+	return ""
+}
+
+func (x *QuoteResp) GetCharged() bool {
+	if x != nil {
+		return x.Charged
+	}
+	return false
+}
+
+func (x *QuoteResp) GetPoints() int64 {
+	if x != nil {
+		return x.Points
+	}
+	return 0
+}
+
+func (x *QuoteResp) GetUnitPoints() int64 {
+	if x != nil {
+		return x.UnitPoints
+	}
+	return 0
+}
+
+func (x *QuoteResp) GetPriceUnit() string {
+	if x != nil {
+		return x.PriceUnit
+	}
+	return ""
+}
+
+func (x *QuoteResp) GetQuantity() int32 {
+	if x != nil {
+		return x.Quantity
+	}
+	return 0
+}
+
+func (x *QuoteResp) GetExact() bool {
+	if x != nil {
+		return x.Exact
+	}
+	return false
+}
+
+func (x *QuoteResp) GetPointsMax() int64 {
+	if x != nil {
+		return x.PointsMax
+	}
+	return 0
+}
+
+func (x *QuoteResp) GetStage() string {
+	if x != nil {
+		return x.Stage
+	}
+	return ""
+}
+
+func (x *QuoteResp) GetBalance() int64 {
+	if x != nil {
+		return x.Balance
+	}
+	return 0
+}
+
+func (x *QuoteResp) GetBalanceKnown() bool {
+	if x != nil {
+		return x.BalanceKnown
+	}
+	return false
+}
+
+func (x *QuoteResp) GetSufficient() bool {
+	if x != nil {
+		return x.Sufficient
+	}
+	return false
+}
+
+func (x *QuoteResp) GetSufficientMax() bool {
+	if x != nil {
+		return x.SufficientMax
+	}
+	return false
+}
+
 var File_digitalhuman_proto protoreflect.FileDescriptor
 
 const file_digitalhuman_proto_rawDesc = "" +
@@ -1979,8 +2188,34 @@ const file_digitalhuman_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x12\n" +
 	"\x04code\x18\x03 \x01(\tR\x04code\x12\x1a\n" +
-	"\bplatform\x18\x04 \x01(\tR\bplatform2\xbb\r\n" +
-	"\fDigitalHuman\x12G\n" +
+	"\bplatform\x18\x04 \x01(\tR\bplatform\"9\n" +
+	"\bQuoteReq\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x14\n" +
+	"\x05model\x18\x02 \x01(\tR\x05model\"\xc3\x03\n" +
+	"\tQuoteResp\x12\x1c\n" +
+	"\tavailable\x18\x01 \x01(\bR\tavailable\x12\x16\n" +
+	"\x06reason\x18\x02 \x01(\tR\x06reason\x12!\n" +
+	"\fbilling_mode\x18\x03 \x01(\tR\vbillingMode\x12\x18\n" +
+	"\acharged\x18\x04 \x01(\bR\acharged\x12\x16\n" +
+	"\x06points\x18\x05 \x01(\x03R\x06points\x12\x1f\n" +
+	"\vunit_points\x18\x06 \x01(\x03R\n" +
+	"unitPoints\x12\x1d\n" +
+	"\n" +
+	"price_unit\x18\a \x01(\tR\tpriceUnit\x12\x1a\n" +
+	"\bquantity\x18\b \x01(\x05R\bquantity\x12\x14\n" +
+	"\x05exact\x18\t \x01(\bR\x05exact\x12\x1d\n" +
+	"\n" +
+	"points_max\x18\n" +
+	" \x01(\x03R\tpointsMax\x12\x14\n" +
+	"\x05stage\x18\v \x01(\tR\x05stage\x12\x18\n" +
+	"\abalance\x18\f \x01(\x03R\abalance\x12#\n" +
+	"\rbalance_known\x18\r \x01(\bR\fbalanceKnown\x12\x1e\n" +
+	"\n" +
+	"sufficient\x18\x0e \x01(\bR\n" +
+	"sufficient\x12%\n" +
+	"\x0esufficient_max\x18\x0f \x01(\bR\rsufficientMax2\xf5\r\n" +
+	"\fDigitalHuman\x128\n" +
+	"\x05Quote\x12\x16.digitalhuman.QuoteReq\x1a\x17.digitalhuman.QuoteResp\x12G\n" +
 	"\fGetAgreement\x12\x1a.digitalhuman.AgreementReq\x1a\x1b.digitalhuman.AgreementInfo\x12J\n" +
 	"\x0fAcceptAgreement\x12\x1a.digitalhuman.AgreementReq\x1a\x1b.digitalhuman.AgreementInfo\x12;\n" +
 	"\n" +
@@ -2022,7 +2257,7 @@ func file_digitalhuman_proto_rawDescGZIP() []byte {
 	return file_digitalhuman_proto_rawDescData
 }
 
-var file_digitalhuman_proto_msgTypes = make([]protoimpl.MessageInfo, 25)
+var file_digitalhuman_proto_msgTypes = make([]protoimpl.MessageInfo, 27)
 var file_digitalhuman_proto_goTypes = []any{
 	(*Empty)(nil),               // 0: digitalhuman.Empty
 	(*IdReq)(nil),               // 1: digitalhuman.IdReq
@@ -2049,6 +2284,8 @@ var file_digitalhuman_proto_goTypes = []any{
 	(*AdminListReq)(nil),        // 22: digitalhuman.AdminListReq
 	(*DigitalHumanList)(nil),    // 23: digitalhuman.DigitalHumanList
 	(*ModelInfo)(nil),           // 24: digitalhuman.ModelInfo
+	(*QuoteReq)(nil),            // 25: digitalhuman.QuoteReq
+	(*QuoteResp)(nil),           // 26: digitalhuman.QuoteResp
 }
 var file_digitalhuman_proto_depIdxs = []int32{
 	5,  // 0: digitalhuman.PublicList.list:type_name -> digitalhuman.PublicInfo
@@ -2060,58 +2297,60 @@ var file_digitalhuman_proto_depIdxs = []int32{
 	7,  // 6: digitalhuman.OptionsResp.models:type_name -> digitalhuman.OptionInfo
 	14, // 7: digitalhuman.VoiceList.list:type_name -> digitalhuman.VoiceInfo
 	20, // 8: digitalhuman.DigitalHumanList.list:type_name -> digitalhuman.DigitalHumanInfo
-	3,  // 9: digitalhuman.DigitalHuman.GetAgreement:input_type -> digitalhuman.AgreementReq
-	3,  // 10: digitalhuman.DigitalHuman.AcceptAgreement:input_type -> digitalhuman.AgreementReq
-	0,  // 11: digitalhuman.DigitalHuman.ListPublic:input_type -> digitalhuman.Empty
-	0,  // 12: digitalhuman.DigitalHuman.Options:input_type -> digitalhuman.Empty
-	11, // 13: digitalhuman.DigitalHuman.CreatePortrait:input_type -> digitalhuman.CreatePortraitReq
-	2,  // 14: digitalhuman.DigitalHuman.GetPortrait:input_type -> digitalhuman.IdUserReq
-	12, // 15: digitalhuman.DigitalHuman.RegeneratePortrait:input_type -> digitalhuman.RegenerateReq
-	0,  // 16: digitalhuman.DigitalHuman.VoiceCategories:input_type -> digitalhuman.Empty
-	15, // 17: digitalhuman.DigitalHuman.ListVoices:input_type -> digitalhuman.ListVoicesReq
-	17, // 18: digitalhuman.DigitalHuman.Create:input_type -> digitalhuman.CreateReq
-	2,  // 19: digitalhuman.DigitalHuman.Get:input_type -> digitalhuman.IdUserReq
-	21, // 20: digitalhuman.DigitalHuman.List:input_type -> digitalhuman.ListReq
-	2,  // 21: digitalhuman.DigitalHuman.Delete:input_type -> digitalhuman.IdUserReq
-	18, // 22: digitalhuman.DigitalHuman.ResolvePortrait:input_type -> digitalhuman.ResolvePortraitReq
-	9,  // 23: digitalhuman.DigitalHuman.AdminListOptions:input_type -> digitalhuman.AdminListOptionsReq
-	7,  // 24: digitalhuman.DigitalHuman.AdminSaveOption:input_type -> digitalhuman.OptionInfo
-	1,  // 25: digitalhuman.DigitalHuman.AdminDeleteOption:input_type -> digitalhuman.IdReq
-	15, // 26: digitalhuman.DigitalHuman.AdminListVoices:input_type -> digitalhuman.ListVoicesReq
-	14, // 27: digitalhuman.DigitalHuman.AdminSaveVoice:input_type -> digitalhuman.VoiceInfo
-	1,  // 28: digitalhuman.DigitalHuman.AdminDeleteVoice:input_type -> digitalhuman.IdReq
-	1,  // 29: digitalhuman.DigitalHuman.AdminGenerateVoicePreview:input_type -> digitalhuman.IdReq
-	22, // 30: digitalhuman.DigitalHuman.AdminList:input_type -> digitalhuman.AdminListReq
-	1,  // 31: digitalhuman.DigitalHuman.AdminRetry:input_type -> digitalhuman.IdReq
-	1,  // 32: digitalhuman.DigitalHuman.AdminForceFail:input_type -> digitalhuman.IdReq
-	0,  // 33: digitalhuman.DigitalHuman.AdminGetTTSModel:input_type -> digitalhuman.Empty
-	4,  // 34: digitalhuman.DigitalHuman.GetAgreement:output_type -> digitalhuman.AgreementInfo
-	4,  // 35: digitalhuman.DigitalHuman.AcceptAgreement:output_type -> digitalhuman.AgreementInfo
-	6,  // 36: digitalhuman.DigitalHuman.ListPublic:output_type -> digitalhuman.PublicList
-	10, // 37: digitalhuman.DigitalHuman.Options:output_type -> digitalhuman.OptionsResp
-	13, // 38: digitalhuman.DigitalHuman.CreatePortrait:output_type -> digitalhuman.PortraitInfo
-	13, // 39: digitalhuman.DigitalHuman.GetPortrait:output_type -> digitalhuman.PortraitInfo
-	13, // 40: digitalhuman.DigitalHuman.RegeneratePortrait:output_type -> digitalhuman.PortraitInfo
-	8,  // 41: digitalhuman.DigitalHuman.VoiceCategories:output_type -> digitalhuman.OptionList
-	16, // 42: digitalhuman.DigitalHuman.ListVoices:output_type -> digitalhuman.VoiceList
-	20, // 43: digitalhuman.DigitalHuman.Create:output_type -> digitalhuman.DigitalHumanInfo
-	20, // 44: digitalhuman.DigitalHuman.Get:output_type -> digitalhuman.DigitalHumanInfo
-	23, // 45: digitalhuman.DigitalHuman.List:output_type -> digitalhuman.DigitalHumanList
-	0,  // 46: digitalhuman.DigitalHuman.Delete:output_type -> digitalhuman.Empty
-	19, // 47: digitalhuman.DigitalHuman.ResolvePortrait:output_type -> digitalhuman.PortraitImage
-	8,  // 48: digitalhuman.DigitalHuman.AdminListOptions:output_type -> digitalhuman.OptionList
-	7,  // 49: digitalhuman.DigitalHuman.AdminSaveOption:output_type -> digitalhuman.OptionInfo
-	0,  // 50: digitalhuman.DigitalHuman.AdminDeleteOption:output_type -> digitalhuman.Empty
-	16, // 51: digitalhuman.DigitalHuman.AdminListVoices:output_type -> digitalhuman.VoiceList
-	14, // 52: digitalhuman.DigitalHuman.AdminSaveVoice:output_type -> digitalhuman.VoiceInfo
-	0,  // 53: digitalhuman.DigitalHuman.AdminDeleteVoice:output_type -> digitalhuman.Empty
-	14, // 54: digitalhuman.DigitalHuman.AdminGenerateVoicePreview:output_type -> digitalhuman.VoiceInfo
-	23, // 55: digitalhuman.DigitalHuman.AdminList:output_type -> digitalhuman.DigitalHumanList
-	0,  // 56: digitalhuman.DigitalHuman.AdminRetry:output_type -> digitalhuman.Empty
-	0,  // 57: digitalhuman.DigitalHuman.AdminForceFail:output_type -> digitalhuman.Empty
-	24, // 58: digitalhuman.DigitalHuman.AdminGetTTSModel:output_type -> digitalhuman.ModelInfo
-	34, // [34:59] is the sub-list for method output_type
-	9,  // [9:34] is the sub-list for method input_type
+	25, // 9: digitalhuman.DigitalHuman.Quote:input_type -> digitalhuman.QuoteReq
+	3,  // 10: digitalhuman.DigitalHuman.GetAgreement:input_type -> digitalhuman.AgreementReq
+	3,  // 11: digitalhuman.DigitalHuman.AcceptAgreement:input_type -> digitalhuman.AgreementReq
+	0,  // 12: digitalhuman.DigitalHuman.ListPublic:input_type -> digitalhuman.Empty
+	0,  // 13: digitalhuman.DigitalHuman.Options:input_type -> digitalhuman.Empty
+	11, // 14: digitalhuman.DigitalHuman.CreatePortrait:input_type -> digitalhuman.CreatePortraitReq
+	2,  // 15: digitalhuman.DigitalHuman.GetPortrait:input_type -> digitalhuman.IdUserReq
+	12, // 16: digitalhuman.DigitalHuman.RegeneratePortrait:input_type -> digitalhuman.RegenerateReq
+	0,  // 17: digitalhuman.DigitalHuman.VoiceCategories:input_type -> digitalhuman.Empty
+	15, // 18: digitalhuman.DigitalHuman.ListVoices:input_type -> digitalhuman.ListVoicesReq
+	17, // 19: digitalhuman.DigitalHuman.Create:input_type -> digitalhuman.CreateReq
+	2,  // 20: digitalhuman.DigitalHuman.Get:input_type -> digitalhuman.IdUserReq
+	21, // 21: digitalhuman.DigitalHuman.List:input_type -> digitalhuman.ListReq
+	2,  // 22: digitalhuman.DigitalHuman.Delete:input_type -> digitalhuman.IdUserReq
+	18, // 23: digitalhuman.DigitalHuman.ResolvePortrait:input_type -> digitalhuman.ResolvePortraitReq
+	9,  // 24: digitalhuman.DigitalHuman.AdminListOptions:input_type -> digitalhuman.AdminListOptionsReq
+	7,  // 25: digitalhuman.DigitalHuman.AdminSaveOption:input_type -> digitalhuman.OptionInfo
+	1,  // 26: digitalhuman.DigitalHuman.AdminDeleteOption:input_type -> digitalhuman.IdReq
+	15, // 27: digitalhuman.DigitalHuman.AdminListVoices:input_type -> digitalhuman.ListVoicesReq
+	14, // 28: digitalhuman.DigitalHuman.AdminSaveVoice:input_type -> digitalhuman.VoiceInfo
+	1,  // 29: digitalhuman.DigitalHuman.AdminDeleteVoice:input_type -> digitalhuman.IdReq
+	1,  // 30: digitalhuman.DigitalHuman.AdminGenerateVoicePreview:input_type -> digitalhuman.IdReq
+	22, // 31: digitalhuman.DigitalHuman.AdminList:input_type -> digitalhuman.AdminListReq
+	1,  // 32: digitalhuman.DigitalHuman.AdminRetry:input_type -> digitalhuman.IdReq
+	1,  // 33: digitalhuman.DigitalHuman.AdminForceFail:input_type -> digitalhuman.IdReq
+	0,  // 34: digitalhuman.DigitalHuman.AdminGetTTSModel:input_type -> digitalhuman.Empty
+	26, // 35: digitalhuman.DigitalHuman.Quote:output_type -> digitalhuman.QuoteResp
+	4,  // 36: digitalhuman.DigitalHuman.GetAgreement:output_type -> digitalhuman.AgreementInfo
+	4,  // 37: digitalhuman.DigitalHuman.AcceptAgreement:output_type -> digitalhuman.AgreementInfo
+	6,  // 38: digitalhuman.DigitalHuman.ListPublic:output_type -> digitalhuman.PublicList
+	10, // 39: digitalhuman.DigitalHuman.Options:output_type -> digitalhuman.OptionsResp
+	13, // 40: digitalhuman.DigitalHuman.CreatePortrait:output_type -> digitalhuman.PortraitInfo
+	13, // 41: digitalhuman.DigitalHuman.GetPortrait:output_type -> digitalhuman.PortraitInfo
+	13, // 42: digitalhuman.DigitalHuman.RegeneratePortrait:output_type -> digitalhuman.PortraitInfo
+	8,  // 43: digitalhuman.DigitalHuman.VoiceCategories:output_type -> digitalhuman.OptionList
+	16, // 44: digitalhuman.DigitalHuman.ListVoices:output_type -> digitalhuman.VoiceList
+	20, // 45: digitalhuman.DigitalHuman.Create:output_type -> digitalhuman.DigitalHumanInfo
+	20, // 46: digitalhuman.DigitalHuman.Get:output_type -> digitalhuman.DigitalHumanInfo
+	23, // 47: digitalhuman.DigitalHuman.List:output_type -> digitalhuman.DigitalHumanList
+	0,  // 48: digitalhuman.DigitalHuman.Delete:output_type -> digitalhuman.Empty
+	19, // 49: digitalhuman.DigitalHuman.ResolvePortrait:output_type -> digitalhuman.PortraitImage
+	8,  // 50: digitalhuman.DigitalHuman.AdminListOptions:output_type -> digitalhuman.OptionList
+	7,  // 51: digitalhuman.DigitalHuman.AdminSaveOption:output_type -> digitalhuman.OptionInfo
+	0,  // 52: digitalhuman.DigitalHuman.AdminDeleteOption:output_type -> digitalhuman.Empty
+	16, // 53: digitalhuman.DigitalHuman.AdminListVoices:output_type -> digitalhuman.VoiceList
+	14, // 54: digitalhuman.DigitalHuman.AdminSaveVoice:output_type -> digitalhuman.VoiceInfo
+	0,  // 55: digitalhuman.DigitalHuman.AdminDeleteVoice:output_type -> digitalhuman.Empty
+	14, // 56: digitalhuman.DigitalHuman.AdminGenerateVoicePreview:output_type -> digitalhuman.VoiceInfo
+	23, // 57: digitalhuman.DigitalHuman.AdminList:output_type -> digitalhuman.DigitalHumanList
+	0,  // 58: digitalhuman.DigitalHuman.AdminRetry:output_type -> digitalhuman.Empty
+	0,  // 59: digitalhuman.DigitalHuman.AdminForceFail:output_type -> digitalhuman.Empty
+	24, // 60: digitalhuman.DigitalHuman.AdminGetTTSModel:output_type -> digitalhuman.ModelInfo
+	35, // [35:61] is the sub-list for method output_type
+	9,  // [9:35] is the sub-list for method input_type
 	9,  // [9:9] is the sub-list for extension type_name
 	9,  // [9:9] is the sub-list for extension extendee
 	0,  // [0:9] is the sub-list for field type_name
@@ -2128,7 +2367,7 @@ func file_digitalhuman_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_digitalhuman_proto_rawDesc), len(file_digitalhuman_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   25,
+			NumMessages:   27,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

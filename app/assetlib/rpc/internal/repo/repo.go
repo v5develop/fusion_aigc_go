@@ -4,7 +4,7 @@
 //   - 全部方法带 ctx；查单条找不到返回 (nil, nil)，不返回 sql.ErrNoRows。
 //   - 用户侧查询一律带归属条件 a.user_id = ? AND a.deleted = 0 AND 非草稿，越权与不存在不区分。
 //   - 事务：Repo.RunInTx 给回调一个绑在事务上的 *Repo。
-//   - afv_asset 只读；唯一例外是 AssetRepo.Rename（改标题，pkg/asset 没有改名方法）。
+//   - afv_asset 只读；例外是 AssetRepo.Rename（改标题，pkg/asset 没有改名方法）与 AssetRepo.SoftDelete（用户删素材，逻辑删除）。
 package repo
 
 import (

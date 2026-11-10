@@ -19,6 +19,7 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
+	Copywriting_Quote_FullMethodName                        = "/copywriting.Copywriting/Quote"
 	Copywriting_Options_FullMethodName                      = "/copywriting.Copywriting/Options"
 	Copywriting_AiWrite_FullMethodName                      = "/copywriting.Copywriting/AiWrite"
 	Copywriting_Generate_FullMethodName                     = "/copywriting.Copywriting/Generate"
@@ -51,6 +52,8 @@ const (
 // AI 文案
 type CopywritingClient interface {
 	// ---- App ----
+	// 提交前报价（只读，不冻结、不落库）
+	Quote(ctx context.Context, in *QuoteReq, opts ...grpc.CallOption) (*QuoteResp, error)
 	Options(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*OptionsResp, error)
 	// AI 帮写 / AI 优化（同步）
 	AiWrite(ctx context.Context, in *AiWriteReq, opts ...grpc.CallOption) (*AiWriteResp, error)
@@ -93,6 +96,16 @@ type copywritingClient struct {
 
 func NewCopywritingClient(cc grpc.ClientConnInterface) CopywritingClient {
 	return &copywritingClient{cc}
+}
+
+func (c *copywritingClient) Quote(ctx context.Context, in *QuoteReq, opts ...grpc.CallOption) (*QuoteResp, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(QuoteResp)
+	err := c.cc.Invoke(ctx, Copywriting_Quote_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *copywritingClient) Options(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*OptionsResp, error) {
@@ -332,6 +345,8 @@ func (c *copywritingClient) AdminGetModel(ctx context.Context, in *Empty, opts .
 // AI 文案
 type CopywritingServer interface {
 	// ---- App ----
+	// 提交前报价（只读，不冻结、不落库）
+	Quote(context.Context, *QuoteReq) (*QuoteResp, error)
 	Options(context.Context, *Empty) (*OptionsResp, error)
 	// AI 帮写 / AI 优化（同步）
 	AiWrite(context.Context, *AiWriteReq) (*AiWriteResp, error)
@@ -376,6 +391,9 @@ type CopywritingServer interface {
 // pointer dereference when methods are called.
 type UnimplementedCopywritingServer struct{}
 
+func (UnimplementedCopywritingServer) Quote(context.Context, *QuoteReq) (*QuoteResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method Quote not implemented")
+}
 func (UnimplementedCopywritingServer) Options(context.Context, *Empty) (*OptionsResp, error) {
 	return nil, status.Error(codes.Unimplemented, "method Options not implemented")
 }
@@ -464,6 +482,24 @@ func RegisterCopywritingServer(s grpc.ServiceRegistrar, srv CopywritingServer) {
 		t.testEmbeddedByValue()
 	}
 	s.RegisterService(&Copywriting_ServiceDesc, srv)
+}
+
+func _Copywriting_Quote_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(QuoteReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CopywritingServer).Quote(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Copywriting_Quote_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CopywritingServer).Quote(ctx, req.(*QuoteReq))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _Copywriting_Options_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -887,6 +923,10 @@ var Copywriting_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "copywriting.Copywriting",
 	HandlerType: (*CopywritingServer)(nil),
 	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "Quote",
+			Handler:    _Copywriting_Quote_Handler,
+		},
 		{
 			MethodName: "Options",
 			Handler:    _Copywriting_Options_Handler,

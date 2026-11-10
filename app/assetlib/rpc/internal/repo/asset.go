@@ -33,6 +33,7 @@ type Filter struct {
 	AspectRatio  string   // 空 / afv_asset.aspect_ratio 精确匹配
 	EntryCodes   []string // 空=不限；a.entry_code IN (...)（素材库聚合分类节点的成员入口码）
 	Tag          string   // 标签名
+	Untagged     bool     // 只要没挂本人任何标签的资产（口径同 TagRepo.UntaggedCount）
 	FavoriteOnly bool
 	Q            string
 	// RelatedOf / ResultsOf 详情页的相关资产 / 生成结果（按 afv_asset_relation 取 id 集合）
@@ -130,6 +131,9 @@ func (r *AssetRepo) apply(q *bun.SelectQuery, f Filter) *bun.SelectQuery {
 		q = q.Where("EXISTS (SELECT 1 FROM afv_asset_tag_link AS l JOIN afv_asset_tag AS t ON t.id = l.tag_id "+
 			"WHERE l.asset_id = a.id AND t.user_id = ? AND t.name = ?)", f.UserID, f.Tag)
 	}
+	if f.Untagged {
+		q = q.Where(untaggedCond, f.UserID)
+	}
 	if f.Q != "" {
 		like := likeArg(f.Q)
 		q = q.Where("(a.name LIKE ? OR a.ai_prompt LIKE ?)", like, like)
@@ -185,6 +189,37 @@ func (r *AssetRepo) OwnedIDs(ctx context.Context, userID int64, ids []int64) ([]
 	var out []int64
 	err := owned(r.db.NewSelect().TableExpr("afv_asset AS a").Column("a.id").Where("a.id IN (?)", bun.In(ids)), userID).Scan(ctx, &out)
 	return out, err
+}
+
+// OwnedSource 本人资产的 id 与来源（删除前分流官方 / 可删）。
+type OwnedSource struct {
+	ID         int64         `bun:"id"`
+	SourceType sql.NullInt64 `bun:"source_type"`
+}
+
+// OwnedSources ids 里属于本人（未删除、非草稿）的那些，带 source_type。
+func (r *AssetRepo) OwnedSources(ctx context.Context, userID int64, ids []int64) ([]OwnedSource, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	var out []OwnedSource
+	err := owned(r.db.NewSelect().TableExpr("afv_asset AS a").Column("a.id", "a.source_type").Where("a.id IN (?)", bun.In(ids)), userID).
+		Scan(ctx, &out)
+	return out, err
+}
+
+// SoftDelete 逻辑删除本人的上传 / 生成资产：**afv_asset 的第二处受控写入**（先例 pkg/asset.SoftDeleteByTask）。
+// 只置 deleted = 1（与 Java @TableLogic 同口径，update_time 由表的 ON UPDATE 刷新），条件里再带一遍
+// 归属 + 来源（source_type IN (1, 2)），官方素材即使混进 ids 也不会被删。不碰存储对象、任务结果与其它列。
+func (r *AssetRepo) SoftDelete(ctx context.Context, userID int64, ids []int64) (int64, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	return affected(r.db.NewUpdate().Table(model.TableAsset).
+		Set("deleted = 1").
+		Where("id IN (?)", bun.In(ids)).Where("user_id = ?", userID).Where("deleted = 0").
+		Where("source_type IN (?, ?)", model.SourceTypeUpload, model.SourceTypeGenerated).
+		Exec(ctx))
 }
 
 // KindCount 分类计数的一行；Kind 为 NULL 即未分类。

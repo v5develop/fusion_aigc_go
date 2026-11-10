@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"aigc-local-life/app/studio/model"
+	"aigc-local-life/app/studio/rpc/internal/pipeline"
 	"aigc-local-life/app/studio/rpc/internal/repo"
 	"aigc-local-life/app/studio/rpc/internal/svc"
 	"aigc-local-life/app/studio/rpc/studio"
@@ -477,6 +478,10 @@ func tryonSpec(in *studio.SubmitTryonReq, v *TryonInput) *submitSpec {
 			texts = append(texts, textCheck{"studio_tryon_attr", s})
 		}
 	}
+	// 自选细节框的部位名会进 sidecar 图片标签与生图提示词（局部细节（label）），同属用户文本，一并审核
+	for _, c := range v.DetailCrops {
+		texts = append(texts, textCheck{"studio_tryon_attr", c.Label})
+	}
 	sp := &submitSpec{
 		Kind: model.KindTryon, UserID: in.UserId, WorkspaceID: in.WorkspaceId, RequestID: strings.TrimSpace(in.RequestId),
 		Payload: map[string]any{
@@ -489,6 +494,18 @@ func tryonSpec(in *studio.SubmitTryonReq, v *TryonInput) *submitSpec {
 		Slots: tryonSlots(len(v.Models), int(v.CountPerModel)),
 	}
 	withColorFix(sp, in.ColorFix)
+	// 精细读图 / 用户自选细节框：只在用到时写入，不用的提交 payload（及其幂等哈希）与旧版逐字一致
+	if v.FineRead {
+		sp.Payload["fine_read"] = true
+	}
+	if v.DetailCropsManual {
+		crops := v.DetailCrops
+		if crops == nil {
+			crops = []pipeline.UserCrop{}
+		}
+		sp.Payload["detail_crops_manual"] = true
+		sp.Payload["detail_crops"] = crops
+	}
 	return sp
 }
 

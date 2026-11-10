@@ -225,6 +225,7 @@ type AnalyzeReq struct {
 	LookLengths   map[string]string `json:"look_lengths,omitempty"`
 	Palettes      []Palette         `json:"palettes,omitempty"`
 	Deep          bool              `json:"deep,omitempty"`
+	Fine          bool              `json:"fine,omitempty"`           // 精细读图（本仓 sidecar 扩展，验收 F7）：强制 deep + 逐块查小细节 + 设计细节上限 +3
 	PromptVersion string            `json:"prompt_version,omitempty"` // new 走实验版，默认 old
 	TargetModel   string            `json:"target_model,omitempty"`
 }

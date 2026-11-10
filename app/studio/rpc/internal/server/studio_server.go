@@ -53,6 +53,12 @@ func (s *StudioServer) Quote(ctx context.Context, in *studio.QuoteReq) (*studio.
 	return l.Quote(in)
 }
 
+// 模型档能力（只读）：每个模型档（通用 / GPT / GPT25Dev / Banana / Seedream）的展示名、实际可用的分辨率与比例、参考图上限；
+func (s *StudioServer) Models(ctx context.Context, in *studio.ModelsReq) (*studio.ModelsResp, error) {
+	l := logic.NewModelsLogic(ctx, s.svcCtx)
+	return l.Models(in)
+}
+
 // 批次详情 + 全部子任务（生成中轮询此接口）
 func (s *StudioServer) GetBatch(ctx context.Context, in *studio.GetBatchReq) (*studio.BatchDetail, error) {
 	l := logic.NewGetBatchLogic(ctx, s.svcCtx)
@@ -99,6 +105,18 @@ func (s *StudioServer) UpdateTaskColorFix(ctx context.Context, in *studio.Update
 func (s *StudioServer) SegmentMask(ctx context.Context, in *studio.SegmentMaskReq) (*studio.SegmentMaskResp, error) {
 	l := logic.NewSegmentMaskLogic(ctx, s.svcCtx)
 	return l.SegmentMask(in)
+}
+
+// 商拍「AI 找细节」（免费、不建任务）：对服装图跑 sidecar crop-plan，回每张图的细节框（归一化 [x,y,w,h]）与部位名，
+func (s *StudioServer) DetectDetails(ctx context.Context, in *studio.DetectDetailsReq) (*studio.DetectDetailsResp, error) {
+	l := logic.NewDetectDetailsLogic(ctx, s.svcCtx)
+	return l.DetectDetails(in)
+}
+
+// 编辑提示词后重新生成单张（仅姿态复刻）：用用户改过的提示词重跑该子任务的生图一步（失败 / 成功的都可以），
+func (s *StudioServer) RegenerateTask(ctx context.Context, in *studio.RegenerateTaskReq) (*studio.BatchDetail, error) {
+	l := logic.NewRegenerateTaskLogic(ctx, s.svcCtx)
+	return l.RegenerateTask(in)
 }
 
 // ---- 运营后台 ----

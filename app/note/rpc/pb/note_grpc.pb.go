@@ -19,6 +19,7 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
+	Note_Quote_FullMethodName          = "/note.Note/Quote"
 	Note_Options_FullMethodName        = "/note.Note/Options"
 	Note_Plan_FullMethodName           = "/note.Note/Plan"
 	Note_Replan_FullMethodName         = "/note.Note/Replan"
@@ -39,6 +40,8 @@ const (
 // AI 图文笔记：构思（执行面 74）→ 规划页确认 → 出图（执行面 75）
 type NoteClient interface {
 	// ---- App ----
+	// 提交前报价（只读，不冻结、不落库）
+	Quote(ctx context.Context, in *QuoteReq, opts ...grpc.CallOption) (*QuoteResp, error)
 	// 表单配置：笔记类型、素材与套图上限
 	Options(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*OptionsResp, error)
 	// 开始构思（异步，轮询 Get；完成后进入规划页）
@@ -65,6 +68,16 @@ type noteClient struct {
 
 func NewNoteClient(cc grpc.ClientConnInterface) NoteClient {
 	return &noteClient{cc}
+}
+
+func (c *noteClient) Quote(ctx context.Context, in *QuoteReq, opts ...grpc.CallOption) (*QuoteResp, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(QuoteResp)
+	err := c.cc.Invoke(ctx, Note_Quote_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *noteClient) Options(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*OptionsResp, error) {
@@ -184,6 +197,8 @@ func (c *noteClient) AdminForceFail(ctx context.Context, in *IdReq, opts ...grpc
 // AI 图文笔记：构思（执行面 74）→ 规划页确认 → 出图（执行面 75）
 type NoteServer interface {
 	// ---- App ----
+	// 提交前报价（只读，不冻结、不落库）
+	Quote(context.Context, *QuoteReq) (*QuoteResp, error)
 	// 表单配置：笔记类型、素材与套图上限
 	Options(context.Context, *Empty) (*OptionsResp, error)
 	// 开始构思（异步，轮询 Get；完成后进入规划页）
@@ -212,6 +227,9 @@ type NoteServer interface {
 // pointer dereference when methods are called.
 type UnimplementedNoteServer struct{}
 
+func (UnimplementedNoteServer) Quote(context.Context, *QuoteReq) (*QuoteResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method Quote not implemented")
+}
 func (UnimplementedNoteServer) Options(context.Context, *Empty) (*OptionsResp, error) {
 	return nil, status.Error(codes.Unimplemented, "method Options not implemented")
 }
@@ -264,6 +282,24 @@ func RegisterNoteServer(s grpc.ServiceRegistrar, srv NoteServer) {
 		t.testEmbeddedByValue()
 	}
 	s.RegisterService(&Note_ServiceDesc, srv)
+}
+
+func _Note_Quote_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(QuoteReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NoteServer).Quote(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Note_Quote_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NoteServer).Quote(ctx, req.(*QuoteReq))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _Note_Options_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -471,6 +507,10 @@ var Note_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "note.Note",
 	HandlerType: (*NoteServer)(nil),
 	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "Quote",
+			Handler:    _Note_Quote_Handler,
+		},
 		{
 			MethodName: "Options",
 			Handler:    _Note_Options_Handler,

@@ -2394,6 +2394,239 @@ func (x *IdReq) GetId() int64 {
 	return 0
 }
 
+type QuoteReq struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	Kind          string                 `protobuf:"bytes,2,opt,name=kind,proto3" json:"kind,omitempty"` // poster / longImage / actionTransfer / voiceover / exploreShop / shortDrama / videoRemake
+	Model         string                 `protobuf:"bytes,3,opt,name=model,proto3" json:"model,omitempty"`
+	Duration      int32                  `protobuf:"varint,4,opt,name=duration,proto3" json:"duration,omitempty"`                       // 口播 / 探店 / 短剧的视频时长（秒）
+	ImageCount    int32                  `protobuf:"varint,5,opt,name=image_count,json=imageCount,proto3" json:"image_count,omitempty"` // 海报 / 长图张数
+	Id            int64                  `protobuf:"varint,6,opt,name=id,proto3" json:"id,omitempty"`                                   // 复刻：已解析的记录 id（有了才知道原片时长）
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *QuoteReq) Reset() {
+	*x = QuoteReq{}
+	mi := &file_imagegen_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *QuoteReq) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QuoteReq) ProtoMessage() {}
+
+func (x *QuoteReq) ProtoReflect() protoreflect.Message {
+	mi := &file_imagegen_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QuoteReq.ProtoReflect.Descriptor instead.
+func (*QuoteReq) Descriptor() ([]byte, []int) {
+	return file_imagegen_proto_rawDescGZIP(), []int{27}
+}
+
+func (x *QuoteReq) GetUserId() int64 {
+	if x != nil {
+		return x.UserId
+	}
+	return 0
+}
+
+func (x *QuoteReq) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *QuoteReq) GetModel() string {
+	if x != nil {
+		return x.Model
+	}
+	return ""
+}
+
+func (x *QuoteReq) GetDuration() int32 {
+	if x != nil {
+		return x.Duration
+	}
+	return 0
+}
+
+func (x *QuoteReq) GetImageCount() int32 {
+	if x != nil {
+		return x.ImageCount
+	}
+	return 0
+}
+
+func (x *QuoteReq) GetId() int64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+// 提交前报价（只读，不冻结）：用提交时同一个计费请求算价，返回本次会冻结的点数。见 pkg/billing/estimate.go
+type QuoteResp struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Available     bool                   `protobuf:"varint,1,opt,name=available,proto3" json:"available,omitempty"` // 能否报出价；false 时 points 为 0，原因见 reason
+	Reason        string                 `protobuf:"bytes,2,opt,name=reason,proto3" json:"reason,omitempty"`
+	BillingMode   string                 `protobuf:"bytes,3,opt,name=billing_mode,json=billingMode,proto3" json:"billing_mode,omitempty"` // off / shadow / on
+	Charged       bool                   `protobuf:"varint,4,opt,name=charged,proto3" json:"charged,omitempty"`                           // 提交是否真的冻结点数（仅 on）
+	Points        int64                  `protobuf:"varint,5,opt,name=points,proto3" json:"points,omitempty"`                             // 按这组参数算出的点数（exact=false 时为最低）
+	UnitPoints    int64                  `protobuf:"varint,6,opt,name=unit_points,json=unitPoints,proto3" json:"unit_points,omitempty"`   // 单价：每张 / 每秒
+	PriceUnit     string                 `protobuf:"bytes,7,opt,name=price_unit,json=priceUnit,proto3" json:"price_unit,omitempty"`       // PER_IMAGE / PER_SECOND / PER_REQUEST / PER_VIDEO
+	Quantity      int32                  `protobuf:"varint,8,opt,name=quantity,proto3" json:"quantity,omitempty"`                         // 计量：张数或秒数
+	Exact         bool                   `protobuf:"varint,9,opt,name=exact,proto3" json:"exact,omitempty"`                               // points 是否就是冻结数；false = 要等提交后才知道计量（配音时长 / 原片时长）
+	PointsMax     int64                  `protobuf:"varint,10,opt,name=points_max,json=pointsMax,proto3" json:"points_max,omitempty"`     // exact=false 时的最高点数（0 = 不知道）
+	Stage         string                 `protobuf:"bytes,11,opt,name=stage,proto3" json:"stage,omitempty"`                               // 冻结发生在哪一步：submit 提交即冻结 / generate 构思免费、出片（出图）时冻结
+	Balance       int64                  `protobuf:"varint,12,opt,name=balance,proto3" json:"balance,omitempty"`                          // 当前可用余额
+	BalanceKnown  bool                   `protobuf:"varint,13,opt,name=balance_known,json=balanceKnown,proto3" json:"balance_known,omitempty"`
+	Sufficient    bool                   `protobuf:"varint,14,opt,name=sufficient,proto3" json:"sufficient,omitempty"` // 余额是否够 points（charged=false 时恒为 true）
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *QuoteResp) Reset() {
+	*x = QuoteResp{}
+	mi := &file_imagegen_proto_msgTypes[28]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *QuoteResp) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QuoteResp) ProtoMessage() {}
+
+func (x *QuoteResp) ProtoReflect() protoreflect.Message {
+	mi := &file_imagegen_proto_msgTypes[28]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QuoteResp.ProtoReflect.Descriptor instead.
+func (*QuoteResp) Descriptor() ([]byte, []int) {
+	return file_imagegen_proto_rawDescGZIP(), []int{28}
+}
+
+func (x *QuoteResp) GetAvailable() bool {
+	if x != nil {
+		return x.Available
+	}
+	return false
+}
+
+func (x *QuoteResp) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+func (x *QuoteResp) GetBillingMode() string {
+	if x != nil {
+		return x.BillingMode
+	}
+	return ""
+}
+
+func (x *QuoteResp) GetCharged() bool {
+	if x != nil {
+		return x.Charged
+	}
+	return false
+}
+
+func (x *QuoteResp) GetPoints() int64 {
+	if x != nil {
+		return x.Points
+	}
+	return 0
+}
+
+func (x *QuoteResp) GetUnitPoints() int64 {
+	if x != nil {
+		return x.UnitPoints
+	}
+	return 0
+}
+
+func (x *QuoteResp) GetPriceUnit() string {
+	if x != nil {
+		return x.PriceUnit
+	}
+	return ""
+}
+
+func (x *QuoteResp) GetQuantity() int32 {
+	if x != nil {
+		return x.Quantity
+	}
+	return 0
+}
+
+func (x *QuoteResp) GetExact() bool {
+	if x != nil {
+		return x.Exact
+	}
+	return false
+}
+
+func (x *QuoteResp) GetPointsMax() int64 {
+	if x != nil {
+		return x.PointsMax
+	}
+	return 0
+}
+
+func (x *QuoteResp) GetStage() string {
+	if x != nil {
+		return x.Stage
+	}
+	return ""
+}
+
+func (x *QuoteResp) GetBalance() int64 {
+	if x != nil {
+		return x.Balance
+	}
+	return 0
+}
+
+func (x *QuoteResp) GetBalanceKnown() bool {
+	if x != nil {
+		return x.BalanceKnown
+	}
+	return false
+}
+
+func (x *QuoteResp) GetSufficient() bool {
+	if x != nil {
+		return x.Sufficient
+	}
+	return false
+}
+
 var File_imagegen_proto protoreflect.FileDescriptor
 
 const file_imagegen_proto_rawDesc = "" +
@@ -2630,8 +2863,38 @@ const file_imagegen_proto_rawDesc = "" +
 	"\x04list\x18\x01 \x03(\v2\x13.imagegen.VideoInfoR\x04list\x12\x14\n" +
 	"\x05total\x18\x02 \x01(\x03R\x05total\"\x17\n" +
 	"\x05IdReq\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\x03R\x02id2\xda\v\n" +
-	"\bImageGen\x123\n" +
+	"\x02id\x18\x01 \x01(\x03R\x02id\"\x9a\x01\n" +
+	"\bQuoteReq\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x12\n" +
+	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x14\n" +
+	"\x05model\x18\x03 \x01(\tR\x05model\x12\x1a\n" +
+	"\bduration\x18\x04 \x01(\x05R\bduration\x12\x1f\n" +
+	"\vimage_count\x18\x05 \x01(\x05R\n" +
+	"imageCount\x12\x0e\n" +
+	"\x02id\x18\x06 \x01(\x03R\x02id\"\x9c\x03\n" +
+	"\tQuoteResp\x12\x1c\n" +
+	"\tavailable\x18\x01 \x01(\bR\tavailable\x12\x16\n" +
+	"\x06reason\x18\x02 \x01(\tR\x06reason\x12!\n" +
+	"\fbilling_mode\x18\x03 \x01(\tR\vbillingMode\x12\x18\n" +
+	"\acharged\x18\x04 \x01(\bR\acharged\x12\x16\n" +
+	"\x06points\x18\x05 \x01(\x03R\x06points\x12\x1f\n" +
+	"\vunit_points\x18\x06 \x01(\x03R\n" +
+	"unitPoints\x12\x1d\n" +
+	"\n" +
+	"price_unit\x18\a \x01(\tR\tpriceUnit\x12\x1a\n" +
+	"\bquantity\x18\b \x01(\x05R\bquantity\x12\x14\n" +
+	"\x05exact\x18\t \x01(\bR\x05exact\x12\x1d\n" +
+	"\n" +
+	"points_max\x18\n" +
+	" \x01(\x03R\tpointsMax\x12\x14\n" +
+	"\x05stage\x18\v \x01(\tR\x05stage\x12\x18\n" +
+	"\abalance\x18\f \x01(\x03R\abalance\x12#\n" +
+	"\rbalance_known\x18\r \x01(\bR\fbalanceKnown\x12\x1e\n" +
+	"\n" +
+	"sufficient\x18\x0e \x01(\bR\n" +
+	"sufficient2\x8c\f\n" +
+	"\bImageGen\x120\n" +
+	"\x05Quote\x12\x12.imagegen.QuoteReq\x1a\x13.imagegen.QuoteResp\x123\n" +
 	"\aOptions\x12\x11.imagegen.KindReq\x1a\x15.imagegen.OptionsResp\x12C\n" +
 	"\rListTemplates\x12\x1a.imagegen.ListTemplatesReq\x1a\x16.imagegen.TemplateList\x125\n" +
 	"\x06Create\x12\x13.imagegen.CreateReq\x1a\x16.imagegen.CreationInfo\x122\n" +
@@ -2672,7 +2935,7 @@ func file_imagegen_proto_rawDescGZIP() []byte {
 	return file_imagegen_proto_rawDescData
 }
 
-var file_imagegen_proto_msgTypes = make([]protoimpl.MessageInfo, 27)
+var file_imagegen_proto_msgTypes = make([]protoimpl.MessageInfo, 29)
 var file_imagegen_proto_goTypes = []any{
 	(*Empty)(nil),                // 0: imagegen.Empty
 	(*GenOptionItem)(nil),        // 1: imagegen.GenOptionItem
@@ -2701,6 +2964,8 @@ var file_imagegen_proto_goTypes = []any{
 	(*VideoListReq)(nil),         // 24: imagegen.VideoListReq
 	(*VideoList)(nil),            // 25: imagegen.VideoList
 	(*IdReq)(nil),                // 26: imagegen.IdReq
+	(*QuoteReq)(nil),             // 27: imagegen.QuoteReq
+	(*QuoteResp)(nil),            // 28: imagegen.QuoteResp
 }
 var file_imagegen_proto_depIdxs = []int32{
 	1,  // 0: imagegen.GenOptionList.list:type_name -> imagegen.GenOptionItem
@@ -2716,58 +2981,60 @@ var file_imagegen_proto_depIdxs = []int32{
 	8,  // 10: imagegen.VideoOptionsResp.models:type_name -> imagegen.Option
 	8,  // 11: imagegen.VideoOptionsResp.sizes:type_name -> imagegen.Option
 	23, // 12: imagegen.VideoList.list:type_name -> imagegen.VideoInfo
-	7,  // 13: imagegen.ImageGen.Options:input_type -> imagegen.KindReq
-	13, // 14: imagegen.ImageGen.ListTemplates:input_type -> imagegen.ListTemplatesReq
-	16, // 15: imagegen.ImageGen.Create:input_type -> imagegen.CreateReq
-	6,  // 16: imagegen.ImageGen.Get:input_type -> imagegen.IdUserReq
-	18, // 17: imagegen.ImageGen.List:input_type -> imagegen.ListReq
-	6,  // 18: imagegen.ImageGen.Delete:input_type -> imagegen.IdUserReq
-	6,  // 19: imagegen.ImageGen.ListActionVideos:input_type -> imagegen.IdUserReq
-	11, // 20: imagegen.ImageGen.ImportActionVideo:input_type -> imagegen.ImportActionVideoReq
-	6,  // 21: imagegen.ImageGen.DeleteActionVideo:input_type -> imagegen.IdUserReq
-	7,  // 22: imagegen.ImageGen.VideoOptions:input_type -> imagegen.KindReq
-	21, // 23: imagegen.ImageGen.CreateVideo:input_type -> imagegen.CreateVideoReq
-	6,  // 24: imagegen.ImageGen.GetVideo:input_type -> imagegen.IdUserReq
-	6,  // 25: imagegen.ImageGen.ReplanVideo:input_type -> imagegen.IdUserReq
-	22, // 26: imagegen.ImageGen.GenerateVideo:input_type -> imagegen.GenerateVideoReq
-	24, // 27: imagegen.ImageGen.ListVideos:input_type -> imagegen.VideoListReq
-	6,  // 28: imagegen.ImageGen.DeleteVideo:input_type -> imagegen.IdUserReq
-	18, // 29: imagegen.ImageGen.AdminList:input_type -> imagegen.ListReq
-	24, // 30: imagegen.ImageGen.AdminListVideos:input_type -> imagegen.VideoListReq
-	26, // 31: imagegen.ImageGen.AdminRetry:input_type -> imagegen.IdReq
-	26, // 32: imagegen.ImageGen.AdminForceFail:input_type -> imagegen.IdReq
-	26, // 33: imagegen.ImageGen.AdminRetryVideo:input_type -> imagegen.IdReq
-	26, // 34: imagegen.ImageGen.AdminForceFailVideo:input_type -> imagegen.IdReq
-	0,  // 35: imagegen.ImageGen.AdminGenOptions:input_type -> imagegen.Empty
-	5,  // 36: imagegen.ImageGen.AdminUpdateGenOption:input_type -> imagegen.UpdateGenOptionReq
-	4,  // 37: imagegen.ImageGen.AdminUpdateGenKind:input_type -> imagegen.UpdateGenKindReq
-	12, // 38: imagegen.ImageGen.Options:output_type -> imagegen.OptionsResp
-	15, // 39: imagegen.ImageGen.ListTemplates:output_type -> imagegen.TemplateList
-	17, // 40: imagegen.ImageGen.Create:output_type -> imagegen.CreationInfo
-	17, // 41: imagegen.ImageGen.Get:output_type -> imagegen.CreationInfo
-	19, // 42: imagegen.ImageGen.List:output_type -> imagegen.CreationList
-	0,  // 43: imagegen.ImageGen.Delete:output_type -> imagegen.Empty
-	10, // 44: imagegen.ImageGen.ListActionVideos:output_type -> imagegen.ActionVideoList
-	9,  // 45: imagegen.ImageGen.ImportActionVideo:output_type -> imagegen.ActionVideo
-	0,  // 46: imagegen.ImageGen.DeleteActionVideo:output_type -> imagegen.Empty
-	20, // 47: imagegen.ImageGen.VideoOptions:output_type -> imagegen.VideoOptionsResp
-	23, // 48: imagegen.ImageGen.CreateVideo:output_type -> imagegen.VideoInfo
-	23, // 49: imagegen.ImageGen.GetVideo:output_type -> imagegen.VideoInfo
-	23, // 50: imagegen.ImageGen.ReplanVideo:output_type -> imagegen.VideoInfo
-	23, // 51: imagegen.ImageGen.GenerateVideo:output_type -> imagegen.VideoInfo
-	25, // 52: imagegen.ImageGen.ListVideos:output_type -> imagegen.VideoList
-	0,  // 53: imagegen.ImageGen.DeleteVideo:output_type -> imagegen.Empty
-	19, // 54: imagegen.ImageGen.AdminList:output_type -> imagegen.CreationList
-	25, // 55: imagegen.ImageGen.AdminListVideos:output_type -> imagegen.VideoList
-	0,  // 56: imagegen.ImageGen.AdminRetry:output_type -> imagegen.Empty
-	0,  // 57: imagegen.ImageGen.AdminForceFail:output_type -> imagegen.Empty
-	0,  // 58: imagegen.ImageGen.AdminRetryVideo:output_type -> imagegen.Empty
-	0,  // 59: imagegen.ImageGen.AdminForceFailVideo:output_type -> imagegen.Empty
-	2,  // 60: imagegen.ImageGen.AdminGenOptions:output_type -> imagegen.GenOptionList
-	1,  // 61: imagegen.ImageGen.AdminUpdateGenOption:output_type -> imagegen.GenOptionItem
-	3,  // 62: imagegen.ImageGen.AdminUpdateGenKind:output_type -> imagegen.GenKindItem
-	38, // [38:63] is the sub-list for method output_type
-	13, // [13:38] is the sub-list for method input_type
+	27, // 13: imagegen.ImageGen.Quote:input_type -> imagegen.QuoteReq
+	7,  // 14: imagegen.ImageGen.Options:input_type -> imagegen.KindReq
+	13, // 15: imagegen.ImageGen.ListTemplates:input_type -> imagegen.ListTemplatesReq
+	16, // 16: imagegen.ImageGen.Create:input_type -> imagegen.CreateReq
+	6,  // 17: imagegen.ImageGen.Get:input_type -> imagegen.IdUserReq
+	18, // 18: imagegen.ImageGen.List:input_type -> imagegen.ListReq
+	6,  // 19: imagegen.ImageGen.Delete:input_type -> imagegen.IdUserReq
+	6,  // 20: imagegen.ImageGen.ListActionVideos:input_type -> imagegen.IdUserReq
+	11, // 21: imagegen.ImageGen.ImportActionVideo:input_type -> imagegen.ImportActionVideoReq
+	6,  // 22: imagegen.ImageGen.DeleteActionVideo:input_type -> imagegen.IdUserReq
+	7,  // 23: imagegen.ImageGen.VideoOptions:input_type -> imagegen.KindReq
+	21, // 24: imagegen.ImageGen.CreateVideo:input_type -> imagegen.CreateVideoReq
+	6,  // 25: imagegen.ImageGen.GetVideo:input_type -> imagegen.IdUserReq
+	6,  // 26: imagegen.ImageGen.ReplanVideo:input_type -> imagegen.IdUserReq
+	22, // 27: imagegen.ImageGen.GenerateVideo:input_type -> imagegen.GenerateVideoReq
+	24, // 28: imagegen.ImageGen.ListVideos:input_type -> imagegen.VideoListReq
+	6,  // 29: imagegen.ImageGen.DeleteVideo:input_type -> imagegen.IdUserReq
+	18, // 30: imagegen.ImageGen.AdminList:input_type -> imagegen.ListReq
+	24, // 31: imagegen.ImageGen.AdminListVideos:input_type -> imagegen.VideoListReq
+	26, // 32: imagegen.ImageGen.AdminRetry:input_type -> imagegen.IdReq
+	26, // 33: imagegen.ImageGen.AdminForceFail:input_type -> imagegen.IdReq
+	26, // 34: imagegen.ImageGen.AdminRetryVideo:input_type -> imagegen.IdReq
+	26, // 35: imagegen.ImageGen.AdminForceFailVideo:input_type -> imagegen.IdReq
+	0,  // 36: imagegen.ImageGen.AdminGenOptions:input_type -> imagegen.Empty
+	5,  // 37: imagegen.ImageGen.AdminUpdateGenOption:input_type -> imagegen.UpdateGenOptionReq
+	4,  // 38: imagegen.ImageGen.AdminUpdateGenKind:input_type -> imagegen.UpdateGenKindReq
+	28, // 39: imagegen.ImageGen.Quote:output_type -> imagegen.QuoteResp
+	12, // 40: imagegen.ImageGen.Options:output_type -> imagegen.OptionsResp
+	15, // 41: imagegen.ImageGen.ListTemplates:output_type -> imagegen.TemplateList
+	17, // 42: imagegen.ImageGen.Create:output_type -> imagegen.CreationInfo
+	17, // 43: imagegen.ImageGen.Get:output_type -> imagegen.CreationInfo
+	19, // 44: imagegen.ImageGen.List:output_type -> imagegen.CreationList
+	0,  // 45: imagegen.ImageGen.Delete:output_type -> imagegen.Empty
+	10, // 46: imagegen.ImageGen.ListActionVideos:output_type -> imagegen.ActionVideoList
+	9,  // 47: imagegen.ImageGen.ImportActionVideo:output_type -> imagegen.ActionVideo
+	0,  // 48: imagegen.ImageGen.DeleteActionVideo:output_type -> imagegen.Empty
+	20, // 49: imagegen.ImageGen.VideoOptions:output_type -> imagegen.VideoOptionsResp
+	23, // 50: imagegen.ImageGen.CreateVideo:output_type -> imagegen.VideoInfo
+	23, // 51: imagegen.ImageGen.GetVideo:output_type -> imagegen.VideoInfo
+	23, // 52: imagegen.ImageGen.ReplanVideo:output_type -> imagegen.VideoInfo
+	23, // 53: imagegen.ImageGen.GenerateVideo:output_type -> imagegen.VideoInfo
+	25, // 54: imagegen.ImageGen.ListVideos:output_type -> imagegen.VideoList
+	0,  // 55: imagegen.ImageGen.DeleteVideo:output_type -> imagegen.Empty
+	19, // 56: imagegen.ImageGen.AdminList:output_type -> imagegen.CreationList
+	25, // 57: imagegen.ImageGen.AdminListVideos:output_type -> imagegen.VideoList
+	0,  // 58: imagegen.ImageGen.AdminRetry:output_type -> imagegen.Empty
+	0,  // 59: imagegen.ImageGen.AdminForceFail:output_type -> imagegen.Empty
+	0,  // 60: imagegen.ImageGen.AdminRetryVideo:output_type -> imagegen.Empty
+	0,  // 61: imagegen.ImageGen.AdminForceFailVideo:output_type -> imagegen.Empty
+	2,  // 62: imagegen.ImageGen.AdminGenOptions:output_type -> imagegen.GenOptionList
+	1,  // 63: imagegen.ImageGen.AdminUpdateGenOption:output_type -> imagegen.GenOptionItem
+	3,  // 64: imagegen.ImageGen.AdminUpdateGenKind:output_type -> imagegen.GenKindItem
+	39, // [39:65] is the sub-list for method output_type
+	13, // [13:39] is the sub-list for method input_type
 	13, // [13:13] is the sub-list for extension type_name
 	13, // [13:13] is the sub-list for extension extendee
 	0,  // [0:13] is the sub-list for field type_name
@@ -2784,7 +3051,7 @@ func file_imagegen_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_imagegen_proto_rawDesc), len(file_imagegen_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   27,
+			NumMessages:   29,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

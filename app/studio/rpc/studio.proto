@@ -20,6 +20,10 @@ service Studio {
   rpc PreviewPose(PreviewPoseReq) returns (PreviewPoseResp);
   // 提交前报价（只读）：与提交同一套模型 / 分辨率归一与计费入口，返回本次提交会冻结的点数；不落库、不冻结、不校验素材
   rpc Quote(QuoteReq) returns (QuoteResp);
+  // 模型档能力（只读）：每个模型档（通用 / GPT / GPT25Dev / Banana / Seedream）的展示名、实际可用的分辨率与比例、参考图上限；
+  // 由 pipeline 的组规则（Seedream 5.5 无 4:5/5:4、旧 Seedream 无 4K、GPT 2.6 参考图硬上限）与 gateway 目录 feature_limits 求交得出。
+  // with_price=true 时附每档分辨率的单张点数（与 Quote 同一计费入口，计费关时为 0）
+  rpc Models(ModelsReq) returns (ModelsResp);
   // 批次详情 + 全部子任务（生成中轮询此接口）
   rpc GetBatch(GetBatchReq) returns (BatchDetail);
   // 单个子任务
@@ -38,6 +42,13 @@ service Studio {
   // 区域蒙版（局部校色，免费）：image_url 的 garment / product / person / background 区域 → 白色+软 alpha PNG（素材库桶公开地址）。
   // 按（去查询串的地址, 区域）缓存，重复请求直接返回；地址须为本存储签发或素材库域名。没识别到 → 4001「没识别到对应区域」
   rpc SegmentMask(SegmentMaskReq) returns (SegmentMaskResp);
+  // 商拍「AI 找细节」（免费、不建任务）：对服装图跑 sidecar crop-plan，回每张图的细节框（归一化 [x,y,w,h]）与部位名，
+  // 前端按框在原图上显示裁切缩略图，用户删减 / 重新裁切后把选中的框原样带回 SubmitTryon.detail_crops。
+  // 限流同姿态配对预览：每用户同一时间一个、全进程共享读图名额
+  rpc DetectDetails(DetectDetailsReq) returns (DetectDetailsResp);
+  // 编辑提示词后重新生成单张（仅姿态复刻）：用用户改过的提示词重跑该子任务的生图一步（失败 / 成功的都可以），
+  // 计费同用户重试（新计费请求号 studio-<task_id>-r<n>，冻结 1 张）；同一提示词重复提交幂等；返回批次详情（同 GetBatch）
+  rpc RegenerateTask(RegenerateTaskReq) returns (BatchDetail);
 
   // ---- 运营后台 ----
   rpc AdminListBatches(AdminListBatchesReq) returns (AdminListBatchesResp);
@@ -83,6 +94,19 @@ message SubmitTryonReq {
   int32 count_per_model = 15;            // 每位模特生成张数 1–9
   string cloth_image_url = 16;           // 旧版兼容位（首张服装图），新前端不要传；有 garment_images 时忽略
   bool color_fix = 17;                   // 「默认校色」开关：只记进批次 payload（color_fix=true），前端据此给结果套默认校色参数；不影响生图与计费
+  bool fine_read = 18;                   // 「精细读图」：反推读图走 sidecar 精细模式（更慢、设计细节更多）；不另收费
+  // 用户在「AI 找细节」里确认的细节框（DetectDetails 的结果，删减 / 重新裁切后）。detail_crops_manual=true 时编排直接按这些框切图、
+  // 不再调 crop-plan / crop-check（为空 = 用户删光了，不用细节图）；false 时忽略 detail_crops，照旧自动找细节
+  repeated DetailCrop detail_crops = 19;
+  bool detail_crops_manual = 20;
+}
+
+// 一个细节框：garment_index 是 garment_images 的下标（从 0 起），box 为归一化 [x,y,w,h]（0–1，x+w≤1、y+h≤1）
+message DetailCrop {
+  int32 garment_index = 1;
+  string label = 2;                      // 部位名，如「上衣·领口」（≤24 字）
+  repeated double box = 3;
+  double confidence = 4;                 // 识别置信度 0–1（用户手动保留的原样带回即可）
 }
 
 // 姿态复刻（前端 s1.1 aiPostureFission，改为整批一次提交）
@@ -196,6 +220,37 @@ message QuoteResp {
   repeated string warnings = 10;         // 参数归一告警（同提交）
 }
 
+message ModelsReq {
+  int64 user_id = 1;
+  string kind = 2;                       // tryon / pose / imagegen；空=imagegen（影响参考图上限、是否有「自动」比例、报价入口）
+  bool with_price = 3;                   // 是否附单张点数
+}
+
+message ModelResolutionPrice {
+  string resolution = 1;                 // 1k / 2k / 4k
+  bool available = 2;                    // 能否报出价
+  int64 unit_points = 3;                 // 单张点数（billing_mode=off 时为 0）
+}
+
+message ModelCapability {
+  string code = 1;                       // 传值：通用 / GPT / GPT25Dev / Banana / Seedream
+  string label = 2;                      // 展示名（如 GPT Image 2.6）
+  string model_group = 3;                // gateway model group
+  bool available = 4;                    // gateway 目录里该组已启用；目录拉不到时按 true
+  repeated string resolutions = 5;       // 可选分辨率（小写，1k / 2k / 4k 子集，按此顺序）
+  repeated string aspect_ratios = 6;     // 可选比例（W:H，标准 10 档的子集，按标准顺序）
+  bool auto_aspect = 7;                  // 是否支持「自动」比例（空串 = 按输入图取最近档；tryon / pose 为 true）
+  int32 max_ref_images = 8;              // 本 kind 下的参考图上限
+  repeated string notes = 9;             // 限制说明（给用户看的短句，如「Seedream 5.5 不支持 4:5 / 5:4」）
+  repeated ModelResolutionPrice prices = 10;  // with_price 时有
+}
+
+message ModelsResp {
+  string kind = 1;
+  repeated ModelCapability items = 2;
+  string billing_mode = 3;               // with_price 时有：on / shadow / off
+}
+
 // ---------------- 查询 ----------------
 
 message GetBatchReq {
@@ -251,6 +306,34 @@ message SegmentMaskResp {
   repeated string available_parts = 5;   // 该区域支持的细分部位（garment 才有）；空=不支持细分
 }
 
+// 「AI 找细节」：items / set_mode / garment_images 与 SubmitTryonReq 同口径（同一套校验）
+message DetectDetailsReq {
+  int64 user_id = 1;
+  repeated string items = 2;
+  string set_mode = 3;
+  repeated GarmentImage garment_images = 4; // 只收本服务签发的地址
+  string fabric = 5;
+  string prompt = 6;                     // 补充说明（同提交，帮助模型找设计点）
+}
+
+message DetailPlan {
+  int32 garment_index = 1;               // garment_images 下标
+  string angle = 2;                      // 模型判断（或用户指定）的角度
+  repeated DetailCrop crops = 3;         // 已校验（框合法、部位名带单品前缀、同图去重）
+}
+
+message DetectDetailsResp {
+  repeated DetailPlan plans = 1;         // 顺序同 garment_images；没找到细节的图也有一项（crops 为空）
+  int32 total = 2;                       // 细节框总数
+  repeated string warnings = 3;          // 给用户看的提示（如部分图片没找到细节）
+}
+
+message RegenerateTaskReq {
+  string task_id = 1;
+  int64 user_id = 2;
+  string prompt = 3;                     // 编辑后的提示词（必填，≤3000 字；可以带或不带首行「图序：」，服务端统一重写图序行）
+}
+
 message BatchUserReq {
   int64 batch_id = 1;
   int64 user_id = 2;
@@ -271,6 +354,7 @@ message BatchInfo {
   string cover_url = 11;                 // 首张成功的成品，列表封面
   int64 created_at = 12;
   int64 updated_at = 13;
+  repeated string warnings = 14;         // 读图 / 参考图提示（各子任务 warnings 去重合并，给用户看的中文，不含供应商信息）
 }
 
 // 子任务
@@ -297,6 +381,9 @@ message TaskInfo {
   int64 asset_id = 20;                   // 成品入素材库后的 afv_asset.id（按 source_task_id 查，取未删除的最新一条）；没入库 / 已删除为 0。仅用户侧接口填
   string mask_url = 21;                  // 服装蒙版（白色+软 alpha PNG，公开地址）：商拍换装 / 姿态复刻成品成功后异步补；没有为空（校色作用于整图）
   repeated MaskPart mask_parts = 22;     // 商拍换装按所选单品分割时的逐件蒙版（mask_url 是它们的合并）；没有为空
+  repeated string warnings = 23;         // 给用户看的提示：读图降级（「已改用文字信息生成」）、品类不符、参考图被截断等；不含供应商原文
+  string prompt_text = 24;               // 实际送生图的完整提示词（含首行图序声明；姿态 / 商拍有，编排完成前为空）
+  bool prompt_edited = 25;               // 提示词经用户编辑后重新生成过（RegenerateTask）
 }
 
 message BatchDetail {

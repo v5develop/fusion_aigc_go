@@ -19,6 +19,7 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
+	DigitalHuman_Quote_FullMethodName                     = "/digitalhuman.DigitalHuman/Quote"
 	DigitalHuman_GetAgreement_FullMethodName              = "/digitalhuman.DigitalHuman/GetAgreement"
 	DigitalHuman_AcceptAgreement_FullMethodName           = "/digitalhuman.DigitalHuman/AcceptAgreement"
 	DigitalHuman_ListPublic_FullMethodName                = "/digitalhuman.DigitalHuman/ListPublic"
@@ -53,6 +54,8 @@ const (
 // AI 数字人。本版只做系统音色，「我的音色」（录音复刻）不做。
 type DigitalHumanClient interface {
 	// ---- App ----
+	// 提交前报价（只读，不冻结、不落库）
+	Quote(ctx context.Context, in *QuoteReq, opts ...grpc.CallOption) (*QuoteResp, error)
 	// AIGC 功能使用约定：是否已同意当前版本 / 同意
 	GetAgreement(ctx context.Context, in *AgreementReq, opts ...grpc.CallOption) (*AgreementInfo, error)
 	AcceptAgreement(ctx context.Context, in *AgreementReq, opts ...grpc.CallOption) (*AgreementInfo, error)
@@ -96,6 +99,16 @@ type digitalHumanClient struct {
 
 func NewDigitalHumanClient(cc grpc.ClientConnInterface) DigitalHumanClient {
 	return &digitalHumanClient{cc}
+}
+
+func (c *digitalHumanClient) Quote(ctx context.Context, in *QuoteReq, opts ...grpc.CallOption) (*QuoteResp, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(QuoteResp)
+	err := c.cc.Invoke(ctx, DigitalHuman_Quote_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *digitalHumanClient) GetAgreement(ctx context.Context, in *AgreementReq, opts ...grpc.CallOption) (*AgreementInfo, error) {
@@ -355,6 +368,8 @@ func (c *digitalHumanClient) AdminGetTTSModel(ctx context.Context, in *Empty, op
 // AI 数字人。本版只做系统音色，「我的音色」（录音复刻）不做。
 type DigitalHumanServer interface {
 	// ---- App ----
+	// 提交前报价（只读，不冻结、不落库）
+	Quote(context.Context, *QuoteReq) (*QuoteResp, error)
 	// AIGC 功能使用约定：是否已同意当前版本 / 同意
 	GetAgreement(context.Context, *AgreementReq) (*AgreementInfo, error)
 	AcceptAgreement(context.Context, *AgreementReq) (*AgreementInfo, error)
@@ -400,6 +415,9 @@ type DigitalHumanServer interface {
 // pointer dereference when methods are called.
 type UnimplementedDigitalHumanServer struct{}
 
+func (UnimplementedDigitalHumanServer) Quote(context.Context, *QuoteReq) (*QuoteResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method Quote not implemented")
+}
 func (UnimplementedDigitalHumanServer) GetAgreement(context.Context, *AgreementReq) (*AgreementInfo, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetAgreement not implemented")
 }
@@ -494,6 +512,24 @@ func RegisterDigitalHumanServer(s grpc.ServiceRegistrar, srv DigitalHumanServer)
 		t.testEmbeddedByValue()
 	}
 	s.RegisterService(&DigitalHuman_ServiceDesc, srv)
+}
+
+func _DigitalHuman_Quote_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(QuoteReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DigitalHumanServer).Quote(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DigitalHuman_Quote_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DigitalHumanServer).Quote(ctx, req.(*QuoteReq))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _DigitalHuman_GetAgreement_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -953,6 +989,10 @@ var DigitalHuman_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "digitalhuman.DigitalHuman",
 	HandlerType: (*DigitalHumanServer)(nil),
 	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "Quote",
+			Handler:    _DigitalHuman_Quote_Handler,
+		},
 		{
 			MethodName: "GetAgreement",
 			Handler:    _DigitalHuman_GetAgreement_Handler,

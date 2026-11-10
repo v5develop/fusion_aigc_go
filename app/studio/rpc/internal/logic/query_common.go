@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"aigc-local-life/app/studio/model"
+	"aigc-local-life/app/studio/rpc/internal/pipeline"
 	"aigc-local-life/app/studio/rpc/internal/repo"
 	"aigc-local-life/app/studio/rpc/studio"
 	"aigc-local-life/pkg/xerr"
@@ -75,6 +76,7 @@ func msOf(t sql.NullTime) int64 {
 }
 
 func toTaskInfo(t *model.Task, batchStatus int8) *studio.TaskInfo {
+	um := parseUserMeta(t)
 	return &studio.TaskInfo{
 		Id: t.ID, TaskId: t.TaskID.String, BatchId: t.BatchID, Kind: string(t.Kind),
 		ModelIndex: t.ModelIndex, ShotIndex: t.ShotIndex, PoseIndex: t.PoseIndex,
@@ -85,7 +87,33 @@ func toTaskInfo(t *model.Task, batchStatus int8) *studio.TaskInfo {
 		ColorFixParams: parseColorFix(t.ColorFixParams),
 		MaskUrl:        t.MaskURL.String,
 		MaskParts:      parseMaskParts(t),
+		Warnings:       um.UserWarnings,
+		PromptText:     userPromptText(t),
+		PromptEdited:   um.Edited,
 	}
+}
+
+// userMeta prompt_meta 里用户侧可见的几项。
+type userMeta struct {
+	UserWarnings []string `json:"user_warnings"`
+	Edited       bool     `json:"edited"`
+}
+
+func parseUserMeta(t *model.Task) userMeta {
+	var m userMeta
+	if len(t.PromptMeta) > 0 {
+		_ = json.Unmarshal(t.PromptMeta, &m)
+	}
+	return m
+}
+
+// userPromptText 用户侧可见的完整提示词（验收 C2/C4/C16）：姿态复刻 / 商拍换装给实际送生图的全文（含首行图序声明，
+// 即「图1 原图，图2 姿势参考图」的对应关系）；图片生成的提示词是用户自己写的，不重复下发。
+func userPromptText(t *model.Task) string {
+	if t.Kind != model.KindPose && t.Kind != model.KindTryon {
+		return ""
+	}
+	return t.PromptText.String
 }
 
 // parseMaskParts 子任务逐件服装蒙版（mask_parts JSON）；没有合并蒙版 / 没有逐件 / 解析失败都返回 nil。
@@ -141,12 +169,14 @@ func toBatchInfo(b *model.Batch, tasks []*model.Task) *studio.BatchInfo {
 		TaskTotal: b.TaskTotal, TaskDone: b.TaskDone, TaskFailed: b.TaskFailed, EstimatedPoints: b.EstimatedPoints,
 		ErrorReason: b.ErrorReason.String, CreatedAt: b.CreatedAt.UnixMilli(), UpdatedAt: b.UpdatedAt.UnixMilli(),
 	}
+	var warns []string
 	for _, t := range tasks {
-		if t.Status == model.TaskSucceeded && t.ResultURL.String != "" {
+		if info.CoverUrl == "" && t.Status == model.TaskSucceeded && t.ResultURL.String != "" {
 			info.CoverUrl = t.ResultURL.String
-			break
 		}
+		warns = append(warns, parseUserMeta(t).UserWarnings...)
 	}
+	info.Warnings = pipeline.DedupeStrings(warns)
 	return info
 }
 

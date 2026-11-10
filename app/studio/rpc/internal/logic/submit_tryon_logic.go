@@ -25,7 +25,10 @@ func NewSubmitTryonLogic(ctx context.Context, svcCtx *svc.ServiceContext) *Submi
 
 // ---- 用户侧 ----
 func (l *SubmitTryonLogic) SubmitTryon(in *studio.SubmitTryonReq) (*studio.SubmitResp, error) {
-	v, err := ValidateTryon(in, l.svcCtx.Config.ModelGroupMap())
+	// 参考图上限预警取 gateway 目录（与 /studio/models 同一份缓存），与生图同口径
+	v, err := ValidateTryonCap(in, l.svcCtx.Config.ModelGroupMap(), func(group string) int {
+		return catalogRefCap(studioCatalog.get(l.ctx, l.svcCtx.Gateway), group)
+	})
 	if err != nil {
 		return nil, err
 	}

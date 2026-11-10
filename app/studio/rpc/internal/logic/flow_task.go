@@ -585,7 +585,7 @@ func (f *flow) saveAsset(ctx context.Context, t *model.Task, b *model.Batch, url
 	// 查重：交付在置成功前入库，置成功失败下一轮重来时这里已有一行，不再写第二条（查询失败照写，资产比去重要紧）
 	if m, err := f.repo.Task.AssetIDs(ctx, b.UserID, []string{t.TaskID.String}); err != nil {
 		logx.WithContext(ctx).Errorf("studio: 子任务 %d 入库前查重失败，照常写入: %v", t.ID, err)
-	} else if m[t.TaskID.String] > 0 {
+	} else if id := m[t.TaskID.String]; id > 0 && id > regenAssetFloor(t) {
 		return
 	}
 	p, _ := parsePayload(b.Payload)

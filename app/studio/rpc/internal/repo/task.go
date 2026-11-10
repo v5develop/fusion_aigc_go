@@ -140,9 +140,14 @@ func (r *TaskRepo) ListRenewable(ctx context.Context, afterID int64, limit int) 
 // ClaimRetry 后台重做先占轮次：attempt 仍是 attempt、任务仍是失败 / 已取消且未封禁时 attempt+1。返回是否占到。
 // 占到的轮次只属于这一次重做（attempt 只增不减），据此生成的计费请求号不会与并发 / 撤销过的重做重复。
 func (r *TaskRepo) ClaimRetry(ctx context.Context, id int64, attempt int32) (bool, error) {
+	return r.ClaimRetryFrom(ctx, id, attempt, []int8{model.TaskFailed, model.TaskCanceled})
+}
+
+// ClaimRetryFrom 同 ClaimRetry，可指定允许的状态（编辑提示词重新生成也收 成功）。
+func (r *TaskRepo) ClaimRetryFrom(ctx context.Context, id int64, attempt int32, statuses []int8) (bool, error) {
 	n, err := affected(r.db.NewUpdate().Table(TableTask).Set("attempt = attempt + 1").
 		Where("id = ?", id).Where("attempt = ?", attempt).
-		Where("status IN (?)", bun.In([]int8{model.TaskFailed, model.TaskCanceled})).
+		Where("status IN (?)", bun.In(statuses)).
 		Where("admin_locked = 0").Exec(ctx))
 	return n == 1, err
 }
@@ -151,9 +156,14 @@ func (r *TaskRepo) ClaimRetry(ctx context.Context, id int64, attempt int32) (boo
 // 任务仍是失败 / 已取消、未封禁、billing_request_id 仍是占轮次前的原号（oldReq，空串匹配 NULL / 空）时才退。
 // ClaimRetry 只动 attempt，所以这几个条件都成立 = 占轮次之后没有任何别的写入。返回是否退到。
 func (r *TaskRepo) ReleaseRetry(ctx context.Context, id int64, claimed int32, oldReq string) (bool, error) {
+	return r.ReleaseRetryFrom(ctx, id, claimed, oldReq, []int8{model.TaskFailed, model.TaskCanceled})
+}
+
+// ReleaseRetryFrom 同 ReleaseRetry，状态集合与 ClaimRetryFrom 一致。
+func (r *TaskRepo) ReleaseRetryFrom(ctx context.Context, id int64, claimed int32, oldReq string, statuses []int8) (bool, error) {
 	q := r.db.NewUpdate().Table(TableTask).Set("attempt = attempt - 1").
 		Where("id = ?", id).Where("attempt = ?", claimed).
-		Where("status IN (?)", bun.In([]int8{model.TaskFailed, model.TaskCanceled})).
+		Where("status IN (?)", bun.In(statuses)).
 		Where("admin_locked = 0")
 	if oldReq == "" {
 		q = q.Where("(billing_request_id IS NULL OR billing_request_id = '')")

@@ -230,7 +230,8 @@ type StepLog struct {
 	At        int64   `json:"at"`                   // 记录时间（unix 毫秒）
 }
 
-// SelectedImages afv_studio_batch.selected_images 的一项：某个模特最终送生图的图序。
+// SelectedImages afv_studio_batch.selected_images 的一项：某个模特**反推读图**选中的图（≤9，模特在前的展示顺序）。
+// 不是生图输入——生图参考图按模型上限另行组装（≤14），实际送生图的图序见 afv_studio_task.input_images。
 type SelectedImages struct {
 	ModelIndex int          `json:"model_index"`
 	Images     []InputImage `json:"images"`

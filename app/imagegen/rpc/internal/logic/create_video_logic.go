@@ -8,6 +8,7 @@ import (
 	"aigc-local-life/pkg/linkparse"
 	"context"
 
+	"aigc-local-life/app/imagegen/rpc/internal/config"
 	"aigc-local-life/app/imagegen/rpc/internal/svc"
 	"aigc-local-life/app/imagegen/rpc/pb"
 	"errors"
@@ -77,12 +78,9 @@ func (l *CreateVideoLogic) CreateVideo(in *pb.CreateVideoReq) (*pb.VideoInfo, er
 		return nil, err
 	}
 
-	duration := in.Duration
-	if duration == 0 {
-		duration = defaultDurationOf(l.ctx, l.svcCtx, genVideoDurations, int32(cfg.DefaultDuration))
-	}
-	if !containsDuration(durationsOf(l.ctx, l.svcCtx, genVideoDurations, videoDurations), duration) {
-		return nil, xerr.Param("视频时长无效")
+	duration, err := videoDurationOf(l.ctx, l.svcCtx, cfg, in.Duration)
+	if err != nil {
+		return nil, err
 	}
 	size := strings.TrimSpace(in.Size)
 	if size == "" {
@@ -91,12 +89,9 @@ func (l *CreateVideoLogic) CreateVideo(in *pb.CreateVideoReq) (*pb.VideoInfo, er
 	if !validOption(l.ctx, l.svcCtx, genVideoSizes, videoSizes, size) {
 		return nil, xerr.Param("视频比例无效")
 	}
-	mdl := strings.TrimSpace(in.Model)
-	if mdl == "" {
-		mdl = defaultOf(l.ctx, l.svcCtx, genVideoModels, cfg.DefaultModel)
-	}
-	if !validModel(optionsOf(l.ctx, l.svcCtx, genVideoModels, videoModels), mdl) {
-		return nil, xerr.Param("模型无效")
+	mdl, err := videoModelOf(l.ctx, l.svcCtx, cfg, in.Model)
+	if err != nil {
+		return nil, err
 	}
 
 	// 出镜人物图：选填，三种来源交给数字人服务解析
@@ -357,4 +352,27 @@ func orDefault(s, fallback string) string {
 		return fallback
 	}
 	return s
+}
+
+// videoDurationOf 探店 / 短剧的视频时长归一（不传取后台默认，取值必须在选项里）。提交与报价共用。
+func videoDurationOf(ctx context.Context, svcCtx *svc.ServiceContext, cfg *config.VideoKindConf, duration int32) (int32, error) {
+	if duration == 0 {
+		duration = defaultDurationOf(ctx, svcCtx, genVideoDurations, int32(cfg.DefaultDuration))
+	}
+	if !containsDuration(durationsOf(ctx, svcCtx, genVideoDurations, videoDurations), duration) {
+		return 0, xerr.Param("视频时长无效")
+	}
+	return duration, nil
+}
+
+// videoModelOf 探店 / 短剧的模型档位归一。提交与报价共用。
+func videoModelOf(ctx context.Context, svcCtx *svc.ServiceContext, cfg *config.VideoKindConf, mdl string) (string, error) {
+	mdl = strings.TrimSpace(mdl)
+	if mdl == "" {
+		mdl = defaultOf(ctx, svcCtx, genVideoModels, cfg.DefaultModel)
+	}
+	if !validModel(optionsOf(ctx, svcCtx, genVideoModels, videoModels), mdl) {
+		return "", xerr.Param("模型无效")
+	}
+	return mdl, nil
 }

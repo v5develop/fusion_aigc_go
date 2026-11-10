@@ -12,9 +12,10 @@
 | 资产关系 | `POST` / `DELETE /assets/:id/relations` |
 | 标签字典 | `GET` / `POST /tags`、`PUT` / `DELETE /tags/:id` |
 | 批量打标签 | `POST /assets/batch-tag` |
+| 删除资产（单个 / 批量） | `DELETE /assets/:id`、`POST /assets/batch-delete` |
 
 > 本文以 `app/gateway/api/gateway.api` 的 assetlib 组为准，字段名一律下划线。实现与本文不一致时，以接口定义为准，并请通知后端更新本文。
-> 资产本身的上传、删除仍走 Java 的 `/api/v1/asset`（本模块不增删资产）。管理后台的接口见最后一章。
+> 资产本身的上传仍走 Java 的 `/api/v1/asset`；删除可走本模块（3.3，逻辑删除，与 Java 删除同口径）。管理后台的接口见最后一章。
 
 ---
 
@@ -143,6 +144,7 @@
 | `media` | 空 = 全部；`image` / `video` |
 | `aspect_ratio` | 空 = 不限；比例 `宽:高`（各 1~2 位数字，如 `1:1` / `3:4` / `4:3` / `9:16` / `16:9`），按素材的 `aspect_ratio` 精确匹配；格式不对返回参数错误 |
 | `tag` | 标签名（精确匹配） |
+| `untagged` | `true` 只看没挂任何标签的资产（「未分类」，口径同 `GET /tags` 的 `untagged_count`）；不能与 `tag` 同传（`1003`） |
 | `favorite_only` | `true` 只看收藏 |
 | `q` | 关键字（标题 / 提示词，模糊） |
 | `page` / `page_size` | 见 1.3 |
@@ -252,6 +254,19 @@ PATCH /api/v1/asset-library/assets/1351
 原型 v1.0 里 PATCH 只改名 / 收藏，其余字段按需接入即可。
 
 ---
+
+### 3.3 删除 `DELETE /assets/:id`、`POST /assets/batch-delete`
+
+- 只删**本人的上传 / AI 生成**资产（`source` 为 `upload` / `generated`）；**官方素材不可删除**。
+- 逻辑删除（`afv_asset.deleted = 1`，与 Java 删除同口径），同一事务解除该资产与本人标签的关联；**不删存储对象**、不动任务结果（免费档原图 / 水印副本挂在任务与存储上，不受影响）、不删版本 / 关系 / 分类旁表（读侧只认未删除资产）。删除后列表、各计数、详情都看不到它。
+- 单删：不存在 / 不是自己的 → `4001`；官方素材 → `2005`「官方素材不可删除」。
+- 批量 body `{"asset_ids": [1351, 1352]}`（≤100）：官方素材与不存在的 id **静默跳过**并分别计数，不算错误。
+
+两者返回同形：
+
+```json
+{"deleted": 2, "official_skipped": 1, "missing": 0, "deleted_ids": [1351, 1352]}
+```
 
 ## 4. 版本
 

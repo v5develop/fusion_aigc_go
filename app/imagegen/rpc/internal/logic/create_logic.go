@@ -99,12 +99,9 @@ func (l *CreateLogic) Create(in *pb.CreateReq) (*pb.CreationInfo, error) {
 	} else {
 		size = defaultSizeOf(l.ctx, l.svcCtx, in.Kind, cfg.DefaultSize) // 长图比例固定
 	}
-	count := int64(in.ImageCount)
-	if count == 0 {
-		count = 1
-	}
-	if count < 1 || count > int64(lim.MaxImages) {
-		return nil, xerr.Newf(xerr.ParamError, "生成数量为 1–%d 张", lim.MaxImages)
+	count, err := imageCountOf(lim.MaxImages, in.ImageCount)
+	if err != nil {
+		return nil, err
 	}
 
 	// 海报可以指定档位（options 下发的 models）；不传用配置里的默认。长图没有 model 参数
@@ -217,20 +214,9 @@ func (l *CreateLogic) createVoiceover(in *pb.CreateReq, cfg *config.KindConf) (*
 	if content == "" {
 		return nil, xerr.Param("请输入口播文案")
 	}
-	vm := optionsOf(l.ctx, l.svcCtx, genVoiceoverModels, voiceoverModels)
-	mdl := in.Model
-	if mdl == "" {
-		mdl = defaultOf(l.ctx, l.svcCtx, genVoiceoverModels, vm[0].Code)
-	}
-	if !validModel(vm, mdl) {
-		return nil, xerr.Param("模型无效")
-	}
-	duration := in.Duration
-	if duration == 0 {
-		duration = defaultDurationOf(l.ctx, l.svcCtx, genVoiceoverDurations, voiceoverDurations[0])
-	}
-	if !containsDuration(durationsOf(l.ctx, l.svcCtx, genVoiceoverDurations, voiceoverDurations), duration) {
-		return nil, xerr.Param("视频时长无效")
+	mdl, duration, err := voiceoverModelDuration(l.ctx, l.svcCtx, in.Model, in.Duration)
+	if err != nil {
+		return nil, err
 	}
 	size := strings.TrimSpace(in.Size)
 	if size == "" {
@@ -290,4 +276,34 @@ func (l *CreateLogic) background(in *pb.CreateReq, cfg *config.KindConf) (int64,
 		return 0, u, nil
 	}
 	return 0, "", xerr.Param("背景来源无效")
+}
+
+// imageCountOf 海报 / 长图张数归一：不传按 1 张，超出 1–max 拒绝。提交与报价共用。
+func imageCountOf(maxImages int, n int32) (int64, error) {
+	count := int64(n)
+	if count == 0 {
+		count = 1
+	}
+	if count < 1 || count > int64(maxImages) {
+		return 0, xerr.Newf(xerr.ParamError, "生成数量为 1–%d 张", maxImages)
+	}
+	return count, nil
+}
+
+// voiceoverModelDuration 数字人口播的模型与时长归一（不传取后台默认，取值必须在选项里）。提交与报价共用。
+func voiceoverModelDuration(ctx context.Context, svcCtx *svc.ServiceContext, mdl string, duration int32) (string, int32, error) {
+	vm := optionsOf(ctx, svcCtx, genVoiceoverModels, voiceoverModels)
+	if mdl == "" {
+		mdl = defaultOf(ctx, svcCtx, genVoiceoverModels, vm[0].Code)
+	}
+	if !validModel(vm, mdl) {
+		return "", 0, xerr.Param("模型无效")
+	}
+	if duration == 0 {
+		duration = defaultDurationOf(ctx, svcCtx, genVoiceoverDurations, voiceoverDurations[0])
+	}
+	if !containsDuration(durationsOf(ctx, svcCtx, genVoiceoverDurations, voiceoverDurations), duration) {
+		return "", 0, xerr.Param("视频时长无效")
+	}
+	return mdl, duration, nil
 }

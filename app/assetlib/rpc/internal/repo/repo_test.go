@@ -71,6 +71,8 @@ func TestListFilters(t *testing.T) {
 		{"upload+收藏+标签+关键字(转义)", Filter{UserID: 7, Source: "upload", FavoriteOnly: true, Tag: "红", Q: "a_%"}, nil,
 			ownedSQL + " AND (a.source_type = 1) AND (e.favorite = 1) AND (EXISTS (SELECT 1 FROM afv_asset_tag_link AS l JOIN afv_asset_tag AS t ON t.id = l.tag_id " +
 				"WHERE l.asset_id = a.id AND t.user_id = 7 AND t.name = '红')) AND ((a.name LIKE '%a\\\\_\\\\%%' OR a.ai_prompt LIKE '%a\\\\_\\\\%%'))"},
+		{"未分类(无标签)", Filter{UserID: 7, Untagged: true}, nil,
+			ownedSQL + " AND (NOT EXISTS (SELECT 1 FROM afv_asset_tag_link AS l JOIN afv_asset_tag AS t ON t.id = l.tag_id WHERE l.asset_id = a.id AND t.user_id = 7))"},
 		{"相关资产", Filter{UserID: 7, RelatedOf: 3}, nil,
 			ownedSQL + " AND (a.id IN (SELECT related_asset_id FROM afv_asset_relation WHERE asset_id = 3 AND relation_type IN ('reference', 'generated_from') " +
 				"UNION SELECT asset_id FROM afv_asset_relation WHERE related_asset_id = 3 AND relation_type = 'reference'))"},
@@ -293,6 +295,42 @@ func TestTagCountExcludesDrafts(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id"}))
 	if _, err := r.Tag.List(ctx, 7); err != nil {
 		t.Fatal(err)
+	}
+	done(t, mock)
+}
+
+// 删除前分流：只取本人未删除非草稿的 id + source_type。
+func TestOwnedSources(t *testing.T) {
+	r, mock := newMock(t)
+	mock.ExpectQuery(q("SELECT `a`.`id`, `a`.`source_type` FROM afv_asset AS a WHERE (a.id IN (1, 2, 3)) AND (a.user_id = 7) AND (a.deleted = 0) AND ((a.status IS NULL OR a.status <> 0))") + "$").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "source_type"}).AddRow(1, 1).AddRow(2, nil))
+	got, err := r.Asset.OwnedSources(ctx, 7, []int64{1, 2, 3})
+	if err != nil || len(got) != 2 || got[0].SourceType.Int64 != 1 || got[1].SourceType.Valid {
+		t.Fatalf("got=%+v err=%v", got, err)
+	}
+	done(t, mock)
+}
+
+// 逻辑删除：只置 deleted，条件带归属 + 未删除 + 来源 1/2（官方素材混进来也删不掉）。
+func TestSoftDeleteGuardsOwnerAndSource(t *testing.T) {
+	r, mock := newMock(t)
+	mock.ExpectExec(q("UPDATE `afv_asset` SET deleted = 1 WHERE (id IN (1, 2)) AND (user_id = 7) AND (deleted = 0) AND (source_type IN (1, 2))") + "$").
+		WillReturnResult(sqlmock.NewResult(0, 2))
+	if n, err := r.Asset.SoftDelete(ctx, 7, []int64{1, 2}); n != 2 || err != nil {
+		t.Fatalf("n=%d err=%v", n, err)
+	}
+	if n, err := r.Asset.SoftDelete(ctx, 7, nil); n != 0 || err != nil {
+		t.Fatalf("空 ids 不应执行：n=%d err=%v", n, err)
+	}
+	done(t, mock)
+}
+
+// 解除标签：只删本人字典里的标签关联。
+func TestUnlinkAssetsScopedByUser(t *testing.T) {
+	r, mock := newMock(t)
+	mock.ExpectExec(q("DELETE FROM `afv_asset_tag_link` WHERE (asset_id IN (1, 2)) AND (" + ownedTagLinkSQL + ")")).WillReturnResult(sqlmock.NewResult(0, 3))
+	if n, err := r.Tag.UnlinkAssets(ctx, 7, []int64{1, 2}); n != 3 || err != nil {
+		t.Fatalf("n=%d err=%v", n, err)
 	}
 	done(t, mock)
 }

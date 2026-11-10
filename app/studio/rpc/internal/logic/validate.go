@@ -192,6 +192,48 @@ type TryonInput struct {
 	ModelGroup    string
 	CountPerModel int32
 	Warnings      []string // 分辨率按 model group 归一的告警
+	FineRead      bool     // 精细读图
+	// DetailCropsManual=true：编排按 DetailCrops 切图（可为空 = 不用细节图），不再自动找细节
+	DetailCrops       []pipeline.UserCrop
+	DetailCropsManual bool
+}
+
+// CheckDetailCrops 用户确认的细节框（AI 找细节 → 删减 / 重新裁切后带回）：manual=false 时忽略（返回 nil）。
+// 校验：总数 ≤24、每张服装图 ≤12、garment_index 在服装图范围内、框合法（C3）、部位名非空且 ≤24 字。
+func CheckDetailCrops(crops []*studio.DetailCrop, garments int, manual bool) ([]pipeline.UserCrop, error) {
+	if !manual {
+		return nil, nil
+	}
+	if len(crops) > pipeline.MaxUserCrops {
+		return nil, xerr.Param(fmt.Sprintf("细节图最多 %d 张", pipeline.MaxUserCrops))
+	}
+	per := map[int]int{}
+	out := make([]pipeline.UserCrop, 0, len(crops))
+	for i, c := range crops {
+		if c == nil {
+			return nil, xerr.Param(fmt.Sprintf("细节图第 %d 张为空", i+1))
+		}
+		gi := int(c.GarmentIndex)
+		if gi < 0 || gi >= garments {
+			return nil, xerr.Param(fmt.Sprintf("细节图第 %d 张对应的服装图不存在", i+1))
+		}
+		if per[gi]++; per[gi] > pipeline.MaxUserCropsPerImage {
+			return nil, xerr.Param(fmt.Sprintf("服装图第 %d 张的细节图最多 %d 张", gi+1, pipeline.MaxUserCropsPerImage))
+		}
+		label := strings.TrimSpace(c.Label)
+		if label == "" || utf8.RuneCountInString(label) > pipeline.MaxCropLabelRunes {
+			return nil, xerr.Param(fmt.Sprintf("细节图第 %d 张的部位名为空或过长", i+1))
+		}
+		if !pipeline.ValidNormBox(c.Box) {
+			return nil, xerr.Param(fmt.Sprintf("细节图第 %d 张的裁切框无效", i+1))
+		}
+		conf := c.Confidence
+		if conf < 0 || conf > 1 {
+			conf = 0
+		}
+		out = append(out, pipeline.UserCrop{GarmentIndex: gi, Label: label, Box: append([]float64(nil), c.Box...), Confidence: conf})
+	}
+	return out, nil
 }
 
 // CheckItems 单品：1–3 件、取值已知、不重复、互斥。
@@ -272,8 +314,16 @@ func filterByItems(m map[string]string, items []string) map[string]string {
 	return out
 }
 
-// ValidateTryon 校验顺序与前端一致：单品 → 服装图 → 模特 → 其余。
+// ValidateTryon 校验顺序与前端一致：单品 → 服装图 → 模特 → 其余。参考图上限预警只用兜底表（单测 / 无目录时）；
+// 提交接口用 ValidateTryonCap 传入 gateway 目录的上限，与生图、/studio/models 同口径。
 func ValidateTryon(in *studio.SubmitTryonReq, groups map[string]string) (*TryonInput, error) {
+	return ValidateTryonCap(in, groups, nil)
+}
+
+// ValidateTryonCap 同 ValidateTryon；catalogCap 按模型组返回 gateway 目录 feature_limits.max_reference_images
+// （0 / nil = 不知道，用兜底表），经 pipeline.RefCap 归一——与生图组装（flow_batch genOptions → RefCap）、
+// /studio/models 的 max_ref_images 同一个上限，提交预警才不会和实际生图对不上。
+func ValidateTryonCap(in *studio.SubmitTryonReq, groups map[string]string, catalogCap func(group string) int) (*TryonInput, error) {
 	if err := checkUserRequest(in.UserId, in.RequestId); err != nil {
 		return nil, err
 	}
@@ -337,6 +387,21 @@ func ValidateTryon(in *studio.SubmitTryonReq, groups map[string]string) (*TryonI
 	if lim := pipeline.GPT26MaxRefs(group, pipeline.KindTryon); lim > 0 && len(gs)+1 > lim {
 		return nil, xerr.Param(fmt.Sprintf("GPT Image 2.6 服装图最多 %d 张（连同模特图共 %d 张参考图），请减少服装图或换用其它模型", lim-1, lim))
 	}
+	// 参考图上限预警（此时还没切图，按服装图张数推算）：服装图放不下 / 细节图会减少，提交响应 warnings 直接给用户看
+	catCap := 0
+	if catalogCap != nil {
+		catCap = catalogCap(group)
+	}
+	refCap := pipeline.RefCap(group, pipeline.KindTryon, catCap)
+	crops, err := CheckDetailCrops(in.DetailCrops, len(gs), in.DetailCropsManual)
+	if err != nil {
+		return nil, err
+	}
+	if in.DetailCropsManual {
+		warns = append(warns, manualCropWarnings(refCap, len(gs), len(crops))...)
+	} else {
+		warns = append(warns, pipeline.SubmitRefWarnings(refCap, len(gs))...)
+	}
 	models := make([]string, 0, len(in.ModelImageUrls))
 	for _, u := range in.ModelImageUrls {
 		models = append(models, strings.TrimSpace(u))
@@ -345,7 +410,27 @@ func ValidateTryon(in *studio.SubmitTryonReq, groups map[string]string) (*TryonI
 		Items: items, Garments: gs, Models: models, SetMode: setMode,
 		Lengths: filterByItems(in.Lengths, items), Sleeves: filterByItems(in.Sleeves, items),
 		Resolution: res, AspectRatio: ar, ModelName: name, ModelGroup: group, CountPerModel: in.CountPerModel, Warnings: warns,
+		FineRead: in.FineRead, DetailCrops: crops, DetailCropsManual: in.DetailCropsManual,
 	}, nil
+}
+
+// manualCropWarnings 用户自选细节框时的提交预警：服装图放不下照旧提示；细节框多于名额（参考图上限 − 服装图 − 模特 1）时说明会少用几张。
+func manualCropWarnings(refCap, mains, crops int) []string {
+	var out []string
+	for _, w := range pipeline.SubmitRefWarnings(refCap, mains) {
+		if !strings.Contains(w, "细节图") { // 细节图那句按自动切图估算，这里换成按实际框数的说法
+			out = append(out, w)
+		}
+	}
+	kept := min(mains, max(0, pipeline.ClampRefCap(refCap)-1))
+	if budget := pipeline.CropBudget(pipeline.ClampRefCap(refCap), kept); crops > budget {
+		if budget == 0 {
+			out = append(out, fmt.Sprintf("所选模型的参考图数量将被服装图占满，已选的 %d 张细节图将不参与生成", crops))
+		} else {
+			out = append(out, fmt.Sprintf("所选模型最多还能放 %d 张细节图，已选的 %d 张中将保留 %d 张", budget, crops, budget))
+		}
+	}
+	return out
 }
 
 // ---------------- 姿态复刻 ----------------

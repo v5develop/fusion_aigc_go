@@ -24,11 +24,15 @@ type (
 	NoteType    = pb.NoteType
 	OptionsResp = pb.OptionsResp
 	PlanReq     = pb.PlanReq
+	QuoteReq    = pb.QuoteReq
+	QuoteResp   = pb.QuoteResp
 	ReplanReq   = pb.ReplanReq
 	UpdateReq   = pb.UpdateReq
 
 	Note interface {
 		// ---- App ----
+		Quote(ctx context.Context, in *QuoteReq, opts ...grpc.CallOption) (*QuoteResp, error)
+		// 表单配置：笔记类型、素材与套图上限
 		Options(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*OptionsResp, error)
 		// 开始构思（异步，轮询 Get；完成后进入规划页）
 		Plan(ctx context.Context, in *PlanReq, opts ...grpc.CallOption) (*NoteInfo, error)
@@ -60,6 +64,12 @@ func NewNote(cli zrpc.Client) Note {
 }
 
 // ---- App ----
+func (m *defaultNote) Quote(ctx context.Context, in *QuoteReq, opts ...grpc.CallOption) (*QuoteResp, error) {
+	client := pb.NewNoteClient(m.cli.Conn())
+	return client.Quote(ctx, in, opts...)
+}
+
+// 表单配置：笔记类型、素材与套图上限
 func (m *defaultNote) Options(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*OptionsResp, error) {
 	client := pb.NewNoteClient(m.cli.Conn())
 	return client.Options(ctx, in, opts...)

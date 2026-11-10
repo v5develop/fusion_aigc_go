@@ -2030,6 +2030,199 @@ func (x *AdminResolveResp) GetRefundedPoints() int64 {
 	return 0
 }
 
+type QuoteReq struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *QuoteReq) Reset() {
+	*x = QuoteReq{}
+	mi := &file_copywriting_proto_msgTypes[28]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *QuoteReq) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QuoteReq) ProtoMessage() {}
+
+func (x *QuoteReq) ProtoReflect() protoreflect.Message {
+	mi := &file_copywriting_proto_msgTypes[28]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QuoteReq.ProtoReflect.Descriptor instead.
+func (*QuoteReq) Descriptor() ([]byte, []int) {
+	return file_copywriting_proto_rawDescGZIP(), []int{28}
+}
+
+func (x *QuoteReq) GetUserId() int64 {
+	if x != nil {
+		return x.UserId
+	}
+	return 0
+}
+
+// 提交前报价（只读，不冻结）：用提交时同一个计费请求算价，返回本次会冻结的点数。见 pkg/billing/estimate.go
+type QuoteResp struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Available     bool                   `protobuf:"varint,1,opt,name=available,proto3" json:"available,omitempty"` // 能否报出价；false 时 points 为 0，原因见 reason
+	Reason        string                 `protobuf:"bytes,2,opt,name=reason,proto3" json:"reason,omitempty"`
+	BillingMode   string                 `protobuf:"bytes,3,opt,name=billing_mode,json=billingMode,proto3" json:"billing_mode,omitempty"` // off / shadow / on
+	Charged       bool                   `protobuf:"varint,4,opt,name=charged,proto3" json:"charged,omitempty"`                           // 提交是否真的冻结点数（仅 on）
+	Points        int64                  `protobuf:"varint,5,opt,name=points,proto3" json:"points,omitempty"`                             // 按这组参数算出的点数（exact=false 时为最低）
+	UnitPoints    int64                  `protobuf:"varint,6,opt,name=unit_points,json=unitPoints,proto3" json:"unit_points,omitempty"`   // 单价：每张 / 每秒
+	PriceUnit     string                 `protobuf:"bytes,7,opt,name=price_unit,json=priceUnit,proto3" json:"price_unit,omitempty"`       // PER_IMAGE / PER_SECOND / PER_REQUEST / PER_VIDEO
+	Quantity      int32                  `protobuf:"varint,8,opt,name=quantity,proto3" json:"quantity,omitempty"`                         // 计量：张数或秒数
+	Exact         bool                   `protobuf:"varint,9,opt,name=exact,proto3" json:"exact,omitempty"`                               // points 是否就是冻结数；false = 要等提交后才知道计量（配音时长 / 原片时长）
+	PointsMax     int64                  `protobuf:"varint,10,opt,name=points_max,json=pointsMax,proto3" json:"points_max,omitempty"`     // exact=false 时的最高点数（0 = 不知道）
+	Stage         string                 `protobuf:"bytes,11,opt,name=stage,proto3" json:"stage,omitempty"`                               // 冻结发生在哪一步：submit 提交即冻结 / generate 构思免费、出片（出图）时冻结
+	Balance       int64                  `protobuf:"varint,12,opt,name=balance,proto3" json:"balance,omitempty"`                          // 当前可用余额
+	BalanceKnown  bool                   `protobuf:"varint,13,opt,name=balance_known,json=balanceKnown,proto3" json:"balance_known,omitempty"`
+	Sufficient    bool                   `protobuf:"varint,14,opt,name=sufficient,proto3" json:"sufficient,omitempty"` // 余额是否够 points（charged=false 时恒为 true）
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *QuoteResp) Reset() {
+	*x = QuoteResp{}
+	mi := &file_copywriting_proto_msgTypes[29]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *QuoteResp) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QuoteResp) ProtoMessage() {}
+
+func (x *QuoteResp) ProtoReflect() protoreflect.Message {
+	mi := &file_copywriting_proto_msgTypes[29]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QuoteResp.ProtoReflect.Descriptor instead.
+func (*QuoteResp) Descriptor() ([]byte, []int) {
+	return file_copywriting_proto_rawDescGZIP(), []int{29}
+}
+
+func (x *QuoteResp) GetAvailable() bool {
+	if x != nil {
+		return x.Available
+	}
+	return false
+}
+
+func (x *QuoteResp) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+func (x *QuoteResp) GetBillingMode() string {
+	if x != nil {
+		return x.BillingMode
+	}
+	return ""
+}
+
+func (x *QuoteResp) GetCharged() bool {
+	if x != nil {
+		return x.Charged
+	}
+	return false
+}
+
+func (x *QuoteResp) GetPoints() int64 {
+	if x != nil {
+		return x.Points
+	}
+	return 0
+}
+
+func (x *QuoteResp) GetUnitPoints() int64 {
+	if x != nil {
+		return x.UnitPoints
+	}
+	return 0
+}
+
+func (x *QuoteResp) GetPriceUnit() string {
+	if x != nil {
+		return x.PriceUnit
+	}
+	return ""
+}
+
+func (x *QuoteResp) GetQuantity() int32 {
+	if x != nil {
+		return x.Quantity
+	}
+	return 0
+}
+
+func (x *QuoteResp) GetExact() bool {
+	if x != nil {
+		return x.Exact
+	}
+	return false
+}
+
+func (x *QuoteResp) GetPointsMax() int64 {
+	if x != nil {
+		return x.PointsMax
+	}
+	return 0
+}
+
+func (x *QuoteResp) GetStage() string {
+	if x != nil {
+		return x.Stage
+	}
+	return ""
+}
+
+func (x *QuoteResp) GetBalance() int64 {
+	if x != nil {
+		return x.Balance
+	}
+	return 0
+}
+
+func (x *QuoteResp) GetBalanceKnown() bool {
+	if x != nil {
+		return x.BalanceKnown
+	}
+	return false
+}
+
+func (x *QuoteResp) GetSufficient() bool {
+	if x != nil {
+		return x.Sufficient
+	}
+	return false
+}
+
 var File_copywriting_proto protoreflect.FileDescriptor
 
 const file_copywriting_proto_rawDesc = "" +
@@ -2213,8 +2406,32 @@ const file_copywriting_proto_rawDesc = "" +
 	"\x04note\x18\x02 \x01(\tR\x04note\"j\n" +
 	"\x10AdminResolveResp\x12-\n" +
 	"\x12reservation_status\x18\x01 \x01(\tR\x11reservationStatus\x12'\n" +
-	"\x0frefunded_points\x18\x02 \x01(\x03R\x0erefundedPoints2\xb6\f\n" +
-	"\vCopywriting\x127\n" +
+	"\x0frefunded_points\x18\x02 \x01(\x03R\x0erefundedPoints\"#\n" +
+	"\bQuoteReq\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\x03R\x06userId\"\x9c\x03\n" +
+	"\tQuoteResp\x12\x1c\n" +
+	"\tavailable\x18\x01 \x01(\bR\tavailable\x12\x16\n" +
+	"\x06reason\x18\x02 \x01(\tR\x06reason\x12!\n" +
+	"\fbilling_mode\x18\x03 \x01(\tR\vbillingMode\x12\x18\n" +
+	"\acharged\x18\x04 \x01(\bR\acharged\x12\x16\n" +
+	"\x06points\x18\x05 \x01(\x03R\x06points\x12\x1f\n" +
+	"\vunit_points\x18\x06 \x01(\x03R\n" +
+	"unitPoints\x12\x1d\n" +
+	"\n" +
+	"price_unit\x18\a \x01(\tR\tpriceUnit\x12\x1a\n" +
+	"\bquantity\x18\b \x01(\x05R\bquantity\x12\x14\n" +
+	"\x05exact\x18\t \x01(\bR\x05exact\x12\x1d\n" +
+	"\n" +
+	"points_max\x18\n" +
+	" \x01(\x03R\tpointsMax\x12\x14\n" +
+	"\x05stage\x18\v \x01(\tR\x05stage\x12\x18\n" +
+	"\abalance\x18\f \x01(\x03R\abalance\x12#\n" +
+	"\rbalance_known\x18\r \x01(\bR\fbalanceKnown\x12\x1e\n" +
+	"\n" +
+	"sufficient\x18\x0e \x01(\bR\n" +
+	"sufficient2\xee\f\n" +
+	"\vCopywriting\x126\n" +
+	"\x05Quote\x12\x15.copywriting.QuoteReq\x1a\x16.copywriting.QuoteResp\x127\n" +
 	"\aOptions\x12\x12.copywriting.Empty\x1a\x18.copywriting.OptionsResp\x12<\n" +
 	"\aAiWrite\x12\x17.copywriting.AiWriteReq\x1a\x18.copywriting.AiWriteResp\x12B\n" +
 	"\bGenerate\x12\x18.copywriting.GenerateReq\x1a\x1c.copywriting.CopywritingInfo\x12F\n" +
@@ -2252,7 +2469,7 @@ func file_copywriting_proto_rawDescGZIP() []byte {
 	return file_copywriting_proto_rawDescData
 }
 
-var file_copywriting_proto_msgTypes = make([]protoimpl.MessageInfo, 28)
+var file_copywriting_proto_msgTypes = make([]protoimpl.MessageInfo, 30)
 var file_copywriting_proto_goTypes = []any{
 	(*Empty)(nil),               // 0: copywriting.Empty
 	(*TextResp)(nil),            // 1: copywriting.TextResp
@@ -2282,6 +2499,8 @@ var file_copywriting_proto_goTypes = []any{
 	(*DerivativeList)(nil),      // 25: copywriting.DerivativeList
 	(*AdminResolveReq)(nil),     // 26: copywriting.AdminResolveReq
 	(*AdminResolveResp)(nil),    // 27: copywriting.AdminResolveResp
+	(*QuoteReq)(nil),            // 28: copywriting.QuoteReq
+	(*QuoteResp)(nil),           // 29: copywriting.QuoteResp
 }
 var file_copywriting_proto_depIdxs = []int32{
 	3,  // 0: copywriting.ShopProfileList.list:type_name -> copywriting.ShopProfile
@@ -2293,54 +2512,56 @@ var file_copywriting_proto_depIdxs = []int32{
 	10, // 6: copywriting.OptionsResp.model:type_name -> copywriting.ModelInfo
 	18, // 7: copywriting.CopywritingList.list:type_name -> copywriting.CopywritingInfo
 	24, // 8: copywriting.DerivativeList.list:type_name -> copywriting.Derivative
-	0,  // 9: copywriting.Copywriting.Options:input_type -> copywriting.Empty
-	12, // 10: copywriting.Copywriting.AiWrite:input_type -> copywriting.AiWriteReq
-	14, // 11: copywriting.Copywriting.Generate:input_type -> copywriting.GenerateReq
-	15, // 12: copywriting.Copywriting.Regenerate:input_type -> copywriting.RegenerateReq
-	16, // 13: copywriting.Copywriting.Create:input_type -> copywriting.CreateReq
-	7,  // 14: copywriting.Copywriting.Get:input_type -> copywriting.IdUserReq
-	19, // 15: copywriting.Copywriting.List:input_type -> copywriting.ListReq
-	17, // 16: copywriting.Copywriting.Update:input_type -> copywriting.UpdateReq
-	7,  // 17: copywriting.Copywriting.Delete:input_type -> copywriting.IdUserReq
-	23, // 18: copywriting.Copywriting.Derivatives:input_type -> copywriting.DerivativesReq
-	2,  // 19: copywriting.Copywriting.CreateShopProfile:input_type -> copywriting.ShopProfileForm
-	2,  // 20: copywriting.Copywriting.UpdateShopProfile:input_type -> copywriting.ShopProfileForm
-	7,  // 21: copywriting.Copywriting.GetShopProfile:input_type -> copywriting.IdUserReq
-	4,  // 22: copywriting.Copywriting.ListShopProfiles:input_type -> copywriting.ShopProfileListReq
-	7,  // 23: copywriting.Copywriting.DeleteShopProfile:input_type -> copywriting.IdUserReq
-	7,  // 24: copywriting.Copywriting.ProfileText:input_type -> copywriting.IdUserReq
-	22, // 25: copywriting.Copywriting.AdminListOptions:input_type -> copywriting.AdminListOptionsReq
-	8,  // 26: copywriting.Copywriting.AdminSaveOption:input_type -> copywriting.OptionInfo
-	6,  // 27: copywriting.Copywriting.AdminDeleteOption:input_type -> copywriting.IdReq
-	21, // 28: copywriting.Copywriting.AdminListCopywriting:input_type -> copywriting.AdminListReq
-	6,  // 29: copywriting.Copywriting.AdminDeleteCopywriting:input_type -> copywriting.IdReq
-	26, // 30: copywriting.Copywriting.AdminResolveStuckCopywriting:input_type -> copywriting.AdminResolveReq
-	0,  // 31: copywriting.Copywriting.AdminGetModel:input_type -> copywriting.Empty
-	11, // 32: copywriting.Copywriting.Options:output_type -> copywriting.OptionsResp
-	13, // 33: copywriting.Copywriting.AiWrite:output_type -> copywriting.AiWriteResp
-	18, // 34: copywriting.Copywriting.Generate:output_type -> copywriting.CopywritingInfo
-	18, // 35: copywriting.Copywriting.Regenerate:output_type -> copywriting.CopywritingInfo
-	18, // 36: copywriting.Copywriting.Create:output_type -> copywriting.CopywritingInfo
-	18, // 37: copywriting.Copywriting.Get:output_type -> copywriting.CopywritingInfo
-	20, // 38: copywriting.Copywriting.List:output_type -> copywriting.CopywritingList
-	18, // 39: copywriting.Copywriting.Update:output_type -> copywriting.CopywritingInfo
-	0,  // 40: copywriting.Copywriting.Delete:output_type -> copywriting.Empty
-	25, // 41: copywriting.Copywriting.Derivatives:output_type -> copywriting.DerivativeList
-	3,  // 42: copywriting.Copywriting.CreateShopProfile:output_type -> copywriting.ShopProfile
-	3,  // 43: copywriting.Copywriting.UpdateShopProfile:output_type -> copywriting.ShopProfile
-	3,  // 44: copywriting.Copywriting.GetShopProfile:output_type -> copywriting.ShopProfile
-	5,  // 45: copywriting.Copywriting.ListShopProfiles:output_type -> copywriting.ShopProfileList
-	0,  // 46: copywriting.Copywriting.DeleteShopProfile:output_type -> copywriting.Empty
-	1,  // 47: copywriting.Copywriting.ProfileText:output_type -> copywriting.TextResp
-	9,  // 48: copywriting.Copywriting.AdminListOptions:output_type -> copywriting.OptionList
-	8,  // 49: copywriting.Copywriting.AdminSaveOption:output_type -> copywriting.OptionInfo
-	0,  // 50: copywriting.Copywriting.AdminDeleteOption:output_type -> copywriting.Empty
-	20, // 51: copywriting.Copywriting.AdminListCopywriting:output_type -> copywriting.CopywritingList
-	0,  // 52: copywriting.Copywriting.AdminDeleteCopywriting:output_type -> copywriting.Empty
-	27, // 53: copywriting.Copywriting.AdminResolveStuckCopywriting:output_type -> copywriting.AdminResolveResp
-	10, // 54: copywriting.Copywriting.AdminGetModel:output_type -> copywriting.ModelInfo
-	32, // [32:55] is the sub-list for method output_type
-	9,  // [9:32] is the sub-list for method input_type
+	28, // 9: copywriting.Copywriting.Quote:input_type -> copywriting.QuoteReq
+	0,  // 10: copywriting.Copywriting.Options:input_type -> copywriting.Empty
+	12, // 11: copywriting.Copywriting.AiWrite:input_type -> copywriting.AiWriteReq
+	14, // 12: copywriting.Copywriting.Generate:input_type -> copywriting.GenerateReq
+	15, // 13: copywriting.Copywriting.Regenerate:input_type -> copywriting.RegenerateReq
+	16, // 14: copywriting.Copywriting.Create:input_type -> copywriting.CreateReq
+	7,  // 15: copywriting.Copywriting.Get:input_type -> copywriting.IdUserReq
+	19, // 16: copywriting.Copywriting.List:input_type -> copywriting.ListReq
+	17, // 17: copywriting.Copywriting.Update:input_type -> copywriting.UpdateReq
+	7,  // 18: copywriting.Copywriting.Delete:input_type -> copywriting.IdUserReq
+	23, // 19: copywriting.Copywriting.Derivatives:input_type -> copywriting.DerivativesReq
+	2,  // 20: copywriting.Copywriting.CreateShopProfile:input_type -> copywriting.ShopProfileForm
+	2,  // 21: copywriting.Copywriting.UpdateShopProfile:input_type -> copywriting.ShopProfileForm
+	7,  // 22: copywriting.Copywriting.GetShopProfile:input_type -> copywriting.IdUserReq
+	4,  // 23: copywriting.Copywriting.ListShopProfiles:input_type -> copywriting.ShopProfileListReq
+	7,  // 24: copywriting.Copywriting.DeleteShopProfile:input_type -> copywriting.IdUserReq
+	7,  // 25: copywriting.Copywriting.ProfileText:input_type -> copywriting.IdUserReq
+	22, // 26: copywriting.Copywriting.AdminListOptions:input_type -> copywriting.AdminListOptionsReq
+	8,  // 27: copywriting.Copywriting.AdminSaveOption:input_type -> copywriting.OptionInfo
+	6,  // 28: copywriting.Copywriting.AdminDeleteOption:input_type -> copywriting.IdReq
+	21, // 29: copywriting.Copywriting.AdminListCopywriting:input_type -> copywriting.AdminListReq
+	6,  // 30: copywriting.Copywriting.AdminDeleteCopywriting:input_type -> copywriting.IdReq
+	26, // 31: copywriting.Copywriting.AdminResolveStuckCopywriting:input_type -> copywriting.AdminResolveReq
+	0,  // 32: copywriting.Copywriting.AdminGetModel:input_type -> copywriting.Empty
+	29, // 33: copywriting.Copywriting.Quote:output_type -> copywriting.QuoteResp
+	11, // 34: copywriting.Copywriting.Options:output_type -> copywriting.OptionsResp
+	13, // 35: copywriting.Copywriting.AiWrite:output_type -> copywriting.AiWriteResp
+	18, // 36: copywriting.Copywriting.Generate:output_type -> copywriting.CopywritingInfo
+	18, // 37: copywriting.Copywriting.Regenerate:output_type -> copywriting.CopywritingInfo
+	18, // 38: copywriting.Copywriting.Create:output_type -> copywriting.CopywritingInfo
+	18, // 39: copywriting.Copywriting.Get:output_type -> copywriting.CopywritingInfo
+	20, // 40: copywriting.Copywriting.List:output_type -> copywriting.CopywritingList
+	18, // 41: copywriting.Copywriting.Update:output_type -> copywriting.CopywritingInfo
+	0,  // 42: copywriting.Copywriting.Delete:output_type -> copywriting.Empty
+	25, // 43: copywriting.Copywriting.Derivatives:output_type -> copywriting.DerivativeList
+	3,  // 44: copywriting.Copywriting.CreateShopProfile:output_type -> copywriting.ShopProfile
+	3,  // 45: copywriting.Copywriting.UpdateShopProfile:output_type -> copywriting.ShopProfile
+	3,  // 46: copywriting.Copywriting.GetShopProfile:output_type -> copywriting.ShopProfile
+	5,  // 47: copywriting.Copywriting.ListShopProfiles:output_type -> copywriting.ShopProfileList
+	0,  // 48: copywriting.Copywriting.DeleteShopProfile:output_type -> copywriting.Empty
+	1,  // 49: copywriting.Copywriting.ProfileText:output_type -> copywriting.TextResp
+	9,  // 50: copywriting.Copywriting.AdminListOptions:output_type -> copywriting.OptionList
+	8,  // 51: copywriting.Copywriting.AdminSaveOption:output_type -> copywriting.OptionInfo
+	0,  // 52: copywriting.Copywriting.AdminDeleteOption:output_type -> copywriting.Empty
+	20, // 53: copywriting.Copywriting.AdminListCopywriting:output_type -> copywriting.CopywritingList
+	0,  // 54: copywriting.Copywriting.AdminDeleteCopywriting:output_type -> copywriting.Empty
+	27, // 55: copywriting.Copywriting.AdminResolveStuckCopywriting:output_type -> copywriting.AdminResolveResp
+	10, // 56: copywriting.Copywriting.AdminGetModel:output_type -> copywriting.ModelInfo
+	33, // [33:57] is the sub-list for method output_type
+	9,  // [9:33] is the sub-list for method input_type
 	9,  // [9:9] is the sub-list for extension type_name
 	9,  // [9:9] is the sub-list for extension extendee
 	0,  // [0:9] is the sub-list for field type_name
@@ -2357,7 +2578,7 @@ func file_copywriting_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_copywriting_proto_rawDesc), len(file_copywriting_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   28,
+			NumMessages:   30,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

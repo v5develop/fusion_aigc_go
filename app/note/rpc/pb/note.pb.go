@@ -918,6 +918,215 @@ func (x *IdReq) GetId() int64 {
 	return 0
 }
 
+type QuoteReq struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	ImageCount    int32                  `protobuf:"varint,2,opt,name=image_count,json=imageCount,proto3" json:"image_count,omitempty"` // 套图张数；0 用默认（带 id 时 0 = 沿用构思张数）
+	Id            int64                  `protobuf:"varint,3,opt,name=id,proto3" json:"id,omitempty"`                                   // 已构思的笔记 id（配图阶段）：按记录张数报，并与出图同口径校验不超过方案张数
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *QuoteReq) Reset() {
+	*x = QuoteReq{}
+	mi := &file_note_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *QuoteReq) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QuoteReq) ProtoMessage() {}
+
+func (x *QuoteReq) ProtoReflect() protoreflect.Message {
+	mi := &file_note_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QuoteReq.ProtoReflect.Descriptor instead.
+func (*QuoteReq) Descriptor() ([]byte, []int) {
+	return file_note_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *QuoteReq) GetUserId() int64 {
+	if x != nil {
+		return x.UserId
+	}
+	return 0
+}
+
+func (x *QuoteReq) GetImageCount() int32 {
+	if x != nil {
+		return x.ImageCount
+	}
+	return 0
+}
+
+func (x *QuoteReq) GetId() int64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+// 提交前报价（只读，不冻结）：用提交时同一个计费请求算价，返回本次会冻结的点数。见 pkg/billing/estimate.go
+type QuoteResp struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Available     bool                   `protobuf:"varint,1,opt,name=available,proto3" json:"available,omitempty"` // 能否报出价；false 时 points 为 0，原因见 reason
+	Reason        string                 `protobuf:"bytes,2,opt,name=reason,proto3" json:"reason,omitempty"`
+	BillingMode   string                 `protobuf:"bytes,3,opt,name=billing_mode,json=billingMode,proto3" json:"billing_mode,omitempty"` // off / shadow / on
+	Charged       bool                   `protobuf:"varint,4,opt,name=charged,proto3" json:"charged,omitempty"`                           // 提交是否真的冻结点数（仅 on）
+	Points        int64                  `protobuf:"varint,5,opt,name=points,proto3" json:"points,omitempty"`                             // 按这组参数算出的点数（exact=false 时为最低）
+	UnitPoints    int64                  `protobuf:"varint,6,opt,name=unit_points,json=unitPoints,proto3" json:"unit_points,omitempty"`   // 单价：每张 / 每秒
+	PriceUnit     string                 `protobuf:"bytes,7,opt,name=price_unit,json=priceUnit,proto3" json:"price_unit,omitempty"`       // PER_IMAGE / PER_SECOND / PER_REQUEST / PER_VIDEO
+	Quantity      int32                  `protobuf:"varint,8,opt,name=quantity,proto3" json:"quantity,omitempty"`                         // 计量：张数或秒数
+	Exact         bool                   `protobuf:"varint,9,opt,name=exact,proto3" json:"exact,omitempty"`                               // points 是否就是冻结数；false = 要等提交后才知道计量（配音时长 / 原片时长）
+	PointsMax     int64                  `protobuf:"varint,10,opt,name=points_max,json=pointsMax,proto3" json:"points_max,omitempty"`     // exact=false 时的最高点数（0 = 不知道）
+	Stage         string                 `protobuf:"bytes,11,opt,name=stage,proto3" json:"stage,omitempty"`                               // 冻结发生在哪一步：submit 提交即冻结 / generate 构思免费、出片（出图）时冻结
+	Balance       int64                  `protobuf:"varint,12,opt,name=balance,proto3" json:"balance,omitempty"`                          // 当前可用余额
+	BalanceKnown  bool                   `protobuf:"varint,13,opt,name=balance_known,json=balanceKnown,proto3" json:"balance_known,omitempty"`
+	Sufficient    bool                   `protobuf:"varint,14,opt,name=sufficient,proto3" json:"sufficient,omitempty"` // 余额是否够 points（charged=false 时恒为 true）
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *QuoteResp) Reset() {
+	*x = QuoteResp{}
+	mi := &file_note_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *QuoteResp) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QuoteResp) ProtoMessage() {}
+
+func (x *QuoteResp) ProtoReflect() protoreflect.Message {
+	mi := &file_note_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QuoteResp.ProtoReflect.Descriptor instead.
+func (*QuoteResp) Descriptor() ([]byte, []int) {
+	return file_note_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *QuoteResp) GetAvailable() bool {
+	if x != nil {
+		return x.Available
+	}
+	return false
+}
+
+func (x *QuoteResp) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+func (x *QuoteResp) GetBillingMode() string {
+	if x != nil {
+		return x.BillingMode
+	}
+	return ""
+}
+
+func (x *QuoteResp) GetCharged() bool {
+	if x != nil {
+		return x.Charged
+	}
+	return false
+}
+
+func (x *QuoteResp) GetPoints() int64 {
+	if x != nil {
+		return x.Points
+	}
+	return 0
+}
+
+func (x *QuoteResp) GetUnitPoints() int64 {
+	if x != nil {
+		return x.UnitPoints
+	}
+	return 0
+}
+
+func (x *QuoteResp) GetPriceUnit() string {
+	if x != nil {
+		return x.PriceUnit
+	}
+	return ""
+}
+
+func (x *QuoteResp) GetQuantity() int32 {
+	if x != nil {
+		return x.Quantity
+	}
+	return 0
+}
+
+func (x *QuoteResp) GetExact() bool {
+	if x != nil {
+		return x.Exact
+	}
+	return false
+}
+
+func (x *QuoteResp) GetPointsMax() int64 {
+	if x != nil {
+		return x.PointsMax
+	}
+	return 0
+}
+
+func (x *QuoteResp) GetStage() string {
+	if x != nil {
+		return x.Stage
+	}
+	return ""
+}
+
+func (x *QuoteResp) GetBalance() int64 {
+	if x != nil {
+		return x.Balance
+	}
+	return 0
+}
+
+func (x *QuoteResp) GetBalanceKnown() bool {
+	if x != nil {
+		return x.BalanceKnown
+	}
+	return false
+}
+
+func (x *QuoteResp) GetSufficient() bool {
+	if x != nil {
+		return x.Sufficient
+	}
+	return false
+}
+
 var File_note_proto protoreflect.FileDescriptor
 
 const file_note_proto_rawDesc = "" +
@@ -1003,8 +1212,35 @@ const file_note_proto_rawDesc = "" +
 	"\x04list\x18\x01 \x03(\v2\x0e.note.NoteInfoR\x04list\x12\x14\n" +
 	"\x05total\x18\x02 \x01(\x03R\x05total\"\x17\n" +
 	"\x05IdReq\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\x03R\x02id2\xd4\x03\n" +
-	"\x04Note\x12)\n" +
+	"\x02id\x18\x01 \x01(\x03R\x02id\"T\n" +
+	"\bQuoteReq\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x1f\n" +
+	"\vimage_count\x18\x02 \x01(\x05R\n" +
+	"imageCount\x12\x0e\n" +
+	"\x02id\x18\x03 \x01(\x03R\x02id\"\x9c\x03\n" +
+	"\tQuoteResp\x12\x1c\n" +
+	"\tavailable\x18\x01 \x01(\bR\tavailable\x12\x16\n" +
+	"\x06reason\x18\x02 \x01(\tR\x06reason\x12!\n" +
+	"\fbilling_mode\x18\x03 \x01(\tR\vbillingMode\x12\x18\n" +
+	"\acharged\x18\x04 \x01(\bR\acharged\x12\x16\n" +
+	"\x06points\x18\x05 \x01(\x03R\x06points\x12\x1f\n" +
+	"\vunit_points\x18\x06 \x01(\x03R\n" +
+	"unitPoints\x12\x1d\n" +
+	"\n" +
+	"price_unit\x18\a \x01(\tR\tpriceUnit\x12\x1a\n" +
+	"\bquantity\x18\b \x01(\x05R\bquantity\x12\x14\n" +
+	"\x05exact\x18\t \x01(\bR\x05exact\x12\x1d\n" +
+	"\n" +
+	"points_max\x18\n" +
+	" \x01(\x03R\tpointsMax\x12\x14\n" +
+	"\x05stage\x18\v \x01(\tR\x05stage\x12\x18\n" +
+	"\abalance\x18\f \x01(\x03R\abalance\x12#\n" +
+	"\rbalance_known\x18\r \x01(\bR\fbalanceKnown\x12\x1e\n" +
+	"\n" +
+	"sufficient\x18\x0e \x01(\bR\n" +
+	"sufficient2\xfe\x03\n" +
+	"\x04Note\x12(\n" +
+	"\x05Quote\x12\x0e.note.QuoteReq\x1a\x0f.note.QuoteResp\x12)\n" +
 	"\aOptions\x12\v.note.Empty\x1a\x11.note.OptionsResp\x12%\n" +
 	"\x04Plan\x12\r.note.PlanReq\x1a\x0e.note.NoteInfo\x12)\n" +
 	"\x06Replan\x12\x0f.note.ReplanReq\x1a\x0e.note.NoteInfo\x12-\n" +
@@ -1030,7 +1266,7 @@ func file_note_proto_rawDescGZIP() []byte {
 	return file_note_proto_rawDescData
 }
 
-var file_note_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
+var file_note_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
 var file_note_proto_goTypes = []any{
 	(*Empty)(nil),       // 0: note.Empty
 	(*IdUserReq)(nil),   // 1: note.IdUserReq
@@ -1044,34 +1280,38 @@ var file_note_proto_goTypes = []any{
 	(*ListReq)(nil),     // 9: note.ListReq
 	(*NoteList)(nil),    // 10: note.NoteList
 	(*IdReq)(nil),       // 11: note.IdReq
+	(*QuoteReq)(nil),    // 12: note.QuoteReq
+	(*QuoteResp)(nil),   // 13: note.QuoteResp
 }
 var file_note_proto_depIdxs = []int32{
 	2,  // 0: note.OptionsResp.types:type_name -> note.NoteType
 	8,  // 1: note.NoteList.list:type_name -> note.NoteInfo
-	0,  // 2: note.Note.Options:input_type -> note.Empty
-	4,  // 3: note.Note.Plan:input_type -> note.PlanReq
-	5,  // 4: note.Note.Replan:input_type -> note.ReplanReq
-	6,  // 5: note.Note.Generate:input_type -> note.GenerateReq
-	1,  // 6: note.Note.Get:input_type -> note.IdUserReq
-	9,  // 7: note.Note.List:input_type -> note.ListReq
-	7,  // 8: note.Note.Update:input_type -> note.UpdateReq
-	1,  // 9: note.Note.Delete:input_type -> note.IdUserReq
-	9,  // 10: note.Note.AdminList:input_type -> note.ListReq
-	11, // 11: note.Note.AdminRetry:input_type -> note.IdReq
-	11, // 12: note.Note.AdminForceFail:input_type -> note.IdReq
-	3,  // 13: note.Note.Options:output_type -> note.OptionsResp
-	8,  // 14: note.Note.Plan:output_type -> note.NoteInfo
-	8,  // 15: note.Note.Replan:output_type -> note.NoteInfo
-	8,  // 16: note.Note.Generate:output_type -> note.NoteInfo
-	8,  // 17: note.Note.Get:output_type -> note.NoteInfo
-	10, // 18: note.Note.List:output_type -> note.NoteList
-	8,  // 19: note.Note.Update:output_type -> note.NoteInfo
-	0,  // 20: note.Note.Delete:output_type -> note.Empty
-	10, // 21: note.Note.AdminList:output_type -> note.NoteList
-	0,  // 22: note.Note.AdminRetry:output_type -> note.Empty
-	0,  // 23: note.Note.AdminForceFail:output_type -> note.Empty
-	13, // [13:24] is the sub-list for method output_type
-	2,  // [2:13] is the sub-list for method input_type
+	12, // 2: note.Note.Quote:input_type -> note.QuoteReq
+	0,  // 3: note.Note.Options:input_type -> note.Empty
+	4,  // 4: note.Note.Plan:input_type -> note.PlanReq
+	5,  // 5: note.Note.Replan:input_type -> note.ReplanReq
+	6,  // 6: note.Note.Generate:input_type -> note.GenerateReq
+	1,  // 7: note.Note.Get:input_type -> note.IdUserReq
+	9,  // 8: note.Note.List:input_type -> note.ListReq
+	7,  // 9: note.Note.Update:input_type -> note.UpdateReq
+	1,  // 10: note.Note.Delete:input_type -> note.IdUserReq
+	9,  // 11: note.Note.AdminList:input_type -> note.ListReq
+	11, // 12: note.Note.AdminRetry:input_type -> note.IdReq
+	11, // 13: note.Note.AdminForceFail:input_type -> note.IdReq
+	13, // 14: note.Note.Quote:output_type -> note.QuoteResp
+	3,  // 15: note.Note.Options:output_type -> note.OptionsResp
+	8,  // 16: note.Note.Plan:output_type -> note.NoteInfo
+	8,  // 17: note.Note.Replan:output_type -> note.NoteInfo
+	8,  // 18: note.Note.Generate:output_type -> note.NoteInfo
+	8,  // 19: note.Note.Get:output_type -> note.NoteInfo
+	10, // 20: note.Note.List:output_type -> note.NoteList
+	8,  // 21: note.Note.Update:output_type -> note.NoteInfo
+	0,  // 22: note.Note.Delete:output_type -> note.Empty
+	10, // 23: note.Note.AdminList:output_type -> note.NoteList
+	0,  // 24: note.Note.AdminRetry:output_type -> note.Empty
+	0,  // 25: note.Note.AdminForceFail:output_type -> note.Empty
+	14, // [14:26] is the sub-list for method output_type
+	2,  // [2:14] is the sub-list for method input_type
 	2,  // [2:2] is the sub-list for extension type_name
 	2,  // [2:2] is the sub-list for extension extendee
 	0,  // [0:2] is the sub-list for field type_name
@@ -1088,7 +1328,7 @@ func file_note_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_note_proto_rawDesc), len(file_note_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   12,
+			NumMessages:   14,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -91,9 +91,9 @@ func TestBuildImageEditRequestTruncates(t *testing.T) {
 	if len(in.Images) != 10 || in.Images[9].URI != "mr://r10" || !strings.HasPrefix(in.Prompt, "图序：图1–图10 是参考图。\n") {
 		t.Fatalf("seedream cap: %d %q", len(in.Images), in.Prompt)
 	}
-	// GPT 兜底 16（审计 2026-10-31），其余组兜底 14；catalog 给了上限时以它为准
+	// GPT 标称 16，但任何情况都不送 16 张：全局硬上限 14；其余组兜底 14；catalog 给了上限时以它为准（也压到 14）
 	req, warns, _ = BuildImageEditRequest(KindImageGen, "img.gpt-image-2", "x", refs(17), "", "", nil)
-	if n := len(req.Input.(ImageEditInput).Images); n != 16 || len(warns) != 1 {
+	if n := len(req.Input.(ImageEditInput).Images); n != 14 || len(warns) != 1 {
 		t.Fatalf("gpt cap: %d", n)
 	}
 	req, warns, _ = BuildImageEditRequest(KindImageGen, "img.nano-banana-2.1", "x", refs(16), "", "", nil)

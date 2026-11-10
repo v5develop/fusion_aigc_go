@@ -635,7 +635,7 @@ GET /api/v1/canvas/templates?scope=official
 用户模板已实现：
 
 - `POST /api/v1/canvas/templates` `{"canvas_id": "cv_…", "title": "…", "description": "…"}`：把已保存的画布存成我的模板（`scope=user`，运行态与成品剥离），返回模板对象；
-- `GET /api/v1/canvas/templates/{id}`：模板详情（官方上架的或自己的）；
+- `GET /api/v1/canvas/templates/{id}`：模板详情（官方上架的或自己的），含 `snapshot`；快照**只带结构**：模型 / 工具节点的成品（`candidates` / `image` / `video` / `assetId` / `resultText` / `resultImage` / `tryonResults`）与所有节点的运行态已剥掉，参考素材节点（`data.inputOnly`）保留素材。编辑器「从模板插入」用它（节点 / 连线 id 由前端重新生成）；
 - `DELETE /api/v1/canvas/templates/{id}`：删除自己的模板；官方模板返回 `4002`，不存在 / 别人的 `4001`。
 
 ### 4.3 从模板建画布

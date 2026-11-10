@@ -6,6 +6,9 @@ Timeout: 30000
 MethodTimeouts:
   - FullMethod: /studio.Studio/PreviewPose
     Timeout: 240s
+  # 商拍「AI 找细节」：下载服装图 + 一次 crop-plan（单次读图可达 180s）。不配时代码按 240s 补上
+  - FullMethod: /studio.Studio/DetectDetails
+    Timeout: 240s
 Etcd:
   Hosts: [127.0.0.1:2379]
   Key: studio.rpc

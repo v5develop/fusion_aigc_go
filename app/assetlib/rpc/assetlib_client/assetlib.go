@@ -28,6 +28,8 @@ type (
 	CategoriesResp     = assetlib.CategoriesResp
 	Category           = assetlib.Category
 	CreateTagReq       = assetlib.CreateTagReq
+	DeleteReq          = assetlib.DeleteReq
+	DeleteResp         = assetlib.DeleteResp
 	Empty              = assetlib.Empty
 	GetReq             = assetlib.GetReq
 	GetResp            = assetlib.GetResp
@@ -67,6 +69,8 @@ type (
 		RenameTag(ctx context.Context, in *RenameTagReq, opts ...grpc.CallOption) (*Tag, error)
 		// 批量给资产加标签（追加，不删已有）
 		BatchTag(ctx context.Context, in *BatchTagReq, opts ...grpc.CallOption) (*BatchTagResp, error)
+		// 删除资产（逻辑删除 afv_asset.deleted=1，并解除本人标签关联）：只删本人的上传 / 生成资产，官方素材不删；
+		Delete(ctx context.Context, in *DeleteReq, opts ...grpc.CallOption) (*DeleteResp, error)
 		// ---- 运营后台 ----
 		AdminListTags(ctx context.Context, in *AdminListTagsReq, opts ...grpc.CallOption) (*AdminListTagsResp, error)
 		// 按 kind × 来源计数（全量用户，或指定 user_id）
@@ -149,6 +153,12 @@ func (m *defaultAssetlib) RenameTag(ctx context.Context, in *RenameTagReq, opts 
 func (m *defaultAssetlib) BatchTag(ctx context.Context, in *BatchTagReq, opts ...grpc.CallOption) (*BatchTagResp, error) {
 	client := assetlib.NewAssetlibClient(m.cli.Conn())
 	return client.BatchTag(ctx, in, opts...)
+}
+
+// 删除资产（逻辑删除 afv_asset.deleted=1，并解除本人标签关联）：只删本人的上传 / 生成资产，官方素材不删；
+func (m *defaultAssetlib) Delete(ctx context.Context, in *DeleteReq, opts ...grpc.CallOption) (*DeleteResp, error) {
+	client := assetlib.NewAssetlibClient(m.cli.Conn())
+	return client.Delete(ctx, in, opts...)
 }
 
 // ---- 运营后台 ----

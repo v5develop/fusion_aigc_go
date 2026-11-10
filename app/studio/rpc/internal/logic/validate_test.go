@@ -1,6 +1,8 @@
 package logic
 
 import (
+	"aigc-local-life/pkg/aigateway"
+
 	"fmt"
 	"strings"
 	"testing"
@@ -436,4 +438,57 @@ func TestGPT26RefCaps(t *testing.T) {
 	wantCode(t, "商拍 2.6 五张服装", tr("GPT", 5), 0)
 	wantCode(t, "商拍 2.6 六张服装", tr("GPT", 6), xerr.ParamError)
 	wantCode(t, "商拍其它模型六张服装", tr("Banana", 6), 0)
+}
+
+func TestValidateTryonRefCapWarnings(t *testing.T) {
+	groups := map[string]string{"通用": "img.nano-banana-2.1", "Seedream": "img.seedream-5-pro"}
+	req := func(model string, n int) *studio.SubmitTryonReq {
+		var gs []*studio.GarmentImage
+		for i := 0; i < n; i++ {
+			gs = append(gs, &studio.GarmentImage{Url: fmt.Sprintf("https://x.test/g%d.png", i), Role: "上衣", Angle: "front"})
+		}
+		return &studio.SubmitTryonReq{UserId: 1, RequestId: "r", Items: []string{"top"}, GarmentImages: gs,
+			ModelImageUrls: []string{"https://x.test/m.png"}, CountPerModel: 1, Model: model}
+	}
+	v, err := ValidateTryon(req("Seedream", 6), groups)
+	if err != nil || len(v.Warnings) == 0 || !strings.Contains(strings.Join(v.Warnings, ""), "细节图将减少为约 3 张") {
+		t.Fatalf("seedream 6: %v %v", err, v)
+	}
+	v, err = ValidateTryon(req("通用", 6), groups)
+	if err != nil || len(v.Warnings) != 0 { // 14 张上限、6 张主图：细节名额 7 ≥ 预估切图数，不预警
+		t.Fatalf("general 6: %v %v", err, v)
+	}
+	if v, err = ValidateTryon(req("通用", 1), groups); err != nil || len(v.Warnings) != 0 {
+		t.Fatalf("general 1: %v %v", err, v)
+	}
+	// 提交预警按目录上限（与生图 / /studio/models 同口径）：目录标通用档只收 3 张时，6 张服装图要预警舍弃
+	v, err = ValidateTryonCap(req("通用", 6), groups, func(g string) int {
+		if g == "img.nano-banana-2.1" {
+			return 3
+		}
+		return 0
+	})
+	if err != nil || !strings.Contains(strings.Join(v.Warnings, ""), "最多支持 3 张参考图") {
+		t.Fatalf("catalog cap: %v %v", err, v)
+	}
+	// 目录标 Seedream 14：不再按兜底 10 预警
+	v, err = ValidateTryonCap(req("Seedream", 6), groups, func(string) int { return 14 })
+	if err != nil || strings.Contains(strings.Join(v.Warnings, ""), "参考图") {
+		t.Fatalf("catalog seedream 14: %v %v", err, v)
+	}
+}
+
+func TestCatalogRefCap(t *testing.T) {
+	n, zero := 9, 0
+	cat := map[string]aigateway.ModelGroup{"a": {Code: "a"}, "b": {Code: "b"}, "z": {Code: "z"}}
+	cat["a"] = withMaxRefs(cat["a"], &n)
+	cat["z"] = withMaxRefs(cat["z"], &zero)
+	if catalogRefCap(cat, "a") != 9 || catalogRefCap(cat, "b") != 0 || catalogRefCap(cat, "z") != 0 || catalogRefCap(nil, "a") != 0 {
+		t.Fatal("catalogRefCap")
+	}
+}
+
+func withMaxRefs(g aigateway.ModelGroup, n *int) aigateway.ModelGroup {
+	g.FeatureLimits.MaxReferenceImages = n
+	return g
 }

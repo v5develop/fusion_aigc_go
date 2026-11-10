@@ -75,7 +75,29 @@ func (c *core) GetTemplate(ctx context.Context, in *canvas.TemplateIdReq) (*canv
 	if !visibleTemplate(t, in.UserId) {
 		return nil, xerr.NotFoundf("模板")
 	}
-	return toTemplate(t, true), nil
+	return structureOnly(toTemplate(t, true)), nil
+}
+
+// structureOnly 用户侧取模板详情（前端「从模板插入」/ 预览用）：快照再剥一遍运行态与生成结果，
+// 保证「模板只带结构，不带生成结果」——用户模板入库时已剥过，官方模板由运营录入，这里兜底。解析失败原样返回。
+func structureOnly(t *canvas.TemplateInfo) *canvas.TemplateInfo {
+	if t == nil || t.Snapshot == "" {
+		return t
+	}
+	d, err := ParseSnapshot([]byte(t.Snapshot), 0)
+	if err != nil {
+		return t
+	}
+	// 参考素材节点（data.inputOnly，如模板里的参考视频）的 image / video 是用户输入不是成品，保留
+	strip := make(map[string]bool, len(d.Nodes))
+	for _, n := range d.Nodes {
+		if v, _ := n.Data["inputOnly"].(bool); !v {
+			strip[n.ID] = true
+		}
+	}
+	d.StripRuntime(strip)
+	t.Snapshot = string(d.Marshal())
+	return t
 }
 
 func (c *core) CreateTemplateFromCanvas(ctx context.Context, in *canvas.CreateTemplateFromCanvasReq) (*canvas.TemplateInfo, error) {

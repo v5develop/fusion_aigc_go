@@ -16,6 +16,7 @@ import (
 	imagegen "aigc-local-life/app/gateway/api/internal/handler/imagegen"
 	note "aigc-local-life/app/gateway/api/internal/handler/note"
 	promptlib "aigc-local-life/app/gateway/api/internal/handler/promptlib"
+	quote "aigc-local-life/app/gateway/api/internal/handler/quote"
 	shopprofile "aigc-local-life/app/gateway/api/internal/handler/shopprofile"
 	studio "aigc-local-life/app/gateway/api/internal/handler/studio"
 	videogen "aigc-local-life/app/gateway/api/internal/handler/videogen"
@@ -34,6 +35,12 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 					Method:  http.MethodGet,
 					Path:    "/assets",
 					Handler: assetlib.ListAssetsHandler(serverCtx),
+				},
+				{
+					// 删除单个资产：不存在 / 不属于本人 4001，官方素材 2005「官方素材不可删除」
+					Method:  http.MethodDelete,
+					Path:    "/assets/:id",
+					Handler: assetlib.DeleteAssetHandler(serverCtx),
 				},
 				{
 					// 资产详情：版本 / 相关资产 / 生成结果，各自分页默认 6
@@ -64,6 +71,12 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 					Method:  http.MethodPost,
 					Path:    "/assets/:id/versions",
 					Handler: assetlib.AddVersionHandler(serverCtx),
+				},
+				{
+					// 批量删除资产（逻辑删除 + 解除标签）：只删本人的上传 / 生成资产，官方素材与不存在的静默跳过并计数；不删存储对象、不影响任务结果
+					Method:  http.MethodPost,
+					Path:    "/assets/batch-delete",
+					Handler: assetlib.BatchDeleteAssetsHandler(serverCtx),
 				},
 				{
 					// 批量给资产加标签（追加）
@@ -585,6 +598,21 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 			[]rest.Middleware{serverCtx.Auth},
 			[]rest.Route{
 				{
+					// 提交前报价（只读，不冻结）：按工具与当前表单参数，返回提交（或出片 / 出图）会冻结的点数、余额与是否足够；与提交走同一套计费请求构造与算价
+					Method:  http.MethodPost,
+					Path:    "/quote",
+					Handler: quote.QuoteHandler(serverCtx),
+				},
+			}...,
+		),
+		rest.WithPrefix("/api/v1/local-life"),
+	)
+
+	server.AddRoutes(
+		rest.WithMiddlewares(
+			[]rest.Middleware{serverCtx.Auth},
+			[]rest.Route{
+				{
 					// 店铺档案列表
 					Method:  http.MethodGet,
 					Path:    "/shop-profiles",
@@ -660,6 +688,12 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 					Handler: studio.SubmitImageGenHandler(serverCtx),
 				},
 				{
+					// 模型档能力（只读）：每个模型档的展示名、实际可用的分辨率 / 比例、参考图上限；with_price=true 附单张点数
+					Method:  http.MethodGet,
+					Path:    "/models",
+					Handler: studio.ModelsHandler(serverCtx),
+				},
+				{
 					// 姿态复刻提交前报价（只读，不冻结）
 					Method:  http.MethodPost,
 					Path:    "/pose/quote",
@@ -682,6 +716,12 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 					Method:  http.MethodPatch,
 					Path:    "/tasks/:task_id/color-fix",
 					Handler: studio.UpdateTaskColorFixHandler(serverCtx),
+				},
+				{
+					// 编辑提示词后重新生成单张（仅姿态复刻、仅本人；失败或成功的都可以）：用改过的提示词重跑这张图的生图一步，计费同重试（重新冻结 1 张点数）；同一提示词重复提交幂等；返回批次详情（同 GET /batches/:id）
+					Method:  http.MethodPost,
+					Path:    "/tasks/:task_id/regenerate",
+					Handler: studio.RegenerateTaskHandler(serverCtx),
 				},
 				{
 					// 重试单个失败子任务（仅本人、任务失败且批次为全部失败 / 部分成功）：只重跑这张图的生图一步（沿用已存提示词，不再反推），按原入口重新冻结 1 张点数；返回批次详情（同 GET /batches/:id），之后照常轮询批次。重复点击幂等
@@ -721,6 +761,12 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 					Method:  http.MethodPost,
 					Path:    "/pose/preview",
 					Handler: studio.PreviewPoseHandler(serverCtx),
+				},
+				{
+					// 商拍「AI 找细节」（免费、不建任务）：对服装图找细节，返回每张图的细节框（归一化 [x,y,w,h]）与部位名；前端按框在原图上显示裁切缩略图，删减 / 重新裁切后随提交带回 detail_crops。按用户限频（超出 4002「识别太频繁，请稍后再试」）；上一次还没结束同为 4002（「上一次 AI 找细节还在进行中」）
+					Method:  http.MethodPost,
+					Path:    "/tryon/details",
+					Handler: studio.DetectDetailsHandler(serverCtx),
 				},
 			}...,
 		),

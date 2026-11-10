@@ -13,3 +13,9 @@ func humanCharge(h *model.AfvDigitalHuman, taskID string, seconds int) billing.C
 		Tier: billing.TierOf(h.Model), Count: 1, Seconds: seconds,
 	}
 }
+
+// minHumanCharge 提交时还不知道配音时长：按最短时长（minVideoSeconds）算的计费请求。
+// 提交前的余额快拦（Enough）与报价的最低价共用；真正冻结在配音之后（humanCharge，秒数 = max(配音时长, 最短)）。
+func minHumanCharge(userID int64, mdl string) billing.Charge {
+	return humanCharge(&model.AfvDigitalHuman{UserId: userID, Model: mdl}, "", minVideoSeconds)
+}

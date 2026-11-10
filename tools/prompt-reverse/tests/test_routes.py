@@ -108,7 +108,7 @@ class RoutesTest(unittest.TestCase):
         st, js = self.call("GET", "/api/status")
         self.assertEqual(st, 200)
         self.assertEqual(js["service"], "prompt-reverse")
-        self.assertEqual(js["version"], "2026-11-07.merged")
+        self.assertEqual(js["version"], "2026-11-10.merged")
         self.assertFalse(js["llm_configured"])
         self.assertEqual(js["model_group"], "vlm.deepseek-flash")
         self.assertEqual(js["model"], "vlm.deepseek-flash")
@@ -295,6 +295,58 @@ class GatewayRoutesTest(unittest.TestCase):
         self.assertGreaterEqual(len(self.gw.gets), 2)
         self.assertTrue(all(g["query"] == "wait=2" for g in self.gw.gets))
         self.assertEqual(self.gw.auth_failures, [])
+
+    def _many_details_reply(self, body):
+        return (json.dumps({
+            "garment_type": "上装", "garment_match": True, "garment_colors": ["白色"], "material": "棉",
+            "structure": ["圆领", "短袖"],
+            "design_details": [f"左前片第{i}处刺绣，直径约{i}cm" for i in range(1, 14)],
+        }, ensure_ascii=False), None)
+
+    def _design_count(self, prompt):
+        import re
+        block = prompt.split("【设计细节保留】", 1)[-1] if "【设计细节保留】" in prompt else prompt
+        return len(re.findall(r"左前片第\d+处刺绣", block))
+
+    def test_analyze_fine_read(self):
+        """精细读图（F7 / T2）：fine=true 强制 deep（不关思考、6000 token、全部 high），读图提示词带精细要求，设计细节上限 +3。"""
+        self.gw.reply = self._many_details_reply
+        images = [{"role": "上装", "data": TINY_PNG}, {"role": "人物模特", "data": TINY_PNG.replace("AAAAB", "AAAAC")}]
+        st, js = self.call("POST", "/api/reverse/analyze", {"category": "top", "images": images, "fine": True})
+        self.assertEqual(st, 200, js)
+        self.assertTrue(js["meta"].get("fine"), js["meta"])
+        inp = self.assert_signed_submit(self.gw.submits[0], "analyze.vision")
+        self.assertNotIn("thinking", inp)
+        self.assertEqual(inp["max_tokens"], 6000)
+        text = "".join(p["text"] for p in inp["messages"][1]["content"] if p["type"] == "text")
+        self.assertIn("精细读图：", text)
+        for p in inp["messages"][1]["content"]:
+            if p["type"] == "image_url":
+                self.assertEqual(p["detail"], "high")
+        fine_n = self._design_count(js["prompt"])
+
+        self.gw.reset()
+        self.gw.reply = self._many_details_reply
+        st, js2 = self.call("POST", "/api/reverse/analyze", {"category": "top", "images": images, "deep": True})
+        self.assertEqual(st, 200, js2)
+        self.assertNotIn("fine", js2["meta"])
+        text2 = "".join(p["text"] for p in self.gw.submits[0]["body"]["input"]["messages"][1]["content"] if p["type"] == "text")
+        self.assertNotIn("精细读图", text2)
+        std_n = self._design_count(js2["prompt"])
+        self.assertEqual(std_n, 8, js2["prompt"])
+        self.assertEqual(fine_n, 11, js["prompt"])
+
+    def test_analyze_batch_passes_fine(self):
+        self.gw.reply = self._many_details_reply
+        st, js = self.call("POST", "/api/reverse/analyze-batch", {
+            "category": "top", "fine": True,
+            "images": [{"role": "上装", "data": TINY_PNG}],
+            "models": [{"id": "m-1", "data": TINY_PNG.replace("AAAAB", "AAAAC")}],
+        })
+        self.assertEqual(st, 200, js)
+        self.assertTrue(js["results"][0]["meta"].get("fine"), js)
+        text = "".join(p["text"] for p in self.gw.submits[0]["body"]["input"]["messages"][1]["content"] if p["type"] == "text")
+        self.assertIn("精细读图：", text)
 
     def test_analyze_degrades_when_gateway_fails(self):
         """视觉失败 → 文字降级 → 模板兜底，链路照常。"""

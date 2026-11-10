@@ -58,6 +58,10 @@ type Config struct {
 		// 超出回 4002「识别太频繁，请稍后再试」；计数同上（命中缓存的请求也计数）。<= 0 表示该窗口不限。
 		MaskPerMinute int `json:",default=30"`
 		MaskPerDay    int `json:",default=500"`
+		// DetailsPerMinute / DetailsPerDay 商拍「AI 找细节」（POST /studio/tryon/details，免费、每次都要读图）每用户每分钟 / 每天上限，
+		// 超出回 4002「识别太频繁，请稍后再试」；计数同上。<= 0 表示该窗口不限。
+		DetailsPerMinute int `json:",default=6"`
+		DetailsPerDay    int `json:",default=200"`
 	}
 	Upload struct {
 		// MaxImageBytes 仅网关代传（开发用）时生效；直传的大小与类型由前端控制

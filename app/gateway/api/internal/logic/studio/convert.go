@@ -40,6 +40,7 @@ func toBatch(b *studio_client.BatchInfo) types.StudioBatch {
 		Id: b.Id, Kind: b.Kind, Status: b.Status, Payload: b.Payload,
 		TaskTotal: b.TaskTotal, TaskDone: b.TaskDone, TaskFailed: b.TaskFailed, EstimatedPoints: b.EstimatedPoints,
 		ErrorReason: b.ErrorReason, CoverUrl: b.CoverUrl, CreatedAt: b.CreatedAt, UpdatedAt: b.UpdatedAt,
+		Warnings: orEmpty(b.Warnings),
 	}
 }
 
@@ -55,7 +56,34 @@ func toTask(t *studio_client.TaskInfo) types.StudioTask {
 		CreatedAt: t.CreatedAt, StartedAt: t.StartedAt, FinishedAt: t.FinishedAt,
 		AssetId: t.AssetId, ColorFixParams: toColorFix(t.ColorFixParams), MaskUrl: t.MaskUrl,
 		MaskParts: toMaskParts(t.MaskParts),
+		Warnings:  orEmpty(t.Warnings), PromptText: t.PromptText, PromptEdited: t.PromptEdited,
 	}
+}
+
+// detailCrops 「AI 找细节」确认后的细节框 → rpc。
+func detailCrops(list []types.StudioDetailCrop) []*studio_client.DetailCrop {
+	out := make([]*studio_client.DetailCrop, 0, len(list))
+	for _, c := range list {
+		out = append(out, &studio_client.DetailCrop{GarmentIndex: c.GarmentIndex, Label: c.Label, Box: c.Box, Confidence: c.Confidence})
+	}
+	return out
+}
+
+func toDetailsResp(r *studio_client.DetectDetailsResp) *types.StudioDetailsResp {
+	out := &types.StudioDetailsResp{Plans: make([]types.StudioDetailPlan, 0, len(r.Plans)), Total: r.Total, Warnings: orEmpty(r.Warnings)}
+	for _, p := range r.Plans {
+		if p == nil {
+			continue
+		}
+		dp := types.StudioDetailPlan{GarmentIndex: p.GarmentIndex, Angle: p.Angle, Crops: make([]types.StudioDetailCrop, 0, len(p.Crops))}
+		for _, c := range p.Crops {
+			if c != nil {
+				dp.Crops = append(dp.Crops, types.StudioDetailCrop{GarmentIndex: c.GarmentIndex, Label: c.Label, Box: c.Box, Confidence: c.Confidence})
+			}
+		}
+		out.Plans = append(out.Plans, dp)
+	}
+	return out
 }
 
 // toMaskParts 逐件蒙版；没有为空数组（不是 null）。

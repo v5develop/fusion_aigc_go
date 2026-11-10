@@ -24,6 +24,11 @@ func NewCopywritingServer(svcCtx *svc.ServiceContext) *CopywritingServer {
 }
 
 // ---- App ----
+func (s *CopywritingServer) Quote(ctx context.Context, in *pb.QuoteReq) (*pb.QuoteResp, error) {
+	l := logic.NewQuoteLogic(ctx, s.svcCtx)
+	return l.Quote(in)
+}
+
 func (s *CopywritingServer) Options(ctx context.Context, in *pb.Empty) (*pb.OptionsResp, error) {
 	l := logic.NewOptionsLogic(ctx, s.svcCtx)
 	return l.Options(in)

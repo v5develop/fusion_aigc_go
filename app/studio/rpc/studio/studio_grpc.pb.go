@@ -24,6 +24,7 @@ const (
 	Studio_SubmitImageGen_FullMethodName     = "/studio.Studio/SubmitImageGen"
 	Studio_PreviewPose_FullMethodName        = "/studio.Studio/PreviewPose"
 	Studio_Quote_FullMethodName              = "/studio.Studio/Quote"
+	Studio_Models_FullMethodName             = "/studio.Studio/Models"
 	Studio_GetBatch_FullMethodName           = "/studio.Studio/GetBatch"
 	Studio_GetTask_FullMethodName            = "/studio.Studio/GetTask"
 	Studio_ListHistory_FullMethodName        = "/studio.Studio/ListHistory"
@@ -32,6 +33,8 @@ const (
 	Studio_RetryTask_FullMethodName          = "/studio.Studio/RetryTask"
 	Studio_UpdateTaskColorFix_FullMethodName = "/studio.Studio/UpdateTaskColorFix"
 	Studio_SegmentMask_FullMethodName        = "/studio.Studio/SegmentMask"
+	Studio_DetectDetails_FullMethodName      = "/studio.Studio/DetectDetails"
+	Studio_RegenerateTask_FullMethodName     = "/studio.Studio/RegenerateTask"
 	Studio_AdminListBatches_FullMethodName   = "/studio.Studio/AdminListBatches"
 	Studio_AdminGetBatch_FullMethodName      = "/studio.Studio/AdminGetBatch"
 	Studio_AdminRetryTask_FullMethodName     = "/studio.Studio/AdminRetryTask"
@@ -61,6 +64,10 @@ type StudioClient interface {
 	PreviewPose(ctx context.Context, in *PreviewPoseReq, opts ...grpc.CallOption) (*PreviewPoseResp, error)
 	// 提交前报价（只读）：与提交同一套模型 / 分辨率归一与计费入口，返回本次提交会冻结的点数；不落库、不冻结、不校验素材
 	Quote(ctx context.Context, in *QuoteReq, opts ...grpc.CallOption) (*QuoteResp, error)
+	// 模型档能力（只读）：每个模型档（通用 / GPT / GPT25Dev / Banana / Seedream）的展示名、实际可用的分辨率与比例、参考图上限；
+	// 由 pipeline 的组规则（Seedream 5.5 无 4:5/5:4、旧 Seedream 无 4K、GPT 2.6 参考图硬上限）与 gateway 目录 feature_limits 求交得出。
+	// with_price=true 时附每档分辨率的单张点数（与 Quote 同一计费入口，计费关时为 0）
+	Models(ctx context.Context, in *ModelsReq, opts ...grpc.CallOption) (*ModelsResp, error)
 	// 批次详情 + 全部子任务（生成中轮询此接口）
 	GetBatch(ctx context.Context, in *GetBatchReq, opts ...grpc.CallOption) (*BatchDetail, error)
 	// 单个子任务
@@ -79,6 +86,13 @@ type StudioClient interface {
 	// 区域蒙版（局部校色，免费）：image_url 的 garment / product / person / background 区域 → 白色+软 alpha PNG（素材库桶公开地址）。
 	// 按（去查询串的地址, 区域）缓存，重复请求直接返回；地址须为本存储签发或素材库域名。没识别到 → 4001「没识别到对应区域」
 	SegmentMask(ctx context.Context, in *SegmentMaskReq, opts ...grpc.CallOption) (*SegmentMaskResp, error)
+	// 商拍「AI 找细节」（免费、不建任务）：对服装图跑 sidecar crop-plan，回每张图的细节框（归一化 [x,y,w,h]）与部位名，
+	// 前端按框在原图上显示裁切缩略图，用户删减 / 重新裁切后把选中的框原样带回 SubmitTryon.detail_crops。
+	// 限流同姿态配对预览：每用户同一时间一个、全进程共享读图名额
+	DetectDetails(ctx context.Context, in *DetectDetailsReq, opts ...grpc.CallOption) (*DetectDetailsResp, error)
+	// 编辑提示词后重新生成单张（仅姿态复刻）：用用户改过的提示词重跑该子任务的生图一步（失败 / 成功的都可以），
+	// 计费同用户重试（新计费请求号 studio-<task_id>-r<n>，冻结 1 张）；同一提示词重复提交幂等；返回批次详情（同 GetBatch）
+	RegenerateTask(ctx context.Context, in *RegenerateTaskReq, opts ...grpc.CallOption) (*BatchDetail, error)
 	// ---- 运营后台 ----
 	AdminListBatches(ctx context.Context, in *AdminListBatchesReq, opts ...grpc.CallOption) (*AdminListBatchesResp, error)
 	// 批次详情：含切图框、切图质检、组图、每步耗时与成本、每个子任务的完整 prompt
@@ -145,6 +159,16 @@ func (c *studioClient) Quote(ctx context.Context, in *QuoteReq, opts ...grpc.Cal
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(QuoteResp)
 	err := c.cc.Invoke(ctx, Studio_Quote_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *studioClient) Models(ctx context.Context, in *ModelsReq, opts ...grpc.CallOption) (*ModelsResp, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ModelsResp)
+	err := c.cc.Invoke(ctx, Studio_Models_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -225,6 +249,26 @@ func (c *studioClient) SegmentMask(ctx context.Context, in *SegmentMaskReq, opts
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(SegmentMaskResp)
 	err := c.cc.Invoke(ctx, Studio_SegmentMask_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *studioClient) DetectDetails(ctx context.Context, in *DetectDetailsReq, opts ...grpc.CallOption) (*DetectDetailsResp, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DetectDetailsResp)
+	err := c.cc.Invoke(ctx, Studio_DetectDetails_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *studioClient) RegenerateTask(ctx context.Context, in *RegenerateTaskReq, opts ...grpc.CallOption) (*BatchDetail, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(BatchDetail)
+	err := c.cc.Invoke(ctx, Studio_RegenerateTask_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -312,6 +356,10 @@ type StudioServer interface {
 	PreviewPose(context.Context, *PreviewPoseReq) (*PreviewPoseResp, error)
 	// 提交前报价（只读）：与提交同一套模型 / 分辨率归一与计费入口，返回本次提交会冻结的点数；不落库、不冻结、不校验素材
 	Quote(context.Context, *QuoteReq) (*QuoteResp, error)
+	// 模型档能力（只读）：每个模型档（通用 / GPT / GPT25Dev / Banana / Seedream）的展示名、实际可用的分辨率与比例、参考图上限；
+	// 由 pipeline 的组规则（Seedream 5.5 无 4:5/5:4、旧 Seedream 无 4K、GPT 2.6 参考图硬上限）与 gateway 目录 feature_limits 求交得出。
+	// with_price=true 时附每档分辨率的单张点数（与 Quote 同一计费入口，计费关时为 0）
+	Models(context.Context, *ModelsReq) (*ModelsResp, error)
 	// 批次详情 + 全部子任务（生成中轮询此接口）
 	GetBatch(context.Context, *GetBatchReq) (*BatchDetail, error)
 	// 单个子任务
@@ -330,6 +378,13 @@ type StudioServer interface {
 	// 区域蒙版（局部校色，免费）：image_url 的 garment / product / person / background 区域 → 白色+软 alpha PNG（素材库桶公开地址）。
 	// 按（去查询串的地址, 区域）缓存，重复请求直接返回；地址须为本存储签发或素材库域名。没识别到 → 4001「没识别到对应区域」
 	SegmentMask(context.Context, *SegmentMaskReq) (*SegmentMaskResp, error)
+	// 商拍「AI 找细节」（免费、不建任务）：对服装图跑 sidecar crop-plan，回每张图的细节框（归一化 [x,y,w,h]）与部位名，
+	// 前端按框在原图上显示裁切缩略图，用户删减 / 重新裁切后把选中的框原样带回 SubmitTryon.detail_crops。
+	// 限流同姿态配对预览：每用户同一时间一个、全进程共享读图名额
+	DetectDetails(context.Context, *DetectDetailsReq) (*DetectDetailsResp, error)
+	// 编辑提示词后重新生成单张（仅姿态复刻）：用用户改过的提示词重跑该子任务的生图一步（失败 / 成功的都可以），
+	// 计费同用户重试（新计费请求号 studio-<task_id>-r<n>，冻结 1 张）；同一提示词重复提交幂等；返回批次详情（同 GetBatch）
+	RegenerateTask(context.Context, *RegenerateTaskReq) (*BatchDetail, error)
 	// ---- 运营后台 ----
 	AdminListBatches(context.Context, *AdminListBatchesReq) (*AdminListBatchesResp, error)
 	// 批次详情：含切图框、切图质检、组图、每步耗时与成本、每个子任务的完整 prompt
@@ -367,6 +422,9 @@ func (UnimplementedStudioServer) PreviewPose(context.Context, *PreviewPoseReq) (
 func (UnimplementedStudioServer) Quote(context.Context, *QuoteReq) (*QuoteResp, error) {
 	return nil, status.Error(codes.Unimplemented, "method Quote not implemented")
 }
+func (UnimplementedStudioServer) Models(context.Context, *ModelsReq) (*ModelsResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method Models not implemented")
+}
 func (UnimplementedStudioServer) GetBatch(context.Context, *GetBatchReq) (*BatchDetail, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetBatch not implemented")
 }
@@ -390,6 +448,12 @@ func (UnimplementedStudioServer) UpdateTaskColorFix(context.Context, *UpdateTask
 }
 func (UnimplementedStudioServer) SegmentMask(context.Context, *SegmentMaskReq) (*SegmentMaskResp, error) {
 	return nil, status.Error(codes.Unimplemented, "method SegmentMask not implemented")
+}
+func (UnimplementedStudioServer) DetectDetails(context.Context, *DetectDetailsReq) (*DetectDetailsResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method DetectDetails not implemented")
+}
+func (UnimplementedStudioServer) RegenerateTask(context.Context, *RegenerateTaskReq) (*BatchDetail, error) {
+	return nil, status.Error(codes.Unimplemented, "method RegenerateTask not implemented")
 }
 func (UnimplementedStudioServer) AdminListBatches(context.Context, *AdminListBatchesReq) (*AdminListBatchesResp, error) {
 	return nil, status.Error(codes.Unimplemented, "method AdminListBatches not implemented")
@@ -516,6 +580,24 @@ func _Studio_Quote_Handler(srv interface{}, ctx context.Context, dec func(interf
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(StudioServer).Quote(ctx, req.(*QuoteReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Studio_Models_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ModelsReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(StudioServer).Models(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Studio_Models_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(StudioServer).Models(ctx, req.(*ModelsReq))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -664,6 +746,42 @@ func _Studio_SegmentMask_Handler(srv interface{}, ctx context.Context, dec func(
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Studio_DetectDetails_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DetectDetailsReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(StudioServer).DetectDetails(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Studio_DetectDetails_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(StudioServer).DetectDetails(ctx, req.(*DetectDetailsReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Studio_RegenerateTask_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RegenerateTaskReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(StudioServer).RegenerateTask(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Studio_RegenerateTask_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(StudioServer).RegenerateTask(ctx, req.(*RegenerateTaskReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Studio_AdminListBatches_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(AdminListBatchesReq)
 	if err := dec(in); err != nil {
@@ -800,6 +918,10 @@ var Studio_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _Studio_Quote_Handler,
 		},
 		{
+			MethodName: "Models",
+			Handler:    _Studio_Models_Handler,
+		},
+		{
 			MethodName: "GetBatch",
 			Handler:    _Studio_GetBatch_Handler,
 		},
@@ -830,6 +952,14 @@ var Studio_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SegmentMask",
 			Handler:    _Studio_SegmentMask_Handler,
+		},
+		{
+			MethodName: "DetectDetails",
+			Handler:    _Studio_DetectDetails_Handler,
+		},
+		{
+			MethodName: "RegenerateTask",
+			Handler:    _Studio_RegenerateTask_Handler,
 		},
 		{
 			MethodName: "AdminListBatches",
