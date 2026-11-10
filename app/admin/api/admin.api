@@ -546,6 +546,7 @@ type (
 		SelectedImages string            `json:"selected_images"` // 组图（JSON 文本）
 		StepLog        string            `json:"step_log"` // 每步耗时与成本（JSON 文本）
 		Tasks          []StudioAdminTask `json:"tasks"`
+		Diagnostics    string            `json:"diagnostics"` // 排查视图（JSON 文本）：trace / workflowSteps / diagnosis / timeline
 	}
 	StudioTaskPath {
 		TaskId string `path:"task_id"`

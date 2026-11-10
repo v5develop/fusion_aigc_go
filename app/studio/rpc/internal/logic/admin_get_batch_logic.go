@@ -52,6 +52,7 @@ func (l *AdminGetBatchLogic) AdminGetBatch(in *studio.AdminGetBatchReq) (*studio
 		SelectedImages: jsonText(b.SelectedImages), StepLog: jsonText(b.StepLog),
 		Tasks: make([]*studio.AdminTask, 0, len(tasks)),
 	}
+	out.Diagnostics = encodeAdminDiagnostics(b, tasks, time.Now())
 	grace, now := secs(l.svcCtx.Config.Timeouts.DeliverGrace, defaultDeliverGrace), time.Now()
 	for _, t := range tasks {
 		at := toAdminTask(t, b.Status)

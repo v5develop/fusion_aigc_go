@@ -430,7 +430,7 @@
             "type": "integer",
             "default": -1,
             "example": -1,
-            "description": "-1 全部；0 排队 1 运行中 2 成功 3 失败 4 已取消",
+            "description": "-1 全部；0 排队 1 运行中 2 成功 3 失败 4 已取消 5 提交中",
             "name": "status",
             "in": "query",
             "allowEmptyValue": true
@@ -4586,7 +4586,7 @@
             "type": "integer",
             "default": -1,
             "example": -1,
-            "description": "-1=全部；0-排队 1-切图中 2-反推中 3-生图中 4-全部成功 5-全部失败 6-部分成功 7-已取消",
+            "description": "-1=全部；0-排队 1-切图中 2-反推中 3-生图中 4-全部成功 5-全部失败 6-部分成功 7-已取消 8-提交中",
             "name": "status",
             "in": "query",
             "allowEmptyValue": true
@@ -4839,6 +4839,10 @@
                       "description": "切图框（JSON 文本，0–1 归一化）",
                       "type": "string"
                     },
+                    "diagnostics": {
+                      "description": "排查视图（JSON 文本）：trace / workflowSteps / diagnosis / timeline",
+                      "type": "string"
+                    },
                     "selected_images": {
                       "description": "组图（JSON 文本）",
                       "type": "string"
@@ -4953,7 +4957,7 @@
                             "type": "integer"
                           },
                           "status": {
-                            "description": "0-排队 1-生成中 2-成功 3-失败 4-已取消",
+                            "description": "0-排队 1-生成中 2-成功 3-失败 4-已取消 5-交付中",
                             "type": "integer"
                           },
                           "task_id": {
@@ -5314,7 +5318,7 @@
       "in": "header"
     }
   },
-  "x-date": "2026-10-31 00:59:15",
+  "x-date": "2026-11-10 17:25:31",
   "x-description": "This is a goctl generated swagger file.",
   "x-github": "https://github.com/zeromicro/go-zero",
   "x-go-zero-doc": "https://go-zero.dev/",

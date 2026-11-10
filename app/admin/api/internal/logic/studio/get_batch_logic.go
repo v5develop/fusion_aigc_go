@@ -35,7 +35,8 @@ func (l *GetBatchLogic) GetBatch(req *types.IdPath) (resp *types.StudioAdminBatc
 	}
 	resp = &types.StudioAdminBatchDetail{
 		Batch: toAdminBatch(out.Batch), CropPlan: out.CropPlan, CropCheck: out.CropCheck,
-		SelectedImages: out.SelectedImages, StepLog: out.StepLog, Tasks: make([]types.StudioAdminTask, 0, len(out.Tasks)),
+		SelectedImages: out.SelectedImages, StepLog: out.StepLog, Diagnostics: out.Diagnostics,
+		Tasks: make([]types.StudioAdminTask, 0, len(out.Tasks)),
 	}
 	for _, t := range out.Tasks {
 		resp.Tasks = append(resp.Tasks, toAdminTask(t))
