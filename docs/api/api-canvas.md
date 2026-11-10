@@ -384,6 +384,8 @@ Idempotency-Key: <run_id>
 | `status` | `queued` |
 | `replayed` | 幂等重放命中原 run 时为 `true` |
 | `credits` | 本次 run 预留（冻结）的点数；不是最终扣费，以终态 `credits` 为准 |
+| `settle_mode` | 新增（可选）：结算方式，`FIXED` 按冻结扣 / `ACTUAL_COST` 成功后按供应商实际用量结算（`credits` 是最多扣多少，终态 `credits` 是实扣）；未冻结（工具 / 计费关闭）不返回 |
+| `max_points` | 新增（可选）：本次最多扣多少点（= 冻结的 `credits`）；`ACTUAL_COST` 时显示「按实际用量结算，最多 N 点」 |
 | `warnings` | string[]，参数归一告警，没有时为 `[]`。目前只有 Seedream：`size` 传 `4K` / `1K` 会按 **2K** 受理并回一条告警（如「Seedream 不支持 4K（会被降为 2K），已按 2K 生成并计费」）；幂等重放同样回告警。前端可 toast 提示，不需要重提 |
 
 提交时的失败（都是整次 run 没有创建）：
@@ -777,6 +779,8 @@ POST /api/v1/canvas/canvases/from-template
 ### 7.4 计费口径
 
 - **图片 / 视频生成**：每次 run 一张预留单，提交时冻结，成功才结算；`count>1` 部分失败只退失败张；取消退回未完成部分。
+- **按实际用量结算（2026-11-10 起，GPT Image 2.6）**：载体 `canvas-gpt-image-2.6-sunburst`（档位默认模型 `afv_ai_model.settle_mode=ACTUAL_COST`）冻结照旧按配置价（= 最多扣多少）；run 成功时按该 run 全部 gateway 调用的供应商实报成本（`cost.source=reported && final`，美元，多个调用求和）确认 `min(冻结, max(1, ceil(成本USD × 汇率 × 加价倍率 × 100)))`，差额同一事务退回，run 的 `credits`（`points`）改为实扣。汇率 / 默认倍率读 `afv_system_config`：`billing_actual_cost_usd_cny_rate`（缺省 7.2）、`billing_actual_cost_default_markup`（缺省 1.3），载体 `cost_markup` 非空时优先。拿不到实报成本按冻结全额确认（ERROR 日志 `判据=ACTUAL_COST_UNAVAILABLE`），`unsettled` 重试结算同样按实际。例：1K medium 文生图实报 $0.014536 → 冻结 836、实扣 14、退回 822。
+- **历史多扣补退**：按实际用量结算上线前（Java V1.0.215 起）已按冻结上限确认的画布 / 商拍单，用 `go run ./tools/ops/actual-cost-refund -dsn … -gateway … -secret … -since '<V1.0.215 上线时间>'`（默认 dry-run，加 `-apply` 才退）按同一公式补退差额；每张预留单只退一次（流水幂等键 `actual-cost-refund:{reservationNo}`），预留单置 `PARTIALLY_REFUNDED`。**先跑 ai-gateway 的历史调用成本回填脚本**（让 `GET /v1/calls/{id}` 的 `cost` 变成 `source=reported, final=true`），否则这些单会判为 `no_reported_cost` 跳过；回填后重跑即可。成功后又「重新生成」的旧轮次（请求号被新一轮覆盖）对不上调用号，工具只列为 `UNMATCHED` 供人工处理。
 - **裁剪**：不计点。
 - **放大 / 扩图 / 局部重绘**：由 Java 兼容工具按其口径计费，画布侧只记 run 与结果引用。用户取消、运营强制失败、超时、所在画布被删时，canvas-rpc 调 Java 取消接口 `POST /api/v1/creation/{taskId}/cancel` 真实取消，**由 Java 退款**（Go 不退）；用户取消用本次请求的 Bearer，其余场景用该用户最近一次请求留下的 Bearer（canvas-rpc 内存缓存 2 小时）。没有有效登录态时退化为**停止跟踪**——Java 任务可能仍会执行并扣费，run 的 `error` 写明，canvas-rpc 打 WARN（`check=canvas.java_cancel_degraded`）并计数（`canvas_java_cancel_degraded_total`），运营可到 Java 后台手动取消。取消时 Java 已成功：用户取消 / 超时 / 画布已删按成功交付，强制失败照常置失败并注明「Java 任务已成功并已扣费」。提交暂时失败、还没拿到任务号的 run，先按同一幂等键逐字节重放找回任务号再取消（Java 没收到首次请求时重放会新建任务并冻结点数，随即取消、由 Java 退款；同键内容不同 `1003` 时无法找回，按停止跟踪处理）。
 - **反推**：gateway 多模态调用，按 run 计费。

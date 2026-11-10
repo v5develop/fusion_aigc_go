@@ -27,14 +27,16 @@ import (
 // fakeFlowBill flowBiller 的假实现：记录续期 / 结算 / 退款调用；status 是 Status 返回的预留单状态。
 type fakeFlowBill struct {
 	fakeBill
-	renews    []string
-	settles   []string
-	confirmed []string
-	status    string
-	settleErr error
-	enoughs   []billing.Charge // Enough 收到的计费参数
-	enoughErr error            // Enough 的返回（余额预检失败）
-	mu        sync.Mutex       // renewHeld 并发续期
+	renews     []string
+	settles    []string
+	confirmed  []string
+	status     string
+	settleErr  error
+	enoughs    []billing.Charge // Enough 收到的计费参数
+	enoughErr  error            // Enough 的返回（余额预检失败）
+	actualCost bool             // 模拟载体按实际用量结算：SettleCost 会调成本来源
+	costUSD    []string         // 成本来源取到的美元成本（取不到记 unavailable）
+	mu         sync.Mutex       // renewHeld 并发续期
 }
 
 func (f *fakeFlowBill) Renew(_ context.Context, _ int64, requestID string) error {
@@ -43,9 +45,22 @@ func (f *fakeFlowBill) Renew(_ context.Context, _ int64, requestID string) error
 	f.renews = append(f.renews, requestID)
 	return nil
 }
-func (f *fakeFlowBill) Settle(_ context.Context, _ int64, requestID string, _ int) error {
+func (f *fakeFlowBill) SettleCost(ctx context.Context, _ int64, requestID string, _ int, cost billing.CostFunc) (*billing.Settlement, error) {
 	f.settles = append(f.settles, requestID)
-	return f.settleErr
+	if f.settleErr != nil {
+		return nil, f.settleErr
+	}
+	out := &billing.Settlement{Mode: billing.SettleFixed}
+	if f.actualCost && cost != nil {
+		out.Mode = billing.SettleActualCost
+		if usd, ok := cost(ctx); ok {
+			f.costUSD = append(f.costUSD, usd.FloatString(6))
+			out.ActualCost = true
+		} else {
+			f.costUSD = append(f.costUSD, "unavailable")
+		}
+	}
+	return out, nil
 }
 func (f *fakeFlowBill) Status(context.Context, int64, string) (string, error) { return f.status, nil }
 func (f *fakeFlowBill) Enough(_ context.Context, c billing.Charge) error {

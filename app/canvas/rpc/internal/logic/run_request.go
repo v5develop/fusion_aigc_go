@@ -45,6 +45,8 @@ type runSpec struct {
 	EntryCode  string
 	AssetIDs   []string // 上游素材（入库 relatedIds）
 	Warnings   []string // 参数归一告警（Seedream 4K → 2K 等）
+	// SettleMode 冻结后载体的结算方式（FIXED / ACTUAL_COST），回给前端显示「按实际用量结算，最多 N 点」；未冻结为空
+	SettleMode string
 }
 
 // ToolKind 工具名 → 执行类型（mask 是局部重绘）。

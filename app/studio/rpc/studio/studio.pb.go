@@ -1232,6 +1232,8 @@ type QuoteResp struct {
 	Charged       bool                   `protobuf:"varint,8,opt,name=charged,proto3" json:"charged,omitempty"`                           // 提交是否真的会冻结扣点（仅 billing_mode=on）
 	Reason        string                 `protobuf:"bytes,9,opt,name=reason,proto3" json:"reason,omitempty"`                              // available=false 的原因（给用户看的短句）；可用时为空
 	Warnings      []string               `protobuf:"bytes,10,rep,name=warnings,proto3" json:"warnings,omitempty"`                         // 参数归一告警（同提交）
+	SettleMode    string                 `protobuf:"bytes,11,opt,name=settle_mode,json=settleMode,proto3" json:"settle_mode,omitempty"`   // 结算方式：FIXED 按报价扣 / ACTUAL_COST 按供应商实际用量结算（points 是最多扣多少）；报不出价时为空
+	MaxPoints     int64                  `protobuf:"varint,12,opt,name=max_points,json=maxPoints,proto3" json:"max_points,omitempty"`     // 本次最多扣多少点（= points，冻结额）；ACTUAL_COST 时 UI 显示「按实际用量结算，最多 N 点」
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1336,6 +1338,20 @@ func (x *QuoteResp) GetWarnings() []string {
 	return nil
 }
 
+func (x *QuoteResp) GetSettleMode() string {
+	if x != nil {
+		return x.SettleMode
+	}
+	return ""
+}
+
+func (x *QuoteResp) GetMaxPoints() int64 {
+	if x != nil {
+		return x.MaxPoints
+	}
+	return 0
+}
+
 type ModelsReq struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
@@ -1401,6 +1417,7 @@ type ModelResolutionPrice struct {
 	Resolution    string                 `protobuf:"bytes,1,opt,name=resolution,proto3" json:"resolution,omitempty"`                    // 1k / 2k / 4k
 	Available     bool                   `protobuf:"varint,2,opt,name=available,proto3" json:"available,omitempty"`                     // 能否报出价
 	UnitPoints    int64                  `protobuf:"varint,3,opt,name=unit_points,json=unitPoints,proto3" json:"unit_points,omitempty"` // 单张点数（billing_mode=off 时为 0）
+	SettleMode    string                 `protobuf:"bytes,4,opt,name=settle_mode,json=settleMode,proto3" json:"settle_mode,omitempty"`  // FIXED / ACTUAL_COST（ACTUAL_COST 时 unit_points 是单张最多扣多少）
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1454,6 +1471,13 @@ func (x *ModelResolutionPrice) GetUnitPoints() int64 {
 		return x.UnitPoints
 	}
 	return 0
+}
+
+func (x *ModelResolutionPrice) GetSettleMode() string {
+	if x != nil {
+		return x.SettleMode
+	}
+	return ""
 }
 
 type ModelCapability struct {
@@ -3508,6 +3532,7 @@ type AdminBatchDetail struct {
 	SelectedImages string                 `protobuf:"bytes,4,opt,name=selected_images,json=selectedImages,proto3" json:"selected_images,omitempty"` // 组图结果（JSON 文本）
 	StepLog        string                 `protobuf:"bytes,5,opt,name=step_log,json=stepLog,proto3" json:"step_log,omitempty"`                      // 每步耗时与成本 [{step,ms,images,crops,degraded,cost_cny,at}]（JSON 文本）
 	Tasks          []*AdminTask           `protobuf:"bytes,6,rep,name=tasks,proto3" json:"tasks,omitempty"`
+	Diagnostics    string                 `protobuf:"bytes,7,opt,name=diagnostics,proto3" json:"diagnostics,omitempty"` // 排查视图（JSON 文本）：trace 任务链路 / workflowSteps 工作流步骤 / diagnosis 诊断 / timeline 时间线
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -3582,6 +3607,13 @@ func (x *AdminBatchDetail) GetTasks() []*AdminTask {
 		return x.Tasks
 	}
 	return nil
+}
+
+func (x *AdminBatchDetail) GetDiagnostics() string {
+	if x != nil {
+		return x.Diagnostics
+	}
+	return ""
 }
 
 // 后台操作子任务：id（afv_studio_task 主键，来自 origin_ref 如 tyo:123）与 task_id 二选一，id 优先
@@ -4113,7 +4145,7 @@ const file_studio_proto_rawDesc = "" +
 	"resolution\x12!\n" +
 	"\faspect_ratio\x18\x05 \x01(\tR\vaspectRatio\x12\x1d\n" +
 	"\n" +
-	"task_total\x18\x06 \x01(\x05R\ttaskTotal\"\xb1\x02\n" +
+	"task_total\x18\x06 \x01(\x05R\ttaskTotal\"\xf1\x02\n" +
 	"\tQuoteResp\x12\x1c\n" +
 	"\tavailable\x18\x01 \x01(\bR\tavailable\x12\x16\n" +
 	"\x06points\x18\x02 \x01(\x03R\x06points\x12\x1f\n" +
@@ -4130,19 +4162,25 @@ const file_studio_proto_rawDesc = "" +
 	"\acharged\x18\b \x01(\bR\acharged\x12\x16\n" +
 	"\x06reason\x18\t \x01(\tR\x06reason\x12\x1a\n" +
 	"\bwarnings\x18\n" +
-	" \x03(\tR\bwarnings\"W\n" +
+	" \x03(\tR\bwarnings\x12\x1f\n" +
+	"\vsettle_mode\x18\v \x01(\tR\n" +
+	"settleMode\x12\x1d\n" +
+	"\n" +
+	"max_points\x18\f \x01(\x03R\tmaxPoints\"W\n" +
 	"\tModelsReq\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x1d\n" +
 	"\n" +
-	"with_price\x18\x03 \x01(\bR\twithPrice\"u\n" +
+	"with_price\x18\x03 \x01(\bR\twithPrice\"\x96\x01\n" +
 	"\x14ModelResolutionPrice\x12\x1e\n" +
 	"\n" +
 	"resolution\x18\x01 \x01(\tR\n" +
 	"resolution\x12\x1c\n" +
 	"\tavailable\x18\x02 \x01(\bR\tavailable\x12\x1f\n" +
 	"\vunit_points\x18\x03 \x01(\x03R\n" +
-	"unitPoints\"\xd4\x02\n" +
+	"unitPoints\x12\x1f\n" +
+	"\vsettle_mode\x18\x04 \x01(\tR\n" +
+	"settleMode\"\xd4\x02\n" +
 	"\x0fModelCapability\x12\x12\n" +
 	"\x04code\x18\x01 \x01(\tR\x04code\x12\x14\n" +
 	"\x05label\x18\x02 \x01(\tR\x05label\x12\x1f\n" +
@@ -4337,7 +4375,7 @@ const file_studio_proto_rawDesc = "" +
 	" \x01(\tR\x10billingRequestId\x12%\n" +
 	"\x0ebilling_status\x18\v \x01(\x05R\rbillingStatus\x12\x1f\n" +
 	"\vduration_ms\x18\f \x01(\x03R\n" +
-	"durationMs\"\xe5\x01\n" +
+	"durationMs\"\x87\x02\n" +
 	"\x10AdminBatchDetail\x12(\n" +
 	"\x05batch\x18\x01 \x01(\v2\x12.studio.AdminBatchR\x05batch\x12\x1b\n" +
 	"\tcrop_plan\x18\x02 \x01(\tR\bcropPlan\x12\x1d\n" +
@@ -4345,7 +4383,8 @@ const file_studio_proto_rawDesc = "" +
 	"crop_check\x18\x03 \x01(\tR\tcropCheck\x12'\n" +
 	"\x0fselected_images\x18\x04 \x01(\tR\x0eselectedImages\x12\x19\n" +
 	"\bstep_log\x18\x05 \x01(\tR\astepLog\x12'\n" +
-	"\x05tasks\x18\x06 \x03(\v2\x11.studio.AdminTaskR\x05tasks\"X\n" +
+	"\x05tasks\x18\x06 \x03(\v2\x11.studio.AdminTaskR\x05tasks\x12 \n" +
+	"\vdiagnostics\x18\a \x01(\tR\vdiagnostics\"X\n" +
 	"\fAdminTaskReq\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x17\n" +
 	"\atask_id\x18\x02 \x01(\tR\x06taskId\x12\x1f\n" +

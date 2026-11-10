@@ -115,7 +115,7 @@ func (c *core) RunNode(ctx context.Context, in *canvas.RunNodeReq) (*canvas.RunN
 	}
 	return &canvas.RunNodeResp{
 		RequestId: strconv.FormatInt(run.ID, 10), RunId: runID, Status: model.StatusText(run.Status), Credits: run.Points,
-		Warnings: mergeWarnings(warns, sp.Warnings),
+		Warnings: mergeWarnings(warns, sp.Warnings), SettleMode: sp.SettleMode, MaxPoints: maxPointsOf(sp.SettleMode, run.Points),
 	}, nil
 }
 
@@ -361,4 +361,12 @@ func (c *core) SelectCandidate(ctx context.Context, in *canvas.SelectCandidateRe
 		r.SelectedIndex = in.Index
 	}
 	return c.toResult(ctx, r), nil
+}
+
+// maxPointsOf 回给前端的「最多扣多少点」：冻结了才有（= 冻结的 credits）。
+func maxPointsOf(settleMode string, points int64) int64 {
+	if settleMode == "" {
+		return 0
+	}
+	return points
 }

@@ -129,10 +129,15 @@ func (c *core) casMirror(ctx context.Context, r *model.NodeRun, to, resv string)
 func (c *core) resettle(ctx context.Context, r *model.NodeRun) {
 	log := logx.WithContext(ctx)
 	bctx, cancel := detached(ctx)
-	err := c.s.Billing.Settle(bctx, r.UserID, r.BillingRequestID.String, settleQuantity(r.Kind, len(r.CandidateList())))
+	st, err := c.s.Billing.SettleCost(bctx, r.UserID, r.BillingRequestID.String, settleQuantity(r.Kind, len(r.CandidateList())), c.runCost(r, nil))
 	cancel()
 	switch {
 	case err == nil:
+		if st != nil && st.ActualCost && !st.Already {
+			if uerr := c.s.Repo.Run.Update(ctx, r.ID, map[string]any{"points": st.Points}); uerr != nil {
+				log.Errorf("canvas: run %d 写实扣点数 %d 失败: %v", r.ID, st.Points, uerr)
+			}
+		}
 		c.casMirror(ctx, r, model.BillSettled, "settle_retry")
 		delete(c.unsettledAlerted, r.ID)
 	case errors.Is(err, billing.ErrGone):

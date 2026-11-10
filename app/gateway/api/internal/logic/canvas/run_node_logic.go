@@ -62,6 +62,6 @@ func (l *RunNodeLogic) RunNode(req *types.CanvasRunReq) (resp *types.CanvasRunRe
 	if warns == nil {
 		warns = []string{}
 	}
-	return &types.CanvasRunResp{RequestId: out.RequestId, RunId: out.RunId, Status: out.Status, Replayed: out.Replayed, Credits: out.Credits,
+	return &types.CanvasRunResp{RequestId: out.RequestId, RunId: out.RunId, Status: out.Status, Replayed: out.Replayed, Credits: out.Credits, SettleMode: out.SettleMode, MaxPoints: out.MaxPoints,
 		Warnings: warns}, nil
 }

@@ -203,7 +203,7 @@ func freeze(ctx context.Context, conn sqlx.SqlConn, c Charge, q *Quote, hold tim
 		if err := writeResLines(ctx, s, no, q); err != nil {
 			return err
 		}
-		out = &Reservation{No: no, PricePoints: p, Quote: q}
+		out = &Reservation{No: no, PricePoints: p, Quote: q, variantCode: q.VariantCode, carrierModelID: q.CarrierModelID}
 		return nil
 	})
 
@@ -312,7 +312,23 @@ func takeFromBatches(ctx context.Context, s sqlx.Session, userID, total int64) (
 //     它代码里的注释说明了原因：按流水顺序重放对账时，balance_after 与 amount 累加要对得上。
 //   - charged 全额或 0 时退化成整单确认 / 整单退，不写 PARTIALLY_REFUNDED
 func settle(ctx context.Context, conn sqlx.SqlConn, r *Reservation, actual int) error {
-	return conn.TransactCtx(ctx, func(ctx context.Context, s sqlx.Session) error {
+	_, err := settleWith(ctx, conn, r, func(total int64) int64 {
+		consume, _ := splitActual(r, total, actual)
+		return consume
+	}, "按实际交付量确认消费", "未交付部分退回")
+	return err
+}
+
+// settlePoints 按点数确认（部分确认）：确认 points（夹到 [0, 冻结]），差额同一事务退回。
+// 返回 done=false 表示单子此前已结算（幂等命中，没有再动账）。
+func settlePoints(ctx context.Context, conn sqlx.SqlConn, r *Reservation, points int64, consumeDesc, refundDesc string) (bool, error) {
+	return settleWith(ctx, conn, r, func(total int64) int64 { return points }, consumeDesc, refundDesc)
+}
+
+// settleWith 结算的公共部分：consumeOf(冻结点数) 给出确认多少，其余退回。
+func settleWith(ctx context.Context, conn sqlx.SqlConn, r *Reservation, consumeOf func(total int64) int64, consumeDesc, refundDesc string) (bool, error) {
+	done := false
+	err := conn.TransactCtx(ctx, func(ctx context.Context, s sqlx.Session) error {
 		res, err := lockReservation(ctx, s, r.No)
 		if err != nil {
 			return err
@@ -326,7 +342,14 @@ func settle(ctx context.Context, conn sqlx.SqlConn, r *Reservation, actual int) 
 		}
 
 		total := res.PricePoints
-		consume, back := splitActual(r, total, actual)
+		consume := consumeOf(total)
+		if consume < 0 {
+			consume = 0
+		}
+		if consume > total {
+			consume = total
+		}
+		back := total - consume
 
 		var a Account
 		const lockAcc = "SELECT " + accountCols + " FROM `afv_points_account` WHERE `user_id` = ? AND `deleted` = 0 LIMIT 1 FOR UPDATE"
@@ -358,7 +381,7 @@ func settle(ctx context.Context, conn sqlx.SqlConn, r *Reservation, actual int) 
 			UserID: res.UserId, ChangeType: changeConsume, Amount: -consume,
 			BalanceAfter: a.Balance, FrozenAfter: a.FrozenBalance - consume,
 			BizType: bizTypeLocalLife, BizID: res.BizId, IdempotencyKey: consumeKey,
-			Description: "按实际交付量确认消费",
+			Description: consumeDesc,
 		})
 		if err != nil {
 			return err
@@ -372,7 +395,7 @@ func settle(ctx context.Context, conn sqlx.SqlConn, r *Reservation, actual int) 
 				UserID: res.UserId, ChangeType: changeRefund, Amount: back,
 				BalanceAfter: a.Balance + back, FrozenAfter: a.FrozenBalance - total,
 				BizType: bizTypeLocalLife, BizID: res.BizId, IdempotencyKey: refundKey,
-				Description: "未交付部分退回",
+				Description: refundDesc,
 			})
 			if err != nil {
 				return err
@@ -391,15 +414,16 @@ func settle(ctx context.Context, conn sqlx.SqlConn, r *Reservation, actual int) 
 		if n, _ := ret.RowsAffected(); n == 0 {
 			return fmt.Errorf("%w: %s 并发下已被改状态", ErrGone, r.No)
 		}
-		// 明细行只改状态：Java 的 confirmed_points / refunded_points 插入后从没被更新过
-		// （工作区版本如此；origin/test 才引入按行结算），我们跟着它，不自作主张回填。
-		//
-		// 行状态跟主单走：部分结算写 PARTIALLY_REFUNDED，否则 CONFIRMED。
-		// Java 的 V1.0.166 已把这一列加宽到 32（2026-10-10 Java 回复确认），不用再绕。
-		const updLine = "UPDATE `afv_billing_reservation_line` SET `status` = ? WHERE `reservation_no` = ?"
-		_, err = s.ExecCtx(ctx, updLine, status, r.No)
-		return err
+		// 明细行：状态跟主单走（部分结算 PARTIALLY_REFUNDED，否则 CONFIRMED），并按 Java settleReservationLines 的口径
+		// 回填 confirmed_points / refunded_points（Σ行确认 = 整单实扣、Σ行退款 = 整单退款，最大余数法分摊）。
+		// Java 的 V1.0.166 已把状态列加宽到 32（2026-10-10 Java 回复确认），不用再绕。
+		if err := settleLines(ctx, s, r.No, total, back, status); err != nil {
+			return err
+		}
+		done = true
+		return nil
 	})
+	return done, err
 }
 
 // splitActual 按实际产出量算确认多少、退多少。
@@ -482,9 +506,8 @@ func unfreeze(ctx context.Context, conn sqlx.SqlConn, no, change, idem, target, 
 		if n, _ := ret.RowsAffected(); n == 0 {
 			return fmt.Errorf("%w: %s 并发下已被改状态", ErrGone, no)
 		}
-		const updLine = "UPDATE `afv_billing_reservation_line` SET `status` = ? WHERE `reservation_no` = ?"
-		_, err = s.ExecCtx(ctx, updLine, target, no)
-		return err
+		// 明细行：整单退回，各行 refunded_points = 该行分得的点数（与 Java settleReservationLines 同口径）
+		return settleLines(ctx, s, no, p, p, target)
 	})
 }
 
@@ -639,12 +662,16 @@ func toReservation(r *reservationRow) *Reservation {
 	out := &Reservation{No: r.No, PricePoints: r.PricePoints}
 	if r.PriceSnapsht.Valid {
 		var snap struct {
-			Settlement string `json:"settlement"`
-			Quantity   int    `json:"quantity"`
-			EntryCode  string `json:"entryCode"`
+			Settlement     string `json:"settlement"`
+			Quantity       int    `json:"quantity"`
+			EntryCode      string `json:"entryCode"`
+			VariantCode    string `json:"variantCode"`
+			CarrierModelID int64  `json:"carrierModelId"`
 		}
 		if err := jsonUnmarshal(r.PriceSnapsht.String, &snap); err == nil {
-			out.Quote = &Quote{Settlement: snap.Settlement, Quantity: snap.Quantity, EntryCode: snap.EntryCode}
+			out.Quote = &Quote{Settlement: snap.Settlement, Quantity: snap.Quantity, EntryCode: snap.EntryCode,
+				VariantCode: snap.VariantCode, CarrierModelID: snap.CarrierModelID}
+			out.variantCode, out.carrierModelID = snap.VariantCode, snap.CarrierModelID
 		}
 	}
 	return out

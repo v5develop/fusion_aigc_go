@@ -18,6 +18,7 @@ type fakeQuoter struct {
 	prices map[string]int64 // 1K / 2K / 4K → 点
 	err    error
 	got    []billing.Charge
+	settle string // 报价的结算方式（空 = 旧 billing 没填）
 }
 
 func (f *fakeQuoter) Mode() string { return f.mode }
@@ -27,7 +28,7 @@ func (f *fakeQuoter) Quote(_ context.Context, c billing.Charge) (*billing.Quote,
 	if f.err != nil {
 		return nil, f.err
 	}
-	return &billing.Quote{PricePoints: f.prices[c.Resolution], PriceUnit: "PER_IMAGE"}, nil
+	return &billing.Quote{PricePoints: f.prices[c.Resolution], PriceUnit: "PER_IMAGE", SettleMode: f.settle}, nil
 }
 
 var quoteGroups = map[string]string{"通用": "img.gpt-image-2", "Seedream": "img.seedream-5"}
@@ -88,5 +89,21 @@ func TestAccessErrorDistinguishesNoOffer(t *testing.T) {
 		if !ok || code != tc.code || msg != tc.msg {
 			t.Errorf("%v → %d %q", tc.err, code, msg)
 		}
+	}
+}
+
+// GPT 2.6 载体按实际用量结算：报价带 settle_mode=ACTUAL_COST 与 max_points（= 冻结上限）；未标结算方式按 FIXED。
+func TestQuoteStudio_SettleModeAndMaxPoints(t *testing.T) {
+	q := &fakeQuoter{mode: billing.ModeOn, prices: map[string]int64{"1K": 836}, settle: billing.SettleActualCost}
+	r := quoteStudio(context.Background(), q, "studio_tryon", model.KindTryon,
+		&studio.QuoteReq{UserId: 7, Resolution: "1K", TaskTotal: 2}, quoteGroups)
+	if r.SettleMode != billing.SettleActualCost || r.MaxPoints != 1672 || r.Points != 1672 {
+		t.Fatalf("%+v", r)
+	}
+	q = &fakeQuoter{mode: billing.ModeOn, prices: map[string]int64{"1K": 10}}
+	r = quoteStudio(context.Background(), q, "studio_tryon", model.KindTryon,
+		&studio.QuoteReq{UserId: 7, Resolution: "1K", TaskTotal: 2}, quoteGroups)
+	if r.SettleMode != billing.SettleFixed || r.MaxPoints != 20 {
+		t.Fatalf("%+v", r)
 	}
 }

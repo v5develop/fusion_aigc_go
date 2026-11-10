@@ -942,7 +942,7 @@ POST /api/v1/studio/masks
 
 ## 6. 模型、分辨率、比例
 
-> **按模型取可选项**：`GET /api/v1/studio/models?kind=tryon|pose|imagegen[&with_price=true]` 返回每个模型档（`通用` / `GPT` / `GPT25` / `Banana` / `Seedream`；提交时旧档名 `GPT25Dev` 仍按 `GPT25` 受理，输出只用 `GPT25`）的展示名 `label`、实际可选的 `resolutions` / `aspect_ratios`、是否支持「自动」比例 `auto_aspect`、本 kind 的参考图上限 `max_ref_images`、限制说明 `notes`、gateway 目录里是否可用 `available`；`with_price=true` 时附每档分辨率的单张点数 `prices[]`（与 quote 同一计费入口）。
+> **按模型取可选项**：`GET /api/v1/studio/models?kind=tryon|pose|imagegen[&with_price=true]` 返回每个模型档（`通用` / `GPT` / `GPT25` / `Banana` / `Seedream`；提交时旧档名 `GPT25Dev` 仍按 `GPT25` 受理，输出只用 `GPT25`）的展示名 `label`、实际可选的 `resolutions` / `aspect_ratios`、是否支持「自动」比例 `auto_aspect`、本 kind 的参考图上限 `max_ref_images`、限制说明 `notes`、gateway 目录里是否可用 `available`；`with_price=true` 时附每档分辨率的单张点数 `prices[]`（与 quote 同一计费入口；新增可选字段 `prices[].settle_mode`，`ACTUAL_COST` 时 `unit_points` 是单张最多扣多少，见第 7 章）。
 > 可选项与提交时的参数归一同源（Seedream 5.5 无 `4:5` / `5:4`、旧 Seedream 无 4K、GPT Image 2.6 参考图上限按 kind 收紧），再与 gateway 目录 `feature_limits` 求交；目录拉不到时只按组规则。前端据此收窄选项、换模型时把不支持的值落到第一个可选项；下文的表是兜底口径。
 
 ### 6.1 模型四档 `model`
@@ -1028,6 +1028,10 @@ POST /api/v1/studio/masks
 - **单价**取决于分辨率（1k / 2k / 4k），由运营在后台配置；三个功能各有独立的计费入口，价格可以不同。
 - **`estimated_points`**：提交时的预估消耗，口径是「单价 × 任务数」（`task_total`），即这次提交一共冻结的点数。它是冻结额，**不是最终扣费**：有失败 / 取消的任务，最终扣费会比它少。前端提交成功后以它为准展示「已冻结 N 点」，最终余额以点数流水为准。
 - **提交前报价**：页面上「消耗 N 点」调 7.1 的报价接口，与提交同一套模型 / 分辨率归一和计费入口，算出的就是提交会冻结的点数；最终仍以提交返回的 `estimated_points` 为准。
+- **按实际用量结算（2026-11-10 起，GPT Image 2.6）**：载体模型（档位默认模型）`afv_ai_model.settle_mode=ACTUAL_COST` 的档位（目前 `studio-gpt-image-2.6-sunburst-tryon` / `-2ref`、`creaft-gpt-image-2.6-sunburst`）冻结照旧按配置价（= **最多扣多少**）；任务成功时按 ai-gateway 返回的供应商**实报成本**（调用 `cost.source=reported` 且 `final=true`，单位美元；网关内多次尝试已合计，或按各扣费尝试求和）确认：
+  `实扣 = min(冻结, max(1, ceil(成本USD × 汇率 × 加价倍率 × 100)))`，差额在同一事务退回原批次。汇率 / 默认倍率读 `afv_system_config` 的 `billing_actual_cost_usd_cny_rate`（缺省 7.2）/ `billing_actual_cost_default_markup`（缺省 1.3），载体 `cost_markup` 非空时用它。拿不到实报成本时按冻结全额确认，服务端 ERROR 日志 `判据=ACTUAL_COST_UNAVAILABLE`（事后可用 `tools/ops/actual-cost-refund` 补退）。用户重试 / 重新生成的新一轮同样按实际结算。
+  报价 / 模型价目里 `settle_mode=ACTUAL_COST` 时，前端把「消耗 N 点」换成「**按实际用量结算，最多 N 点**」（N = `max_points`，与 `points` 相同）；`estimated_points` 仍是冻结额。
+- **历史多扣补退**：按实际用量结算上线前（Java V1.0.215 起）已按冻结上限确认的画布 / 商拍单，用 `go run ./tools/ops/actual-cost-refund -dsn … -gateway … -secret … -since '<V1.0.215 上线时间>'`（默认 dry-run，加 `-apply` 才退）按同一公式补退差额；每张预留单只退一次（流水幂等键 `actual-cost-refund:{reservationNo}`），预留单置 `PARTIALLY_REFUNDED`。**先跑 ai-gateway 的历史调用成本回填脚本**（让 `GET /v1/calls/{id}` 的 `cost` 变成 `source=reported, final=true`），否则这些单会判为 `no_reported_cost` 跳过；回填后重跑即可。成功后又「重新生成」的旧轮次（请求号被新一轮覆盖）对不上调用号，工具只列为 `UNMATCHED` 供人工处理。
 
 ### 7.1 提交前报价（只读）
 
@@ -1057,13 +1061,19 @@ POST /api/v1/studio/masks
 | `charged` | bool | 提交是否真的冻结扣点（仅 `billing_mode=on` 为 `true`）；前端只在它为 `true` 且 `points>0` 时显示「消耗 N 点」 |
 | `reason` | string | `available=false` 的原因（给用户看的短句）；可用时为空串 |
 | `warnings` | string[] | 参数归一告警，同提交；没有为 `[]` |
+| `settle_mode` | string | 新增（可选）：结算方式，`FIXED` 按报价扣 / `ACTUAL_COST` 成功后按供应商实际用量结算（`points` 是最多扣多少）；报不出价 / 计费关闭时不返回 |
+| `max_points` | int | 新增（可选）：本次最多扣多少点（= `points`，即冻结额）；`ACTUAL_COST` 时显示「按实际用量结算，最多 N 点」 |
 
 ```json
 // POST /api/v1/studio/image-generate/quote   {"model":"通用","resolution":"2k","aspect_ratio":"1:1","count":3}
 {"code": 0, "msg": "ok", "data": {
   "available": true, "points": 45, "unit_points": 15, "price_unit": "PER_IMAGE", "task_total": 3,
-  "resolution": "2k", "billing_mode": "on", "charged": true, "reason": "", "warnings": []
+  "resolution": "2k", "billing_mode": "on", "charged": true, "reason": "", "warnings": [],
+  "settle_mode": "FIXED", "max_points": 45
 }}
+// GPT Image 2.6（按实际用量结算）：显示「按实际用量结算，最多 1672 点」
+{"code": 0, "msg": "ok", "data": {"available": true, "points": 1672, "unit_points": 836, "price_unit": "PER_IMAGE", "task_total": 2,
+  "resolution": "1k", "billing_mode": "on", "charged": true, "reason": "", "warnings": [], "settle_mode": "ACTUAL_COST", "max_points": 1672}}
 // 没配价格
 {"code": 0, "msg": "ok", "data": {"available": false, "points": 0, "unit_points": 0, "price_unit": "PER_IMAGE",
   "task_total": 3, "resolution": "2k", "billing_mode": "on", "charged": true, "reason": "该功能暂未配置价格", "warnings": []}}

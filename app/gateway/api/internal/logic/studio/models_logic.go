@@ -43,7 +43,7 @@ func (l *ModelsLogic) Models(req *types.StudioModelsReq) (resp *types.StudioMode
 			MaxRefImages: it.MaxRefImages, Notes: nonNilStrs(it.Notes), Prices: make([]types.StudioModelResolutionPrice, 0, len(it.Prices)),
 		}
 		for _, p := range it.Prices {
-			c.Prices = append(c.Prices, types.StudioModelResolutionPrice{Resolution: p.Resolution, Available: p.Available, UnitPoints: p.UnitPoints})
+			c.Prices = append(c.Prices, types.StudioModelResolutionPrice{Resolution: p.Resolution, Available: p.Available, UnitPoints: p.UnitPoints, SettleMode: p.SettleMode})
 		}
 		resp.Items = append(resp.Items, c)
 	}

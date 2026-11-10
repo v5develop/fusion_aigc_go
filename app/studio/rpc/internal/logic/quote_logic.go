@@ -109,6 +109,11 @@ func quoteStudio(ctx context.Context, q quoter, entry string, k model.Kind, in *
 	out.Available = true
 	out.UnitPoints = r.PricePoints
 	out.Points = r.PricePoints * int64(total)
+	// ACTUAL_COST（如 GPT Image 2.6）：points 是冻结上限，成功后逐张按供应商实报成本结算、退回差额
+	out.SettleMode, out.MaxPoints = r.SettleMode, out.Points
+	if out.SettleMode == "" {
+		out.SettleMode = billing.SettleFixed
+	}
 	if r.PriceUnit != "" {
 		out.PriceUnit = r.PriceUnit
 	}

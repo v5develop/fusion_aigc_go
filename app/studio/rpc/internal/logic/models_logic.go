@@ -66,7 +66,7 @@ func (l *ModelsLogic) Models(in *studio.ModelsReq) (*studio.ModelsResp, error) {
 			for _, res := range it.Resolutions {
 				r := quoteStudio(l.ctx, q, entry, k, &studio.QuoteReq{UserId: in.UserId, Kind: kind, Model: it.Code, Resolution: res,
 					AspectRatio: firstRatio(it.AspectRatios)}, groups)
-				it.Prices = append(it.Prices, &studio.ModelResolutionPrice{Resolution: res, Available: r.Available, UnitPoints: r.UnitPoints})
+				it.Prices = append(it.Prices, &studio.ModelResolutionPrice{Resolution: res, Available: r.Available, UnitPoints: r.UnitPoints, SettleMode: r.SettleMode})
 			}
 		}
 	}

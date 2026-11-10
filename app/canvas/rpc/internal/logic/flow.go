@@ -42,6 +42,8 @@ type outcome struct {
 	code     string // 失败码
 	msg      string // 失败原因（可展示）
 	review   bool   // gateway UNKNOWN：不退款，待对账
+	// calls 本次判定用的 gateway 调用（按实际用量结算时从这里取实报成本，免得再查一次）
+	calls []*aigateway.Call
 }
 
 // 失败码 → 文案。
@@ -334,7 +336,7 @@ func (c *core) succeed(ctx context.Context, run *model.NodeRun, o outcome, ready
 	}
 	run.Status = model.RunSucceeded
 	if held(run) {
-		c.settle(ctx, run, settleQuantity(run.Kind, actual))
+		c.settle(ctx, run, settleQuantity(run.Kind, actual), o.calls)
 	}
 	c.insertAssets(ctx, run, cands, videoURL)
 }
@@ -648,6 +650,7 @@ func (c *core) pollGateway(ctx context.Context, runs []*model.NodeRun) {
 			cs = append(cs, calls[id])
 		}
 		o := ClassifyGateway(run.Kind, cs)
+		o.calls = cs
 		if !o.done && c.expired(run) {
 			if c.failRun(ctx, run, model.RunRunning, "TIMEOUT", "生成超时，点数已退回", true) {
 				c.cancelCalls(ctx, run.ID, callIDs(run), "生成超时")

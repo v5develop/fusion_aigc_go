@@ -12,8 +12,10 @@ import (
 // RefundConfirmed 退回已确认（已扣费）的预留单：把它实际消费掉的点数全部退回余额。
 //
 // 只用于人工处理这类「点数已扣、结果未落库」的单子，自动路径不会调用（自动路径只退冻结中的 HELD）。
-// 口径与 releaseFrozen 的「退回」一致：退回原批次（remaining 加回），批次置回 ACTIVE，expire_time 不变；
+// 退回仍可用的原批次（remaining 加回、置 ACTIVE、expire_time 不变），原批次已过期 / 撤回的部分落 REFUND 新批次（永不过期）；
 // 账户：balance 加回，total_consumed 减掉，total_refunded 加上；流水记一条 REFUND（幂等键 post-refund:{no}）。
+//
+// 按实际用量补退过（actual-cost-refund:{no}）的部分不再重复退：只退「消费 − 已补退」。
 //
 // 返回本次退回的点数。已退回过（REFUNDED）返回 0，重复调用安全；没有预留单也返回 0。
 func (s *Service) RefundConfirmed(ctx context.Context, userID int64, requestID, reason string) (int64, error) {
@@ -66,6 +68,54 @@ func (s *Service) RefundConfirmed(ctx context.Context, userID int64, requestID, 
 			// 已确认却找不到消费流水：不知道点数落在哪些批次，拒绝退回，避免凭空加钱
 			return fmt.Errorf("billing: %s 已确认但找不到消费流水，拒绝退回，请人工核对", no)
 		}
+		// 按实际用量补退过（RefundOvercharge，单子仍是 PARTIALLY_REFUNDED）的部分已经回到这些批次，不能再退一遍：
+		// 按补退流水明细逐批次扣掉
+		var already []struct {
+			BatchID int64 `db:"batch_id"`
+			Amount  int64 `db:"amount"`
+		}
+		const qa = "SELECT ll.`batch_id`, ll.`amount` FROM `afv_points_log` pl " +
+			"JOIN `afv_points_log_line` ll ON ll.`ledger_id` = pl.`id` " +
+			"WHERE pl.`user_id` = ? AND pl.`idempotency_key` = ?"
+		if err := sess.QueryRowsCtx(ctx, &already, qa, res.UserId, OverchargeRefundKeyPrefix+no); err != nil {
+			return err
+		}
+		// 补退额先按批次对上（退回原批次的那部分）；落到 REFUND 新批次的那部分对不上原批次，从剩余批次里按 id 顺序扣掉，
+		// 保证「本次可退 = 消费 − 已补退」
+		var unmatched int64
+		for _, x := range already {
+			if x.Amount <= 0 {
+				continue
+			}
+			back := min64(x.Amount, perBatch[x.BatchID])
+			perBatch[x.BatchID] -= back
+			total -= back
+			unmatched += x.Amount - back
+		}
+		if unmatched > 0 {
+			ids := make([]int64, 0, len(perBatch))
+			for id := range perBatch {
+				ids = append(ids, id)
+			}
+			sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+			for _, id := range ids {
+				if unmatched <= 0 {
+					break
+				}
+				back := min64(unmatched, perBatch[id])
+				if back <= 0 {
+					continue
+				}
+				perBatch[id] -= back
+				total -= back
+				unmatched -= back
+			}
+		}
+		for id, amt := range perBatch {
+			if amt <= 0 {
+				delete(perBatch, id)
+			}
+		}
 
 		var a Account
 		const lockAcc = "SELECT " + accountCols + " FROM `afv_points_account` WHERE `user_id` = ? AND `deleted` = 0 LIMIT 1 FOR UPDATE"
@@ -73,32 +123,13 @@ func (s *Service) RefundConfirmed(ctx context.Context, userID int64, requestID, 
 			return err
 		}
 
-		// 批次按 id 升序加锁，避免与其他事务死锁
-		ids := make([]int64, 0, len(perBatch))
-		for id := range perBatch {
-			ids = append(ids, id)
-		}
-		sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
-		var lines []lineDelta
-		for _, id := range ids {
-			var b batchRow
-			const lockBatch = "SELECT `id`,`remaining`,`frozen` FROM `afv_points_batch` WHERE `id` = ? AND `user_id` = ? FOR UPDATE"
-			if err := sess.QueryRowCtx(ctx, &b, lockBatch, id, res.UserId); err != nil {
-				return err
-			}
-			amt := perBatch[id]
-			if _, err := sess.ExecCtx(ctx,
-				"UPDATE `afv_points_batch` SET `remaining` = `remaining` + ?, `status` = 'ACTIVE' WHERE `id` = ?", amt, id); err != nil {
-				return err
-			}
-			lines = append(lines, lineDelta{
-				BatchID: id, Amount: amt,
-				BeforeRemaining: b.Remaining, AfterRemaining: b.Remaining + amt,
-				BeforeFrozen: b.Frozen, AfterFrozen: b.Frozen,
-			})
+		// 退回仍可用的原批次；原批次已过期 / 撤回的部分落 REFUND 新批次（见 restoreConsumed，与 Java 一致，不复活过期批次）
+		lines, err := restoreConsumed(ctx, sess, res.UserId, a.Id, no, perBatch, total)
+		if err != nil {
+			return err
 		}
 
-		{
+		if total > 0 {
 			const updAcc = "UPDATE `afv_points_account` SET `balance` = `balance` + ?, `total_consumed` = `total_consumed` - ?, " +
 				"`total_refunded` = `total_refunded` + ?, `version` = `version` + 1 WHERE `id` = ?"
 			if _, err := sess.ExecCtx(ctx, updAcc, total, total, total, a.Id); err != nil {
@@ -127,8 +158,8 @@ func (s *Service) RefundConfirmed(ctx context.Context, userID int64, requestID, 
 		if n, _ := ret.RowsAffected(); n == 0 {
 			return fmt.Errorf("%w: %s 并发下已被改状态", ErrGone, no)
 		}
-		_, err = sess.ExecCtx(ctx, "UPDATE `afv_billing_reservation_line` SET `status` = ? WHERE `reservation_no` = ?", statusRefunded, no)
-		return err
+		// 明细行：整单退回，各行 refunded_points = 该行分得的点数（与 Java settleReservationLines 同口径）
+		return settleLines(ctx, sess, no, res.PricePoints, res.PricePoints, statusRefunded)
 	})
 	return refunded, err
 }

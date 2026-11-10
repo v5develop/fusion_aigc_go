@@ -1066,7 +1066,9 @@ type RunNodeResp struct {
 	Status        string                 `protobuf:"bytes,3,opt,name=status,proto3" json:"status,omitempty"`
 	Replayed      bool                   `protobuf:"varint,4,opt,name=replayed,proto3" json:"replayed,omitempty"`
 	Credits       int64                  `protobuf:"varint,5,opt,name=credits,proto3" json:"credits,omitempty"`
-	Warnings      []string               `protobuf:"bytes,6,rep,name=warnings,proto3" json:"warnings,omitempty"` // 参数归一告警（如 Seedream 4K → 2K，按归一后的档位生成并计费）；没有为空
+	Warnings      []string               `protobuf:"bytes,6,rep,name=warnings,proto3" json:"warnings,omitempty"`                       // 参数归一告警（如 Seedream 4K → 2K，按归一后的档位生成并计费）；没有为空
+	SettleMode    string                 `protobuf:"bytes,7,opt,name=settle_mode,json=settleMode,proto3" json:"settle_mode,omitempty"` // 结算方式：FIXED 按冻结扣 / ACTUAL_COST 按供应商实际用量结算（credits 是最多扣多少）；未计费为空
+	MaxPoints     int64                  `protobuf:"varint,8,opt,name=max_points,json=maxPoints,proto3" json:"max_points,omitempty"`   // 本次最多扣多少点（= 冻结的 credits）
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1141,6 +1143,20 @@ func (x *RunNodeResp) GetWarnings() []string {
 		return x.Warnings
 	}
 	return nil
+}
+
+func (x *RunNodeResp) GetSettleMode() string {
+	if x != nil {
+		return x.SettleMode
+	}
+	return ""
+}
+
+func (x *RunNodeResp) GetMaxPoints() int64 {
+	if x != nil {
+		return x.MaxPoints
+	}
+	return 0
 }
 
 type Candidate struct {
@@ -4127,7 +4143,7 @@ const file_canvas_proto_rawDesc = "" +
 	"\tcanvas_id\x18\x02 \x01(\tR\bcanvasId\x12\x17\n" +
 	"\anode_id\x18\x03 \x01(\tR\x06nodeId\x12\x15\n" +
 	"\x06run_id\x18\x04 \x01(\tR\x05runId\x120\n" +
-	"\arequest\x18\x05 \x01(\v2\x16.canvas.RunNodeRequestR\arequest\"\xad\x01\n" +
+	"\arequest\x18\x05 \x01(\v2\x16.canvas.RunNodeRequestR\arequest\"\xed\x01\n" +
 	"\vRunNodeResp\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x15\n" +
@@ -4135,7 +4151,11 @@ const file_canvas_proto_rawDesc = "" +
 	"\x06status\x18\x03 \x01(\tR\x06status\x12\x1a\n" +
 	"\breplayed\x18\x04 \x01(\bR\breplayed\x12\x18\n" +
 	"\acredits\x18\x05 \x01(\x03R\acredits\x12\x1a\n" +
-	"\bwarnings\x18\x06 \x03(\tR\bwarnings\"K\n" +
+	"\bwarnings\x18\x06 \x03(\tR\bwarnings\x12\x1f\n" +
+	"\vsettle_mode\x18\a \x01(\tR\n" +
+	"settleMode\x12\x1d\n" +
+	"\n" +
+	"max_points\x18\b \x01(\x03R\tmaxPoints\"K\n" +
 	"\tCandidate\x12\x10\n" +
 	"\x03url\x18\x01 \x01(\tR\x03url\x12\x14\n" +
 	"\x05width\x18\x02 \x01(\x05R\x05width\x12\x16\n" +

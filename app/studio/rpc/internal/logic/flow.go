@@ -92,7 +92,8 @@ func (p *Poller) Stop() {
 type flowBiller interface {
 	biller
 	Renew(ctx context.Context, userID int64, requestID string) error
-	Settle(ctx context.Context, userID int64, requestID string, actual int) error
+	// SettleCost 交付前确认扣费；载体按实际用量结算（ACTUAL_COST）时用 cost 取 gateway 实报成本、按实际确认并退差额
+	SettleCost(ctx context.Context, userID int64, requestID string, actual int, cost billing.CostFunc) (*billing.Settlement, error)
 	Status(ctx context.Context, userID int64, requestID string) (string, error)
 	// Enough 只读余额预检（报价 vs 余额，不冻结；非 on 模式恒通过）：用户重试占轮次前先拦明显不够的
 	Enough(ctx context.Context, c billing.Charge) error

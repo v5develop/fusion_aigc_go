@@ -135,12 +135,19 @@ type Reservation struct {
 	PricePoints int64
 	Quote       *Quote
 	shadow      bool // shadow 模式产生的，没真写库
+	// 载体（档位默认模型）与档位码：结算时据此判断是否按实际用量结算（见 actual_cost.go）
+	carrierModelID int64
+	variantCode    string
 }
 
 // Service 计费服务。
 type Service struct {
 	conf Conf
 	conn sqlx.SqlConn
+	// 按实际用量结算用：载体结算方式缓存、汇率 / 默认加价倍率（afv_system_config）
+	carriers   *carrierCache
+	rateKnob   *ratKnob
+	markupKnob *ratKnob
 }
 
 func New(c Conf, conn sqlx.SqlConn) *Service {
@@ -156,7 +163,11 @@ func New(c Conf, conn sqlx.SqlConn) *Service {
 	if c.Mode != ModeOn {
 		logx.Errorf("billing: Mode=%s，所有生成任务**不会扣点**；正式上线前必须是 on", c.Mode)
 	}
-	return &Service{conf: c, conn: conn}
+	return &Service{conf: c, conn: conn,
+		carriers:   &carrierCache{m: map[int64]cachedCarrier{}},
+		rateKnob:   &ratKnob{key: KeyUSDCNYRate, def: mustRat(DefaultUSDCNYRate)},
+		markupKnob: &ratKnob{key: KeyDefaultMarkup, def: mustRat(DefaultMarkup)},
+	}
 }
 
 func (s *Service) Mode() string { return s.conf.Mode }
@@ -171,8 +182,15 @@ func (s *Service) holdFor(k Kind) time.Duration {
 }
 
 // Quote 一次报价。Price 只读配置表，不动账，可以单独拿来给前端显示。
+//
+// 报价顺带标出载体的结算方式（SettleMode）：ACTUAL_COST 时 PricePoints 是「最多扣多少」，成功后按实际用量结算。
 func (s *Service) Quote(ctx context.Context, c Charge) (*Quote, error) {
-	return price(ctx, s.conn, c)
+	q, err := price(ctx, s.conn, c)
+	if err != nil {
+		return nil, err
+	}
+	q.SettleMode = s.settleModeOf(ctx, q)
+	return q, nil
 }
 
 // Balance 余额。用户没有账户时返回零值而不是报错——

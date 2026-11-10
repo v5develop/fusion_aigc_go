@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
 	"strings"
 	"time"
 
@@ -331,7 +332,7 @@ func (f *flow) finishDelivery(ctx context.Context, t *model.Task, b *model.Batch
 	}
 	reqID := t.BillingRequestID.String
 	sctx, cancel := detached(ctx)
-	err := f.bill.Settle(sctx, b.UserID, reqID, 1)
+	_, err := f.bill.SettleCost(sctx, b.UserID, reqID, 1, f.taskCost(t, call))
 	cancel()
 	if err != nil {
 		gone := errors.Is(err, billing.ErrGone)
@@ -694,4 +695,28 @@ func parseRewrite(s string) string {
 		return ""
 	}
 	return s
+}
+
+// taskCost 子任务的 gateway 实报成本（美元）：一笔预留对应一个调用（网关内多次尝试已合计在调用级 cost 里，
+// 没有调用级实报值时按各扣费尝试求和，见 aigateway.ReportedUSD）。交付时手上的调用成本还没定稿 / 没有调用
+// （续做交付）就按 gateway_call_id 再查一次。只在载体是 ACTUAL_COST 时被调用。
+func (f *flow) taskCost(t *model.Task, call *aigateway.Call) billing.CostFunc {
+	return func(ctx context.Context) (*big.Rat, bool) {
+		id := t.GatewayCallID.String
+		if call != nil && call.ID != "" {
+			id = call.ID
+		}
+		if call == nil || !call.Cost.Authoritative() {
+			if id == "" || f.gw == nil || !f.gwOn {
+				return aigateway.ReportedUSD([]*aigateway.Call{call})
+			}
+			got, err := f.gw.Get(ctx, id, 0)
+			if err != nil {
+				logx.WithContext(ctx).Errorf("studio: 子任务 %d 按实际用量结算查 gateway 调用 %s 失败: %v", t.ID, id, err)
+				return aigateway.ReportedUSD([]*aigateway.Call{call})
+			}
+			call = got
+		}
+		return aigateway.ReportedUSD([]*aigateway.Call{call})
+	}
 }

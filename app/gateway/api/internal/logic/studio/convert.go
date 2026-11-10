@@ -28,7 +28,7 @@ func toQuoteResp(r *studio_client.QuoteResp) *types.StudioQuoteResp {
 	return &types.StudioQuoteResp{
 		Available: r.Available, Points: r.Points, UnitPoints: r.UnitPoints, PriceUnit: r.PriceUnit,
 		TaskTotal: r.TaskTotal, Resolution: r.Resolution, BillingMode: r.BillingMode, Charged: r.Charged,
-		Reason: r.Reason, Warnings: orEmpty(r.Warnings),
+		Reason: r.Reason, Warnings: orEmpty(r.Warnings), SettleMode: r.SettleMode, MaxPoints: r.MaxPoints,
 	}
 }
 

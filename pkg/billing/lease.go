@@ -2,11 +2,7 @@ package billing
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"time"
-
-	"github.com/zeromicro/go-zero/core/stores/sqlx"
 )
 
 // DeliverBlockedReason 预留已失效、无法确认扣费时的用户文案：不交付成品，请用户重新提交。
@@ -35,38 +31,10 @@ func (s *Service) Renew(ctx context.Context, userID int64, requestID string) err
 //   - HELD：确认扣费（实际产出量 actual，多图部分成功按成功张数）；
 //   - 已确认 / 部分结算：幂等，返回 nil；
 //   - 已过期释放、已退款等：返回 ErrGone，调用方不得交付，应标记失败。
+//
+// 载体是按实际用量结算（ACTUAL_COST）的，用 SettleCost 并给出成本来源；走这里等于「拿不到实报成本」，
+// 按冻结价确认并记 判据=ACTUAL_COST_UNAVAILABLE。
 func (s *Service) Settle(ctx context.Context, userID int64, requestID string, actual int) error {
-	if s == nil || s.conf.Mode != ModeOn {
-		return nil
-	}
-	if requestID == "" {
-		return fmt.Errorf("%w: 缺少请求号", ErrGone)
-	}
-	bizID := Charge{UserID: userID, RequestID: requestID}.bizID()
-	var status string
-	err := s.conn.QueryRowCtx(ctx, &status,
-		"SELECT `status` FROM `afv_billing_reservation` WHERE `biz_type` = ? AND `biz_id` = ? AND `deleted` = 0 LIMIT 1",
-		bizTypeLocalLife, bizID)
-	if errors.Is(err, sqlx.ErrNotFound) {
-		return fmt.Errorf("%w: 找不到预留单 %s", ErrGone, bizID)
-	}
-	if err != nil {
-		return err
-	}
-	switch status {
-	case statusHeld:
-		r, err := loadHeld(ctx, s.conn, bizID)
-		if err != nil {
-			return err
-		}
-		if r == nil {
-			// 查询与加锁之间被别人改了状态：按已变化处理，不交付
-			return fmt.Errorf("%w: %s 状态已变化", ErrGone, bizID)
-		}
-		return s.Confirm(ctx, r, actual)
-	case statusConfirmed, statusPartiallyRefunded:
-		return nil
-	default:
-		return fmt.Errorf("%w: %s 当前是 %s", ErrGone, bizID, status)
-	}
+	_, err := s.SettleCost(ctx, userID, requestID, actual, nil)
+	return err
 }

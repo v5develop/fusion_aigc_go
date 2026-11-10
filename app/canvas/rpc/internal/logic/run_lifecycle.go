@@ -12,6 +12,7 @@ package logic
 import (
 	"context"
 	"errors"
+	"math/big"
 	"strconv"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 	studio "aigc-local-life/app/studio/rpc/studio_client"
 	"aigc-local-life/pkg/aigateway"
 	"aigc-local-life/pkg/aigc"
+	"aigc-local-life/pkg/billing"
 	"aigc-local-life/pkg/taskcenter"
 	"aigc-local-life/pkg/xerr"
 
@@ -90,6 +92,7 @@ func (c *core) holdAndQueue(ctx context.Context, run *model.NodeRun, sp *runSpec
 		if r != nil {
 			set["points"] = r.PricePoints
 			run.Points = r.PricePoints
+			sp.SettleMode = c.s.Billing.SettleModeOf(bctx, r)
 		}
 	}
 	ok, err := c.s.Repo.Run.Transit(bctx, run.ID, model.RunSubmitting, model.RunQueued, set)
@@ -215,19 +218,71 @@ func (c *core) reclaimUnrefCalls(ctx context.Context, run *model.NodeRun, why st
 
 // settle 成功后的确认扣费：Settle 返回错误（含 ErrGone：预留单已过期回收 / 已退）→ billing_status=unsettled + ERROR 日志
 // 待对账；成功 → settled。此时 run 已是成功（先 CAS 再结算，避免取消与成功并发时重复扣费）。
-func (c *core) settle(ctx context.Context, run *model.NodeRun, actual int) {
+//
+// 载体按实际用量结算（ACTUAL_COST，如 GPT Image 2.6）时按 gateway 实报成本确认、退回差额，并把 run.points 改成实扣点数；
+// calls 是本轮判定用的调用（可为 nil：重试结算时按 backend_ref 再查）。
+func (c *core) settle(ctx context.Context, run *model.NodeRun, actual int, calls []*aigateway.Call) {
 	bctx, cancel := detached(ctx)
 	defer cancel()
 	bill := model.BillSettled
-	if err := c.s.Billing.Settle(bctx, run.UserID, run.BillingRequestID.String, actual); err != nil {
+	set := map[string]any{}
+	st, err := c.s.Billing.SettleCost(bctx, run.UserID, run.BillingRequestID.String, actual, c.runCost(run, calls))
+	if err != nil {
 		bill = model.BillUnsettled
 		logx.WithContext(ctx).Errorf("canvas: run %d 已交付但确认扣费失败（预留单 %s，标 unsettled 待对账）: %v",
 			run.ID, run.BillingRequestID.String, err)
+	} else if st != nil && st.ActualCost && !st.Already {
+		set["points"] = st.Points
+		run.Points = st.Points
 	}
-	if err := c.s.Repo.Run.Update(bctx, run.ID, map[string]any{"billing_status": bill}); err != nil {
+	set["billing_status"] = bill
+	if err := c.s.Repo.Run.Update(bctx, run.ID, set); err != nil {
 		logx.WithContext(ctx).Errorf("canvas: run %d 写计费状态 %s 失败: %v", run.ID, bill, err)
 	}
 	run.BillingStatus = bill
+}
+
+// runCost 这个 run 全部 gateway 调用的实报成本（美元）：优先用本轮已查到的调用，缺了就按 backend_ref 批量再查一次。
+// 只在载体是 ACTUAL_COST 时被调用。
+func (c *core) runCost(run *model.NodeRun, calls []*aigateway.Call) billing.CostFunc {
+	return func(ctx context.Context) (*big.Rat, bool) {
+		ids := callIDs(run)
+		if len(ids) == 0 {
+			return nil, false
+		}
+		have := len(calls) == len(ids)
+		for _, x := range calls {
+			if x == nil || !x.Cost.Authoritative() {
+				have = false // 调用级成本未定稿时再查一次，网关可能刚回填
+			}
+		}
+		if !have {
+			// 再查不了 / 查失败时仍用手上这批调用（调用级成本没定稿时可能逐个尝试都已实报，ReportedUSD 会合计；不全则不可用）
+			fallback := func() (*big.Rat, bool) {
+				if len(calls) != len(ids) {
+					return nil, false
+				}
+				return aigateway.ReportedUSD(calls)
+			}
+			if c.s.Gateway == nil || !c.s.Gateway.Enabled() {
+				return fallback()
+			}
+			got, err := c.s.Gateway.BatchGet(ctx, ids)
+			if err != nil {
+				logx.WithContext(ctx).Errorf("canvas: run %d 按实际用量结算查 gateway 调用失败: %v", run.ID, err)
+				return fallback()
+			}
+			byID := make(map[string]*aigateway.Call, len(got))
+			for i := range got {
+				byID[got[i].ID] = &got[i]
+			}
+			calls = calls[:0:0]
+			for _, id := range ids {
+				calls = append(calls, byID[id])
+			}
+		}
+		return aigateway.ReportedUSD(calls)
+	}
 }
 
 // touch 本轮处理过、仍停在 status 的 run 排到队尾。

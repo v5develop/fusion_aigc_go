@@ -218,6 +218,8 @@ message QuoteResp {
   bool charged = 8;                      // 提交是否真的会冻结扣点（仅 billing_mode=on）
   string reason = 9;                     // available=false 的原因（给用户看的短句）；可用时为空
   repeated string warnings = 10;         // 参数归一告警（同提交）
+  string settle_mode = 11;               // 结算方式：FIXED 按报价扣 / ACTUAL_COST 按供应商实际用量结算（points 是最多扣多少）；报不出价时为空
+  int64 max_points = 12;                 // 本次最多扣多少点（= points，冻结额）；ACTUAL_COST 时 UI 显示「按实际用量结算，最多 N 点」
 }
 
 message ModelsReq {
@@ -230,6 +232,7 @@ message ModelResolutionPrice {
   string resolution = 1;                 // 1k / 2k / 4k
   bool available = 2;                    // 能否报出价
   int64 unit_points = 3;                 // 单张点数（billing_mode=off 时为 0）
+  string settle_mode = 4;                // FIXED / ACTUAL_COST（ACTUAL_COST 时 unit_points 是单张最多扣多少）
 }
 
 message ModelCapability {
@@ -465,6 +468,7 @@ message AdminBatchDetail {
   string selected_images = 4;            // 组图结果（JSON 文本）
   string step_log = 5;                   // 每步耗时与成本 [{step,ms,images,crops,degraded,cost_cny,at}]（JSON 文本）
   repeated AdminTask tasks = 6;
+  string diagnostics = 7;                // 排查视图（JSON 文本）：trace 任务链路 / workflowSteps 工作流步骤 / diagnosis 诊断 / timeline 时间线
 }
 
 // 后台操作子任务：id（afv_studio_task 主键，来自 origin_ref 如 tyo:123）与 task_id 二选一，id 优先

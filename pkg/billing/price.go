@@ -54,8 +54,13 @@ type Quote struct {
 	FeatureCode string
 	VariantCode string
 	// ModelGroup 按模型组选中档位时的组码（Charge.ModelGroup 命中了分模型档位）；退回默认档位时为空
-	ModelGroup  string
-	ModelID     int64
+	ModelGroup string
+	ModelID    int64
+	// CarrierModelID 载体 = 选中档位的默认模型（default_model_id）。按它的 afv_ai_model.settle_mode 决定是否按实际用量结算
+	CarrierModelID int64
+	// SettleMode 载体结算方式 FIXED / ACTUAL_COST（Service.Quote 填；price() 不查，保持算价查询不变）。
+	// ACTUAL_COST 时 PricePoints 是本次最多扣多少，成功后按供应商实报成本结算
+	SettleMode  string
 	PricingID   int64 // 主计费步骤用的单价行，写进预留单
 	PricePoints int64
 	PriceUnit   string // PER_IMAGE / PER_SECOND
@@ -86,7 +91,7 @@ func (q *Quote) Snapshot() string {
 	b, err := json.Marshal(map[string]any{
 		"entryCode": q.EntryCode, "offerCode": q.OfferCode, "variantCode": q.VariantCode,
 		"modelGroup": q.ModelGroup, "modelId": q.ModelID, "priceUnit": q.PriceUnit, "quantity": q.Quantity,
-		"pricePoints": q.PricePoints, "settlement": q.Settlement, "lines": q.Lines,
+		"pricePoints": q.PricePoints, "settlement": q.Settlement, "lines": q.Lines, "carrierModelId": q.CarrierModelID,
 		"source": "aigc-local-life", // 一眼看出这单是 Go 写的
 	})
 	if err != nil {
@@ -172,7 +177,7 @@ func price(ctx context.Context, conn sqlx.SqlConn, c Charge) (*Quote, error) {
 	}
 	q := &Quote{
 		EntryCode: o.EntryCode, OfferCode: o.OfferCode, FeatureCode: o.FeatureCode,
-		VariantCode: v.VariantCode, ModelGroup: group, ModelID: v.DefaultModelID.Int64,
+		VariantCode: v.VariantCode, ModelGroup: group, ModelID: v.DefaultModelID.Int64, CarrierModelID: v.DefaultModelID.Int64,
 		Settlement: or(v.Settlement.String, "ALL_OR_NOTHING"),
 	}
 	for _, cp := range comps {

@@ -39,6 +39,10 @@ type Estimate struct {
 	BalanceKnown bool
 	// Sufficient 余额够不够这次冻结（Charged=false 时恒为 true）
 	Sufficient bool
+	// SettleMode 载体结算方式：FIXED（按报价扣）/ ACTUAL_COST（按供应商实际用量结算，Points 是最多扣多少）
+	SettleMode string
+	// MaxPoints 本次最多扣多少点（= 冻结点数）。ACTUAL_COST 时实际确认 ≤ 它，UI 显示「按实际用量结算，最多 N 点」
+	MaxPoints int64
 }
 
 // estimator 报价要用的三样（*Service 满足），抽出来便于单测。
@@ -109,6 +113,7 @@ func estimate(ctx context.Context, e estimator, c Charge) Estimate {
 	}
 	out.Available = true
 	out.Points, out.PriceUnit, out.Quantity = q.PricePoints, q.PriceUnit, q.Quantity
+	out.SettleMode, out.MaxPoints = or(q.SettleMode, SettleFixed), q.PricePoints
 	for _, l := range q.Lines {
 		if !l.CostOnly {
 			out.UnitPoints = l.UnitPoints // 主计费步骤（第一条收费的）

@@ -2952,6 +2952,10 @@
                       "description": "本 run 冻结的点数（Java / studio 工具由对方计费，为 0）",
                       "type": "integer"
                     },
+                    "max_points": {
+                      "description": "本次最多扣多少点（= credits）；ACTUAL_COST 时显示「按实际用量结算，最多 N 点」",
+                      "type": "integer"
+                    },
                     "replayed": {
                       "type": "boolean"
                     },
@@ -2960,6 +2964,10 @@
                       "type": "string"
                     },
                     "run_id": {
+                      "type": "string"
+                    },
+                    "settle_mode": {
+                      "description": "结算方式：FIXED 按冻结扣 / ACTUAL_COST 按供应商实际用量结算（credits 是最多扣多少）；未计费不返回",
                       "type": "string"
                     },
                     "status": {
@@ -12044,6 +12052,10 @@
                       "description": "提交是否真的冻结扣点（仅 billing_mode=on）",
                       "type": "boolean"
                     },
+                    "max_points": {
+                      "description": "本次最多扣多少点（= points）；ACTUAL_COST 时显示「按实际用量结算，最多 N 点」",
+                      "type": "integer"
+                    },
                     "points": {
                       "description": "本次提交预计冻结点数 = unit_points × task_total（与提交回的 estimated_points 同口径）",
                       "type": "integer"
@@ -12058,6 +12070,10 @@
                     },
                     "resolution": {
                       "description": "计价分辨率（已按模型档归一，如 Seedream 4k → 2k）",
+                      "type": "string"
+                    },
+                    "settle_mode": {
+                      "description": "结算方式：FIXED 按报价扣 / ACTUAL_COST 按供应商实际用量结算（points 是最多扣多少）；报不出价时不返回",
                       "type": "string"
                     },
                     "task_total": {
@@ -12454,7 +12470,8 @@
                               "required": [
                                 "resolution",
                                 "available",
-                                "unit_points"
+                                "unit_points",
+                                "settle_mode"
                               ],
                               "properties": {
                                 "available": {
@@ -12463,6 +12480,10 @@
                                 },
                                 "resolution": {
                                   "description": "1k / 2k / 4k",
+                                  "type": "string"
+                                },
+                                "settle_mode": {
+                                  "description": "FIXED / ACTUAL_COST（ACTUAL_COST 时 unit_points 是单张最多扣多少）",
                                   "type": "string"
                                 },
                                 "unit_points": {
@@ -12805,6 +12826,10 @@
                       "description": "提交是否真的冻结扣点（仅 billing_mode=on）",
                       "type": "boolean"
                     },
+                    "max_points": {
+                      "description": "本次最多扣多少点（= points）；ACTUAL_COST 时显示「按实际用量结算，最多 N 点」",
+                      "type": "integer"
+                    },
                     "points": {
                       "description": "本次提交预计冻结点数 = unit_points × task_total（与提交回的 estimated_points 同口径）",
                       "type": "integer"
@@ -12819,6 +12844,10 @@
                     },
                     "resolution": {
                       "description": "计价分辨率（已按模型档归一，如 Seedream 4k → 2k）",
+                      "type": "string"
+                    },
+                    "settle_mode": {
+                      "description": "结算方式：FIXED 按报价扣 / ACTUAL_COST 按供应商实际用量结算（points 是最多扣多少）；报不出价时不返回",
                       "type": "string"
                     },
                     "task_total": {
@@ -14248,6 +14277,10 @@
                       "description": "提交是否真的冻结扣点（仅 billing_mode=on）",
                       "type": "boolean"
                     },
+                    "max_points": {
+                      "description": "本次最多扣多少点（= points）；ACTUAL_COST 时显示「按实际用量结算，最多 N 点」",
+                      "type": "integer"
+                    },
                     "points": {
                       "description": "本次提交预计冻结点数 = unit_points × task_total（与提交回的 estimated_points 同口径）",
                       "type": "integer"
@@ -14262,6 +14295,10 @@
                     },
                     "resolution": {
                       "description": "计价分辨率（已按模型档归一，如 Seedream 4k → 2k）",
+                      "type": "string"
+                    },
+                    "settle_mode": {
+                      "description": "结算方式：FIXED 按报价扣 / ACTUAL_COST 按供应商实际用量结算（points 是最多扣多少）；报不出价时不返回",
                       "type": "string"
                     },
                     "task_total": {
@@ -14526,7 +14563,7 @@
       "in": "header"
     }
   },
-  "x-date": "2026-11-10 10:45:55",
+  "x-date": "2026-11-10 16:36:07",
   "x-description": "This is a goctl generated swagger file.",
   "x-github": "https://github.com/zeromicro/go-zero",
   "x-go-zero-doc": "https://go-zero.dev/",

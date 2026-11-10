@@ -353,12 +353,14 @@ type CanvasRunReq struct {
 }
 
 type CanvasRunResp struct {
-	RequestId string   `json:"request_id"` // 轮询 / 取消用
-	RunId     string   `json:"run_id"`
-	Status    string   `json:"status"`
-	Replayed  bool     `json:"replayed"`
-	Credits   int64    `json:"credits"`  // 本 run 冻结的点数（Java / studio 工具由对方计费，为 0）
-	Warnings  []string `json:"warnings"` // 参数归一告警（如 Seedream 4K → 2K，按归一后的档位生成并计费）；没有为 []
+	RequestId  string   `json:"request_id"` // 轮询 / 取消用
+	RunId      string   `json:"run_id"`
+	Status     string   `json:"status"`
+	Replayed   bool     `json:"replayed"`
+	Credits    int64    `json:"credits"`               // 本 run 冻结的点数（Java / studio 工具由对方计费，为 0）
+	Warnings   []string `json:"warnings"`              // 参数归一告警（如 Seedream 4K → 2K，按归一后的档位生成并计费）；没有为 []
+	SettleMode string   `json:"settle_mode,omitempty"` // 结算方式：FIXED 按冻结扣 / ACTUAL_COST 按供应商实际用量结算（credits 是最多扣多少）；未计费不返回
+	MaxPoints  int64    `json:"max_points,omitempty"`  // 本次最多扣多少点（= credits）；ACTUAL_COST 时显示「按实际用量结算，最多 N 点」
 }
 
 type CanvasRunResult struct {
@@ -1144,9 +1146,10 @@ type StudioModelCapability struct {
 }
 
 type StudioModelResolutionPrice struct {
-	Resolution string `json:"resolution"`  // 1k / 2k / 4k
-	Available  bool   `json:"available"`   // 能否报出价
-	UnitPoints int64  `json:"unit_points"` // 单张点数（billing_mode=off 时为 0）
+	Resolution string `json:"resolution"`            // 1k / 2k / 4k
+	Available  bool   `json:"available"`             // 能否报出价
+	UnitPoints int64  `json:"unit_points"`           // 单张点数（billing_mode=off 时为 0）
+	SettleMode string `json:"settle_mode,omitempty"` // FIXED / ACTUAL_COST（ACTUAL_COST 时 unit_points 是单张最多扣多少）
 }
 
 type StudioModelsReq struct {
@@ -1223,16 +1226,18 @@ type StudioPoseSubmitReq struct {
 }
 
 type StudioQuoteResp struct {
-	Available   bool     `json:"available"`    // 能否报出价；false 时点数为 0，原因见 reason
-	Points      int64    `json:"points"`       // 本次提交预计冻结点数 = unit_points × task_total（与提交回的 estimated_points 同口径）
-	UnitPoints  int64    `json:"unit_points"`  // 每张点数
-	PriceUnit   string   `json:"price_unit"`   // PER_IMAGE
-	TaskTotal   int32    `json:"task_total"`   // 计价张数；0 = 素材还没传够，只回单价
-	Resolution  string   `json:"resolution"`   // 计价分辨率（已按模型档归一，如 Seedream 4k → 2k）
-	BillingMode string   `json:"billing_mode"` // on 真扣 / shadow 只算价不扣 / off 不计费（点数为 0）
-	Charged     bool     `json:"charged"`      // 提交是否真的冻结扣点（仅 billing_mode=on）
-	Reason      string   `json:"reason"`       // available=false 的原因；可用时为空
-	Warnings    []string `json:"warnings"`     // 参数归一告警（同提交）；没有为 []
+	Available   bool     `json:"available"`             // 能否报出价；false 时点数为 0，原因见 reason
+	Points      int64    `json:"points"`                // 本次提交预计冻结点数 = unit_points × task_total（与提交回的 estimated_points 同口径）
+	UnitPoints  int64    `json:"unit_points"`           // 每张点数
+	PriceUnit   string   `json:"price_unit"`            // PER_IMAGE
+	TaskTotal   int32    `json:"task_total"`            // 计价张数；0 = 素材还没传够，只回单价
+	Resolution  string   `json:"resolution"`            // 计价分辨率（已按模型档归一，如 Seedream 4k → 2k）
+	BillingMode string   `json:"billing_mode"`          // on 真扣 / shadow 只算价不扣 / off 不计费（点数为 0）
+	Charged     bool     `json:"charged"`               // 提交是否真的冻结扣点（仅 billing_mode=on）
+	Reason      string   `json:"reason"`                // available=false 的原因；可用时为空
+	Warnings    []string `json:"warnings"`              // 参数归一告警（同提交）；没有为 []
+	SettleMode  string   `json:"settle_mode,omitempty"` // 结算方式：FIXED 按报价扣 / ACTUAL_COST 按供应商实际用量结算（points 是最多扣多少）；报不出价时不返回
+	MaxPoints   int64    `json:"max_points,omitempty"`  // 本次最多扣多少点（= points）；ACTUAL_COST 时显示「按实际用量结算，最多 N 点」
 }
 
 type StudioRegenerateReq struct {

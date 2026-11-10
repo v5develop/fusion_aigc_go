@@ -179,6 +179,8 @@ message RunNodeResp {
   bool replayed = 4;
   int64 credits = 5;
   repeated string warnings = 6; // 参数归一告警（如 Seedream 4K → 2K，按归一后的档位生成并计费）；没有为空
+  string settle_mode = 7;       // 结算方式：FIXED 按冻结扣 / ACTUAL_COST 按供应商实际用量结算（credits 是最多扣多少）；未计费为空
+  int64 max_points = 8;         // 本次最多扣多少点（= 冻结的 credits）
 }
 
 message Candidate {
