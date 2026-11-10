@@ -26,6 +26,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -38,6 +39,8 @@ const (
 	pathTask     = "/api/v1/tasks/"
 	pathImageCfg = "/api/v1/features/image-model-configs"
 	pathVideoCfg = "/api/v1/features/video-model-configs"
+	// pathCreationTasks 非工作流任务的网关调用关联：{taskId}/gateway-calls（画布直接调网关时回报调用号）。
+	pathCreationTasks = "/api/v1/creation/tasks/"
 )
 
 // v1 任务状态（CompatV1TaskStatus）。
@@ -327,4 +330,38 @@ func list(m map[string]any, keys ...string) []any {
 		}
 	}
 	return nil
+}
+
+// LinkGatewayCalls 把画布直接调网关得到的调用号回报给 Java（POST /api/v1/creation/tasks/{taskId}/gateway-calls）。
+// Java 侧按调用号去重，重复回报只留一条，所以失败可以安全重试。
+func (c *Client) LinkGatewayCalls(ctx context.Context, bearer, taskID string, callIDs []string) error {
+	if !c.Enabled() {
+		return ErrNotConfigured
+	}
+	if bearer == "" {
+		return ErrNoBearer
+	}
+	if taskID == "" || len(callIDs) == 0 {
+		return nil
+	}
+	body, err := json.Marshal(map[string]any{"callIds": callIDs})
+	if err != nil {
+		return err
+	}
+	h := http.Header{}
+	h.Set("Content-Type", "application/json")
+	_, err = c.do(ctx, http.MethodPost, pathCreationTasks+url.PathEscape(taskID)+"/gateway-calls", nil, bearer, h, body)
+	return err
+}
+
+// runTaskPattern 画布运行的任务号：cv_<Java 创作任务号>_run_<4 位十六进制>（aigc.NewLifeTaskID，ref 段即 Java 任务号）。
+var runTaskPattern = regexp.MustCompile(`^cv_(.+)_run_[0-9a-f]{4}$`)
+
+// JavaTaskIDOf 从画布运行的任务号取出 Java 创作任务号；不符合格式返回空串。
+func JavaTaskIDOf(runTaskID string) string {
+	m := runTaskPattern.FindStringSubmatch(runTaskID)
+	if m == nil {
+		return ""
+	}
+	return m[1]
 }

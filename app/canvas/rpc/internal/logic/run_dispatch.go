@@ -984,5 +984,55 @@ func (c *core) dispatch(ctx context.Context, run *model.NodeRun, sp *runSpec, be
 		return nil
 	}
 	run.Status, run.BackendRef.String, run.BackendRef.Valid = model.RunRunning, ref, true
+	if run.Backend == model.BackendGateway {
+		c.reportGatewayCalls(ctx, run, acquired, bearer)
+	}
 	return nil
 }
+
+// reportGatewayCalls 把画布直接调网关得到的调用号回报给 Java 创作任务（非工作流任务的链路据此补网关阶段）。
+//
+// 异步、不阻塞调度、不影响运行本身。暂时性失败（网络 / 5xx / 429）有限次重试，4xx 不重试（凭证失效、参数错误重试无意义）。
+// 仍然失败只记日志：链路缺一段；历史缺口由 scripts/canvas/backfill-gateway-links.py 补录（Java 侧按调用号幂等）。
+func (c *core) reportGatewayCalls(ctx context.Context, run *model.NodeRun, callIDs []string, bearer string) {
+	jid := javatool.JavaTaskIDOf(run.TaskID.String)
+	if jid == "" || len(callIDs) == 0 || bearer == "" || !c.s.Java.Enabled() {
+		return
+	}
+	ids := append([]string(nil), callIDs...)
+	base := context.WithoutCancel(ctx)
+	go func() {
+		var err error
+		for attempt := 0; attempt < linkMaxAttempts; attempt++ {
+			if attempt > 0 {
+				time.Sleep(linkBackoff[attempt-1])
+			}
+			cctx, cancel := context.WithTimeout(base, linkAttemptTimeout)
+			err = c.s.Java.LinkGatewayCalls(cctx, bearer, jid, ids)
+			cancel()
+			if err == nil {
+				return
+			}
+			if !linkRetryable(err) {
+				break // 4xx：永久失败，不重试
+			}
+		}
+		logx.Errorf("canvas: run %d 回报网关调用到 Java 任务 %s 失败（链路缺网关段，不影响运行）: %v", run.ID, jid, err)
+	}()
+}
+
+// linkRetryable 暂时性错误才值得重试：网络失败、5xx、429；4xx（凭证失效、参数错误）重试无意义。
+func linkRetryable(err error) bool {
+	var je *javatool.Error
+	if errors.As(err, &je) {
+		return je.Temporary()
+	}
+	return true
+}
+
+const linkMaxAttempts = 3
+
+// linkBackoff 第 n 次重试前的等待（下标 0 = 第二次尝试前）。
+var linkBackoff = []time.Duration{time.Second, 3 * time.Second}
+
+const linkAttemptTimeout = 5 * time.Second
