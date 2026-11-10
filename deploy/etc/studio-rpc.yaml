@@ -72,15 +72,15 @@ Media:
   BaseURL: http://127.0.0.1:18090
   Token: change-me
 # 前端模型档 → ai-gateway model group；「通用」= 运营定的默认组
-# 具名档（2026-11-09 换代）：GPT Image 2.6 Sunburst / Nano Banana 2.1 Developer / Seedream 5.5，网关须先发布这三个组
-# 「通用」同日随 GPT Image 2 全线下线改为 GPT Image 2.5 Sunburst Developer（按张计费，1K / 2K / 4K）
+# 具名档（2026-11-09 换代）：GPT Image 2.6 / Nano Banana 2.1 / Seedream 5.5；「通用」= GPT Image 2.5（按张计费，1K / 2K / 4K）
+# 组码一律写规范组，厂商部署由网关挑（应用侧不区分 Dev 档）。旧值（*-dev / *-developer 组码、GPT25Dev 键）仍可读，自动归一。
 ModelGroups:
-  通用: img.gpt-image-2.5-sunburst-developer
+  通用: img.gpt-image-2.5-sunburst
   GPT: img.gpt-image-2.6-sunburst
-  Banana: img.nano-banana-2.1-dev
+  Banana: img.nano-banana-2.1
   Seedream: img.seedream-5.5
-  # GPT Image 2.5 Sunburst Developer（用户端名「GPT Image 2.5」）：按张计费，1K / 2K / 4K
-  GPT25Dev: img.gpt-image-2.5-sunburst-developer
+  # GPT Image 2.5：按张计费，1K / 2K / 4K
+  GPT25: img.gpt-image-2.5-sunburst
 Timeouts:
   Crop: 120
   Analyze: 120

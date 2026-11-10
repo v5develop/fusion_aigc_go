@@ -11,6 +11,8 @@ import (
 
 	"aigc-local-life/app/studio/rpc/internal/pipeline"
 	"aigc-local-life/app/studio/rpc/studio"
+	"aigc-local-life/pkg/modelgroup"
+	"aigc-local-life/pkg/modellabel"
 	"aigc-local-life/pkg/reverse"
 	"aigc-local-life/pkg/xerr"
 )
@@ -165,15 +167,17 @@ func NormalizeModel(s string, groups map[string]string) (name, group string, err
 		return name, "", nil
 	}
 	if g, ok := groups[name]; ok {
-		return name, g, nil
+		return name, modelgroup.Canonical(g), nil
 	}
-	// 大小写不敏感（gpt / GPT）
+	// 大小写不敏感（gpt / GPT），并按别名归一（旧客户端 / 已存草稿的 GPT25Dev → GPT25、nano → Banana …，见 pipeline.CanonicalModel）；
+	// 返回的档名与组码都是规范值，新提交冻结的不会再是旧 Dev 组
+	canon := pipeline.CanonicalModel(name)
 	for k, g := range groups {
-		if strings.EqualFold(k, name) {
-			return k, g, nil
+		if strings.EqualFold(k, name) || strings.EqualFold(pipeline.CanonicalModel(k), canon) {
+			return pipeline.CanonicalModel(k), modelgroup.Canonical(g), nil
 		}
 	}
-	return "", "", xerr.Param("不支持的模型：" + name)
+	return "", "", xerr.Param("不支持的模型：" + modellabel.Of(name))
 }
 
 // ---------------- 商拍换装 ----------------

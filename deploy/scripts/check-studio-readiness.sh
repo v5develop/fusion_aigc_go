@@ -19,7 +19,7 @@
 #
 # 变量（环境变量或 --env-file 里的 KEY=VALUE；凭据只从环境读，绝不打印）：
 #   AI_GATEWAY_URL  AI_GATEWAY_KEY_ID  AI_GATEWAY_SECRET     gateway
-#   AIG_REQUIRED_GROUPS   默认 "img.gpt-image-2 img.nano-banana-2.1 img.seedream-5-pro img.gpt-image-2.6-sunburst img.nano-banana-2.1-dev img.seedream-5.5 vid.seedance-2.5 vlm.deepseek-flash"
+#   AIG_REQUIRED_GROUPS   默认 "img.gpt-image-2 img.nano-banana-2.1 img.seedream-5-pro img.gpt-image-2.6-sunburst img.gpt-image-2.5-sunburst img.seedream-5.5 vid.seedance-2.5 vlm.deepseek-flash"
 #   REVERSE_BASE_URL（缺省取 REVERSE_SIDECAR_URL，再缺省 http://127.0.0.1:8090）
 #   REVERSE_MODEL_GROUP（可选）与 sidecar /api/status 的 model_group 比对，不一致告警；sidecar 还检查 llm_configured、gateway_ready，
 #   以及 allowed_deployments（REVERSE_ALLOWED_DEPLOYMENTS 排障钉渠道）非空时告警
@@ -67,7 +67,7 @@ command -v python3 >/dev/null || { echo "需要 python3" >&2; exit 2; }
 
 # ---- 默认值 ----
 AI_GATEWAY_URL=${AI_GATEWAY_URL:-}; AI_GATEWAY_KEY_ID=${AI_GATEWAY_KEY_ID:-fusion-go-v1}; AI_GATEWAY_SECRET=${AI_GATEWAY_SECRET:-}
-AIG_REQUIRED_GROUPS=${AIG_REQUIRED_GROUPS:-img.gpt-image-2 img.nano-banana-2.1 img.seedream-5-pro img.gpt-image-2.6-sunburst img.nano-banana-2.1-dev img.seedream-5.5 vid.seedance-2.5 vlm.deepseek-flash}
+AIG_REQUIRED_GROUPS=${AIG_REQUIRED_GROUPS:-img.gpt-image-2 img.nano-banana-2.1 img.seedream-5-pro img.gpt-image-2.6-sunburst img.gpt-image-2.5-sunburst img.seedream-5.5 vid.seedance-2.5 vlm.deepseek-flash}
 REVERSE_BASE_URL=${REVERSE_BASE_URL:-${REVERSE_SIDECAR_URL:-http://127.0.0.1:8090}}
 MEDIA_SVC_BASE_URL=${MEDIA_SVC_BASE_URL:-http://127.0.0.1:18090}; MEDIA_SVC_TOKEN=${MEDIA_SVC_TOKEN:-}
 JAVA_UPSTREAM=${JAVA_UPSTREAM:-127.0.0.1:18080}

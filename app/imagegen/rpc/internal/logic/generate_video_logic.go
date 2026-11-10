@@ -1,6 +1,7 @@
 package logic
 
 import (
+	"aigc-local-life/pkg/modellabel"
 	"aigc-local-life/pkg/taskcenter"
 	"context"
 	"database/sql"
@@ -96,7 +97,7 @@ func (l *GenerateVideoLogic) applyRemakeOverrides(c *model.AfvVideoCreation, in 
 		return nil
 	}
 	if mdl != "" && !validRemakeModel(l.ctx, l.svcCtx, mdl) {
-		return xerr.Newf(xerr.ParamError, "不支持的模型 %s", mdl)
+		return xerr.Newf(xerr.ParamError, "不支持的模型 %s", modellabel.Of(mdl))
 	}
 	if size != "" && !validModel(optionsOf(l.ctx, l.svcCtx, genVideoSizes, videoSizes), size) {
 		return xerr.Newf(xerr.ParamError, "不支持的比例 %s", size)

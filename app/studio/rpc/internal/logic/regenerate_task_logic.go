@@ -171,7 +171,7 @@ func (f *flow) userRegenerate(ctx context.Context, t *model.Task, b *model.Batch
 		}
 	}
 	if err := f.bill.CheckAccess(hctx, b.UserID, entry); err != nil {
-		return err
+		return accessError(ctx, b.UserID, entry, err)
 	}
 	charge, err := f.retryCharge(t, b)
 	if err != nil {

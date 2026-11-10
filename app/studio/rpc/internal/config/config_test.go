@@ -22,9 +22,9 @@ func TestLoadDevConfig(t *testing.T) {
 	if c.Reverse.BaseURL != "http://127.0.0.1:8090" || c.Timeouts.Generate != 300 || c.AiGateway.LongPollWait != 20 {
 		t.Fatalf("默认值不对：%+v %+v %+v", c.Reverse, c.Timeouts, c.AiGateway)
 	}
-	if m := c.ModelGroupMap(); m["Banana"] != "img.nano-banana-2.1-dev" || m["GPT"] != "img.gpt-image-2.6-sunburst" ||
-		m["Seedream"] != "img.seedream-5.5" || m["通用"] != "img.gpt-image-2.5-sunburst-developer" ||
-		m["GPT25Dev"] != "img.gpt-image-2.5-sunburst-developer" {
+	if m := c.ModelGroupMap(); m["Banana"] != "img.nano-banana-2.1" || m["GPT"] != "img.gpt-image-2.6-sunburst" ||
+		m["Seedream"] != "img.seedream-5.5" || m["通用"] != "img.gpt-image-2.5-sunburst" ||
+		m["GPT25"] != "img.gpt-image-2.5-sunburst" || len(m) != 5 {
 		t.Fatalf("模型映射不对：%v", c.ModelGroupMap())
 	}
 	if c.Reverse.Concurrency != 6 || c.Reverse.PreviewConcurrency != 2 || c.PreviewSidecarSlots() != 2 {
@@ -61,5 +61,36 @@ func TestPreviewSidecarSlots(t *testing.T) {
 		if got := c.PreviewSidecarSlots(); got != cs.want {
 			t.Fatalf("Concurrency=%d PreviewConcurrency=%d → %d，期望 %d", cs.conc, cs.preview, got, cs.want)
 		}
+	}
+}
+
+// 默认映射用规范组码；不出现任何 Dev 档组码 / 档名。
+func TestDefaultModelGroupsCanonical(t *testing.T) {
+	var c Config
+	m := c.ModelGroupMap()
+	if m["通用"] != "img.gpt-image-2.5-sunburst" || m["GPT25"] != "img.gpt-image-2.5-sunburst" || m["Banana"] != "img.nano-banana-2.1" {
+		t.Fatalf("默认映射：%v", m)
+	}
+	if _, ok := m["GPT25Dev"]; ok {
+		t.Fatalf("默认映射不应有旧键 GPT25Dev：%v", m)
+	}
+}
+
+// 某环境 yaml 还是旧写法（GPT25Dev 键 + Dev 组码）：键映射为 GPT25、组码归一为规范组；同时配了 GPT25 以 GPT25 为准。
+func TestModelGroupMapNormalizesLegacyYAML(t *testing.T) {
+	c := Config{ModelGroups: map[string]string{
+		"通用": "img.gpt-image-2.5-sunburst-developer", "Banana": "img.nano-banana-2.1-dev",
+		"GPT25Dev": "img.gpt-image-2.5-sunburst-developer",
+	}}
+	m := c.ModelGroupMap()
+	if m["通用"] != "img.gpt-image-2.5-sunburst" || m["Banana"] != "img.nano-banana-2.1" || m["GPT25"] != "img.gpt-image-2.5-sunburst" {
+		t.Fatalf("旧写法未归一：%v", m)
+	}
+	if _, ok := m["GPT25Dev"]; ok || len(m) != 3 {
+		t.Fatalf("旧键应映射掉：%v", m)
+	}
+	c = Config{ModelGroups: map[string]string{"GPT25": "img.gpt-x", "gpt25dev": "img.gpt-y"}}
+	if m := c.ModelGroupMap(); m["GPT25"] != "img.gpt-x" || len(m) != 1 {
+		t.Fatalf("GPT25 应优先：%v", m)
 	}
 }

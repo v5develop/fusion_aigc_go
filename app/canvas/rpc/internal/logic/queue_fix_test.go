@@ -140,7 +140,7 @@ func TestNormalizeImageSize(t *testing.T) {
 		{"img.seedream-5.5", "4K", "4K", false},
 		{"img.seedream-5.5", "1K", "1K", false},
 		{"img.gpt-image-2.6-sunburst", "4K", "4K", false},
-		{"img.nano-banana-2.1-dev", "2K", "2K", false},
+		{"img.nano-banana-2.1", "2K", "2K", false},
 	}
 	for _, x := range cases {
 		got, w := normalizeImageSize(x.group, x.size)
@@ -160,9 +160,9 @@ func TestNormalizeImageSize(t *testing.T) {
 // 2026-11-09 换代：默认表的三个图片档指向新组，SD5P（Seedream 5.5）4K 原样受理、4:5 比例在受理时拒。
 func TestDefaultImageModelsNextGen(t *testing.T) {
 	c := testCore()
-	for model, group := range map[string]string{"Image": "img.gpt-image-2.5-sunburst-developer", "通用": "img.gpt-image-2.5-sunburst-developer",
+	for model, group := range map[string]string{"Image": "img.gpt-image-2.5-sunburst", "通用": "img.gpt-image-2.5-sunburst",
 		"GPT Image 2.6": "img.gpt-image-2.6-sunburst", "gpt-image-2-6-v1": "img.gpt-image-2.6-sunburst",
-		"Banana": "img.nano-banana-2.1-dev", "SD5P": "img.seedream-5.5", "Seedream 5 Pro": "img.seedream-5.5"} {
+		"Banana": "img.nano-banana-2.1", "SD5P": "img.seedream-5.5", "Seedream 5 Pro": "img.seedream-5.5"} {
 		m, ok := c.s.Config.FindModel(model, "", "image")
 		if !ok || m.ModelGroup != group {
 			t.Fatalf("%s → %+v，want %s", model, m, group)

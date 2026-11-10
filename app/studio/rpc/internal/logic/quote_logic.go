@@ -102,7 +102,7 @@ func quoteStudio(ctx context.Context, q quoter, entry string, k model.Kind, in *
 	if err != nil {
 		logx.WithContext(ctx).Errorf("studio: 报价失败 用户 %d 入口 %s 模型组 %s 分辨率 %s: %v", in.UserId, entry, group, res, err)
 		if errors.Is(err, billing.ErrNoOffer) {
-			return unavailable("该功能暂未配置价格")
+			return unavailable(billing.MsgNoOffer)
 		}
 		return unavailable("暂时无法报价，请稍后重试")
 	}

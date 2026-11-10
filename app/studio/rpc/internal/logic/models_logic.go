@@ -13,6 +13,8 @@ import (
 	"aigc-local-life/app/studio/rpc/internal/pipeline"
 	"aigc-local-life/pkg/aigateway"
 	"aigc-local-life/pkg/billing"
+	"aigc-local-life/pkg/modelgroup"
+	"aigc-local-life/pkg/modellabel"
 	"aigc-local-life/pkg/xerr"
 
 	"aigc-local-life/app/studio/rpc/internal/svc"
@@ -84,18 +86,9 @@ func firstRatio(rs []string) string {
 }
 
 // modelOrder 前端展示顺序；配置里多出来的档按名字排在后面。
-var modelOrder = []string{pipeline.ModelGeneral, pipeline.ModelGPT, pipeline.ModelGPT25Dev, pipeline.ModelBanana, pipeline.ModelSeedream}
+var modelOrder = []string{pipeline.ModelGeneral, pipeline.ModelGPT, pipeline.ModelGPT25, pipeline.ModelBanana, pipeline.ModelSeedream}
 
-// groupLabels model group → 用户端展示名（与 web constants MODEL_OPTIONS 一致）；没登记的用目录 display_name，再不行用组码。
-var groupLabels = map[string]string{
-	"img.gpt-image-2.5-sunburst-developer": "GPT Image 2.5",
-	"img.gpt-image-2.6-sunburst":           "GPT Image 2.6",
-	"img.gpt-image-2":                      "GPT Image 2",
-	"img.nano-banana-2.1-dev":              "Nano Banana 2.1 Dev",
-	"img.nano-banana-2.1":                  "Nano Banana 2.1",
-	"img.seedream-5.5":                     "Seedream 5.5",
-	"img.seedream-5-pro":                   "Seedream 5 Pro",
-}
+// groupLabels 见 pkg/modellabel（与 canvas 共用）；没登记的组回落到档位码。
 
 var allResolutions = []string{"1k", "2k", "4k"}
 
@@ -131,7 +124,7 @@ func modelCapabilities(kind string, groups map[string]string, catalog map[string
 			Notes: []string{}, Prices: []*studio.ModelResolutionPrice{}}
 		var cat *aigateway.ModelGroup
 		if catalog != nil {
-			if g, ok := catalog[group]; ok {
+			if g, ok := catalogGroup(catalog, group); ok {
 				cat = &g
 			} else {
 				it.Available = false
@@ -140,7 +133,7 @@ func modelCapabilities(kind string, groups map[string]string, catalog map[string
 		}
 		// 展示名只用本仓维护的 groupLabels；没登记的组回落到档位码（通用 / GPT / …），不用 gateway 目录的 DisplayName（可能带供应商措辞）
 		it.Label = code
-		if l, ok := groupLabels[group]; ok {
+		if l, ok := modellabel.Registered(group); ok {
 			it.Label = l
 		}
 		if code == pipeline.ModelGeneral {
@@ -176,6 +169,17 @@ func modelCapabilities(kind string, groups map[string]string, catalog map[string
 		out = append(out, it)
 	}
 	return out
+}
+
+// catalogGroup 按组码查 gateway 目录：组码按 pkg/modelgroup 等价表展开（规范组优先），
+// 网关目录里只有规范组或只有旧 Dev 组都能命中（与网关没有上线先后约束）。
+func catalogGroup(catalog map[string]aigateway.ModelGroup, group string) (aigateway.ModelGroup, bool) {
+	for _, c := range modelgroup.Aliases(group) {
+		if g, ok := catalog[c]; ok {
+			return g, true
+		}
+	}
+	return aigateway.ModelGroup{}, false
 }
 
 // without base 去掉 drop 里的项（保序）。

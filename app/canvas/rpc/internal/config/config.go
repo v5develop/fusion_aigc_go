@@ -7,6 +7,7 @@ import (
 
 	"aigc-local-life/pkg/asset"
 	"aigc-local-life/pkg/billing"
+	"aigc-local-life/pkg/modelgroup"
 	"aigc-local-life/pkg/storage"
 
 	"github.com/zeromicro/go-zero/zrpc"
@@ -173,24 +174,28 @@ var videoRatios = []string{"16:9", "9:16", "1:1"}
 
 // DefaultModels Models 没配时的模型表（原型 CanvasModelNode 的四个图片 / 四个视频档）。
 // 2026-11-09 图片三档换代（与 studio 同口径，GPT Image 2 全线下线）：
-// Image → GPT Image 2.5 Sunburst Developer（GPT Image 2 的接替，按张计费）、新增 GPT Image 2.6 档、
-// Banana → Nano Banana 2.1 Developer、SD5P → Seedream 5.5（网关 Atlas 组，须先发布）。
+// Image → GPT Image 2.5（GPT Image 2 的接替，按张计费）、新增 GPT Image 2.6 档、
+// Banana → Nano Banana 2.1、SD5P → Seedream 5.5（网关 Atlas 组，须先发布）。
+// 2026-11-10 起应用侧不区分厂商 Dev 档：组码用规范组（pkg/modelgroup），部署由网关挑；旧 Dev 名只作输入别名。
 // model / model_id 不变（已保存的画布节点照常解析），旧名留作别名；已落库的 run 记录各自的 model_group，不受影响。
 var DefaultModels = []ModelSpec{
-	// 「Image」（原 GPT Image 2 档）2026-11-09 起接 GPT Image 2.5 Sunburst Developer（用户端名「GPT Image 2.5」）：按张计费，
+	// 「Image」（原 GPT Image 2 档）2026-11-09 起接 GPT Image 2.5：按张计费，
 	// 1K / 2K / 4K；没有 quality 参数；参考图不计费（上限取网关 16）。model / model_id 不变，已保存的节点照常解析。
-	{Model: "Image", ModelID: "image-v1", Aliases: []string{"GPT", "GPT Image 2.5", "GPT25Dev", "GPT Image 2.5 Sunburst Developer",
-		"gpt-image-2.5-sunburst-developer", "GPT Image 2", "gpt-image-2", "通用", "general"}, Kind: "image",
-		ModelGroup: "img.gpt-image-2.5-sunburst-developer", MaxImageRefs: 16, Ratios: imageRatios, Sizes: []string{"1K", "2K", "4K"}, CountMax: 4},
+	// 别名里的 GPT25Dev / *Sunburst Developer / *-developer 是旧名，永久兼容旧草稿，不对外输出。
+	{Model: "Image", ModelID: "image-v1", Aliases: []string{"GPT", "GPT Image 2.5", "GPT25", "gpt-image-2.5-sunburst", "gpt-image-2.5",
+		"GPT25Dev", "GPT Image 2.5 Sunburst Developer", "gpt-image-2.5-sunburst-developer",
+		"GPT Image 2", "gpt-image-2", "通用", "general"}, Kind: "image",
+		ModelGroup: modelgroup.GPTImage25Sunburst, MaxImageRefs: 16, Ratios: imageRatios, Sizes: []string{"1K", "2K", "4K"}, CountMax: 4},
 	// GPT Image 2.6（Sunburst）作为附加档：1K / 2K / 4K、可选质量。参考图上限 14（网关 16）：画布按 high + 2 张参考图的价收，
 	// 编辑每多一张 2048² 参考图成本约 $0.056，14 张以内 1K 仍有 ≥30% 毛利（Java AtlasImagePricingMarginTest），16 张会亏。
 	{Model: "GPT Image 2.6", ModelID: "gpt-image-2-6-v1", Aliases: []string{"GPT Image 2.6 Sunburst", "gpt-image-2.6-sunburst",
 		"gpt-image-2.6"}, Kind: "image",
 		ModelGroup: "img.gpt-image-2.6-sunburst", MaxImageRefs: 14, Ratios: imageRatios, Sizes: []string{"1K", "2K", "4K"},
 		Qualities: []string{"low", "medium", "high"}, CountMax: 4},
-	{Model: "Banana", ModelID: "banana-v1", Aliases: []string{"Nano Banana", "Nano Banana 2.1 Dev", "nano-banana-2.1-dev",
-		"Nano Banana Pro", "nano-banana", "nano-banana-2.1"}, Kind: "image",
-		Badge: "超强模型", ModelGroup: "img.nano-banana-2.1-dev", MaxImageRefs: 14, Ratios: imageRatios, Sizes: []string{"1K", "2K"}, CountMax: 4},
+	// 别名里的 Nano Banana 2.1 Dev / nano-banana-2.1-dev 是旧名，永久兼容旧草稿。
+	{Model: "Banana", ModelID: "banana-v1", Aliases: []string{"Nano Banana", "Nano Banana 2.1", "nano-banana-2.1",
+		"Nano Banana 2.1 Dev", "nano-banana-2.1-dev", "Nano Banana Pro", "nano-banana"}, Kind: "image",
+		Badge: "超强模型", ModelGroup: modelgroup.NanoBanana21, MaxImageRefs: 14, Ratios: imageRatios, Sizes: []string{"1K", "2K"}, CountMax: 4},
 	{Model: "SD5P", ModelID: "sd5p-v1", Aliases: []string{"Seedream", "Seedream 5.5", "seedream-5.5", "Seedream 5 Pro", "seedream-5-pro"}, Kind: "image",
 		ModelGroup: "img.seedream-5.5", MaxImageRefs: 10, Ratios: seedream55Ratios, Sizes: []string{"1K", "2K", "4K"}, CountMax: 4},
 	{Model: "Seedance 2.5", ModelID: "seedance-2-5", Aliases: []string{"dreamina-seedance-2-5"}, Kind: "video",
@@ -208,11 +213,17 @@ var DefaultModels = []ModelSpec{
 }
 
 // ModelTable 生效的模型表。
+// 配置的 Models 里组码按 pkg/modelgroup 归一为规范组（yaml 还写旧 Dev 组码也照常工作，新 run 冻结规范组）。
 func (c Config) ModelTable() []ModelSpec {
-	if len(c.Models) > 0 {
-		return c.Models
+	if len(c.Models) == 0 {
+		return DefaultModels
 	}
-	return DefaultModels
+	out := make([]ModelSpec, len(c.Models))
+	for i, m := range c.Models {
+		m.ModelGroup = modelgroup.Canonical(m.ModelGroup)
+		out[i] = m
+	}
+	return out
 }
 
 // FindModel 按 model / model_id / 别名找模型档（大小写不敏感；model_id 优先）。kind 非空时只在该类里找。
@@ -226,7 +237,7 @@ func (c Config) FindModel(model, modelID, kind string) (ModelSpec, bool) {
 			if kind != "" && m.Kind != kind {
 				continue
 			}
-			if strings.EqualFold(m.ModelID, k) || strings.EqualFold(m.Model, k) || strings.EqualFold(m.ModelGroup, k) {
+			if strings.EqualFold(m.ModelID, k) || strings.EqualFold(m.Model, k) || (m.ModelGroup != "" && modelgroup.Equal(m.ModelGroup, k)) {
 				return m, true
 			}
 			for _, a := range m.Aliases {

@@ -58,7 +58,7 @@ func (s *Service) Enough(ctx context.Context, c Charge) error {
 	a, err := s.Balance(ctx, c.UserID)
 	if err != nil {
 		logx.WithContext(ctx).Errorf("billing: 查用户 %d 余额失败: %v", c.UserID, err)
-		return xerr.New(xerr.ServerError, "暂时无法计费，请稍后重试")
+		return xerr.New(xerr.ServerError, MsgUnavailable)
 	}
 	if a.Balance < q.PricePoints {
 		return notEnoughErr(&NotEnough{Need: q.PricePoints, Available: a.Balance})
@@ -107,16 +107,43 @@ func notEnoughErr(e *NotEnough) error {
 	return xerr.Newf(xerr.InsufficientPoints, "点数不足，还差 %d 点", e.Missing())
 }
 
+// 计费 / 准入失败的用户文案（与 Java 同口径）。
+const (
+	MsgNoFeature   = "暂未开通该功能"
+	MsgNoOffer     = "该功能暂未配置价格，请联系客服"
+	MsgUnavailable = "暂时无法计费，请稍后重试"
+)
+
 // userError 把计费错误翻译成用户能看懂的业务错误；内部原因写日志，不暴露给用户。
 func (s *Service) userError(ctx context.Context, c Charge, err error) error {
+	return UserError(ctx, c.UserID, c.EntryCode, err)
+}
+
+// UserError 准入（CheckAccess）/ 冻结（Freeze）/ 报价失败翻译成用户口径，所有调用方共用这一份：
+//   - 已是业务错误（xerr）原样返回；余额不足 → 点数不足
+//   - ErrNoFeature（用户没开通）→ Forbidden「暂未开通该功能」
+//   - ErrNoOffer（入口码没配计费方案 / 档位 / 单价：我们的配置问题）→ ServerError「该功能暂未配置价格，请联系客服」，
+//     ERROR 日志带判据 BILLING_NO_OFFER 与入口码，别和「用户没开通」混为一谈
+//   - 其它（库异常、未实现的计价规则…）→ ServerError「暂时无法计费，请稍后重试」
+func UserError(ctx context.Context, userID int64, entryCode string, err error) error {
+	if err == nil {
+		return nil
+	}
 	var ne *NotEnough
 	switch {
 	case errors.As(err, &ne):
 		return notEnoughErr(ne)
 	case errors.Is(err, ErrNoFeature):
-		return xerr.New(xerr.Forbidden, "暂未开通该功能")
+		return xerr.New(xerr.Forbidden, MsgNoFeature)
+	case errors.Is(err, ErrNoOffer):
+		logx.WithContext(ctx).Errorf("billing: 拒绝计费 判据=BILLING_NO_OFFER entry=%s user=%d 原因：入口码没有可用的计费配置（offer / 档位 / 单价），请在后台配置: %v",
+			entryCode, userID, err)
+		return xerr.New(xerr.ServerError, MsgNoOffer)
 	}
-	// 缺计费配置、命中未实现的计价规则、库异常：都是我们这边的问题，拦下并报警，别放行成免费
-	logx.WithContext(ctx).Errorf("billing: 用户 %d 的 %s 无法计费: %v", c.UserID, c.EntryCode, err)
-	return xerr.New(xerr.ServerError, "暂时无法计费，请稍后重试")
+	if _, _, ok := xerr.Parse(err); ok {
+		return err
+	}
+	// 未实现的计价规则、库异常：都是我们这边的问题，拦下并报警，别放行成免费
+	logx.WithContext(ctx).Errorf("billing: 拒绝计费 判据=BILLING_UNAVAILABLE entry=%s user=%d: %v", entryCode, userID, err)
+	return xerr.New(xerr.ServerError, MsgUnavailable)
 }

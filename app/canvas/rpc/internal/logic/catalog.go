@@ -9,6 +9,7 @@ import (
 	"aigc-local-life/app/canvas/rpc/canvas"
 	"aigc-local-life/app/canvas/rpc/internal/config"
 	"aigc-local-life/pkg/aigateway"
+	"aigc-local-life/pkg/modelgroup"
 
 	"github.com/zeromicro/go-zero/core/logx"
 )
@@ -24,11 +25,26 @@ var gatewayGroups = &groupCache{}
 
 const groupTTL = 60 * time.Second
 
+// get 按组码取目录项；组码按 pkg/modelgroup 等价表展开（规范组 / 旧 Dev 组），网关目录里只有其中之一也能命中，
+// 优先启用的、再优先规范组——画布与网关没有上线先后约束。
 func (g *groupCache) get(code string) (aigateway.ModelGroup, bool) {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
-	x, ok := g.m[code]
-	return x, ok
+	var first *aigateway.ModelGroup
+	for _, c := range modelgroup.Aliases(code) {
+		if x, ok := g.m[c]; ok {
+			if x.Enabled {
+				return x, true
+			}
+			if first == nil {
+				first = &x
+			}
+		}
+	}
+	if first != nil {
+		return *first, true
+	}
+	return aigateway.ModelGroup{}, false
 }
 
 func (g *groupCache) loaded() bool {

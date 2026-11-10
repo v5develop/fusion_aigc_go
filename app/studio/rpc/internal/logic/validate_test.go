@@ -258,9 +258,9 @@ func TestResolutionNormalize(t *testing.T) {
 
 func TestModelMapping(t *testing.T) {
 	groups := config.DefaultModelGroups
-	for in, want := range map[string]string{"": "img.gpt-image-2.5-sunburst-developer", "通用": "img.gpt-image-2.5-sunburst-developer",
-		"gpt": "img.gpt-image-2.6-sunburst", "GPT25Dev": "img.gpt-image-2.5-sunburst-developer",
-		"Banana": "img.nano-banana-2.1-dev", "seedream": "img.seedream-5.5"} {
+	for in, want := range map[string]string{"": "img.gpt-image-2.5-sunburst", "通用": "img.gpt-image-2.5-sunburst",
+		"gpt": "img.gpt-image-2.6-sunburst", "GPT25Dev": "img.gpt-image-2.5-sunburst",
+		"Banana": "img.nano-banana-2.1", "seedream": "img.seedream-5.5"} {
 		_, g, err := NormalizeModel(in, groups)
 		if err != nil || g != want {
 			t.Fatalf("NormalizeModel(%q)=%q,%v want %q", in, g, err, want)
@@ -411,7 +411,7 @@ func TestValidateSeedreamNormalized(t *testing.T) {
 
 // GPT Image 2.6 参考图上限：图片生成 5、商拍总参考图（模特 + 服装）6；其它模型照旧。
 func TestGPT26RefCaps(t *testing.T) {
-	groups26 := map[string]string{"通用": "img.gpt-image-2.5-sunburst-developer", "GPT": "img.gpt-image-2.6-sunburst", "Banana": "img.nano-banana-2.1-dev"}
+	groups26 := map[string]string{"通用": "img.gpt-image-2.5-sunburst", "GPT": "img.gpt-image-2.6-sunburst", "Banana": "img.nano-banana-2.1"}
 	gen := func(model string, n int) error {
 		_, err := ValidateImageGen(&studio.SubmitImageGenReq{UserId: 1, RequestId: "r", Prompt: "猫", Count: 1,
 			Model: model, ImageUrls: urls(n)}, groups26)
@@ -491,4 +491,21 @@ func TestCatalogRefCap(t *testing.T) {
 func withMaxRefs(g aigateway.ModelGroup, n *int) aigateway.ModelGroup {
 	g.FeatureLimits.MaxReferenceImages = n
 	return g
+}
+
+// 旧客户端 / 已存草稿传的旧档名（GPT25Dev 及其别名）永久受理，归一为对外档名 GPT25 与规范组码。
+func TestNormalizeModelLegacyGPT25Dev(t *testing.T) {
+	groups := config.DefaultModelGroups
+	for _, in := range []string{"GPT25Dev", "gpt25dev", "gpt-image-2.5-sunburst-developer", "GPT Image 2.5 Sunburst Developer",
+		"GPT25", "gpt25", "gpt-image-2.5-sunburst"} {
+		name, g, err := NormalizeModel(in, groups)
+		if err != nil || name != "GPT25" || g != "img.gpt-image-2.5-sunburst" {
+			t.Errorf("NormalizeModel(%q)=%q,%q,%v want GPT25 / img.gpt-image-2.5-sunburst", in, name, g, err)
+		}
+	}
+	for _, in := range []string{"Nano Banana 2.1 Dev", "nano-banana-2.1-dev", "Banana"} {
+		if name, g, err := NormalizeModel(in, groups); err != nil || name != "Banana" || g != "img.nano-banana-2.1" {
+			t.Errorf("NormalizeModel(%q)=%q,%q,%v", in, name, g, err)
+		}
+	}
 }

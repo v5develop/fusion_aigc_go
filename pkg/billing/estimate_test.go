@@ -86,7 +86,7 @@ func TestEstimateShadowPricesButNotCharged(t *testing.T) {
 func TestEstimateErrorsBecomeReasons(t *testing.T) {
 	f := &fakeEstimator{mode: ModeOn, err: fmt.Errorf("%w: poster", ErrNoOffer)}
 	e := estimate(context.Background(), f, Charge{UserID: 1, EntryCode: "poster"})
-	if e.Available || e.Points != 0 || e.Reason != "该功能暂未配置价格" {
+	if e.Available || e.Points != 0 || e.Reason != "该功能暂未配置价格，请联系客服" {
 		t.Fatalf("没配价格: %+v", e)
 	}
 	f.err = ErrPricingRule

@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"github.com/zeromicro/go-zero/core/stores/sqlx"
+
+	"aigc-local-life/pkg/modelgroup"
 )
 
 // 上线前的计费配置检查。
@@ -129,7 +131,7 @@ func auditGroups(ctx context.Context, conn sqlx.SqlConn, t Target) []Finding {
 		switch {
 		case err != nil:
 			out = append(out, add(LevelError, g, "算不出价：%v", err))
-		case r.ModelGroup != g:
+		case !modelgroup.Equal(r.ModelGroup, g): // 迁移前库里载体挂旧 Dev 组，price 返回的是规范组
 			out = append(out, add(LevelError, g, "没有按组选中档位（选到 %s）", r.VariantCode))
 		}
 	}

@@ -64,7 +64,7 @@ type StudioClient interface {
 	PreviewPose(ctx context.Context, in *PreviewPoseReq, opts ...grpc.CallOption) (*PreviewPoseResp, error)
 	// 提交前报价（只读）：与提交同一套模型 / 分辨率归一与计费入口，返回本次提交会冻结的点数；不落库、不冻结、不校验素材
 	Quote(ctx context.Context, in *QuoteReq, opts ...grpc.CallOption) (*QuoteResp, error)
-	// 模型档能力（只读）：每个模型档（通用 / GPT / GPT25Dev / Banana / Seedream）的展示名、实际可用的分辨率与比例、参考图上限；
+	// 模型档能力（只读）：每个模型档（通用 / GPT / GPT25 / Banana / Seedream）的展示名、实际可用的分辨率与比例、参考图上限；
 	// 由 pipeline 的组规则（Seedream 5.5 无 4:5/5:4、旧 Seedream 无 4K、GPT 2.6 参考图硬上限）与 gateway 目录 feature_limits 求交得出。
 	// with_price=true 时附每档分辨率的单张点数（与 Quote 同一计费入口，计费关时为 0）
 	Models(ctx context.Context, in *ModelsReq, opts ...grpc.CallOption) (*ModelsResp, error)
@@ -356,7 +356,7 @@ type StudioServer interface {
 	PreviewPose(context.Context, *PreviewPoseReq) (*PreviewPoseResp, error)
 	// 提交前报价（只读）：与提交同一套模型 / 分辨率归一与计费入口，返回本次提交会冻结的点数；不落库、不冻结、不校验素材
 	Quote(context.Context, *QuoteReq) (*QuoteResp, error)
-	// 模型档能力（只读）：每个模型档（通用 / GPT / GPT25Dev / Banana / Seedream）的展示名、实际可用的分辨率与比例、参考图上限；
+	// 模型档能力（只读）：每个模型档（通用 / GPT / GPT25 / Banana / Seedream）的展示名、实际可用的分辨率与比例、参考图上限；
 	// 由 pipeline 的组规则（Seedream 5.5 无 4:5/5:4、旧 Seedream 无 4K、GPT 2.6 参考图硬上限）与 gateway 目录 feature_limits 求交得出。
 	// with_price=true 时附每档分辨率的单张点数（与 Quote 同一计费入口，计费关时为 0）
 	Models(context.Context, *ModelsReq) (*ModelsResp, error)

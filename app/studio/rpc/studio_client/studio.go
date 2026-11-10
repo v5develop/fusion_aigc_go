@@ -77,7 +77,7 @@ type (
 		PreviewPose(ctx context.Context, in *PreviewPoseReq, opts ...grpc.CallOption) (*PreviewPoseResp, error)
 		// 提交前报价（只读）：与提交同一套模型 / 分辨率归一与计费入口，返回本次提交会冻结的点数；不落库、不冻结、不校验素材
 		Quote(ctx context.Context, in *QuoteReq, opts ...grpc.CallOption) (*QuoteResp, error)
-		// 模型档能力（只读）：每个模型档（通用 / GPT / GPT25Dev / Banana / Seedream）的展示名、实际可用的分辨率与比例、参考图上限；
+		// 模型档能力（只读）：每个模型档（通用 / GPT / GPT25 / Banana / Seedream）的展示名、实际可用的分辨率与比例、参考图上限；
 		Models(ctx context.Context, in *ModelsReq, opts ...grpc.CallOption) (*ModelsResp, error)
 		// 批次详情 + 全部子任务（生成中轮询此接口）
 		GetBatch(ctx context.Context, in *GetBatchReq, opts ...grpc.CallOption) (*BatchDetail, error)
@@ -154,7 +154,7 @@ func (m *defaultStudio) Quote(ctx context.Context, in *QuoteReq, opts ...grpc.Ca
 	return client.Quote(ctx, in, opts...)
 }
 
-// 模型档能力（只读）：每个模型档（通用 / GPT / GPT25Dev / Banana / Seedream）的展示名、实际可用的分辨率与比例、参考图上限；
+// 模型档能力（只读）：每个模型档（通用 / GPT / GPT25 / Banana / Seedream）的展示名、实际可用的分辨率与比例、参考图上限；
 func (m *defaultStudio) Models(ctx context.Context, in *ModelsReq, opts ...grpc.CallOption) (*ModelsResp, error) {
 	client := studio.NewStudioClient(m.cli.Conn())
 	return client.Models(ctx, in, opts...)

@@ -6,6 +6,7 @@ import (
 
 	"aigc-local-life/pkg/asset"
 	"aigc-local-life/pkg/billing"
+	"aigc-local-life/pkg/modelgroup"
 	"aigc-local-life/pkg/storage"
 
 	"github.com/zeromicro/go-zero/zrpc"
@@ -204,24 +205,37 @@ func (c Config) PreviewSidecarSlots() int {
 }
 
 // DefaultModelGroups ModelGroups 没配时的映射（设计方案 §4.4）。
-// 2026-11-09 三个具名模型档换代：GPT → GPT Image 2.6 Sunburst、Banana → Nano Banana 2.1 Developer、
-// Seedream → Seedream 5.5（网关 Atlas 组）。旧组 img.gpt-image-2 / img.nano-banana-2.1 / img.seedream-5-pro 网关里保留，
-// 已入库任务的 model_group 照旧（重做沿用任务上的组）。
-// 同日（2026-11-09）产品决定全线下线 GPT Image 2：「通用」默认组改为按张计费的 GPT Image 2.5 Sunburst Developer
-// （img.gpt-image-2.5-sunburst-developer，1K / 2K / 4K）；具名档「GPT」仍是 2.6 Sunburst。
+// 2026-11-09 三个具名模型档换代：GPT → GPT Image 2.6 Sunburst、Banana → Nano Banana 2.1、Seedream → Seedream 5.5
+// （网关 Atlas 组）；同日全线下线 GPT Image 2，「通用」改为按张计费的 GPT Image 2.5（1K / 2K / 4K）。
+// 2026-11-10 起应用侧不区分厂商 Dev 档：组码一律用规范组（img.nano-banana-2.1 / img.gpt-image-2.5-sunburst），
+// 网关挑部署；旧 Dev 组码在网关里是弃用别名，已入库任务上的旧组码按 pkg/modelgroup 等价读。
 var DefaultModelGroups = map[string]string{
-	"通用":       "img.gpt-image-2.5-sunburst-developer",
+	"通用":       modelgroup.GPTImage25Sunburst,
 	"GPT":      "img.gpt-image-2.6-sunburst",
-	"Banana":   "img.nano-banana-2.1-dev",
+	"Banana":   modelgroup.NanoBanana21,
 	"Seedream": "img.seedream-5.5",
-	// GPT25Dev GPT Image 2.5 Sunburst Developer（2026-11-09 新增，用户端名「GPT Image 2.5」）：按张计费，1K / 2K / 4K。
-	"GPT25Dev": "img.gpt-image-2.5-sunburst-developer",
+	// GPT25 GPT Image 2.5（2026-11-09 新增）：按张计费，1K / 2K / 4K。旧档名 GPT25Dev 只作输入别名。
+	"GPT25": modelgroup.GPTImage25Sunburst,
 }
 
-// ModelGroupMap 生效的模型档映射。
+// legacyModelKeys 旧配置键 → 现档名（某些环境的 yaml 可能还写着旧键）。
+var legacyModelKeys = map[string]string{"gpt25dev": "GPT25"}
+
+// ModelGroupMap 生效的模型档映射。配置值按 pkg/modelgroup 归一为规范组码（yaml 里还写旧 Dev 组码也照常工作，
+// 新提交冻结的是规范组）；旧键 GPT25Dev 映射为 GPT25（同时配了 GPT25 时以 GPT25 为准）。
 func (c Config) ModelGroupMap() map[string]string {
-	if len(c.ModelGroups) > 0 {
-		return c.ModelGroups
+	if len(c.ModelGroups) == 0 {
+		return DefaultModelGroups
 	}
-	return DefaultModelGroups
+	out := make(map[string]string, len(c.ModelGroups))
+	for k, g := range c.ModelGroups {
+		if nk, ok := legacyModelKeys[strings.ToLower(strings.TrimSpace(k))]; ok {
+			k = nk
+			if _, set := c.ModelGroups[nk]; set {
+				continue
+			}
+		}
+		out[k] = modelgroup.Canonical(g)
+	}
+	return out
 }

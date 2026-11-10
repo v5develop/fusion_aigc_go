@@ -102,3 +102,72 @@ func TestPriceWithoutModelGroupUnchanged(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// 等价组（pkg/modelgroup）：规范组与旧 Dev 组任一传进来都按 IN (规范, 旧) 查、优先规范组。
+var qByGroupIn = regexp.QuoteMeta("m.`gateway_model_group` IN (?,?) ORDER BY (m.`gateway_model_group` = ?) DESC")
+
+// 新代码传规范组、库还在 Java 迁移 V1.0.221 之前（载体挂旧 Dev 组）：仍选中原档位，同价；返回规范组码。
+func TestPriceCanonicalGroupAgainstPreMigrationDB(t *testing.T) {
+	conn, mock := mockConn(t)
+	mock.ExpectQuery(qOffer).WithArgs("studio_tryon").WillReturnRows(sqlmock.NewRows(offerCols).AddRow("studio_tryon", "studio_tryon", "ecom_image_gen"))
+	mock.ExpectQuery(qByGroupIn).WithArgs("studio_tryon", "img.nano-banana-2.1", "img.nano-banana-2.1-dev", "img.nano-banana-2.1").
+		WillReturnRows(sqlmock.NewRows(variantCols).AddRow("studio_tryon_nano_banana_2_1_dev", "banana", 71, nil, nil, "PARTIAL"))
+	expectRest(mock, "studio_tryon_nano_banana_2_1_dev", 71, "2K", 30)
+	q, err := price(context.Background(), conn, Charge{UserID: 7, EntryCode: "studio_tryon", ModelGroup: "img.nano-banana-2.1",
+		Kind: KindQuick, Count: 1, Resolution: "2K"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if q.PricePoints != 30 || q.VariantCode != "studio_tryon_nano_banana_2_1_dev" || q.ModelGroup != "img.nano-banana-2.1" {
+		t.Fatalf("报价：%+v", q)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// 换代前任务冻结的旧 Dev 组（重做 / 重试 / 结算）、库已迁移（载体改挂规范组）：同样选中改名后的档位，同价。
+func TestPriceLegacyGroupAgainstPostMigrationDB(t *testing.T) {
+	conn, mock := mockConn(t)
+	mock.ExpectQuery(qOffer).WithArgs("canvas_image").WillReturnRows(sqlmock.NewRows(offerCols).AddRow("canvas_image", "canvas_image", "ecom_image_gen"))
+	mock.ExpectQuery(qByGroupIn).WithArgs("canvas_image", "img.gpt-image-2.5-sunburst", "img.gpt-image-2.5-sunburst-developer", "img.gpt-image-2.5-sunburst").
+		WillReturnRows(sqlmock.NewRows(variantCols).AddRow("canvas_image_gpt_image_2_5_sunburst", "gpt25", 72, nil, nil, "PARTIAL"))
+	expectRest(mock, "canvas_image_gpt_image_2_5_sunburst", 72, "1K", 17)
+	q, err := price(context.Background(), conn, Charge{UserID: 7, EntryCode: "canvas_image", ModelGroup: "img.gpt-image-2.5-sunburst-developer",
+		Kind: KindQuick, Count: 1, Resolution: "1K"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if q.PricePoints != 17 || q.VariantCode != "canvas_image_gpt_image_2_5_sunburst" || q.ModelGroup != "img.gpt-image-2.5-sunburst" {
+		t.Fatalf("报价：%+v", q)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// tier：gpt25 与旧 gpt25dev 等价，档位码 / quality_tier 两种写法都查；迁移前库只有旧档位码也能选中。
+func TestPriceTierGPT25EquivalentToLegacy(t *testing.T) {
+	qTierIn := regexp.QuoteMeta("AND (`variant_code` IN (?,?) OR `quality_tier` IN (?,?)) ORDER BY (`variant_code` = ?) DESC, (`variant_code` IN (?,?)) DESC")
+	for _, tc := range []struct{ tier, dbVariant, dbTier string }{
+		{"gpt25", "studio_pose_gpt_image_2_5_sunburst_dev", "gpt25dev"}, // 新调用方 × 迁移前库
+		{"GPT25Dev", "studio_pose_gpt_image_2_5_sunburst", "gpt25"},     // 旧值 × 迁移后库
+	} {
+		conn, mock := mockConn(t)
+		mock.ExpectQuery(qOffer).WithArgs("studio_pose").WillReturnRows(sqlmock.NewRows(offerCols).AddRow("studio_pose", "studio_pose", "ecom_image_gen"))
+		mock.ExpectQuery(qTierIn).WithArgs("studio_pose", "studio_pose_gpt25", "studio_pose_gpt25dev", "gpt25", "gpt25dev",
+			"studio_pose_gpt25", "studio_pose_gpt25", "studio_pose_gpt25dev").
+			WillReturnRows(sqlmock.NewRows(variantCols).AddRow(tc.dbVariant, tc.dbTier, 73, nil, nil, "PARTIAL"))
+		expectRest(mock, tc.dbVariant, 73, "1K", 17)
+		q, err := price(context.Background(), conn, Charge{UserID: 7, EntryCode: "studio_pose", Tier: tc.tier, Kind: KindQuick, Count: 1, Resolution: "1K"})
+		if err != nil {
+			t.Fatalf("%s: %v", tc.tier, err)
+		}
+		if q.PricePoints != 17 || q.VariantCode != tc.dbVariant {
+			t.Fatalf("%s 报价：%+v", tc.tier, q)
+		}
+		if err := mock.ExpectationsWereMet(); err != nil {
+			t.Fatal(err)
+		}
+	}
+}

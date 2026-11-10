@@ -8,6 +8,7 @@ import (
 	"aigc-local-life/app/studio/rpc/internal/svc"
 	"aigc-local-life/app/studio/rpc/studio"
 	"aigc-local-life/pkg/auditdb"
+	"aigc-local-life/pkg/modelgroup"
 	"aigc-local-life/pkg/xerr"
 
 	"github.com/zeromicro/go-zero/core/logx"
@@ -71,8 +72,37 @@ func (l *AdminCostSummaryLogic) AdminCostSummary(in *studio.AdminCostSummaryReq)
 		if err != nil {
 			return nil, err
 		}
+		// 换代前任务上的旧 Dev 组码与规范组是同一组（pkg/modelgroup）：按规范组合并成一行
+		type acc struct {
+			n, ok, failed int64
+			cost          []string
+		}
+		var keys []string
+		merged := map[string]*acc{}
 		for _, r := range rows {
-			add(r.ModelGroup, r.TaskCount, r.SucceededCount, r.FailedCount, r.CostCnyTotal)
+			k := modelgroup.Canonical(r.ModelGroup)
+			a := merged[k]
+			if a == nil {
+				a = &acc{}
+				merged[k] = a
+				keys = append(keys, k)
+			}
+			a.n, a.ok, a.failed = a.n+r.TaskCount, a.ok+r.SucceededCount, a.failed+r.FailedCount
+			a.cost = append(a.cost, r.CostCnyTotal)
+		}
+		for _, k := range keys {
+			a := merged[k]
+			cost := a.cost[0]
+			if len(a.cost) > 1 {
+				sum := new(big.Rat)
+				for _, c := range a.cost {
+					if v, ok := new(big.Rat).SetString(c); ok {
+						sum.Add(sum, v)
+					}
+				}
+				cost = sum.FloatString(6)
+			}
+			add(k, a.n, a.ok, a.failed, cost)
 		}
 	} else {
 		rows, err := q.StudioCostSummaryByKind(l.ctx, auditdb.StudioCostSummaryByKindParams{DateFrom: from, DateTo: to})

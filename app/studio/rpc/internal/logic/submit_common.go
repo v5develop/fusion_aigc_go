@@ -434,16 +434,9 @@ func taskIDs(tasks []*model.Task) []string {
 	return out
 }
 
-// accessError 准入失败翻译成用户口径；内部原因只记日志。
+// accessError 准入失败翻译成用户口径（与 pkg/billing.UserError 同一份：没开通 / 没配价格 / 暂时无法计费分开）；内部原因只记日志。
 func accessError(ctx context.Context, userID int64, entry string, err error) error {
-	if errors.Is(err, billing.ErrNoFeature) {
-		return xerr.New(xerr.Forbidden, "暂未开通该功能")
-	}
-	if _, _, ok := xerr.Parse(err); ok {
-		return err
-	}
-	logx.WithContext(ctx).Errorf("studio: 用户 %d 入口 %s 准入校验失败: %v", userID, entry, err)
-	return xerr.New(xerr.ServerError, "暂时无法计费，请稍后重试")
+	return billing.UserError(ctx, userID, entry, err)
 }
 
 // checkText 内容审核：命中敏感词返回参数错误；读词库失败只记日志不拦截（与其它模块一致）。

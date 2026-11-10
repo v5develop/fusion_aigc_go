@@ -53,7 +53,7 @@ func (s *StudioServer) Quote(ctx context.Context, in *studio.QuoteReq) (*studio.
 	return l.Quote(in)
 }
 
-// 模型档能力（只读）：每个模型档（通用 / GPT / GPT25Dev / Banana / Seedream）的展示名、实际可用的分辨率与比例、参考图上限；
+// 模型档能力（只读）：每个模型档（通用 / GPT / GPT25 / Banana / Seedream）的展示名、实际可用的分辨率与比例、参考图上限；
 func (s *StudioServer) Models(ctx context.Context, in *studio.ModelsReq) (*studio.ModelsResp, error) {
 	l := logic.NewModelsLogic(ctx, s.svcCtx)
 	return l.Models(in)

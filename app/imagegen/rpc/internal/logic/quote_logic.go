@@ -1,6 +1,7 @@
 package logic
 
 import (
+	"aigc-local-life/pkg/modellabel"
 	"context"
 	"strings"
 
@@ -97,7 +98,7 @@ func videoQuoteOf(ctx context.Context, svcCtx *svc.ServiceContext, in *pb.QuoteR
 	q := imageQuote{stage: stageGenerate}
 	mdl := strings.TrimSpace(in.Model)
 	if in.Kind == model.KindVideoRemake && mdl != "" && !validRemakeModel(ctx, svcCtx, mdl) {
-		return q, xerr.Newf(xerr.ParamError, "不支持的模型 %s", mdl)
+		return q, xerr.Newf(xerr.ParamError, "不支持的模型 %s", modellabel.Of(mdl))
 	}
 	if in.Id > 0 {
 		c, err := findOwnedVideo(ctx, svcCtx, in.Id, in.UserId)

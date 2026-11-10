@@ -12428,7 +12428,7 @@
                             "type": "boolean"
                           },
                           "code": {
-                            "description": "传值：通用 / GPT / GPT25Dev / Banana / Seedream",
+                            "description": "传值：通用 / GPT / GPT25 / Banana / Seedream",
                             "type": "string"
                           },
                           "label": {

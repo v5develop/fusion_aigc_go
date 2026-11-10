@@ -942,7 +942,7 @@ POST /api/v1/studio/masks
 
 ## 6. 模型、分辨率、比例
 
-> **按模型取可选项**：`GET /api/v1/studio/models?kind=tryon|pose|imagegen[&with_price=true]` 返回每个模型档（`通用` / `GPT` / `GPT25Dev` / `Banana` / `Seedream`）的展示名 `label`、实际可选的 `resolutions` / `aspect_ratios`、是否支持「自动」比例 `auto_aspect`、本 kind 的参考图上限 `max_ref_images`、限制说明 `notes`、gateway 目录里是否可用 `available`；`with_price=true` 时附每档分辨率的单张点数 `prices[]`（与 quote 同一计费入口）。
+> **按模型取可选项**：`GET /api/v1/studio/models?kind=tryon|pose|imagegen[&with_price=true]` 返回每个模型档（`通用` / `GPT` / `GPT25` / `Banana` / `Seedream`；提交时旧档名 `GPT25Dev` 仍按 `GPT25` 受理，输出只用 `GPT25`）的展示名 `label`、实际可选的 `resolutions` / `aspect_ratios`、是否支持「自动」比例 `auto_aspect`、本 kind 的参考图上限 `max_ref_images`、限制说明 `notes`、gateway 目录里是否可用 `available`；`with_price=true` 时附每档分辨率的单张点数 `prices[]`（与 quote 同一计费入口）。
 > 可选项与提交时的参数归一同源（Seedream 5.5 无 `4:5` / `5:4`、旧 Seedream 无 4K、GPT Image 2.6 参考图上限按 kind 收紧），再与 gateway 目录 `feature_limits` 求交；目录拉不到时只按组规则。前端据此收窄选项、换模型时把不支持的值落到第一个可选项；下文的表是兜底口径。
 
 ### 6.1 模型四档 `model`
@@ -992,7 +992,7 @@ POST /api/v1/studio/masks
 
 | 模型 | `cap`（`max_ref_images`） |
 | --- | --- |
-| 通用 / Banana / GPT / GPT25Dev 等 | 14（目录标称更大也压到 14；目录给更小的以目录为准） |
+| 通用 / Banana / GPT / GPT25 等 | 14（目录标称更大也压到 14；目录给更小的以目录为准） |
 | Seedream 5 Pro | 10 |
 | GPT Image 2.6 | 6（计费硬上限，商拍提交时服装图 >5 张直接 `code=1003`） |
 | 目录里更小的模型（如 Qwen 3） | 目录值 |

@@ -14,7 +14,7 @@ import (
 //
 // 报价 = 提交的实际行为（Hold）：
 //   - on：未配价格 / 算价失败 / 没开通权益（CheckEntitlement 打开时只读查 afv_app_user_feature）都会拦提交 →
-//     Available=false + Reason（「该功能暂未配置价格」「未开通该功能」…）；
+//     Available=false + Reason（「该功能暂未配置价格，请联系客服」「未开通该功能」…）；
 //   - shadow：Hold 对任何计费错误只记日志、不拦、冻结 0 点 → 不查权益，算价失败也 Available=true（Points 未知记 0，Charged=false）；
 //   - off：不算价，Available=true、0 点。
 //
@@ -77,15 +77,19 @@ func estimate(ctx context.Context, e estimator, c Charge) Estimate {
 	shadow := out.Mode == ModeShadow
 	q, err := e.Quote(ctx, c)
 	if err != nil {
-		logx.WithContext(ctx).Errorf("billing: 报价失败 用户 %d 入口 %s 档次 %s 数量 %d 秒数 %d: %v",
-			c.UserID, c.EntryCode, c.Tier, c.Count, c.Seconds, err)
+		check := "BILLING_UNAVAILABLE"
+		if errors.Is(err, ErrNoOffer) {
+			check = "BILLING_NO_OFFER"
+		}
+		logx.WithContext(ctx).Errorf("billing: 报价失败 判据=%s entry=%s 用户 %d 档次 %s 数量 %d 秒数 %d: %v",
+			check, c.EntryCode, c.UserID, c.Tier, c.Count, c.Seconds, err)
 		if shadow {
 			// 影子期 Hold 对任何计费错误（含未配价格）只记日志、不拦提交，冻结 0 点：报价同样不当成拦截原因
 			out.Available = true
 			return out
 		}
 		if errors.Is(err, ErrNoOffer) {
-			out.Reason = "该功能暂未配置价格"
+			out.Reason = MsgNoOffer
 		} else {
 			out.Reason = "暂时无法报价，请稍后重试"
 		}

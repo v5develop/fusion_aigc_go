@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"aigc-local-life/pkg/aigateway"
+	"aigc-local-life/pkg/modelgroup"
+	"aigc-local-life/pkg/modellabel"
 )
 
 // gateway 操作。
@@ -78,10 +80,10 @@ func IsSeedream55Group(modelGroup string) bool {
 	return strings.Contains(strings.ToLower(modelGroup), "seedream-5.5")
 }
 
-// IsGPT25DevGroup 是否 GPT Image 2.5 Sunburst Developer 组（img.gpt-image-2.5-sunburst-developer，网关 atlas.gpt-image-2-5-sunburst-dev）：
-// 按张计费（1K $0.03，2K / 4K 为网关价格模型里的估价），没有 quality 参数。
-func IsGPT25DevGroup(modelGroup string) bool {
-	return strings.Contains(strings.ToLower(modelGroup), "gpt-image-2.5-sunburst-developer")
+// IsGPT25Group 是否 GPT Image 2.5 Sunburst 组（规范组 img.gpt-image-2.5-sunburst；换代前任务上的旧组码按
+// pkg/modelgroup 等价表也算）：按张计费，没有 quality 参数。部署由网关挑，应用侧不区分厂商档。
+func IsGPT25Group(modelGroup string) bool {
+	return modelgroup.Is(modelGroup, modelgroup.GPTImage25Sunburst)
 }
 
 // IsGPT26Group 是否 GPT Image 2.6 Sunburst 组（img.gpt-image-2.6-sunburst）。
@@ -131,7 +133,7 @@ const (
 
 // QualityFor 生图质量：只给 GPT 组下发（其余组不接收）。用户指定优先；商拍 high，其余 medium。
 func QualityFor(modelGroup, kind, user string) string {
-	if !IsGPTGroup(modelGroup) || IsGPT25DevGroup(modelGroup) { // 2.5 Developer 没有 quality 参数
+	if !IsGPTGroup(modelGroup) || IsGPT25Group(modelGroup) { // 2.5 没有 quality 参数
 		return ""
 	}
 	switch q := strings.ToLower(strings.TrimSpace(user)); q {
@@ -210,7 +212,7 @@ func (o GenOptions) maxRefs(modelGroup string) int {
 }
 
 func (o GenOptions) quality(modelGroup string) string {
-	if !IsGPTGroup(modelGroup) || IsGPT25DevGroup(modelGroup) {
+	if !IsGPTGroup(modelGroup) || IsGPT25Group(modelGroup) {
 		return ""
 	}
 	return o.Quality
@@ -231,8 +233,8 @@ const (
 	ModelGPT      = "GPT"
 	ModelBanana   = "Banana"
 	ModelSeedream = "Seedream"
-	// ModelGPT25Dev GPT Image 2.5 Sunburst Developer（用户端名「GPT Image 2.5」，按张计费）
-	ModelGPT25Dev = "GPT25Dev"
+	// ModelGPT25 GPT Image 2.5（按张计费）。旧档名 GPT25Dev 永久作为输入别名（旧客户端 / 已存草稿），输出一律 GPT25。
+	ModelGPT25 = "GPT25"
 )
 
 // modelAliases 小写别名 → 档名（商拍页中文名 / 英文 id、姿态页 nano / seedream 都认）。
@@ -241,10 +243,22 @@ var modelAliases = map[string]string{
 	"gpt": ModelGPT, "gpt-image-2": ModelGPT, "gpt-image": ModelGPT,
 	"gpt-image-2.6": ModelGPT, "gpt-image-2.6-sunburst": ModelGPT,
 	"banana": ModelBanana, "nano-banana": ModelBanana, "nano-banana-2.1": ModelBanana, "nano": ModelBanana,
-	"nano-banana-2.1-dev": ModelBanana, "nano-banana-dev": ModelBanana,
+	// 旧 Dev 名（兼容旧客户端 / 草稿，永久保留）
+	"nano-banana-2.1-dev": ModelBanana, "nano-banana-dev": ModelBanana, "nano banana 2.1 dev": ModelBanana,
+	"nano banana 2.1": ModelBanana, "nano banana": ModelBanana,
 	"seedream": ModelSeedream, "seedream-5-pro": ModelSeedream, "seedream-5.5": ModelSeedream,
-	"gpt25dev": ModelGPT25Dev, "gpt-image-2.5": ModelGPT25Dev, "gpt-image-2.5-sunburst-developer": ModelGPT25Dev,
-	"gpt image 2.5": ModelGPT25Dev, "gpt image 2.5 sunburst developer": ModelGPT25Dev,
+	"gpt25": ModelGPT25, "gpt-image-2.5": ModelGPT25, "gpt-image-2.5-sunburst": ModelGPT25, "gpt image 2.5": ModelGPT25,
+	// 旧 Dev 名（兼容旧客户端 / 草稿，永久保留）
+	"gpt25dev": ModelGPT25, "gpt-image-2.5-sunburst-developer": ModelGPT25, "gpt image 2.5 sunburst developer": ModelGPT25,
+}
+
+// CanonicalModel 模型档名按别名归一（大小写不敏感）：GPT25Dev → GPT25、nano → Banana …；不认识的原样返回（去首尾空白）。
+func CanonicalModel(name string) string {
+	n := strings.TrimSpace(name)
+	if canon, ok := modelAliases[strings.ToLower(n)]; ok {
+		return canon
+	}
+	return n
 }
 
 // ErrUnknownModel 不认识的模型档。
@@ -257,20 +271,20 @@ func MapModel(display string, groups map[string]string) (string, error) {
 	if name == "" {
 		name = ModelGeneral
 	}
-	if canon, ok := modelAliases[strings.ToLower(name)]; ok {
-		name = canon
-	}
+	name = CanonicalModel(name)
+	// 配置键也按别名归一（某些环境 yaml 里可能还是旧键 GPT25Dev）；返回规范组码，新提交冻结的一律是规范组
 	for k, g := range groups {
-		if strings.EqualFold(k, name) && g != "" {
-			return g, nil
+		if g != "" && strings.EqualFold(CanonicalModel(k), name) {
+			return modelgroup.Canonical(g), nil
 		}
 	}
+	// display 本身是组码（含换代前的旧 Dev 组码）：按等价表归一后匹配，返回规范组码
 	for _, g := range groups {
-		if g != "" && g == strings.TrimSpace(display) {
-			return g, nil
+		if g != "" && modelgroup.Equal(g, display) {
+			return modelgroup.Canonical(g), nil
 		}
 	}
-	return "", fmt.Errorf("%w：%s", ErrUnknownModel, display)
+	return "", fmt.Errorf("%w：%s", ErrUnknownModel, modellabel.Of(display))
 }
 
 // NormalizeResolution 分辨率归一为小写 1k / 2k / 4k（入库与回显口径，与 pb 注释一致）；空 = 1k。
@@ -368,7 +382,7 @@ func BuildImageEditRequestRefs(kind, modelGroup, prompt string, images []aigatew
 		lim = hard
 	}
 	if len(refs) > lim {
-		warns = append(warns, fmt.Sprintf("参考图 %d 张超过 %s 上限 %d，已截断", len(refs), modelGroup, lim))
+		warns = append(warns, fmt.Sprintf("参考图 %d 张超过 %s 上限 %d，已截断", len(refs), modellabel.Group(modelGroup), lim))
 		refs = refs[:lim]
 	}
 	ar := strings.TrimSpace(aspectRatio)

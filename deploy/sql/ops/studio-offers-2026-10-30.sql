@@ -95,38 +95,44 @@ WHERE @img_model IS NOT NULL
   AND EXISTS (SELECT 1 FROM afv_billing_offer_variant v WHERE v.variant_code = CONCAT(t.offer_code, '_standard') COLLATE utf8mb4_unicode_ci AND v.deleted = 0)
   AND NOT EXISTS (SELECT 1 FROM afv_billing_charge_component c WHERE c.component_code = CONCAT('gen_', t.offer_code) COLLATE utf8mb4_unicode_ci);
 
--- 1.4 分模型档位（2026-11-09 起按出图模型 × 分辨率计价）。载体与单价由 Java 迁移 V1.0.215__atlas_image_pricing_and_studio_tiers.sql 建
+-- 1.4 分模型档位（2026-11-09 起按出图模型 × 分辨率计价；2026-11-10 起档位码 / 载体码 / quality_tier 不带厂商 Dev 档标记，与 Java V1.0.221 一致）。载体与单价由 Java 迁移 V1.0.215__atlas_image_pricing_and_studio_tiers.sql 建
 --     （图片生成复用 V1.0.213 的 creaft-* 载体）；本段只在 offer 比那次迁移晚建时补档位，载体不存在的行自动跳过（JOIN 不到）。
 --     Go 提交 / 报价 / 重做带 Charge.ModelGroup，按「档位默认模型的 gateway_model_group」选档；没有对应档位退回上面的 *_standard。
 INSERT INTO afv_billing_offer_variant (variant_code, offer_code, name, quality_tier, default_model_id, included_outputs, settlement_type, status, deleted)
 SELECT s.variant_code, o.offer_code, s.name, s.tier, m.id, 1, 'PARTIAL', 'ENABLED', 0
 FROM (
             SELECT 'studio_tryon' AS entry_code, 'studio_tryon_gpt_image_2_6' AS variant_code, 'GPT Image 2.6 Sunburst' AS name, 'gpt' AS tier, 'studio-gpt-image-2.6-sunburst-tryon' AS model_code
-  UNION ALL SELECT 'studio_tryon',    'studio_tryon_nano_banana_2_1_dev',    'Nano Banana 2.1 Dev',    'banana',   'studio-nano-banana-2.1-dev-2ref'
+  UNION ALL SELECT 'studio_tryon',    'studio_tryon_nano_banana_2_1',    'Nano Banana 2.1',        'banana',   'studio-nano-banana-2.1-2ref'
   UNION ALL SELECT 'studio_tryon',    'studio_tryon_seedream_5_5',           'Seedream 5.5',           'seedream', 'studio-seedream-5.5-2ref'
   UNION ALL SELECT 'studio_pose',     'studio_pose_gpt_image_2_6',           'GPT Image 2.6 Sunburst', 'gpt',      'studio-gpt-image-2.6-sunburst-2ref'
-  UNION ALL SELECT 'studio_pose',     'studio_pose_nano_banana_2_1_dev',     'Nano Banana 2.1 Dev',    'banana',   'studio-nano-banana-2.1-dev-2ref'
+  UNION ALL SELECT 'studio_pose',     'studio_pose_nano_banana_2_1',     'Nano Banana 2.1',        'banana',   'studio-nano-banana-2.1-2ref'
   UNION ALL SELECT 'studio_pose',     'studio_pose_seedream_5_5',            'Seedream 5.5',           'seedream', 'studio-seedream-5.5-2ref'
   UNION ALL SELECT 'studio_imagegen', 'studio_imagegen_gpt_image_2_6',       'GPT Image 2.6 Sunburst', 'gpt',      'creaft-gpt-image-2.6-sunburst'
-  UNION ALL SELECT 'studio_imagegen', 'studio_imagegen_nano_banana_2_1_dev', 'Nano Banana 2.1 Dev',    'banana',   'creaft-nano-banana-2.1-dev'
+  UNION ALL SELECT 'studio_imagegen', 'studio_imagegen_nano_banana_2_1', 'Nano Banana 2.1',        'banana',   'creaft-nano-banana-2.1'
   UNION ALL SELECT 'studio_imagegen', 'studio_imagegen_seedream_5_5',        'Seedream 5.5',           'seedream', 'creaft-seedream-5.5'
-  -- GPT Image 2.5 Sunburst Developer（用户端名「GPT Image 2.5」）：按张计费，三入口共用一个载体（Java V1.0.214 建）
-  UNION ALL SELECT 'studio_tryon',    'studio_tryon_gpt_image_2_5_sunburst_dev',    'GPT Image 2.5 Sunburst Developer', 'gpt25dev', 'creaft-gpt-image-2.5-sunburst-developer'
-  UNION ALL SELECT 'studio_pose',     'studio_pose_gpt_image_2_5_sunburst_dev',     'GPT Image 2.5 Sunburst Developer', 'gpt25dev', 'creaft-gpt-image-2.5-sunburst-developer'
-  UNION ALL SELECT 'studio_imagegen', 'studio_imagegen_gpt_image_2_5_sunburst_dev', 'GPT Image 2.5 Sunburst Developer', 'gpt25dev', 'creaft-gpt-image-2.5-sunburst-developer'
+  -- GPT Image 2.5：按张计费，三入口共用一个载体（Java V1.0.214 建，V1.0.221 改名去掉厂商 Dev 档标记）
+  UNION ALL SELECT 'studio_tryon',    'studio_tryon_gpt_image_2_5_sunburst',    'GPT Image 2.5', 'gpt25', 'creaft-gpt-image-2.5-sunburst'
+  UNION ALL SELECT 'studio_pose',     'studio_pose_gpt_image_2_5_sunburst',     'GPT Image 2.5', 'gpt25', 'creaft-gpt-image-2.5-sunburst'
+  UNION ALL SELECT 'studio_imagegen', 'studio_imagegen_gpt_image_2_5_sunburst', 'GPT Image 2.5', 'gpt25', 'creaft-gpt-image-2.5-sunburst'
 ) s
 JOIN afv_billing_offer o ON o.entry_code = s.entry_code COLLATE utf8mb4_unicode_ci AND o.deleted = 0
 JOIN afv_ai_model m ON m.code = s.model_code COLLATE utf8mb4_unicode_ci AND m.deleted = 0
-WHERE NOT EXISTS (SELECT 1 FROM afv_billing_offer_variant v WHERE v.variant_code = s.variant_code COLLATE utf8mb4_unicode_ci);
+WHERE NOT EXISTS (SELECT 1 FROM afv_billing_offer_variant v WHERE v.variant_code = s.variant_code COLLATE utf8mb4_unicode_ci)
+  -- 档位码 / 载体码是 Java V1.0.221 改名后的名字。迁移前的库里旧档位（<新码>_dev）还在、同名载体是另一个价的标准版，
+  -- 这时不能建（会挂错载体、且按组选档会优先选中它）：旧档位在就跳过，先上 Java V1.0.221 再重跑。
+  AND NOT EXISTS (SELECT 1 FROM afv_billing_offer_variant v WHERE v.variant_code = CONCAT(s.variant_code, '_dev') COLLATE utf8mb4_unicode_ci)
+  AND NOT (s.model_code IN ('creaft-nano-banana-2.1', 'studio-nano-banana-2.1-2ref', 'creaft-gpt-image-2.5-sunburst')
+           AND EXISTS (SELECT 1 FROM afv_ai_model om WHERE om.deleted = 0 AND om.code IN
+                       ('creaft-nano-banana-2.1-dev', 'studio-nano-banana-2.1-dev-2ref', 'creaft-gpt-image-2.5-sunburst-developer')));
 
 INSERT INTO afv_billing_charge_component (component_code, variant_code, step_code, component_type, mode, cost_type, action_type, model_id, base_points, price_multiplier, sort, deleted)
 SELECT CONCAT('gen_', v.variant_code), v.variant_code, v.offer_code, 'OUTPUT', 0, 'BILLED', 'CREAFT_V1', v.default_model_id, 0, 1.000, 1, 0
 FROM afv_billing_offer_variant v
-WHERE v.variant_code IN ('studio_tryon_gpt_image_2_6', 'studio_tryon_nano_banana_2_1_dev', 'studio_tryon_seedream_5_5',
-                         'studio_pose_gpt_image_2_6', 'studio_pose_nano_banana_2_1_dev', 'studio_pose_seedream_5_5',
-                         'studio_imagegen_gpt_image_2_6', 'studio_imagegen_nano_banana_2_1_dev', 'studio_imagegen_seedream_5_5',
-                         'studio_tryon_gpt_image_2_5_sunburst_dev', 'studio_pose_gpt_image_2_5_sunburst_dev',
-                         'studio_imagegen_gpt_image_2_5_sunburst_dev')
+WHERE v.variant_code IN ('studio_tryon_gpt_image_2_6', 'studio_tryon_nano_banana_2_1', 'studio_tryon_seedream_5_5',
+                         'studio_pose_gpt_image_2_6', 'studio_pose_nano_banana_2_1', 'studio_pose_seedream_5_5',
+                         'studio_imagegen_gpt_image_2_6', 'studio_imagegen_nano_banana_2_1', 'studio_imagegen_seedream_5_5',
+                         'studio_tryon_gpt_image_2_5_sunburst', 'studio_pose_gpt_image_2_5_sunburst',
+                         'studio_imagegen_gpt_image_2_5_sunburst')
   AND v.deleted = 0
   AND NOT EXISTS (SELECT 1 FROM afv_billing_charge_component c WHERE c.component_code = CONCAT('gen_', v.variant_code));
 

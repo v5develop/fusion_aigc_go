@@ -197,10 +197,8 @@ func (s *Service) CheckAccess(ctx context.Context, userID int64, entryCode strin
 	}
 	code, err := featureCodeOf(ctx, s.conn, entryCode)
 	if err != nil {
-		// 缺配置不静默放行：入口没配计费方案就不知道该查哪个能力码，宁可拦下并报警，也别让人白用。
-		if errors.Is(err, ErrNoOffer) {
-			logx.WithContext(ctx).Errorf("billing: 入口码 %s 没配计费方案，拒绝放行（请先在后台配置）", entryCode)
-		}
+		// 缺配置不静默放行：入口没配计费方案就不知道该查哪个能力码，宁可拦下也别让人白用。
+		// 报警日志（判据 BILLING_NO_OFFER + 入口码）与用户文案由调用方经 UserError 统一给出
 		return err
 	}
 	ok, err := hasEntitlement(ctx, s.conn, userID, code)

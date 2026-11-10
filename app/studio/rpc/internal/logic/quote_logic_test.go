@@ -3,11 +3,13 @@ package logic
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"aigc-local-life/app/studio/model"
 	"aigc-local-life/app/studio/rpc/studio"
 	"aigc-local-life/pkg/billing"
+	"aigc-local-life/pkg/xerr"
 )
 
 // fakeQuoter 按分辨率出单价，记下收到的计费请求。
@@ -60,12 +62,31 @@ func TestQuoteStudio_OffAndNoOffer(t *testing.T) {
 	}
 	no := quoteStudio(context.Background(), &fakeQuoter{mode: billing.ModeOn, err: billing.ErrNoOffer}, "studio_pose",
 		model.KindPose, &studio.QuoteReq{TaskTotal: 2}, quoteGroups)
-	if no.Available || no.Points != 0 || no.Reason == "" {
+	if no.Available || no.Points != 0 || no.Reason != "该功能暂未配置价格，请联系客服" {
 		t.Fatalf("没配价应 available=false：%+v", no)
 	}
 	bad := quoteStudio(context.Background(), &fakeQuoter{mode: billing.ModeOn, err: errors.New("x")}, "studio_pose",
 		model.KindPose, &studio.QuoteReq{Model: "不存在"}, quoteGroups)
 	if bad.Available || bad.Reason == "" {
 		t.Fatalf("不支持的模型应 available=false：%+v", bad)
+	}
+}
+
+// 提交 / 重试 / 重新生成的准入失败：没开通、没配价格、库异常三种文案分开（与 billing.UserError 同口径）。
+func TestAccessErrorDistinguishesNoOffer(t *testing.T) {
+	ctx := context.Background()
+	for _, tc := range []struct {
+		err  error
+		code int
+		msg  string
+	}{
+		{fmt.Errorf("%w: ecom_image_gen", billing.ErrNoFeature), xerr.Forbidden, "暂未开通该功能"},
+		{fmt.Errorf("%w: studio_pose", billing.ErrNoOffer), xerr.ServerError, "该功能暂未配置价格，请联系客服"},
+		{errors.New("db down"), xerr.ServerError, "暂时无法计费，请稍后重试"},
+	} {
+		code, msg, ok := xerr.Parse(accessError(ctx, 7, "studio_pose", tc.err))
+		if !ok || code != tc.code || msg != tc.msg {
+			t.Errorf("%v → %d %q", tc.err, code, msg)
+		}
 	}
 }

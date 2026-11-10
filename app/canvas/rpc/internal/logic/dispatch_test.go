@@ -86,7 +86,7 @@ func TestBuildSpecImage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sp.Backend != model.BackendGateway || sp.ModelGroup != "img.nano-banana-2.1-dev" || sp.Count != 2 || sp.Size != "2K" {
+	if sp.Backend != model.BackendGateway || sp.ModelGroup != "img.nano-banana-2.1" || sp.Count != 2 || sp.Size != "2K" {
 		t.Fatalf("spec=%+v", sp)
 	}
 	if sp.Prompt != "棚拍\n白底" {
@@ -180,12 +180,12 @@ func TestGatewayRequestsShape(t *testing.T) {
 	if !strings.Contains(string(b), `"operation":"image.edit"`) || !strings.Contains(string(b), `"quality":"medium"`) || !strings.Contains(string(b), `"images":[{"uri":"https://x/a.png"}]`) {
 		t.Fatalf("gpt edit: %s", b)
 	}
-	// 「GPT」/「Image」（GPT Image 2 的接替）= GPT Image 2.5 Sunburst Developer：没有 quality 参数
+	// 「GPT」/「Image」（GPT Image 2 的接替）= GPT Image 2.5：没有 quality 参数
 	g25, _ := c.s.Config.FindModel("GPT", "", "image")
 	reqs, _ = c.gatewayRequests(context.Background(), run, &runSpec{Kind: model.KindImage, Model: g25, ModelGroup: g25.ModelGroup, Prompt: "p", Count: 1, Size: "1K",
 		Images: []refMedia{{URL: "https://x/a.png"}}})
 	b, _ = json.Marshal(reqs[0])
-	if g25.ModelGroup != "img.gpt-image-2.5-sunburst-developer" || strings.Contains(string(b), "quality") {
+	if g25.ModelGroup != "img.gpt-image-2.5-sunburst" || strings.Contains(string(b), "quality") {
 		t.Fatalf("gpt 2.5 edit: %s", b)
 	}
 	if k, err := gatewayIdem(run, 2); err != nil || k != "canvas:cv_t:2" {

@@ -10,6 +10,7 @@ import (
 	"aigc-local-life/app/studio/rpc/internal/pipeline"
 	"aigc-local-life/app/studio/rpc/internal/repo"
 	"aigc-local-life/app/studio/rpc/studio"
+	"aigc-local-life/pkg/modelgroup"
 	"aigc-local-life/pkg/xerr"
 
 	"github.com/zeromicro/go-zero/core/logx"
@@ -82,7 +83,7 @@ func toTaskInfo(t *model.Task, batchStatus int8) *studio.TaskInfo {
 		ModelIndex: t.ModelIndex, ShotIndex: t.ShotIndex, PoseIndex: t.PoseIndex,
 		Status: int32(t.Status), Progress: TaskProgress(batchStatus, t.Status),
 		ResultUrl: t.ResultURL.String, ResultWidth: t.ResultWidth, ResultHeight: t.ResultHeight,
-		ErrorReason: t.ErrorReason.String, PromptSummary: PromptSummary(t), ModelGroup: t.ModelGroup,
+		ErrorReason: t.ErrorReason.String, PromptSummary: PromptSummary(t), ModelGroup: modelgroup.Canonical(t.ModelGroup),
 		CreatedAt: t.CreatedAt.UnixMilli(), StartedAt: msOf(t.StartedAt), FinishedAt: msOf(t.FinishedAt),
 		ColorFixParams: parseColorFix(t.ColorFixParams),
 		MaskUrl:        t.MaskURL.String,
@@ -288,7 +289,7 @@ func toAdminBatch(b *model.Batch, tasks []*model.Task, st repo.BatchStat) *studi
 	}
 	return &studio.AdminBatch{
 		Batch: toBatchInfo(b, tasks), UserId: b.UserID, WorkspaceId: b.WorkspaceID,
-		CostCny: cost, ModelGroup: st.ModelGroup,
+		CostCny: cost, ModelGroup: modelgroup.Canonical(st.ModelGroup),
 	}
 }
 

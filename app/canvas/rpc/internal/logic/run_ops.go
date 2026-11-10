@@ -79,11 +79,8 @@ func (c *core) RunNode(ctx context.Context, in *canvas.RunNodeReq) (*canvas.RunN
 	// 4. 准入（gateway 后端由 Go 计费）
 	if sp.Backend == model.BackendGateway {
 		if err := c.s.Billing.CheckAccess(ctx, in.UserId, sp.EntryCode); err != nil {
-			if code, msg, ok := xerr.Parse(err); ok {
-				return nil, xerr.New(code, msg)
-			}
-			logx.WithContext(ctx).Errorf("canvas: 用户 %d 准入检查失败: %v", in.UserId, err)
-			return nil, xerr.New(xerr.Forbidden, "暂未开通该功能")
+			// 没开通 → Forbidden；入口没配价格（ErrNoOffer）/ 库异常 → ServerError，日志带判据（见 billing.UserError）
+			return nil, billing.UserError(ctx, in.UserId, sp.EntryCode, err)
 		}
 	}
 	// 5. 落库（提交中）：插入与回填 task_id / billing_request_id 在同一事务，行可见时两者必然已有值

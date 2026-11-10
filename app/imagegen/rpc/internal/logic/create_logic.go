@@ -1,6 +1,7 @@
 package logic
 
 import (
+	"aigc-local-life/pkg/modellabel"
 	"context"
 	"errors"
 	"strings"
@@ -111,7 +112,7 @@ func (l *CreateLogic) Create(in *pb.CreateReq) (*pb.CreationInfo, error) {
 	}
 	if in.Kind == model.KindPoster && in.Model != "" {
 		if !validModel(optionsOf(l.ctx, l.svcCtx, genPosterModels, posterModels), in.Model) {
-			return nil, xerr.Newf(xerr.ParamError, "不支持的模型 %s", in.Model)
+			return nil, xerr.Newf(xerr.ParamError, "不支持的模型 %s", modellabel.Of(in.Model))
 		}
 		mdl = in.Model
 	}

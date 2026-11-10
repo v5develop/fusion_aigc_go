@@ -23,8 +23,8 @@ func (g *groupPriceQuoter) Quote(_ context.Context, c billing.Charge) (*billing.
 
 // unitPrice 不同模型 / 分辨率给不同价，用于断言报价确实按模型组取价。
 func unitPrice(c billing.Charge) int64 {
-	base := map[string]int64{"img.gpt-image-2.6-sunburst": 100, "img.nano-banana-2.1-dev": 30, "img.seedream-5.5": 20,
-		"img.gpt-image-2.5-sunburst-developer": 17}[c.ModelGroup]
+	base := map[string]int64{"img.gpt-image-2.6-sunburst": 100, "img.nano-banana-2.1": 30, "img.seedream-5.5": 20,
+		"img.gpt-image-2.5-sunburst": 17}[c.ModelGroup]
 	return base * map[string]int64{"1K": 1, "2K": 2, "4K": 3}[c.Resolution]
 }
 
@@ -33,8 +33,8 @@ func unitPrice(c billing.Charge) int64 {
 func TestQuoteHoldParityPerModelAndResolution(t *testing.T) {
 	groups := map[string]string{
 		"通用": "img.gpt-image-2.6-sunburst", "GPT": "img.gpt-image-2.6-sunburst",
-		"Banana": "img.nano-banana-2.1-dev", "Seedream": "img.seedream-5.5",
-		"GPT25Dev": "img.gpt-image-2.5-sunburst-developer",
+		"Banana": "img.nano-banana-2.1", "Seedream": "img.seedream-5.5",
+		"GPT25": "img.gpt-image-2.5-sunburst",
 	}
 	d, _ := newTestDeps(t, &fakeBill{mode: billing.ModeOn})
 	for _, kind := range []model.Kind{model.KindTryon, model.KindPose, model.KindImageGen} {
@@ -94,16 +94,16 @@ func TestRetryChargeUsesTaskModelGroup(t *testing.T) {
 	f.cfg = config.Config{}
 	f.cfg.EntryCodes.Tryon = "studio_tryon"
 	tk := failedTask(0)
-	tk.Kind, tk.ModelGroup = model.KindTryon, "img.nano-banana-2.1-dev"
+	tk.Kind, tk.ModelGroup = model.KindTryon, "img.nano-banana-2.1"
 	b := &model.Batch{ID: 9, UserID: 7, Kind: model.KindTryon, Payload: []byte(`{"model":"通用","resolution":"2k","aspect_ratio":"3:4"}`)}
 	c, err := f.retryCharge(tk, b)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.ModelGroup != "img.nano-banana-2.1-dev" || c.Resolution != "2K" || c.EntryCode != "studio_tryon" || c.Count != 1 || c.UserID != 7 {
+	if c.ModelGroup != "img.nano-banana-2.1" || c.Resolution != "2K" || c.EntryCode != "studio_tryon" || c.Count != 1 || c.UserID != 7 {
 		t.Fatalf("重做计费请求：%+v", c)
 	}
-	if want := quoteCharge("studio_tryon", 7, "img.nano-banana-2.1-dev", "2k"); c != want {
+	if want := quoteCharge("studio_tryon", 7, "img.nano-banana-2.1", "2k"); c != want {
 		t.Fatalf("重做与提交报价口径不同：\n重做 %+v\n报价 %+v", c, want)
 	}
 }

@@ -12,6 +12,8 @@ import (
 	"github.com/zeromicro/go-zero/core/logx"
 
 	"github.com/zeromicro/go-zero/core/stores/sqlx"
+
+	"aigc-local-life/pkg/modelgroup"
 )
 
 // 算价链路（照 Java 的配置模型走，我们只读不写）：
@@ -203,8 +205,9 @@ func price(ctx context.Context, conn sqlx.SqlConn, c Charge) (*Quote, error) {
 //
 //  1. 给了 modelCode  → 按档位的默认模型匹配
 //  2. 给了 modelGroup → 按档位默认模型的 gateway_model_group 匹配；没有这个组的档位**不报错**，往下走 3 / 4
-//     （该入口还没配分模型价、或任务是换代前的旧组，按原来的档位扣，与没传组时完全一样）
-//  3. 给了 tier       → 先找 <offer_code>_<tier> 这个档位码，再找 quality_tier
+//     （该入口还没配分模型价、或任务是换代前的旧组，按原来的档位扣，与没传组时完全一样）。
+//     组码按 pkg/modelgroup 的等价表展开（规范组与旧 Dev 组互认，优先规范组），返回的组码是规范组
+//  3. 给了 tier       → 先找 <offer_code>_<tier> 这个档位码，再找 quality_tier（同样按等价档次展开：gpt25 ≡ gpt25dev）
 //  4. 都没给          → 第一个启用的
 //
 // 常用的是 2：一个 offer 下的多档差别就是模型，而两边的模型码对不上
@@ -230,36 +233,64 @@ func pickVariant(ctx context.Context, conn sqlx.SqlConn, offerCode, modelCode, m
 		}
 		return nil, "", fmt.Errorf("%w: %s 下没有模型 %s 的档位", ErrNoOffer, offerCode, modelCode)
 	}
-	if g := strings.TrimSpace(modelGroup); g != "" {
+	if gs := modelgroup.Aliases(modelGroup); len(gs) > 0 {
+		// 组码按等价表展开（规范组 + 旧 Dev 组，见 pkg/modelgroup）：Java 迁移 V1.0.221 前库里载体还挂旧组、
+		// 换代前的任务冻结的也是旧组，两种组码任一传进来都要选中同一档位；同时命中时优先规范组。
 		var v variantRow
-		const q = "SELECT " + vcols + " FROM `afv_billing_offer_variant` v " +
+		q := "SELECT " + vcols + " FROM `afv_billing_offer_variant` v " +
 			"JOIN `afv_ai_model` m ON m.`id` = v.`default_model_id` AND m.`deleted` = 0 " +
 			"WHERE v.`offer_code` = ? AND v.`status` = 'ENABLED' AND v.`deleted` = 0 AND m.`gateway_model_group` = ? " +
 			"ORDER BY v.`id` LIMIT 1"
-		switch err := conn.QueryRowCtx(ctx, &v, q, offerCode, g); {
+		args := []any{offerCode, gs[0]}
+		if len(gs) > 1 {
+			q = "SELECT " + vcols + " FROM `afv_billing_offer_variant` v " +
+				"JOIN `afv_ai_model` m ON m.`id` = v.`default_model_id` AND m.`deleted` = 0 " +
+				"WHERE v.`offer_code` = ? AND v.`status` = 'ENABLED' AND v.`deleted` = 0 AND m.`gateway_model_group` IN (" +
+				placeholders(len(gs)) + ") ORDER BY (m.`gateway_model_group` = ?) DESC, v.`id` LIMIT 1"
+			args = append([]any{offerCode}, toAny(gs)...)
+			args = append(args, gs[0])
+		}
+		switch err := conn.QueryRowCtx(ctx, &v, q, args...); {
 		case err == nil:
-			return &v, g, nil
+			return &v, gs[0], nil
 		case !errors.Is(err, sqlx.ErrNotFound):
 			return nil, "", err
 		}
 		// 没有这个组的档位：按 tier / 第一个档位选（见函数注释第 2 条）
 	}
-	if tier = strings.TrimSpace(tier); tier != "" {
+	if ts := modelgroup.TierAliases(tier); len(ts) > 0 {
 		var v variantRow
 		// 档位码优先（digital_human_cloud / digital_human_lite），退回 quality_tier
-		const q = "SELECT " + cols + " FROM `afv_billing_offer_variant` " +
+		q := "SELECT " + cols + " FROM `afv_billing_offer_variant` " +
 			"WHERE `offer_code` = ? AND `status` = 'ENABLED' AND `deleted` = 0 " +
 			"AND (`variant_code` = ? OR `quality_tier` = ?) " +
 			"ORDER BY (`variant_code` = ?) DESC, `id` LIMIT 1"
-		full := offerCode + "_" + tier
-		switch err := conn.QueryRowCtx(ctx, &v, q, offerCode, full, tier, full); {
+		full := offerCode + "_" + ts[0]
+		args := []any{offerCode, full, ts[0], full}
+		if len(ts) > 1 {
+			// 等价档次（gpt25 / 旧 gpt25dev，见 pkg/modelgroup）：迁移前后的档位码 / quality_tier 都认，
+			// 规范档位码 > 旧档位码 > quality_tier。
+			fulls := make([]string, len(ts))
+			for i, t := range ts {
+				fulls[i] = offerCode + "_" + t
+			}
+			q = "SELECT " + cols + " FROM `afv_billing_offer_variant` " +
+				"WHERE `offer_code` = ? AND `status` = 'ENABLED' AND `deleted` = 0 " +
+				"AND (`variant_code` IN (" + placeholders(len(fulls)) + ") OR `quality_tier` IN (" + placeholders(len(ts)) + ")) " +
+				"ORDER BY (`variant_code` = ?) DESC, (`variant_code` IN (" + placeholders(len(fulls)) + ")) DESC, `id` LIMIT 1"
+			args = append([]any{offerCode}, toAny(fulls)...)
+			args = append(args, toAny(ts)...)
+			args = append(args, fulls[0])
+			args = append(args, toAny(fulls)...)
+		}
+		switch err := conn.QueryRowCtx(ctx, &v, q, args...); {
 		case err == nil:
 			return &v, "", nil
 		case !errors.Is(err, sqlx.ErrNotFound):
 			return nil, "", err
 		}
 		return nil, "", fmt.Errorf("%w: %s 下没有 %s 档（找过档位码 %s 和 quality_tier）",
-			ErrNoOffer, offerCode, tier, full)
+			ErrNoOffer, offerCode, ts[0], full)
 	}
 	var v variantRow
 	const q = "SELECT " + cols + " FROM `afv_billing_offer_variant` " +
@@ -399,4 +430,17 @@ func pick(a, b int64) int64 {
 		return a
 	}
 	return b
+}
+
+// placeholders n 个 `?`，逗号分隔。
+func placeholders(n int) string {
+	return strings.TrimSuffix(strings.Repeat("?,", n), ",")
+}
+
+func toAny(ss []string) []any {
+	out := make([]any, len(ss))
+	for i, s := range ss {
+		out[i] = s
+	}
+	return out
 }

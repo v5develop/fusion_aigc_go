@@ -226,27 +226,81 @@ func TestSeedream55Group(t *testing.T) {
 		t.Fatalf("5.5 5:4 应改 4:3：%+v %v %v", gen.Input, warns, err)
 	}
 	// 其它组比例原样（Nano Banana 有 4:5）
-	if ar, w := AspectForGroup("img.nano-banana-2.1-dev", "4:5"); ar != "4:5" || w != nil {
+	if ar, w := AspectForGroup("img.nano-banana-2.1", "4:5"); ar != "4:5" || w != nil {
 		t.Fatalf("非 5.5 组不改比例：%s %v", ar, w)
 	}
-	if MaxRefImages(sd55) != 10 || MaxRefImages("img.gpt-image-2.6-sunburst") != 16 || MaxRefImages("img.nano-banana-2.1-dev") != 14 {
+	if MaxRefImages(sd55) != 10 || MaxRefImages("img.gpt-image-2.6-sunburst") != 16 || MaxRefImages("img.nano-banana-2.1") != 14 {
 		t.Fatal("新组的参考图兜底上限不对")
 	}
-	if QualityFor("img.gpt-image-2.6-sunburst", KindTryon, "") != "high" || QualityFor("img.nano-banana-2.1-dev", KindTryon, "high") != "" {
+	if QualityFor("img.gpt-image-2.6-sunburst", KindTryon, "") != "high" || QualityFor("img.nano-banana-2.1", KindTryon, "high") != "" {
 		t.Fatal("新组 quality 规则不对")
 	}
 }
 
 func TestMapModelNamedTiersAfterSwap(t *testing.T) {
 	groups := map[string]string{"通用": "img.gpt-image-2", "GPT": "img.gpt-image-2.6-sunburst",
-		"Banana": "img.nano-banana-2.1-dev", "Seedream": "img.seedream-5.5"}
+		"Banana": "img.nano-banana-2.1", "Seedream": "img.seedream-5.5"}
 	for in, want := range map[string]string{
 		"GPT": "img.gpt-image-2.6-sunburst", "gpt-image-2.6-sunburst": "img.gpt-image-2.6-sunburst", "gpt-image-2": "img.gpt-image-2.6-sunburst",
-		"nano-banana-2.1-dev": "img.nano-banana-2.1-dev", "nano": "img.nano-banana-2.1-dev",
+		"nano-banana-2.1-dev": "img.nano-banana-2.1", "nano": "img.nano-banana-2.1",
 		"seedream-5.5": "img.seedream-5.5", "seedream-5-pro": "img.seedream-5.5", "": "img.gpt-image-2",
 	} {
 		if got, err := MapModel(in, groups); err != nil || got != want {
 			t.Errorf("MapModel(%q)=%q,%v want %q", in, got, err, want)
 		}
+	}
+}
+
+// 应用侧不区分 Dev 档：GPT25 是对外档名，GPT25Dev 等旧名永久作为输入别名；返回的一律是规范组码。
+func TestMapModelGPT25AliasesCanonical(t *testing.T) {
+	canon := map[string]string{"通用": "img.gpt-image-2.5-sunburst", "GPT25": "img.gpt-image-2.5-sunburst", "Banana": "img.nano-banana-2.1"}
+	legacy := map[string]string{"通用": "img.gpt-image-2.5-sunburst-developer", "GPT25Dev": "img.gpt-image-2.5-sunburst-developer",
+		"Banana": "img.nano-banana-2.1-dev"} // 某环境 yaml 还是旧写法
+	for _, groups := range []map[string]string{canon, legacy} {
+		for in, want := range map[string]string{
+			"GPT25": "img.gpt-image-2.5-sunburst", "gpt25": "img.gpt-image-2.5-sunburst", "gpt-image-2.5-sunburst": "img.gpt-image-2.5-sunburst",
+			"GPT25Dev": "img.gpt-image-2.5-sunburst", "gpt25dev": "img.gpt-image-2.5-sunburst",
+			"gpt-image-2.5-sunburst-developer": "img.gpt-image-2.5-sunburst", "GPT Image 2.5 Sunburst Developer": "img.gpt-image-2.5-sunburst",
+			"img.gpt-image-2.5-sunburst-developer": "img.gpt-image-2.5-sunburst", "img.gpt-image-2.5-sunburst": "img.gpt-image-2.5-sunburst",
+			"Nano Banana 2.1 Dev": "img.nano-banana-2.1", "nano-banana-2.1-dev": "img.nano-banana-2.1", "img.nano-banana-2.1-dev": "img.nano-banana-2.1",
+			"": "img.gpt-image-2.5-sunburst",
+		} {
+			if got, err := MapModel(in, groups); err != nil || got != want {
+				t.Errorf("MapModel(%q, %v)=%q,%v want %q", in, groups, got, err, want)
+			}
+		}
+	}
+	if CanonicalModel("GPT25Dev") != ModelGPT25 || CanonicalModel("gpt25") != ModelGPT25 || CanonicalModel("x") != "x" {
+		t.Fatal("CanonicalModel")
+	}
+}
+
+// GPT Image 2.5（规范组 / 旧 Dev 组码）与 Nano Banana 2.1 都不发 quality；GPT 2.6 照旧。
+func TestQualityStripForPerImageGroups(t *testing.T) {
+	for _, g := range []string{"img.gpt-image-2.5-sunburst", "img.gpt-image-2.5-sunburst-developer"} {
+		if !IsGPT25Group(g) {
+			t.Errorf("IsGPT25Group(%q) 应为 true", g)
+		}
+	}
+	if IsGPT25Group("img.gpt-image-2.6-sunburst") {
+		t.Error("2.6 不是 2.5")
+	}
+	for _, g := range []string{"img.gpt-image-2.5-sunburst", "img.gpt-image-2.5-sunburst-developer", "img.nano-banana-2.1", "img.nano-banana-2.1-dev"} {
+		if q := QualityFor(g, KindTryon, "high"); q != "" {
+			t.Errorf("QualityFor(%q)=%q 应为空", g, q)
+		}
+		if q := (GenOptions{Quality: "high"}).quality(g); q != "" {
+			t.Errorf("GenOptions.quality(%q)=%q 应为空", g, q)
+		}
+		req, _, err := BuildImageGenRequestRefs(g, "p", nil, "1k", "1:1", map[string]string{"app": "studio"}, GenOptions{Quality: "high"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if req.Input.(ImageGenerateInput).Quality != "" {
+			t.Errorf("%s 出图请求不应带 quality", g)
+		}
+	}
+	if QualityFor("img.gpt-image-2.6-sunburst", KindTryon, "") != QualityHigh {
+		t.Error("2.6 照旧下发 quality")
 	}
 }

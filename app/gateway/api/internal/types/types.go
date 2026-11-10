@@ -1132,7 +1132,7 @@ type StudioMaskResp struct {
 }
 
 type StudioModelCapability struct {
-	Code         string                       `json:"code"`           // 传值：通用 / GPT / GPT25Dev / Banana / Seedream
+	Code         string                       `json:"code"`           // 传值：通用 / GPT / GPT25 / Banana / Seedream
 	Label        string                       `json:"label"`          // 展示名（如 GPT Image 2.6）
 	Available    bool                         `json:"available"`      // gateway 目录里该组已启用；目录拉不到时为 true
 	Resolutions  []string                     `json:"resolutions"`    // 可选分辨率（1k / 2k / 4k 子集）

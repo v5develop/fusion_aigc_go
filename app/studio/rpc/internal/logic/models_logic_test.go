@@ -3,6 +3,7 @@ package logic
 import (
 	"context"
 	"slices"
+	"strings"
 	"testing"
 
 	"aigc-local-life/app/studio/rpc/internal/config"
@@ -29,7 +30,7 @@ func TestModelCapabilitiesRulesOnly(t *testing.T) {
 	for _, it := range items {
 		codes = append(codes, it.Code)
 	}
-	if !slices.Equal(codes, []string{"通用", "GPT", "GPT25Dev", "Banana", "Seedream"}) {
+	if !slices.Equal(codes, []string{"通用", "GPT", "GPT25", "Banana", "Seedream"}) {
 		t.Fatalf("顺序 %v", codes)
 	}
 	sd := capOf(t, items, "Seedream")
@@ -44,7 +45,7 @@ func TestModelCapabilitiesRulesOnly(t *testing.T) {
 	if g := capOf(t, items, "通用"); g.Label != "通用" || !g.Available || g.MaxRefImages != MaxImageGenRefs {
 		t.Fatalf("通用 %+v", g)
 	}
-	if b := capOf(t, items, "Banana"); b.Label != "Nano Banana 2.1 Dev" {
+	if b := capOf(t, items, "Banana"); b.Label != "Nano Banana 2.1" {
 		t.Fatalf("Banana %+v", b)
 	}
 	// 商拍：GPT 2.6 编辑上限 6，比例有「自动」
@@ -66,11 +67,11 @@ func TestModelCapabilitiesLegacySeedream(t *testing.T) {
 func TestModelCapabilitiesCatalogIntersect(t *testing.T) {
 	four := 4
 	cat := map[string]aigateway.ModelGroup{
-		"img.nano-banana-2.1-dev": {Code: "img.nano-banana-2.1-dev", Enabled: true, FeatureLimits: aigateway.FeatureLimits{
+		"img.nano-banana-2.1": {Code: "img.nano-banana-2.1", Enabled: true, FeatureLimits: aigateway.FeatureLimits{
 			Resolutions: []string{"1K", "2K"}, AspectRatios: []string{"1:1", "16:9", "7:3"}, MaxReferenceImages: &four}},
 		"img.seedream-5.5": {Code: "img.seedream-5.5", Enabled: true, FeatureLimits: aigateway.FeatureLimits{Resolutions: []string{"1024x1024"}}},
 	}
-	groups := map[string]string{"Banana": "img.nano-banana-2.1-dev", "Seedream": "img.seedream-5.5", "GPT": "img.gpt-image-2.6-sunburst"}
+	groups := map[string]string{"Banana": "img.nano-banana-2.1", "Seedream": "img.seedream-5.5", "GPT": "img.gpt-image-2.6-sunburst"}
 	items := modelCapabilities("imagegen", groups, cat)
 	b := capOf(t, items, "Banana")
 	if !slices.Equal(b.Resolutions, []string{"1k", "2k"}) || !slices.Equal(b.AspectRatios, []string{"1:1", "16:9"}) || b.MaxRefImages != 4 || !b.Available {
@@ -110,5 +111,26 @@ func TestModelCapabilitiesLabelIgnoresCatalogDisplayName(t *testing.T) {
 	out := modelCapabilities("imagegen", groups, cat)
 	if len(out) != 1 || out[0].Label != "NewOne" {
 		t.Fatalf("label=%q，应回落档位码", out[0].Label)
+	}
+}
+
+// 对外档名只有 GPT25（不出现 GPT25Dev）；网关目录只登记旧 Dev 组码（网关先于规范组发布前）也能命中，不误标不可用。
+func TestModelCapabilitiesCanonicalCodeAndLegacyCatalog(t *testing.T) {
+	cat := map[string]aigateway.ModelGroup{
+		"img.gpt-image-2.5-sunburst-developer": {Code: "img.gpt-image-2.5-sunburst-developer", Enabled: true},
+		"img.nano-banana-2.1-dev":              {Code: "img.nano-banana-2.1-dev", Enabled: true},
+	}
+	groups := map[string]string{"通用": "img.gpt-image-2.5-sunburst", "GPT25": "img.gpt-image-2.5-sunburst", "Banana": "img.nano-banana-2.1"}
+	items := modelCapabilities("imagegen", groups, cat)
+	for _, it := range items {
+		if strings.Contains(strings.ToLower(it.Code+it.Label+it.ModelGroup), "dev") {
+			t.Fatalf("输出不应带 dev：%+v", it)
+		}
+		if !it.Available {
+			t.Fatalf("旧组码目录应命中：%+v", it)
+		}
+	}
+	if g := capOf(t, items, "GPT25"); g.Label != "GPT Image 2.5" {
+		t.Fatalf("GPT25 %+v", g)
 	}
 }

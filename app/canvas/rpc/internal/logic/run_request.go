@@ -12,6 +12,7 @@ import (
 	"aigc-local-life/app/canvas/model"
 	"aigc-local-life/app/canvas/rpc/canvas"
 	"aigc-local-life/app/canvas/rpc/internal/config"
+	"aigc-local-life/pkg/modellabel"
 	"aigc-local-life/pkg/xerr"
 )
 
@@ -221,7 +222,7 @@ func (c *core) buildSpec(req *canvas.RunNodeRequest, lookup candidateLookup) (*r
 		}
 		m, ok := c.s.Config.FindModel(req.Model, req.ModelId, mk)
 		if !ok {
-			return nil, xerr.Param(fmt.Sprintf("不支持的模型：%s", firstNonEmpty(req.ModelId, req.Model)))
+			return nil, xerr.Param(fmt.Sprintf("不支持的模型：%s", modellabel.Of(firstNonEmpty(req.Model, req.ModelId))))
 		}
 		sp.Model, sp.ModelGroup = m, m.ModelGroup
 		if err := c.specModelParams(sp, req); err != nil {
@@ -303,7 +304,7 @@ func (c *core) specModelParams(sp *runSpec, req *canvas.RunNodeRequest) error {
 		if len(m.Ratios) > 0 {
 			v, ok := inList(sp.Ratio, m.Ratios)
 			if !ok {
-				return xerr.Param(fmt.Sprintf("%s 不支持比例 %s", m.Model, sp.Ratio))
+				return xerr.Param(fmt.Sprintf("%s 不支持比例 %s", modelDisplay(m), sp.Ratio))
 			}
 			sp.Ratio = v
 		}
@@ -319,7 +320,7 @@ func (c *core) specModelParams(sp *runSpec, req *canvas.RunNodeRequest) error {
 	if sp.Size != "" && len(m.Sizes) > 0 {
 		v, ok := inList(sp.Size, m.Sizes)
 		if !ok {
-			return xerr.Param(fmt.Sprintf("%s 不支持分辨率 %s", m.Model, sp.Size))
+			return xerr.Param(fmt.Sprintf("%s 不支持分辨率 %s", modelDisplay(m), sp.Size))
 		}
 		sp.Size = v
 	}
@@ -331,7 +332,7 @@ func (c *core) specModelParams(sp *runSpec, req *canvas.RunNodeRequest) error {
 		}
 		if len(m.Durations) > 0 {
 			if _, ok := inList(fmt.Sprintf("%ds", sp.DurationS), m.Durations); !ok {
-				return xerr.Param(fmt.Sprintf("%s 不支持时长 %s", m.Model, req.Duration))
+				return xerr.Param(fmt.Sprintf("%s 不支持时长 %s", modelDisplay(m), req.Duration))
 			}
 		}
 		if sp.Prompt == "" && sp.First == "" && len(sp.Images) == 0 {
@@ -342,7 +343,7 @@ func (c *core) specModelParams(sp *runSpec, req *canvas.RunNodeRequest) error {
 			maxVid = *g.FeatureLimits.MaxReferenceVideos
 		}
 		if len(sp.Videos) > maxVid {
-			return xerr.Param(fmt.Sprintf("%s 最多 %d 个参考视频", m.Model, maxVid))
+			return xerr.Param(fmt.Sprintf("%s 最多 %d 个参考视频", modelDisplay(m), maxVid))
 		}
 		if sp.Last != "" && sp.First == "" {
 			return xerr.Param("只有尾帧（图片 2）不能生成，请同时连接首帧（图片 1）")
@@ -377,7 +378,7 @@ func (c *core) specModelParams(sp *runSpec, req *canvas.RunNodeRequest) error {
 		}
 	}
 	if lim := c.catalogImageRefs(m); lim > 0 && len(sp.Images)+boolInt(sp.First != "")+boolInt(sp.Last != "") > lim {
-		return xerr.Param(fmt.Sprintf("%s 参考图最多 %d 张", m.Model, lim))
+		return xerr.Param(fmt.Sprintf("%s 参考图最多 %d 张", modelDisplay(m), lim))
 	}
 	return nil
 }
@@ -638,4 +639,14 @@ func (c *core) normalizeRunSize(req *canvas.RunNodeRequest) []string {
 		req.Size = got
 	}
 	return warns
+}
+
+// modelDisplay 用户可见的模型名：节点 data.model（Image / Banana / SD5P …）是 wire 值，错误文案里按模型组映射成友好名。
+func modelDisplay(m config.ModelSpec) string {
+	if m.ModelGroup != "" {
+		if l := modellabel.Group(m.ModelGroup); l != "" && l != "其他模型" {
+			return l
+		}
+	}
+	return modellabel.Of(m.Model)
 }

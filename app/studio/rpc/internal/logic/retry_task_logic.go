@@ -162,7 +162,7 @@ func (f *flow) userRetry(ctx context.Context, t *model.Task, b *model.Batch) err
 		}
 	}
 	if err := f.bill.CheckAccess(hctx, b.UserID, entry); err != nil { // 与提交同口径：能力开通校验
-		return err
+		return accessError(ctx, b.UserID, entry, err)
 	}
 	// 只读余额预检（报价 vs 余额，不冻结）：明显不够的直接回 3003，不占轮次。
 	// 预检通过后 Hold 仍可能失败（并发扣点），retryTask 会在确认没建单后把轮次退还。

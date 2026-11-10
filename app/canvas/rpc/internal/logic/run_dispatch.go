@@ -38,6 +38,7 @@ import (
 	studio "aigc-local-life/app/studio/rpc/studio_client"
 	"aigc-local-life/pkg/aigateway"
 	"aigc-local-life/pkg/mediasvc"
+	"aigc-local-life/pkg/modelgroup"
 	"aigc-local-life/pkg/xerr"
 
 	"github.com/zeromicro/go-zero/core/logx"
@@ -223,6 +224,11 @@ func (c *core) gatewayRequests(ctx context.Context, run *model.NodeRun, sp *runS
 		quality := sp.Quality
 		if len(sp.Model.Qualities) > 0 && quality == "" {
 			quality = "medium" // GPT：Atlas 部署缺省 low，显式给 medium
+		}
+		// GPT Image 2.5 / Nano Banana 2.1（规范组或换代前的旧 Dev 组码）的部署没有 quality 参数：一律不发，
+		// 兜住改版前落库、带了 quality 的 run 重新派发
+		if modelgroup.Is(sp.ModelGroup, modelgroup.GPTImage25Sunburst) || modelgroup.Is(sp.ModelGroup, modelgroup.NanoBanana21) {
+			quality = ""
 		}
 		var in any
 		req := base
@@ -845,7 +851,16 @@ func (c *core) specFromRun(ctx context.Context, run *model.NodeRun) (*runSpec, e
 			AssetId: r.AssetID, MediaId: r.MediaID, SourceHandle: r.SourceHandle, CandidateIndex: r.CandidateIndex, Mime: r.Mime,
 		})
 	}
-	return c.buildSpec(req, c.candidateLookup(ctx, run.CanvasID))
+	sp, err := c.buildSpec(req, c.candidateLookup(ctx, run.CanvasID))
+	if err != nil {
+		return nil, err
+	}
+	// 受理时冻结的组码与现配置等价（如换代前落库的旧 Dev 组码 vs 现在的规范组，见 pkg/modelgroup）：
+	// 重提沿用冻结值，同一幂等键的请求体不变，网关不会判幂等冲突；计费按等价组选档，同价。
+	if run.ModelGroup != "" && run.ModelGroup != sp.ModelGroup && modelgroup.Equal(run.ModelGroup, sp.ModelGroup) {
+		sp.ModelGroup = run.ModelGroup
+	}
+	return sp, nil
 }
 
 // candidateLookup 同画布上游节点最近一次成功 run 的候选。

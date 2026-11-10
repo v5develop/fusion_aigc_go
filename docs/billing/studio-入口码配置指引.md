@@ -55,9 +55,11 @@
 
 **2026-11-09 起按出图模型 × 分辨率计价**（Java 迁移 `V1.0.214__retire_gpt_image_2_switch_to_2_5_sunburst_developer.sql` + `V1.0.215__atlas_image_pricing_and_studio_tiers.sql`，晚建 offer 的环境由本仓库 `studio-offers-2026-10-30.sql` 第 1.4 段补档位）。每个入口按模型组各一个档位，档位默认模型是带 `gateway_model_group` 的计费载体；报价、提交冻结、重做冻结都带子任务的模型组（`Charge.ModelGroup`）选档，再按分辨率取单价行。
 
+**2026-11-10 起应用侧不区分厂商 Dev 档**（Java 迁移 V1.0.221 原地改名，id 与价格不变）：档位码 `<入口>_nano_banana_2_1` / `<入口>_gpt_image_2_5_sunburst`、载体 `creaft-nano-banana-2.1` / `studio-nano-banana-2.1-2ref` / `creaft-gpt-image-2.5-sunburst`、组码 `img.nano-banana-2.1` / `img.gpt-image-2.5-sunburst`、`quality_tier` `gpt25`。Go 选档按 `pkg/modelgroup` 的等价表同时认改名前的旧组码 / 旧档次（`*_dev`、`gpt25dev`），所以 Go 与该迁移没有上线先后约束，换代前任务的重做 / 结算同价。
+
 定价规则：本站 **1 点 = 0.01 元**，每档点数 = ceil(该档最坏参数组合的成本美元 × 7.2 × 1.3 / 0.01)（30% 最低毛利；Java `AtlasImageListPrice` / `AtlasImagePricingMarginTest`）。成本取 Atlas 实际计费（GPT 2.6 按定价页预扣上限；Banana / Seedream 为 readme 分档价 × 目录折扣；GPT 2.5 按张 1K $0.03、2K $0.06 / 4K $0.12 为估价）：
 
-| 入口 | GPT Image 2.6 | GPT Image 2.5（= 通用） | Nano Banana 2.1 Dev | Seedream 5.5 |
+| 入口 | GPT Image 2.6 | GPT Image 2.5（= 通用） | Nano Banana 2.1 | Seedream 5.5 |
 |---|---|---|---|---|
 | 商拍换装（≤6 张参考图 + 辅助调用） | 420 / 898 / 1727 | 29 / 57 / 113 | 25 / 33 / 54 | 53 / 59 / 78 |
 | 姿态复刻（同上） | 420 / 898 / 1727 | 29 / 57 / 113 | 25 / 33 / 54 | 53 / 59 / 78 |

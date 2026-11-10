@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"testing"
+
+	"github.com/DATA-DOG/go-sqlmock"
 
 	"aigc-local-life/pkg/xerr"
 )
@@ -62,5 +65,50 @@ func TestUserError(t *testing.T) {
 	_, msg, _ := xerr.Parse(s.userError(ctx, c, &NotEnough{Need: 20, Available: 5}))
 	if msg != "点数不足，还差 15 点" {
 		t.Errorf("msg = %q", msg)
+	}
+}
+
+// 准入 / 冻结失败三类分开：没开通（Forbidden）、入口没配价格（ServerError + 专门文案）、库异常（ServerError 通用文案）。
+// 没配价格是我们的配置问题，不能说成「暂未开通该功能」让用户以为要去买。
+func TestUserErrorDistinguishesNoOfferFromNoFeature(t *testing.T) {
+	ctx := context.Background()
+	cases := []struct {
+		err  error
+		code int
+		msg  string
+	}{
+		{fmt.Errorf("%w: ecom_image_gen", ErrNoFeature), xerr.Forbidden, "暂未开通该功能"},
+		{fmt.Errorf("%w: canvas_image", ErrNoOffer), xerr.ServerError, "该功能暂未配置价格，请联系客服"},
+		{fmt.Errorf("%w: canvas_image 没有启用的档位", ErrNoOffer), xerr.ServerError, "该功能暂未配置价格，请联系客服"},
+		{errors.New("dial tcp: connection refused"), xerr.ServerError, "暂时无法计费，请稍后重试"},
+		{xerr.New(xerr.Conflict, "原样"), xerr.Conflict, "原样"},
+	}
+	for _, tc := range cases {
+		code, msg, ok := xerr.Parse(UserError(ctx, 7, "canvas_image", tc.err))
+		if !ok || code != tc.code || msg != tc.msg {
+			t.Errorf("%v → %d %q, want %d %q", tc.err, code, msg, tc.code, tc.msg)
+		}
+	}
+	if UserError(ctx, 7, "x", nil) != nil {
+		t.Error("nil 应返回 nil")
+	}
+}
+
+// 准入：入口码没有启用的 offer → CheckAccess 返回 ErrNoOffer（不是 ErrNoFeature），翻成「没配价格」而非「没开通」。
+func TestCheckAccessNoOfferIsNotNoFeature(t *testing.T) {
+	conn, mock := mockConn(t)
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT `feature_code` FROM `afv_billing_offer`")).WithArgs("canvas_image").
+		WillReturnRows(sqlmock.NewRows([]string{"feature_code"}))
+	s := New(Conf{Mode: ModeOn, CheckEntitlement: true}, conn)
+	err := s.CheckAccess(context.Background(), 7, "canvas_image")
+	if !errors.Is(err, ErrNoOffer) || errors.Is(err, ErrNoFeature) {
+		t.Fatalf("err=%v", err)
+	}
+	code, msg, _ := xerr.Parse(UserError(context.Background(), 7, "canvas_image", err))
+	if code != xerr.ServerError || msg != MsgNoOffer {
+		t.Fatalf("%d %q", code, msg)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -1458,7 +1458,7 @@ func (x *ModelResolutionPrice) GetUnitPoints() int64 {
 
 type ModelCapability struct {
 	state         protoimpl.MessageState  `protogen:"open.v1"`
-	Code          string                  `protobuf:"bytes,1,opt,name=code,proto3" json:"code,omitempty"`                                        // 传值：通用 / GPT / GPT25Dev / Banana / Seedream
+	Code          string                  `protobuf:"bytes,1,opt,name=code,proto3" json:"code,omitempty"`                                        // 传值：通用 / GPT / GPT25 / Banana / Seedream
 	Label         string                  `protobuf:"bytes,2,opt,name=label,proto3" json:"label,omitempty"`                                      // 展示名（如 GPT Image 2.6）
 	ModelGroup    string                  `protobuf:"bytes,3,opt,name=model_group,json=modelGroup,proto3" json:"model_group,omitempty"`          // gateway model group
 	Available     bool                    `protobuf:"varint,4,opt,name=available,proto3" json:"available,omitempty"`                             // gateway 目录里该组已启用；目录拉不到时按 true
