@@ -82,13 +82,16 @@ const (
 
 // 用户可见文案。
 const (
-	msgMaskNoRegion    = "没识别到对应区域"
-	msgMaskUnavailable = "区域识别暂不可用，请稍后再试"
+	msgMaskNoRegion         = "没识别到对应区域"
+	msgMaskUnavailable      = "区域识别暂不可用，请稍后再试"
+	msgMaskUnsupportedImage = "这张图的格式或尺寸暂不支持区域识别"
 )
 
 var (
 	errMaskNoRegion    = xerr.New(xerr.NotFound, msgMaskNoRegion)
 	errMaskUnavailable = xerr.New(xerr.ThirdPartyError, msgMaskUnavailable)
+	// errMaskUnsupportedImage 图片格式 / 尺寸 / 分辨率供应商不收（换一张图才行）：参数错误 1003，不缓存
+	errMaskUnsupportedImage = xerr.New(xerr.ParamError, msgMaskUnsupportedImage)
 )
 
 // maskGateway / maskMedia 蒙版用到的网关与媒体服务能力；*aigateway.Client、*mediasvc.Client 满足。
@@ -220,7 +223,7 @@ func normalizeMaskURL(raw string) (string, string, error) {
 
 // Get 取 imageURL 的 target 区域蒙版（parts 非空 = 只要这些服装部位，见 normalizeMaskParts）：先查缓存，没有再调网关识别、
 // 生成蒙版、转存、落缓存。imageURL 的来源校验（本存储 / 素材库域名）由调用方做。错误：没识别到 → errMaskNoRegion（4001）；
-// 网关 / 媒体服务失败 → errMaskUnavailable（6001）。
+// 图片格式 / 尺寸不收 → errMaskUnsupportedImage（1003）；网关 / 媒体服务失败 → errMaskUnavailable（6001）。
 func (m *masker) Get(ctx context.Context, userID int64, imageURL, target string, parts []string) (maskResult, error) {
 	log := logx.WithContext(ctx)
 	target, ok := normalizeMaskTarget(target)
@@ -309,11 +312,25 @@ func (m *masker) compute(ctx context.Context, userID int64, imageURL, norm, key,
 			logx.Field("cached", false), logx.Field("cost_cny", row.CostCNY), logx.Field("gateway_call_id", call.ID),
 			logx.Field("status", call.Status))
 		if class == "INPUT_REJECTED" {
-			// 供应商判这张图做不了该区域的分割（如图里没有服装 / 人物）：按「没识别到」缓存，24 小时内不再重复调用
-			log.Infow("studio mask: vendor rejected input (check=mask_input_rejected)", logx.Field("target", target),
-				logx.Field("failure_code", code), logx.Field("gateway_call_id", call.ID))
-			m.save(ctx, row, model.MaskNoRegion)
-			return maskResult{}, errMaskNoRegion
+			kind, rule := classifyMaskInputRejected(call)
+			fields := []logx.LogField{logx.Field("target", target), logx.Field("model_group", group),
+				logx.Field("failure_code", code), logx.Field("rule", rule), logx.Field("gateway_call_id", call.ID)}
+			switch kind {
+			case maskRejectNoRegion:
+				// 供应商判图里没有该区域（如 SegmentCloth noClothError）：按「没识别到」缓存，24 小时内不再重复调用
+				log.Infow("studio mask: vendor found no region (check=mask_input_rejected_no_region)", fields...)
+				m.save(ctx, row, model.MaskNoRegion)
+				return maskResult{}, errMaskNoRegion
+			case maskRejectUnsupported:
+				// 格式 / 尺寸 / 分辨率不收：不是「没有该区域」，不落缓存（供应商 400 不计费、网关侧拒收不发送；换图即可）
+				log.Infow("studio mask: image format or size unsupported (check=mask_input_rejected_unsupported)", fields...)
+				return maskResult{}, errMaskUnsupportedImage
+			default:
+				// 认不出的拒收（下载 / 地域 / 网关能力不覆盖 …）：不当「没识别到」，不落缓存，按服务不可用返回
+				log.Errorw("studio mask: input rejected for unrecognized reason (check=mask_input_rejected_unknown)",
+					append(fields, logx.Field("failure_message", failureMessage(call)))...)
+				return maskResult{}, errMaskUnavailable
+			}
 		}
 		log.Errorw("studio mask: gateway call not succeeded (check=mask_gateway_failed)", logx.Field("target", target),
 			logx.Field("status", call.Status), logx.Field("failure_class", class), logx.Field("failure_code", code),
@@ -370,6 +387,62 @@ func (m *masker) compute(ctx context.Context, userID int64, imageURL, norm, key,
 		m.save(ctx, pr, model.MaskOK)
 	}
 	return res, nil
+}
+
+// INPUT_REJECTED 细分。
+const (
+	maskRejectUnknown     = iota // 认不出：按服务不可用（6001），不缓存
+	maskRejectNoRegion           // 图里没有该区域：4001，按「没识别到」缓存 24 小时
+	maskRejectUnsupported        // 格式 / 尺寸 / 分辨率不收：1003，不缓存
+)
+
+// maskNoRegionMarkers 「图里没有该区域」的判据（小写子串）：阿里云 InvalidImage.Content（内容级：图像中没有服饰 / 人体 / 商品，
+// 子码 noClothError 等），以及同类子码 / 文案。在供应商错误码与网关失败 / 供应商错误文案里找。
+var maskNoRegionMarkers = []string{
+	"invalidimage.content", "nocloth", "nobody", "noperson", "nocommodity", "noforeground", "noobject", "图像中没有",
+}
+
+// maskUnsupportedMarkers 「格式 / 尺寸 / 分辨率不收」的判据（小写子串）：阿里云 InvalidImage.* / InvalidFile.* 的格式、类型、
+// 分辨率、大小码，网关自己解不开图（media.image_unreadable）。下载 / 地址 / 地域（InvalidImage.Download / URL / Region）
+// 不在此列：多半是签名过期或平台配置问题，按未知处理（6001，可重试）。
+var maskUnsupportedMarkers = []string{
+	"invalidimage.format", "invalidimage.type", "invalidimage.resolution", "invalidimage.size", "invalidimage.imagesize",
+	"invalidfile.format", "invalidfile.type", "invalidfile.resolution", "invalidfile.size", "invalidfile.imagesize",
+	"media.image_unreadable",
+}
+
+// classifyMaskInputRejected 把 INPUT_REJECTED 的网关调用分成「没有该区域 / 格式尺寸不收 / 认不出」，并返回命中的判据名（打日志用）。
+// 证据：failure.code、failure.message、attempts[].vendor_error.code / message；先判「没有该区域」，再判格式尺寸。
+func classifyMaskInputRejected(call *aigateway.Call) (int, string) {
+	var parts []string
+	if call.Failure != nil {
+		parts = append(parts, call.Failure.Code, call.Failure.Message)
+	}
+	for _, a := range call.Attempts {
+		if a.VendorError != nil {
+			parts = append(parts, a.VendorError.Code, a.VendorError.Message)
+		}
+	}
+	hay := strings.ToLower(strings.Join(parts, "\n"))
+	for _, k := range maskNoRegionMarkers {
+		if strings.Contains(hay, k) {
+			return maskRejectNoRegion, "no_region:" + k
+		}
+	}
+	for _, k := range maskUnsupportedMarkers {
+		if strings.Contains(hay, k) {
+			return maskRejectUnsupported, "unsupported_image:" + k
+		}
+	}
+	return maskRejectUnknown, "unknown"
+}
+
+// failureMessage 网关失败文案（只进日志）。
+func failureMessage(call *aigateway.Call) string {
+	if call.Failure == nil {
+		return ""
+	}
+	return truncateRunes(call.Failure.Message, 512)
 }
 
 // partMasks 多部位调用的逐件蒙版：逐个下载网关 result.parts、生成蒙版、转存；单件失败 / 太小只跳过这一件（不影响合并蒙版）。
@@ -598,10 +671,15 @@ func (f *flow) attachMaskAsync(t *model.Task, userID int64, resultURL string, pa
 			return
 		}
 		res, err := f.mask.Get(ctx, userID, src, MaskGarment, parts)
-		if len(parts) > 0 && err != nil && !errors.Is(err, errMaskNoRegion) {
+		if len(parts) > 0 && err != nil && !errors.Is(err, errMaskNoRegion) && !errors.Is(err, errMaskUnsupportedImage) {
 			log.Infow("studio mask: warning per-item mask unavailable, fall back to whole garment (check=task_mask_parts_fallback)",
 				logx.Field("task_id", taskID), logx.Field("parts", strings.Join(parts, ",")), logx.Field("reason", err.Error()))
 			res, err = f.mask.Get(ctx, userID, src, MaskGarment, nil)
+		}
+		if errors.Is(err, errMaskUnsupportedImage) {
+			log.Infow("studio mask: warning task result image unsupported for segmentation, mask_url stays empty (check=task_mask_unsupported)",
+				logx.Field("task_id", taskID))
+			return
 		}
 		if errors.Is(err, errMaskNoRegion) {
 			log.Infow("studio mask: warning task has no garment region, mask_url stays empty (check=task_mask_no_region)",

@@ -244,9 +244,9 @@ func TestMaskerNoRegion(t *testing.T) {
 		t.Fatalf("code=%d msg=%s", code, msg)
 	}
 
-	// 2) 供应商判输入不可用（INPUT_REJECTED）→ 同样按没识别到
+	// 2) 供应商判图里没有服饰（INPUT_REJECTED + InvalidImage.Content / noClothError，线上真实报文）→ 同样按没识别到
 	r2, mock2 := newMockRepo(t)
-	failed := &aigateway.Call{ID: "call_2", Status: aigateway.StatusFailed, Failure: &aigateway.Failure{Class: "INPUT_REJECTED", Code: "vendor.input"}}
+	failed := noClothCall()
 	m2 := &masker{repo: r2.Mask, gw: &fakeMaskGW{resp: failed}, media: &fakeMaskMedia{}, now: time.Now}
 	mock2.ExpectQuery(strings.ReplaceAll(maskSelect, "%s", "garment")).WillReturnRows(sqlmock.NewRows(maskCols))
 	mock2.ExpectExec("INSERT INTO `afv_studio_mask_cache`").WillReturnResult(sqlmock.NewResult(1, 1))
@@ -264,6 +264,74 @@ func TestMaskerNoRegion(t *testing.T) {
 	mock3.ExpectExec("UPDATE `afv_studio_mask_cache` SET hits").WillReturnResult(sqlmock.NewResult(0, 1))
 	if _, err := m3.Get(context.Background(), 7, "https://cdn.example.com/r.png", "garment", nil); !errors.Is(err, errMaskNoRegion) || len(gw3.calls) != 0 {
 		t.Fatalf("err=%v calls=%d", err, len(gw3.calls))
+	}
+}
+
+// noClothMsg 线上真实报文：阿里云 SegmentCloth 对没有服饰的图返回 400 InvalidImage.Content / noClothError。
+const noClothMsg = "vendor_status: code: 400, message: InvalidImage.Content: 图片内容不合法，请检查图片内容 - " +
+	"图像中没有服饰，请重新上传 - noClothError"
+
+func rejectedCall(code, msg, vendorCode, vendorMsg string) *aigateway.Call {
+	c := &aigateway.Call{ID: "call_rej", Status: aigateway.StatusFailed,
+		Failure: &aigateway.Failure{Class: "INPUT_REJECTED", Code: code, Message: msg}}
+	if vendorCode != "" || vendorMsg != "" {
+		c.Attempts = []aigateway.Attempt{{Seq: 1, OutcomeClass: "INPUT_REJECTED",
+			VendorError: &aigateway.VendorError{HTTPStatus: 400, Code: vendorCode, Message: vendorMsg}}}
+	}
+	return c
+}
+
+func noClothCall() *aigateway.Call {
+	return rejectedCall("vendor.input_rejected", noClothMsg, "InvalidImage.Content", "图片内容不合法，请检查图片内容 - 图像中没有服饰，请重新上传 - noClothError")
+}
+
+func TestClassifyMaskInputRejected(t *testing.T) {
+	cases := []struct {
+		name string
+		call *aigateway.Call
+		kind int
+		rule string
+	}{
+		{"real noClothError", noClothCall(), maskRejectNoRegion, "no_region:invalidimage.content"},
+		{"message only (no attempts)", rejectedCall("vendor.input_rejected", noClothMsg, "", ""), maskRejectNoRegion, "no_region:invalidimage.content"},
+		{"noBody sub code", rejectedCall("vendor.input_rejected", "vendor_status: code: 400, noBodyError", "", ""), maskRejectNoRegion, "no_region:nobody"},
+		{"resolution", rejectedCall("vendor.input_rejected", "vendor_status: code: 400, InvalidImage.Resolution: 图片分辨率不合法", "InvalidImage.Resolution", ""), maskRejectUnsupported, "unsupported_image:invalidimage.resolution"},
+		{"format", rejectedCall("vendor.input_rejected", "", "InvalidImage.Format", "图片格式不支持"), maskRejectUnsupported, "unsupported_image:invalidimage.format"},
+		{"file size", rejectedCall("vendor.input_rejected", "", "InvalidFile.Size", ""), maskRejectUnsupported, "unsupported_image:invalidfile.size"},
+		{"gateway unreadable", rejectedCall("media.image_unreadable", "cannot decode image", "", ""), maskRejectUnsupported, "unsupported_image:media.image_unreadable"},
+		{"download", rejectedCall("vendor.input_rejected", "", "InvalidImage.Download", "图片下载失败"), maskRejectUnknown, "unknown"},
+		{"gateway no capable deployment", rejectedCall("route.no_capable_deployment", "segment_classes_unsupported", "", ""), maskRejectUnknown, "unknown"},
+		{"no failure", &aigateway.Call{Status: aigateway.StatusFailed}, maskRejectUnknown, "unknown"},
+	}
+	for _, c := range cases {
+		if kind, rule := classifyMaskInputRejected(c.call); kind != c.kind || rule != c.rule {
+			t.Errorf("%s: kind=%d rule=%s, want %d %s", c.name, kind, rule, c.kind, c.rule)
+		}
+	}
+}
+
+// 格式 / 尺寸不收 → 1003「格式或尺寸不支持」，不落缓存；认不出的拒收 → 6001，不落缓存。
+func TestMaskerInputRejectedNotRegion(t *testing.T) {
+	for name, tc := range map[string]struct {
+		call *aigateway.Call
+		code int
+		msg  string
+	}{
+		"resolution": {rejectedCall("vendor.input_rejected", "vendor_status: code: 400, InvalidImage.Resolution", "InvalidImage.Resolution", ""),
+			xerr.ParamError, msgMaskUnsupportedImage},
+		"download":           {rejectedCall("vendor.input_rejected", "", "InvalidImage.Download", "下载失败"), xerr.ThirdPartyError, msgMaskUnavailable},
+		"gateway capability": {rejectedCall("route.no_capable_deployment", "segment_classes_unsupported", "", ""), xerr.ThirdPartyError, msgMaskUnavailable},
+	} {
+		r, mock := newMockRepo(t)
+		m := &masker{repo: r.Mask, gw: &fakeMaskGW{resp: tc.call}, media: &fakeMaskMedia{}, now: time.Now}
+		mock.ExpectQuery(strings.ReplaceAll(maskSelect, "%s", "garment")).WillReturnRows(sqlmock.NewRows(maskCols))
+		_, err := m.Get(context.Background(), 7, "https://cdn.example.com/r.png", "garment", nil)
+		if code, msg, _ := xerr.Parse(err); code != tc.code || msg != tc.msg {
+			t.Fatalf("%s: code=%d msg=%s", name, code, msg)
+		}
+		if err := mock.ExpectationsWereMet(); err != nil { // 没有 INSERT：不落「没识别到」缓存
+			t.Fatalf("%s: %v", name, err)
+		}
 	}
 }
 

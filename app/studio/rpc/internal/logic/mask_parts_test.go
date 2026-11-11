@@ -302,9 +302,9 @@ func TestAttachMaskAsyncPartsFallback(t *testing.T) {
 		t.Fatalf("第二次应不带 classes：%d", len(gw.reqs))
 	}
 
-	// 没识别到（供应商判输入不可用）：不退回整体
+	// 没识别到（供应商判图里没有服饰，InvalidImage.Content / noClothError）：不退回整体
 	r2, mock2 := newMockRepo(t)
-	gw2 := &seqGW{resps: []*aigateway.Call{{ID: "c2", Status: aigateway.StatusFailed, Failure: &aigateway.Failure{Class: "INPUT_REJECTED"}}}}
+	gw2 := &seqGW{resps: []*aigateway.Call{noClothCall()}}
 	f2 := &flow{repo: r2, mask: &masker{repo: r2.Mask, gw: gw2, media: &fakeMaskMedia{}, now: time.Now}}
 	mock2.ExpectQuery(maskSelectParts("garment", "tops")).WillReturnRows(sqlmock.NewRows(maskCols))
 	mock2.ExpectExec("INSERT INTO `afv_studio_mask_cache`").WillReturnResult(sqlmock.NewResult(1, 1))
@@ -315,6 +315,20 @@ func TestAttachMaskAsyncPartsFallback(t *testing.T) {
 	}
 	if len(gw2.reqs) != 1 {
 		t.Fatalf("没识别到不应退回：%d", len(gw2.reqs))
+	}
+
+	// 格式 / 尺寸不收：换不细分也一样不收，不退回、不落缓存
+	r3, mock3 := newMockRepo(t)
+	gw3 := &seqGW{resps: []*aigateway.Call{rejectedCall("vendor.input_rejected", "", "InvalidImage.Resolution", "")}}
+	f3 := &flow{repo: r3, mask: &masker{repo: r3.Mask, gw: gw3, media: &fakeMaskMedia{}, now: time.Now}}
+	mock3.ExpectQuery(maskSelectParts("garment", "tops")).WillReturnRows(sqlmock.NewRows(maskCols))
+	f3.attachMaskAsync(&model.Task{ID: 7, Kind: model.KindTryon}, 7, "https://cdn.example.com/r.png", []string{"tops"})
+	f3.wg.Wait()
+	if err := mock3.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+	if len(gw3.reqs) != 1 {
+		t.Fatalf("格式不收不应退回：%d", len(gw3.reqs))
 	}
 }
 

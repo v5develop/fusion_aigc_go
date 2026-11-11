@@ -933,11 +933,22 @@ POST /api/v1/studio/masks
 | 缺地址 / 区域不支持 / 地址不是本服务的 | `1002` / `1003` |
 | 没识别到对应区域（图里没有服装 / 人物 / 主体） | `4001`「没识别到对应区域」（24 小时内同一张图同一区域直接返回该结果） |
 | 超出频率 | `4002`「识别太频繁，请稍后再试」 |
+| 图片格式 / 尺寸 / 分辨率供应商不支持 | `1003`「这张图的格式或尺寸暂不支持区域识别」（不缓存；换一张图再试，同图重试结果一样） |
 | 识别服务暂不可用 | `6001`「区域识别暂不可用，请稍后再试」（不缓存，可重试） |
 | 网关 / 媒体服务未配置 | `7003` |
 
 识别走 ai-gateway `image.segment`：服装 `imgseg.aliyun-cloth`（阿里云 SegmentCloth）、商品 `imgseg.aliyun-commodity`（SegmentCommodity）、
 人物 `imgseg.aliyun-body`（SegmentBody）、背景 `imgseg.aliyun-hd`（SegmentHDCommonImage 取反）。
+
+**供应商拒收（网关 `failure.class = INPUT_REJECTED`）的细分**：按 `failure.code` / `failure.message` / `attempts[].vendor_error.code` / `message` 判：
+
+| 判据 | 归类 | 返回 | 缓存 |
+|---|---|---|---|
+| 含 `InvalidImage.Content`（阿里云内容级，如 `noClothError` 图像中没有服饰）或 `noCloth` / `noBody` / `noPerson` / `noCommodity` / `noForeground` / `noObject` / 「图像中没有」 | 图里没有该区域 | `4001`「没识别到对应区域」 | 24 小时 |
+| 含 `InvalidImage.` / `InvalidFile.` 的 `Format` / `Type` / `Resolution` / `Size` / `ImageSize`，或网关 `media.image_unreadable` | 格式 / 尺寸不支持 | `1003`「这张图的格式或尺寸暂不支持区域识别」 | 不缓存 |
+| 其它（下载 / 地址 / 地域 `InvalidImage.Download` / `URL` / `Region`、网关能力不覆盖 `route.no_capable_deployment` 等） | 认不出 | `6001`「区域识别暂不可用，请稍后再试」 | 不缓存 |
+
+服务端日志带 `check=mask_input_rejected_{no_region|unsupported|unknown}` 与命中的判据 `rule`。子任务自动补蒙版时，格式 / 尺寸不支持与没识别到一样不退回整体服装蒙版；认不出的按服务不可用处理（会退回整体）。
 
 ---
 
