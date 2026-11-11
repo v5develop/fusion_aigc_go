@@ -14,7 +14,8 @@ type copyReq struct {
 }
 
 // copyResource 把源资源复制到目标类别，返回新 rid 的 MediaResult，parents 指向源 rid（设计文档 §3）。
-// 复制用 readObject（取源：本机缓存命中则不下载，否则 Fetch）与 Put（写目标，经 storeFile）；新 rid 由幂等键派生，同键重放得到同一个 rid。
+// 优先服务端复制（copy_server.go，字节不经本机）；做不了时用 readObject（取源：本机缓存命中则不下载，否则 Fetch）
+// 与 Put（写目标，经 storeFile）。新 rid 由幂等键派生，同键重放得到同一个 rid（两条路径一致）。
 // 只允许 asset_library（asset 类别）与 third_party（deliver 类别）；不允许复制到 user 类别。
 func (s *Server) copyResource(w http.ResponseWriter, r *http.Request) {
 	if err := checkKey(r.Header.Get(idempotencyHeader)); err != nil {
@@ -57,6 +58,15 @@ func (s *Server) copyResource(w http.ResponseWriter, r *http.Request) {
 		logStage(ctx, "copy_src_head", headStart) // 定位源桶 + 待删除检查
 		if err != nil {
 			return nil, err
+		}
+		// 快路径：源与目标在同一对象存储（同地域）且源带落桶事实时，存储服务端复制，字节不经本机（copy_server.go）。
+		// 做不了（关闭、跨地域、本地存储、无事实、权限 / 不支持）回退下面的下载 + 上传，结果相同
+		if res, handled, err := s.copyServerSide(ctx, req.Rid, req.Purpose, srcStore, srcPath); handled {
+			if err != nil {
+				return nil, err
+			}
+			res.Parents = []string{req.Rid}
+			return res, nil
 		}
 		// 源字节在本机对象缓存里（同机刚写入或刚读过）且版本与存储一致时直接用本地文件，不再下载。
 		// 版本用上面探测存在性时同一次 HEAD 拿到的，不再 HEAD 第二次

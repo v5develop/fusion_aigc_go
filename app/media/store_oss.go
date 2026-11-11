@@ -58,6 +58,9 @@ type OSSConfig struct {
 	ThirdParty   OSSBucket `json:",optional"`
 	// PresignMinutes 私有桶签名地址的有效期（分钟），上限 1440（24 小时）
 	PresignMinutes int `json:",default=60"`
+	// DisableServerSideCopy 关闭服务端复制（resources/copy 走 OSS CopyObject / UploadPartCopy，不经本机）。
+	// 默认 false 即开启；设 true 时一律走「下载 + 上传」（见 copy_server.go）。
+	DisableServerSideCopy bool `json:",optional"`
 }
 
 // OSSStore 阿里云 OSS 实现（OSS v1 签名，与 pkg/storage 的 oss.go 同一套签名算法）。
@@ -66,6 +69,7 @@ type OSSStore struct {
 	presign                    time.Duration
 	hc                         *http.Client
 	now                        func() time.Time
+	copier                     *ossCopyState // 服务端复制（store_oss_copy.go）
 }
 
 // NewOSSStore 校验配置并返回存储。两个桶的连接信息必须完整。
@@ -89,6 +93,7 @@ func NewOSSStore(cfg OSSConfig) (*OSSStore, error) {
 		presign:    time.Duration(cfg.PresignMinutes) * time.Minute,
 		hc:         &http.Client{Timeout: 10 * time.Minute},
 		now:        time.Now,
+		copier:     newOSSCopyState(cfg.DisableServerSideCopy),
 	}, nil
 }
 
@@ -136,7 +141,8 @@ func (o *OSSStore) Put(ctx context.Context, store, path, localPath, mime string)
 		return StoredObject{}, fmt.Errorf("media: 打开源文件: %w", err)
 	}
 	defer f.Close()
-	etag, err := o.putStream(ctx, store, path, mime, f, size)
+	// 落桶时已知的事实（sha256 + probe 元数据）写进对象元数据：之后服务端复制不读字节也能给出结果（copy_server.go）
+	etag, err := o.putStreamWith(ctx, store, path, mime, factsHeaders(ctx, localPath, sum, size), f, size)
 	if err != nil {
 		return StoredObject{}, err
 	}
@@ -308,11 +314,16 @@ func (o *OSSStore) putBytes(ctx context.Context, store, key, contentType string,
 
 // putStream 写入对象，返回响应里的 ETag（对象缓存用作版本；没有则为空）。
 func (o *OSSStore) putStream(ctx context.Context, store, key, contentType string, body io.Reader, size int64) (string, error) {
+	return o.putStreamWith(ctx, store, key, contentType, nil, body, size)
+}
+
+// putStreamWith 同 putStream，另外带 x-oss-* 头（小写键，进入签名）。headers 为空时与 putStream 的请求完全相同。
+func (o *OSSStore) putStreamWith(ctx context.Context, store, key, contentType string, headers map[string]string, body io.Reader, size int64) (string, error) {
 	b, err := o.bucket(store)
 	if err != nil {
 		return "", err
 	}
-	resp, err := o.do(ctx, http.MethodPut, store, b, key, contentType, body, size)
+	resp, err := o.send(ctx, http.MethodPut, b, key, "", contentType, headers, body, size)
 	if err != nil {
 		return "", err
 	}

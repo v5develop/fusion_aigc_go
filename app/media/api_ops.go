@@ -230,6 +230,10 @@ func (s *Server) storeMeta(ctx context.Context, purpose, path string, meta Media
 	}
 	// 摘要交给下面的 Put：存储层不再为了大小与 sha256 把文件再整读一遍
 	ctx = withKnownDigest(ctx, path, sum, size)
+	if probed {
+		// probe 过的字节：事实一并写进对象元数据，之后 resources/copy 可以服务端复制而不读字节（copy_server.go）
+		ctx = s.withStoreFacts(ctx, path, sum, size, meta)
+	}
 	class, store := classFor(purpose), storeFor(purpose)
 	// rid 由幂等键派生；没有幂等键（如抽帧）时由内容摘要派生，同内容同类别得到同一个 rid
 	source := idemKeyOf(ctx)
@@ -286,8 +290,15 @@ func (s *Server) storeMeta(ctx context.Context, purpose, path string, meta Media
 // 之后同一 rid 重新入库正好写到这个路径；不清掉的话新对象读取 410，并在下一轮清理被物理删除。
 // 这时路径上没有需要保护的旧字节（对象已被清理删除），所以撤销与 Put 并发发出：省掉一次串行往返，结果与先后执行相同。
 func (s *Server) putAndClearPending(ctx context.Context, store, objPath, local, mime string, reused bool) (StoredObject, error) {
+	return s.writeAndClearPending(ctx, store, objPath, reused, func() (StoredObject, error) {
+		return s.objects.Put(ctx, store, objPath, local, mime)
+	})
+}
+
+// writeAndClearPending putAndClearPending 的通用形式：write 写对象（Put 或服务端复制），顺序与并发规则相同。
+func (s *Server) writeAndClearPending(ctx context.Context, store, objPath string, reused bool, write func() (StoredObject, error)) (StoredObject, error) {
 	if reused {
-		obj, err := s.objects.Put(ctx, store, objPath, local, mime)
+		obj, err := write()
 		if err != nil {
 			return StoredObject{}, err
 		}
@@ -299,7 +310,7 @@ func (s *Server) putAndClearPending(ctx context.Context, store, objPath, local, 
 	}
 	cleared := make(chan error, 1)
 	go func() { cleared <- s.objects.ClearPending(ctx, store, objPath) }()
-	obj, putErr := s.objects.Put(ctx, store, objPath, local, mime)
+	obj, putErr := write()
 	clearErr := <-cleared
 	if putErr != nil {
 		return StoredObject{}, putErr
