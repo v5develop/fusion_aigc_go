@@ -3108,6 +3108,10 @@
                       "description": "image / video / tool_crop / tool_upscale / tool_outpaint / tool_inpaint / tool_i2p / tool_tryon",
                       "type": "string"
                     },
+                    "library_status": {
+                      "description": "只增：空=已在素材库或不适用；pending=已交付（地址是 10 分钟现签，勿存进节点内容），后台转存素材库中；failed=转存失败，仍可看可下载但不在素材库",
+                      "type": "string"
+                    },
                     "model": {
                       "type": "string"
                     },
@@ -3233,7 +3237,8 @@
                           "error_code",
                           "retryable",
                           "created_at",
-                          "finished_at"
+                          "finished_at",
+                          "library_status"
                         ],
                         "properties": {
                           "candidates": {
@@ -3278,6 +3283,10 @@
                           },
                           "kind": {
                             "description": "image / video / tool_crop / tool_upscale / tool_outpaint / tool_inpaint / tool_i2p / tool_tryon",
+                            "type": "string"
+                          },
+                          "library_status": {
+                            "description": "只增：空=已在素材库或不适用；pending=已交付（地址是 10 分钟现签，勿存进节点内容），后台转存素材库中；failed=转存失败，仍可看可下载但不在素材库",
                             "type": "string"
                           },
                           "model": {
@@ -3848,6 +3857,10 @@
                       "description": "image / video / tool_crop / tool_upscale / tool_outpaint / tool_inpaint / tool_i2p / tool_tryon",
                       "type": "string"
                     },
+                    "library_status": {
+                      "description": "只增：空=已在素材库或不适用；pending=已交付（地址是 10 分钟现签，勿存进节点内容），后台转存素材库中；failed=转存失败，仍可看可下载但不在素材库",
+                      "type": "string"
+                    },
                     "model": {
                       "type": "string"
                     },
@@ -3943,6 +3956,145 @@
                       "type": "string"
                     },
                     "status": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "msg": {
+                  "description": "business message",
+                  "type": "string",
+                  "example": "ok"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/canvas/runs/{id}/library-retry": {
+      "post": {
+        "security": [
+          {
+            "auth": []
+          }
+        ],
+        "consumes": [
+          "application/x-www-form-urlencoded"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "画布"
+        ],
+        "summary": "重新存入素材库：成功 run 的产物转存素材库永久失败（library_status=failed）时重新转存；仅本人；已在转存中 / 已在素材库时幂等返回当前状态；同一 run 每分钟至多一次（否则 4002）；返回同 GET /runs/:id（library_status 变为 pending），之后照常轮询",
+        "operationId": "canvasRetryLibraryCopy",
+        "parameters": [
+          {
+            "type": "integer",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
+                  "type": "integer",
+                  "example": 0
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "candidates": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "url",
+                          "width",
+                          "height"
+                        ],
+                        "properties": {
+                          "height": {
+                            "type": "integer"
+                          },
+                          "url": {
+                            "type": "string"
+                          },
+                          "width": {
+                            "type": "integer"
+                          }
+                        }
+                      }
+                    },
+                    "canvas_id": {
+                      "type": "string"
+                    },
+                    "created_at": {
+                      "type": "integer"
+                    },
+                    "credits": {
+                      "type": "integer"
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "error_code": {
+                      "type": "string"
+                    },
+                    "finished_at": {
+                      "type": "integer"
+                    },
+                    "kind": {
+                      "description": "image / video / tool_crop / tool_upscale / tool_outpaint / tool_inpaint / tool_i2p / tool_tryon",
+                      "type": "string"
+                    },
+                    "library_status": {
+                      "description": "只增：空=已在素材库或不适用；pending=已交付（地址是 10 分钟现签，勿存进节点内容），后台转存素材库中；failed=转存失败，仍可看可下载但不在素材库",
+                      "type": "string"
+                    },
+                    "model": {
+                      "type": "string"
+                    },
+                    "node_id": {
+                      "type": "string"
+                    },
+                    "progress": {
+                      "type": "integer"
+                    },
+                    "request_id": {
+                      "type": "string"
+                    },
+                    "requested_count": {
+                      "type": "integer"
+                    },
+                    "retryable": {
+                      "type": "boolean"
+                    },
+                    "run_id": {
+                      "type": "string"
+                    },
+                    "selected_index": {
+                      "type": "integer"
+                    },
+                    "status": {
+                      "description": "submitting / queued / running / succeeded / failed / cancelled",
+                      "type": "string"
+                    },
+                    "text": {
+                      "description": "反推提示词结果",
+                      "type": "string"
+                    },
+                    "video_url": {
                       "type": "string"
                     }
                   }
@@ -11390,7 +11542,8 @@
                           "mask_parts",
                           "warnings",
                           "prompt_text",
-                          "prompt_edited"
+                          "prompt_edited",
+                          "library_status"
                         ],
                         "properties": {
                           "asset_id": {
@@ -11442,6 +11595,10 @@
                             "type": "integer"
                           },
                           "kind": {
+                            "type": "string"
+                          },
+                          "library_status": {
+                            "description": "只增（2026-11-11）：成品是否已在素材库。空=已在（或不适用：免费档水印视图 / 非成功）；pending=已交付可看可下载，后台转存素材库中，asset_id 可能仍为 0；failed=转存永久失败，仍可看可下载，但素材库里没有",
                             "type": "string"
                           },
                           "mask_parts": {
@@ -11879,7 +12036,8 @@
                                 "mask_parts",
                                 "warnings",
                                 "prompt_text",
-                                "prompt_edited"
+                                "prompt_edited",
+                                "library_status"
                               ],
                               "properties": {
                                 "asset_id": {
@@ -11907,6 +12065,10 @@
                                   "type": "integer"
                                 },
                                 "kind": {
+                                  "type": "string"
+                                },
+                                "library_status": {
+                                  "description": "只增（2026-11-11）：成品是否已在素材库。空=已在（或不适用：免费档水印视图 / 非成功）；pending=已交付可看可下载，后台转存素材库中，asset_id 可能仍为 0；failed=转存永久失败，仍可看可下载，但素材库里没有",
                                   "type": "string"
                                 },
                                 "mask_parts": {
@@ -13156,6 +13318,10 @@
                     "kind": {
                       "type": "string"
                     },
+                    "library_status": {
+                      "description": "只增（2026-11-11）：成品是否已在素材库。空=已在（或不适用：免费档水印视图 / 非成功）；pending=已交付可看可下载，后台转存素材库中，asset_id 可能仍为 0；failed=转存永久失败，仍可看可下载，但素材库里没有",
+                      "type": "string"
+                    },
                     "mask_parts": {
                       "description": "商拍换装按所选单品分割时的逐件蒙版（mask_url 是它们的合并）；没有为空数组",
                       "type": "array",
@@ -13377,6 +13543,197 @@
                       "type": "integer"
                     },
                     "kind": {
+                      "type": "string"
+                    },
+                    "library_status": {
+                      "description": "只增（2026-11-11）：成品是否已在素材库。空=已在（或不适用：免费档水印视图 / 非成功）；pending=已交付可看可下载，后台转存素材库中，asset_id 可能仍为 0；failed=转存永久失败，仍可看可下载，但素材库里没有",
+                      "type": "string"
+                    },
+                    "mask_parts": {
+                      "description": "商拍换装按所选单品分割时的逐件蒙版（mask_url 是它们的合并）；没有为空数组",
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "part",
+                          "mask_url"
+                        ],
+                        "properties": {
+                          "mask_url": {
+                            "description": "该部位的白色+软 alpha PNG，与原图同尺寸",
+                            "type": "string"
+                          },
+                          "part": {
+                            "description": "tops / coat / pants / skirt / shoes / bag / hat",
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "mask_url": {
+                      "description": "服装蒙版（白色+软 alpha PNG，公开地址）：商拍换装 / 姿态复刻成品成功后异步补；空=没有（未生成 / 没识别到服装），校色作用于整图",
+                      "type": "string"
+                    },
+                    "model_index": {
+                      "type": "integer"
+                    },
+                    "pose_index": {
+                      "type": "integer"
+                    },
+                    "progress": {
+                      "description": "0–100（估算）",
+                      "type": "integer"
+                    },
+                    "prompt_edited": {
+                      "description": "提示词经用户编辑后重新生成过",
+                      "type": "boolean"
+                    },
+                    "prompt_summary": {
+                      "type": "string"
+                    },
+                    "prompt_text": {
+                      "description": "实际送生图的完整提示词（含首行图序；姿态 / 商拍有，编排完成前为空）",
+                      "type": "string"
+                    },
+                    "result_height": {
+                      "type": "integer"
+                    },
+                    "result_url": {
+                      "type": "string"
+                    },
+                    "result_width": {
+                      "type": "integer"
+                    },
+                    "shot_index": {
+                      "type": "integer"
+                    },
+                    "started_at": {
+                      "description": "0=未开始",
+                      "type": "integer"
+                    },
+                    "status": {
+                      "description": "0-排队 1-生成中 2-成功 3-失败 4-已取消",
+                      "type": "integer"
+                    },
+                    "task_id": {
+                      "type": "string"
+                    },
+                    "warnings": {
+                      "description": "给用户看的提示：「已改用文字信息生成」、「参考图看起来是…，与所选「文胸」不一致」、参考图截断等；没有为 []",
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                "msg": {
+                  "description": "business message",
+                  "type": "string",
+                  "example": "ok"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/studio/tasks/{task_id}/library-retry": {
+      "post": {
+        "security": [
+          {
+            "auth": []
+          }
+        ],
+        "consumes": [
+          "application/x-www-form-urlencoded"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "商拍换装 / 姿态复刻 / 图片生成"
+        ],
+        "summary": "重新存入素材库：付费成品转存素材库永久失败（library_status=failed）时重新转存；仅本人；已在转存中 / 已在素材库时幂等返回当前状态；同一子任务每分钟至多一次（否则 4002）；返回该任务（同 GET /tasks/:task_id，library_status 变为 pending），之后照常轮询",
+        "operationId": "studioRetryLibraryCopy",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "task_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
+                  "type": "integer",
+                  "example": 0
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "asset_id": {
+                      "description": "成品在素材库的资产 id（afv_asset.id），可直接调 POST /api/v1/asset-library/assets/{id}/versions；没入库 / 已从素材库删除为 0",
+                      "type": "integer"
+                    },
+                    "batch_id": {
+                      "type": "integer"
+                    },
+                    "color_fix_params": {
+                      "description": "已保存的校色参数；没保存过为 null",
+                      "type": "object",
+                      "required": [
+                        "hue",
+                        "saturation",
+                        "value",
+                        "brightness",
+                        "contrast"
+                      ],
+                      "properties": {
+                        "brightness": {
+                          "type": "integer"
+                        },
+                        "contrast": {
+                          "type": "integer"
+                        },
+                        "hue": {
+                          "type": "integer"
+                        },
+                        "saturation": {
+                          "type": "integer"
+                        },
+                        "value": {
+                          "type": "integer"
+                        }
+                      }
+                    },
+                    "created_at": {
+                      "type": "integer"
+                    },
+                    "error_reason": {
+                      "type": "string"
+                    },
+                    "finished_at": {
+                      "description": "0=未结束",
+                      "type": "integer"
+                    },
+                    "id": {
+                      "type": "integer"
+                    },
+                    "kind": {
+                      "type": "string"
+                    },
+                    "library_status": {
+                      "description": "只增（2026-11-11）：成品是否已在素材库。空=已在（或不适用：免费档水印视图 / 非成功）；pending=已交付可看可下载，后台转存素材库中，asset_id 可能仍为 0；failed=转存永久失败，仍可看可下载，但素材库里没有",
                       "type": "string"
                     },
                     "mask_parts": {
@@ -13623,7 +13980,8 @@
                           "mask_parts",
                           "warnings",
                           "prompt_text",
-                          "prompt_edited"
+                          "prompt_edited",
+                          "library_status"
                         ],
                         "properties": {
                           "asset_id": {
@@ -13675,6 +14033,10 @@
                             "type": "integer"
                           },
                           "kind": {
+                            "type": "string"
+                          },
+                          "library_status": {
+                            "description": "只增（2026-11-11）：成品是否已在素材库。空=已在（或不适用：免费档水印视图 / 非成功）；pending=已交付可看可下载，后台转存素材库中，asset_id 可能仍为 0；failed=转存永久失败，仍可看可下载，但素材库里没有",
                             "type": "string"
                           },
                           "mask_parts": {
@@ -13907,7 +14269,8 @@
                           "mask_parts",
                           "warnings",
                           "prompt_text",
-                          "prompt_edited"
+                          "prompt_edited",
+                          "library_status"
                         ],
                         "properties": {
                           "asset_id": {
@@ -13959,6 +14322,10 @@
                             "type": "integer"
                           },
                           "kind": {
+                            "type": "string"
+                          },
+                          "library_status": {
+                            "description": "只增（2026-11-11）：成品是否已在素材库。空=已在（或不适用：免费档水印视图 / 非成功）；pending=已交付可看可下载，后台转存素材库中，asset_id 可能仍为 0；failed=转存永久失败，仍可看可下载，但素材库里没有",
                             "type": "string"
                           },
                           "mask_parts": {
@@ -14585,7 +14952,7 @@
       "in": "header"
     }
   },
-  "x-date": "2026-11-10 17:25:30",
+  "x-date": "2026-11-11 17:42:44",
   "x-description": "This is a goctl generated swagger file.",
   "x-github": "https://github.com/zeromicro/go-zero",
   "x-go-zero-doc": "https://go-zero.dev/",

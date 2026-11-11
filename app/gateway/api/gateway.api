@@ -184,8 +184,8 @@ type (
 		Kind string `form:"kind,options=image|video"`
 	}
 	PresignUploadReq {
-		Kind        string `json:"kind,options=image|video"`
-		ContentType string `json:"content_type,optional"` // 文件类型，如 image/jpeg；PUT 时 Content-Type 必须与它完全一致。与 contentType 二选一
+		Kind             string `json:"kind,options=image|video"`
+		ContentType      string `json:"content_type,optional"` // 文件类型，如 image/jpeg；PUT 时 Content-Type 必须与它完全一致。与 contentType 二选一
 		ContentTypeCamel string `json:"contentType,optional"` // 同 content_type，与 Java 直传接口（DirectUploadReqVO）字段名一致；两者都给时以 content_type 为准
 	}
 	PresignUploadResp {
@@ -1288,6 +1288,10 @@ service gateway-api {
 	@handler updateTaskColorFix
 	patch /tasks/:task_id/color-fix (StudioTaskColorFixReq) returns (StudioTask)
 
+	@doc "重新存入素材库：付费成品转存素材库永久失败（library_status=failed）时重新转存；仅本人；已在转存中 / 已在素材库时幂等返回当前状态；同一子任务每分钟至多一次（否则 4002）；返回该任务（同 GET /tasks/:task_id，library_status 变为 pending），之后照常轮询"
+	@handler retryLibraryCopy
+	post /tasks/:task_id/library-retry (StudioTaskPath) returns (StudioTask)
+
 	@doc "历史（游标分页），含提交快照供回填"
 	@handler history
 	get /history (StudioHistoryReq) returns (StudioHistoryResp)
@@ -1826,6 +1830,10 @@ service gateway-api {
 	@doc "取消执行：gateway 退回点数并取消上游、studio 取消批次、Java 工具调 Java 取消接口（由 Java 退款；取消时已成功则交付；无有效登录态时退化为停止跟踪）"
 	@handler cancelRun
 	post /runs/:id/cancel (CanvasRunPath) returns (CanvasCancelResp)
+
+	@doc "重新存入素材库：成功 run 的产物转存素材库永久失败（library_status=failed）时重新转存；仅本人；已在转存中 / 已在素材库时幂等返回当前状态；同一 run 每分钟至多一次（否则 4002）；返回同 GET /runs/:id（library_status 变为 pending），之后照常轮询"
+	@handler retryLibraryCopy
+	post /runs/:id/library-retry (CanvasRunPath) returns (CanvasRunResult)
 
 	@doc "模型 / 参数 / 工具目录（替代前端写死）"
 	@handler catalog

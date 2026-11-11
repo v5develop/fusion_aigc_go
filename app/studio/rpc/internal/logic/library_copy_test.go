@@ -670,3 +670,26 @@ func TestDeliverPaidAsyncInvalidRIDCopiesNow(t *testing.T) {
 		t.Fatalf("copies=%v settles=%v", media.copies, bill.settles)
 	}
 }
+
+// 用户重试后 attempt 在下一代（1000 起）：本代次数从头算——第 1009 次是本代第 9 次，暂时失败照常退避，第 1010 次才永久失败。
+func TestRunCopyJobRoundCountsWithinEpochAfterUserRetry(t *testing.T) {
+	t.Run("first-round-of-new-epoch-retries", func(t *testing.T) {
+		f, mock, _, _, _ := asyncFlow(t)
+		f.media = &errMedia{errs: []error{&mediasvc.Error{Status: 503, Code: "busy"}}}
+		mock.ExpectQuery(qTask1).WillReturnRows(taskRowRef(model.TaskSucceeded, paidRef, 0))
+		mock.ExpectExec(qJobUpdate("attempt = attempt + 1", 1000)).WillReturnResult(ok1)
+		mock.ExpectExec(qJobUpdate("next_at = NOW(3) + INTERVAL 5 SECOND", 1001)).WillReturnResult(ok1)
+		f.runCopyJob(context.Background(), pendingJob(1000))
+		met(t, mock)
+	})
+	t.Run("exhausted-in-epoch", func(t *testing.T) {
+		f, mock, _, _, _ := asyncFlow(t)
+		f.media = &errMedia{errs: []error{errors.New("timeout")}}
+		mock.ExpectQuery(qTask1).WillReturnRows(taskRowRef(model.TaskSucceeded, paidRef, 0))
+		mock.ExpectExec(qJobUpdate("attempt = attempt + 1", 1009)).WillReturnResult(ok1)
+		mock.ExpectExec(qJobUpdate("status = 2, finished_at = NOW(3)", 1010)).WillReturnResult(ok1)
+		mock.ExpectQuery(qB9).WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "status"}).AddRow(9, 7, model.BatchDone))
+		f.runCopyJob(context.Background(), pendingJob(1009))
+		met(t, mock)
+	})
+}

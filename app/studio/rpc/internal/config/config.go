@@ -42,6 +42,8 @@ type Config struct {
 		ClaimSeconds int `json:",default=300"`
 		// SweepBatch 每轮扫描最多接手几行
 		SweepBatch int `json:",default=50"`
+		// RetryCooldownSeconds 用户「重新存入素材库」的冷却：转存任务进永久失败不足这么多秒时不允许再次重置（每子任务约每分钟至多一次）
+		RetryCooldownSeconds int `json:",default=60"`
 	}
 	// EntryCodes 三个入口码：计费 offer、素材库分类归属（Go_V1.0.21 seed）、任务中心 entry_code 三处同名
 	EntryCodes struct {

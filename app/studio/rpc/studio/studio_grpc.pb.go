@@ -32,6 +32,7 @@ const (
 	Studio_DeleteBatch_FullMethodName        = "/studio.Studio/DeleteBatch"
 	Studio_RetryTask_FullMethodName          = "/studio.Studio/RetryTask"
 	Studio_UpdateTaskColorFix_FullMethodName = "/studio.Studio/UpdateTaskColorFix"
+	Studio_RetryLibraryCopy_FullMethodName   = "/studio.Studio/RetryLibraryCopy"
 	Studio_SegmentMask_FullMethodName        = "/studio.Studio/SegmentMask"
 	Studio_DetectDetails_FullMethodName      = "/studio.Studio/DetectDetails"
 	Studio_RegenerateTask_FullMethodName     = "/studio.Studio/RegenerateTask"
@@ -83,6 +84,9 @@ type StudioClient interface {
 	RetryTask(ctx context.Context, in *RetryTaskReq, opts ...grpc.CallOption) (*BatchDetail, error)
 	// 保存子任务的校色参数（仅本人、仅成功的任务）：前端浏览器里烘图，服务端只存五个滑杆值；返回该子任务
 	UpdateTaskColorFix(ctx context.Context, in *UpdateTaskColorFixReq, opts ...grpc.CallOption) (*TaskInfo, error)
+	// 重新存入素材库：付费成品转存永久失败（library_status=failed）时把转存任务重置为待转存并立即执行；
+	// 仅本人；已在转存中 / 已在素材库时幂等返回当前状态；同一子任务每分钟至多重置一次。返回该子任务（library_status 变为 pending）
+	RetryLibraryCopy(ctx context.Context, in *GetTaskReq, opts ...grpc.CallOption) (*TaskInfo, error)
 	// 区域蒙版（局部校色，免费）：image_url 的 garment / product / person / background 区域 → 白色+软 alpha PNG（素材库桶公开地址）。
 	// 按（去查询串的地址, 区域）缓存，重复请求直接返回；地址须为本存储签发或素材库域名。没识别到 → 4001「没识别到对应区域」
 	SegmentMask(ctx context.Context, in *SegmentMaskReq, opts ...grpc.CallOption) (*SegmentMaskResp, error)
@@ -245,6 +249,16 @@ func (c *studioClient) UpdateTaskColorFix(ctx context.Context, in *UpdateTaskCol
 	return out, nil
 }
 
+func (c *studioClient) RetryLibraryCopy(ctx context.Context, in *GetTaskReq, opts ...grpc.CallOption) (*TaskInfo, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(TaskInfo)
+	err := c.cc.Invoke(ctx, Studio_RetryLibraryCopy_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *studioClient) SegmentMask(ctx context.Context, in *SegmentMaskReq, opts ...grpc.CallOption) (*SegmentMaskResp, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(SegmentMaskResp)
@@ -375,6 +389,9 @@ type StudioServer interface {
 	RetryTask(context.Context, *RetryTaskReq) (*BatchDetail, error)
 	// 保存子任务的校色参数（仅本人、仅成功的任务）：前端浏览器里烘图，服务端只存五个滑杆值；返回该子任务
 	UpdateTaskColorFix(context.Context, *UpdateTaskColorFixReq) (*TaskInfo, error)
+	// 重新存入素材库：付费成品转存永久失败（library_status=failed）时把转存任务重置为待转存并立即执行；
+	// 仅本人；已在转存中 / 已在素材库时幂等返回当前状态；同一子任务每分钟至多重置一次。返回该子任务（library_status 变为 pending）
+	RetryLibraryCopy(context.Context, *GetTaskReq) (*TaskInfo, error)
 	// 区域蒙版（局部校色，免费）：image_url 的 garment / product / person / background 区域 → 白色+软 alpha PNG（素材库桶公开地址）。
 	// 按（去查询串的地址, 区域）缓存，重复请求直接返回；地址须为本存储签发或素材库域名。没识别到 → 4001「没识别到对应区域」
 	SegmentMask(context.Context, *SegmentMaskReq) (*SegmentMaskResp, error)
@@ -445,6 +462,9 @@ func (UnimplementedStudioServer) RetryTask(context.Context, *RetryTaskReq) (*Bat
 }
 func (UnimplementedStudioServer) UpdateTaskColorFix(context.Context, *UpdateTaskColorFixReq) (*TaskInfo, error) {
 	return nil, status.Error(codes.Unimplemented, "method UpdateTaskColorFix not implemented")
+}
+func (UnimplementedStudioServer) RetryLibraryCopy(context.Context, *GetTaskReq) (*TaskInfo, error) {
+	return nil, status.Error(codes.Unimplemented, "method RetryLibraryCopy not implemented")
 }
 func (UnimplementedStudioServer) SegmentMask(context.Context, *SegmentMaskReq) (*SegmentMaskResp, error) {
 	return nil, status.Error(codes.Unimplemented, "method SegmentMask not implemented")
@@ -728,6 +748,24 @@ func _Studio_UpdateTaskColorFix_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Studio_RetryLibraryCopy_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetTaskReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(StudioServer).RetryLibraryCopy(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Studio_RetryLibraryCopy_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(StudioServer).RetryLibraryCopy(ctx, req.(*GetTaskReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Studio_SegmentMask_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(SegmentMaskReq)
 	if err := dec(in); err != nil {
@@ -948,6 +986,10 @@ var Studio_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "UpdateTaskColorFix",
 			Handler:    _Studio_UpdateTaskColorFix_Handler,
+		},
+		{
+			MethodName: "RetryLibraryCopy",
+			Handler:    _Studio_RetryLibraryCopy_Handler,
 		},
 		{
 			MethodName: "SegmentMask",

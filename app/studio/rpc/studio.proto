@@ -39,6 +39,9 @@ service Studio {
   rpc RetryTask(RetryTaskReq) returns (BatchDetail);
   // 保存子任务的校色参数（仅本人、仅成功的任务）：前端浏览器里烘图，服务端只存五个滑杆值；返回该子任务
   rpc UpdateTaskColorFix(UpdateTaskColorFixReq) returns (TaskInfo);
+  // 重新存入素材库：付费成品转存永久失败（library_status=failed）时把转存任务重置为待转存并立即执行；
+  // 仅本人；已在转存中 / 已在素材库时幂等返回当前状态；同一子任务每分钟至多重置一次。返回该子任务（library_status 变为 pending）
+  rpc RetryLibraryCopy(GetTaskReq) returns (TaskInfo);
   // 区域蒙版（局部校色，免费）：image_url 的 garment / product / person / background 区域 → 白色+软 alpha PNG（素材库桶公开地址）。
   // 按（去查询串的地址, 区域）缓存，重复请求直接返回；地址须为本存储签发或素材库域名。没识别到 → 4001「没识别到对应区域」
   rpc SegmentMask(SegmentMaskReq) returns (SegmentMaskResp);

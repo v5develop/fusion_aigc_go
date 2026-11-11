@@ -229,6 +229,12 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 					Handler: canvas.CancelRunHandler(serverCtx),
 				},
 				{
+					// 重新存入素材库：成功 run 的产物转存素材库永久失败（library_status=failed）时重新转存；仅本人；已在转存中 / 已在素材库时幂等返回当前状态；同一 run 每分钟至多一次（否则 4002）；返回同 GET /runs/:id（library_status 变为 pending），之后照常轮询
+					Method:  http.MethodPost,
+					Path:    "/runs/:id/library-retry",
+					Handler: canvas.RetryLibraryCopyHandler(serverCtx),
+				},
+				{
 					// 模板列表（official / user / all）
 					Method:  http.MethodGet,
 					Path:    "/templates",
@@ -716,6 +722,12 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 					Method:  http.MethodPatch,
 					Path:    "/tasks/:task_id/color-fix",
 					Handler: studio.UpdateTaskColorFixHandler(serverCtx),
+				},
+				{
+					// 重新存入素材库：付费成品转存素材库永久失败（library_status=failed）时重新转存；仅本人；已在转存中 / 已在素材库时幂等返回当前状态；同一子任务每分钟至多一次（否则 4002）；返回该任务（同 GET /tasks/:task_id，library_status 变为 pending），之后照常轮询
+					Method:  http.MethodPost,
+					Path:    "/tasks/:task_id/library-retry",
+					Handler: studio.RetryLibraryCopyHandler(serverCtx),
 				},
 				{
 					// 编辑提示词后重新生成单张（仅姿态复刻、仅本人；失败或成功的都可以）：用改过的提示词重跑这张图的生图一步，计费同重试（重新冻结 1 张点数）；同一提示词重复提交幂等；返回批次详情（同 GET /batches/:id）

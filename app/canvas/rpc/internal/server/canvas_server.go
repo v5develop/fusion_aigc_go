@@ -83,6 +83,12 @@ func (s *CanvasServer) SelectCandidate(ctx context.Context, in *canvas.SelectCan
 	return l.SelectCandidate(in)
 }
 
+// 重新存入素材库：成功 run 的产物转存永久失败（library_status=failed）时把转存任务重置为待转存并立即执行；
+func (s *CanvasServer) RetryLibraryCopy(ctx context.Context, in *canvas.RunIdReq) (*canvas.RunResult, error) {
+	l := logic.NewRetryLibraryCopyLogic(ctx, s.svcCtx)
+	return l.RetryLibraryCopy(in)
+}
+
 // ---- 目录 ----
 func (s *CanvasServer) Catalog(ctx context.Context, in *canvas.CatalogReq) (*canvas.CatalogResp, error) {
 	l := logic.NewCatalogLogic(ctx, s.svcCtx)

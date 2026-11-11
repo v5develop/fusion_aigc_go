@@ -101,6 +101,12 @@ func (s *StudioServer) UpdateTaskColorFix(ctx context.Context, in *studio.Update
 	return l.UpdateTaskColorFix(in)
 }
 
+// 重新存入素材库：付费成品转存永久失败（library_status=failed）时把转存任务重置为待转存并立即执行；
+func (s *StudioServer) RetryLibraryCopy(ctx context.Context, in *studio.GetTaskReq) (*studio.TaskInfo, error) {
+	l := logic.NewRetryLibraryCopyLogic(ctx, s.svcCtx)
+	return l.RetryLibraryCopy(in)
+}
+
 // 区域蒙版（局部校色，免费）：image_url 的 garment / product / person / background 区域 → 白色+软 alpha PNG（素材库桶公开地址）。
 func (s *StudioServer) SegmentMask(ctx context.Context, in *studio.SegmentMaskReq) (*studio.SegmentMaskResp, error) {
 	l := logic.NewSegmentMaskLogic(ctx, s.svcCtx)

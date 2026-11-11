@@ -93,6 +93,8 @@ type (
 		RetryTask(ctx context.Context, in *RetryTaskReq, opts ...grpc.CallOption) (*BatchDetail, error)
 		// 保存子任务的校色参数（仅本人、仅成功的任务）：前端浏览器里烘图，服务端只存五个滑杆值；返回该子任务
 		UpdateTaskColorFix(ctx context.Context, in *UpdateTaskColorFixReq, opts ...grpc.CallOption) (*TaskInfo, error)
+		// 重新存入素材库：付费成品转存永久失败（library_status=failed）时把转存任务重置为待转存并立即执行；
+		RetryLibraryCopy(ctx context.Context, in *GetTaskReq, opts ...grpc.CallOption) (*TaskInfo, error)
 		// 区域蒙版（局部校色，免费）：image_url 的 garment / product / person / background 区域 → 白色+软 alpha PNG（素材库桶公开地址）。
 		SegmentMask(ctx context.Context, in *SegmentMaskReq, opts ...grpc.CallOption) (*SegmentMaskResp, error)
 		// 商拍「AI 找细节」（免费、不建任务）：对服装图跑 sidecar crop-plan，回每张图的细节框（归一化 [x,y,w,h]）与部位名，
@@ -200,6 +202,12 @@ func (m *defaultStudio) RetryTask(ctx context.Context, in *RetryTaskReq, opts ..
 func (m *defaultStudio) UpdateTaskColorFix(ctx context.Context, in *UpdateTaskColorFixReq, opts ...grpc.CallOption) (*TaskInfo, error) {
 	client := studio.NewStudioClient(m.cli.Conn())
 	return client.UpdateTaskColorFix(ctx, in, opts...)
+}
+
+// 重新存入素材库：付费成品转存永久失败（library_status=failed）时把转存任务重置为待转存并立即执行；
+func (m *defaultStudio) RetryLibraryCopy(ctx context.Context, in *GetTaskReq, opts ...grpc.CallOption) (*TaskInfo, error) {
+	client := studio.NewStudioClient(m.cli.Conn())
+	return client.RetryLibraryCopy(ctx, in, opts...)
 }
 
 // 区域蒙版（局部校色，免费）：image_url 的 garment / product / person / background 区域 → 白色+软 alpha PNG（素材库桶公开地址）。

@@ -371,7 +371,7 @@ func (c *core) copyBackoff(attempt int32) int {
 
 func (c *core) copyMaxAttempts() int32 {
 	if n := c.s.Config.Library.MaxAttempts; n > 0 {
-		return int32(n)
+		return min(int32(n), repo.CopyAttemptEpoch-1) // 一代内的次数不能跨过代际步长
 	}
 	return 10
 }
@@ -405,18 +405,18 @@ func (c *core) runCopyJob(ctx context.Context, j *model.CopyJob) {
 		}
 		copyJobs.Inc(result)
 	}
+	round := repo.CopyRound(attempt) // 本代第几次（用户重试后 attempt 跳到下一个整千，见 repo.CopyAttemptEpoch）
 	retry := func(err error) {
-		if attempt >= c.copyMaxAttempts() {
+		if round >= c.copyMaxAttempts() {
 			c.copyGiveUp(wctx, j, attempt, err)
-			finish(model.CopyFailed, errText(err), "failed")
 			return
 		}
-		delay := c.copyBackoff(attempt)
+		delay := c.copyBackoff(round)
 		if werr := c.s.Repo.CopyJob.Retry(wctx, j.ID, attempt, delay, errText(err)); werr != nil {
 			log.Errorf("canvas: 转存任务 %d（run %d）写重试失败: %v", j.ID, j.RunPK, werr)
 		}
 		copyJobs.Inc("retry")
-		log.Infof("canvas: run %d 转存素材库暂时失败（第 %d 次），%d 秒后重试: %v", j.RunPK, attempt, delay, err)
+		log.Infof("canvas: run %d 转存素材库暂时失败（第 %d 次），%d 秒后重试: %v", j.RunPK, round, delay, err)
 	}
 	run, err := c.s.Repo.Run.Get(ctx, j.RunPK)
 	if err != nil {
@@ -466,9 +466,7 @@ func (c *core) runCopyJob(ctx context.Context, j *model.CopyJob) {
 				if jobs[i].video {
 					what = "视频"
 				}
-				err := fmt.Errorf("%s转存失败: %w", what, e)
-				c.copyGiveUp(wctx, j, attempt, err)
-				finish(model.CopyFailed, errText(err), "failed")
+				c.copyGiveUp(wctx, j, attempt, fmt.Errorf("%s转存失败: %w", what, e))
 				return
 			}
 			retry(e)
@@ -499,13 +497,22 @@ func (c *core) runCopyJob(ctx context.Context, j *model.CopyJob) {
 	copyLag.Observe(time.Since(j.CreatedAt).Milliseconds(), string(run.Kind))
 }
 
-// copyGiveUp 永久失败：成功 run 上打标记（library_status=failed），产物仍是 mr://，照常可看可下载。
+// copyGiveUp 永久失败：outbox 行进终态与成功 run 打标记（library_status=failed）同一事务、以本轮认领 CAS（认领已被接手的
+// 旧持有者什么都不写，见 repo.FailWithRunMark）；产物仍是 mr://，照常可看可下载。
 func (c *core) copyGiveUp(ctx context.Context, j *model.CopyJob, attempt int32, err error) {
-	if merr := c.s.Repo.Run.MarkCopyFailed(ctx, j.RunPK); merr != nil {
-		logx.WithContext(ctx).Errorf("canvas: run %d 写转存失败标记出错: %v", j.RunPK, merr)
+	log := logx.WithContext(ctx)
+	won, ferr := c.s.Repo.FailWithRunMark(ctx, j.ID, j.RunPK, attempt, errText(err))
+	if ferr != nil {
+		log.Errorf("canvas: 转存任务 %d（run %d）写永久失败出错（认领到期后重做，幂等）: %v", j.ID, j.RunPK, ferr)
+		return
 	}
-	logx.WithContext(ctx).Errorw(fmt.Sprintf("canvas: run %d 产物转存素材库永久失败（第 %d 次），产物仍以私有引用可看可下载，未进素材库 (check=%s)",
-		j.RunPK, attempt, copyFailedCheck), logx.Field("task_id", j.TaskID), logx.Field("user_id", j.UserID), logx.Field("err", errText(err)))
+	if !won {
+		log.Infof("canvas: 转存任务 %d（run %d）认领已被接手，本轮不写永久失败", j.ID, j.RunPK)
+		return
+	}
+	copyJobs.Inc("failed")
+	log.Errorw(fmt.Sprintf("canvas: run %d 产物转存素材库永久失败（第 %d 次），产物仍以私有引用可看可下载，未进素材库 (check=%s)",
+		j.RunPK, repo.CopyRound(attempt), copyFailedCheck), logx.Field("task_id", j.TaskID), logx.Field("user_id", j.UserID), logx.Field("err", errText(err)))
 }
 
 func errText(err error) string {

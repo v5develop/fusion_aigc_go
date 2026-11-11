@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"aigc-local-life/app/studio/model"
@@ -50,11 +51,19 @@ type Poller struct {
 	svcCtx *svc.ServiceContext
 	cancel context.CancelFunc
 	done   chan struct{}
+	// cp 转存池（Start 里建好后发布）：svc.KickCopy 经它把请求路径上的转存交给池；还没启动时为 nil，等扫描接手
+	cp atomic.Pointer[copier]
 }
 
 func NewPoller(svcCtx *svc.ServiceContext) *Poller {
 	logFreeWatermark(svcCtx.Config.FreeWatermark)
-	return &Poller{f: newFlow(svcCtx), svcCtx: svcCtx, done: make(chan struct{})}
+	p := &Poller{f: newFlow(svcCtx), svcCtx: svcCtx, done: make(chan struct{})}
+	svcCtx.KickCopy = func(taskPK int64) {
+		if cp := p.cp.Load(); cp != nil {
+			cp.Kick(taskPK)
+		}
+	}
+	return p
 }
 
 func (p *Poller) Start() {
@@ -70,6 +79,7 @@ func (p *Poller) Start() {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	p.f.cp = newCopier(ctx, p.f) // 在第一轮 tick 之前挂上：之后起的协程只读
+	p.cp.Store(p.f.cp)
 	logx.Info("studio poller started")
 	for {
 		p.f.tick(ctx)

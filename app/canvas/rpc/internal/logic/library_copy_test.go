@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"aigc-local-life/app/canvas/model"
+	"aigc-local-life/app/canvas/rpc/internal/repo"
 	"aigc-local-life/pkg/asset"
 	"aigc-local-life/pkg/billing"
 	"aigc-local-life/pkg/mediasvc"
@@ -263,10 +264,13 @@ func TestCopyJobPermanentFailureKeepsOutputVisible(t *testing.T) {
 	cands := refCands(srcRID0)
 	mock.ExpectExec("UPDATE `afv_canvas_copy_job` SET attempt = attempt \\+ 1").WillReturnResult(sqlmock.NewResult(0, 1))
 	expectRunRow(mock, model.RunSucceeded, "image", cands, nil, 0)
-	mock.ExpectExec("UPDATE `afv_canvas_node_run` SET error_code = 'LIBRARY_COPY_FAILED' WHERE \\(id = 5\\) AND \\(status = 2\\)").
-		WillReturnResult(sqlmock.NewResult(0, 1))
+	// 终态与失败标记同一事务、终态先写（attempt CAS 抢到才打标记）
+	mock.ExpectBegin()
 	mock.ExpectExec("UPDATE `afv_canvas_copy_job` SET status = 2, finished_at = NOW\\(3\\), last_error = .* AND \\(attempt = 1\\)").
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("UPDATE `afv_canvas_node_run` SET error_code = 'LIBRARY_COPY_FAILED' WHERE \\(id = 5\\) AND \\(status = 2\\)").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
 	c.runCopyJob(context.Background(), copyJob(0)) // c.s.Billing 为 nil：任何动账都会 panic
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
@@ -286,8 +290,10 @@ func TestCopyJobGivesUpAfterMaxAttempts(t *testing.T) {
 	lm.failAll = 500
 	mock.ExpectExec("UPDATE `afv_canvas_copy_job` SET attempt = attempt \\+ 1.* AND \\(attempt = 2\\)").WillReturnResult(sqlmock.NewResult(0, 1))
 	expectRunRow(mock, model.RunSucceeded, "image", refCands(srcRID0), nil, 0)
-	mock.ExpectExec("UPDATE `afv_canvas_node_run` SET error_code = 'LIBRARY_COPY_FAILED'").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectBegin()
 	mock.ExpectExec("UPDATE `afv_canvas_copy_job` SET status = 2").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("UPDATE `afv_canvas_node_run` SET error_code = 'LIBRARY_COPY_FAILED'").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
 	c.runCopyJob(context.Background(), copyJob(2))
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
@@ -502,5 +508,50 @@ func TestLibraryStatusAndRefs(t *testing.T) {
 	}
 	if mimeExt("image/jpeg", false) != "jpg" || mimeExt("", true) != "mp4" || mimeExt("", false) != "png" || refExtOf("mr://x.webp") != "webp" {
 		t.Fatal("扩展名映射不对")
+	}
+}
+
+// 用户重试后 attempt 在下一代（1000 起）：本代次数从头算，MaxAttempts 按 attempt%1000 判，不会一失败就永久失败；
+// 退避也按本代次数取。
+func TestCopyJobRoundCountsWithinEpochAfterUserRetry(t *testing.T) {
+	c, mock, lm, _ := asyncCore(t)
+	c.s.Config.Library.MaxAttempts = 3
+	c.s.Config.Library.BackoffSeconds = []int{7, 70, 700}
+	lm.failAll = 500
+	mock.ExpectExec("UPDATE `afv_canvas_copy_job` SET attempt = attempt \\+ 1.* AND \\(attempt = 1000\\)").WillReturnResult(sqlmock.NewResult(0, 1))
+	expectRunRow(mock, model.RunSucceeded, "image", refCands(srcRID0), nil, 0)
+	mock.ExpectExec("UPDATE `afv_canvas_copy_job` SET next_at = NOW\\(3\\) \\+ INTERVAL 7 SECOND.* AND \\(attempt = 1001\\)").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	c.runCopyJob(context.Background(), copyJob(1000))
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// 认领已丢的旧持有者遇到永久失败：终态 CAS 落空 → 事务里不打 run 标记（旧做法先打标记，会让在跑的新一轮显示 failed）。
+func TestCopyJobStaleHolderGiveUpWritesNothing(t *testing.T) {
+	c, mock, lm, _ := asyncCore(t)
+	lm.failAll = 404
+	mock.ExpectExec("UPDATE `afv_canvas_copy_job` SET attempt = attempt \\+ 1").WillReturnResult(sqlmock.NewResult(0, 1))
+	expectRunRow(mock, model.RunSucceeded, "image", refCands(srcRID0), nil, 0)
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE `afv_canvas_copy_job` SET status = 2").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectCommit()
+	c.runCopyJob(context.Background(), copyJob(0))
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCopyRoundAndMaxAttemptsClamp(t *testing.T) {
+	for in, want := range map[int32]int32{0: 0, 1: 1, 10: 10, 1000: 0, 1001: 1, 2003: 3} {
+		if got := repo.CopyRound(in); got != want {
+			t.Errorf("CopyRound(%d) = %d, want %d", in, got, want)
+		}
+	}
+	c, _ := mockCore(t)
+	c.s.Config.Library.MaxAttempts = 5000
+	if got := c.copyMaxAttempts(); got != repo.CopyAttemptEpoch-1 {
+		t.Errorf("copyMaxAttempts = %d, want clamp to %d", got, repo.CopyAttemptEpoch-1)
 	}
 }

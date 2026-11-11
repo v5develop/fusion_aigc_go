@@ -4436,8 +4436,7 @@ const file_studio_proto_rawDesc = "" +
 	"\x06points\x18\x06 \x01(\x03R\x06points\"b\n" +
 	"\x14AdminCostSummaryResp\x12#\n" +
 	"\x04rows\x18\x01 \x03(\v2\x0f.studio.CostRowR\x04rows\x12%\n" +
-	"\x05total\x18\x02 \x01(\v2\x0f.studio.CostRowR\x05total2\xcd\n" +
-	"\n" +
+	"\x05total\x18\x02 \x01(\v2\x0f.studio.CostRowR\x05total2\x87\v\n" +
 	"\x06Studio\x129\n" +
 	"\vSubmitTryon\x12\x16.studio.SubmitTryonReq\x1a\x12.studio.SubmitResp\x127\n" +
 	"\n" +
@@ -4452,7 +4451,8 @@ const file_studio_proto_rawDesc = "" +
 	"\vCancelBatch\x12\x14.studio.BatchUserReq\x1a\x17.studio.CancelBatchResp\x122\n" +
 	"\vDeleteBatch\x12\x14.studio.BatchUserReq\x1a\r.studio.Empty\x126\n" +
 	"\tRetryTask\x12\x14.studio.RetryTaskReq\x1a\x13.studio.BatchDetail\x12E\n" +
-	"\x12UpdateTaskColorFix\x12\x1d.studio.UpdateTaskColorFixReq\x1a\x10.studio.TaskInfo\x12>\n" +
+	"\x12UpdateTaskColorFix\x12\x1d.studio.UpdateTaskColorFixReq\x1a\x10.studio.TaskInfo\x128\n" +
+	"\x10RetryLibraryCopy\x12\x12.studio.GetTaskReq\x1a\x10.studio.TaskInfo\x12>\n" +
 	"\vSegmentMask\x12\x16.studio.SegmentMaskReq\x1a\x17.studio.SegmentMaskResp\x12D\n" +
 	"\rDetectDetails\x12\x18.studio.DetectDetailsReq\x1a\x19.studio.DetectDetailsResp\x12@\n" +
 	"\x0eRegenerateTask\x12\x19.studio.RegenerateTaskReq\x1a\x13.studio.BatchDetail\x12M\n" +
@@ -4580,39 +4580,41 @@ var file_studio_proto_depIdxs = []int32{
 	31, // 43: studio.Studio.DeleteBatch:input_type -> studio.BatchUserReq
 	21, // 44: studio.Studio.RetryTask:input_type -> studio.RetryTaskReq
 	23, // 45: studio.Studio.UpdateTaskColorFix:input_type -> studio.UpdateTaskColorFixReq
-	24, // 46: studio.Studio.SegmentMask:input_type -> studio.SegmentMaskReq
-	27, // 47: studio.Studio.DetectDetails:input_type -> studio.DetectDetailsReq
-	30, // 48: studio.Studio.RegenerateTask:input_type -> studio.RegenerateTaskReq
-	39, // 49: studio.Studio.AdminListBatches:input_type -> studio.AdminListBatchesReq
-	42, // 50: studio.Studio.AdminGetBatch:input_type -> studio.AdminGetBatchReq
-	45, // 51: studio.Studio.AdminRetryTask:input_type -> studio.AdminTaskReq
-	45, // 52: studio.Studio.AdminForceFail:input_type -> studio.AdminTaskReq
-	0,  // 53: studio.Studio.AdminSidecarStatus:input_type -> studio.Empty
-	48, // 54: studio.Studio.AdminCostSummary:input_type -> studio.AdminCostSummaryReq
-	12, // 55: studio.Studio.SubmitTryon:output_type -> studio.SubmitResp
-	12, // 56: studio.Studio.SubmitPose:output_type -> studio.SubmitResp
-	12, // 57: studio.Studio.SubmitImageGen:output_type -> studio.SubmitResp
-	10, // 58: studio.Studio.PreviewPose:output_type -> studio.PreviewPoseResp
-	14, // 59: studio.Studio.Quote:output_type -> studio.QuoteResp
-	18, // 60: studio.Studio.Models:output_type -> studio.ModelsResp
-	34, // 61: studio.Studio.GetBatch:output_type -> studio.BatchDetail
-	33, // 62: studio.Studio.GetTask:output_type -> studio.TaskInfo
-	36, // 63: studio.Studio.ListHistory:output_type -> studio.ListHistoryResp
-	37, // 64: studio.Studio.CancelBatch:output_type -> studio.CancelBatchResp
-	0,  // 65: studio.Studio.DeleteBatch:output_type -> studio.Empty
-	34, // 66: studio.Studio.RetryTask:output_type -> studio.BatchDetail
-	33, // 67: studio.Studio.UpdateTaskColorFix:output_type -> studio.TaskInfo
-	26, // 68: studio.Studio.SegmentMask:output_type -> studio.SegmentMaskResp
-	29, // 69: studio.Studio.DetectDetails:output_type -> studio.DetectDetailsResp
-	34, // 70: studio.Studio.RegenerateTask:output_type -> studio.BatchDetail
-	41, // 71: studio.Studio.AdminListBatches:output_type -> studio.AdminListBatchesResp
-	44, // 72: studio.Studio.AdminGetBatch:output_type -> studio.AdminBatchDetail
-	0,  // 73: studio.Studio.AdminRetryTask:output_type -> studio.Empty
-	0,  // 74: studio.Studio.AdminForceFail:output_type -> studio.Empty
-	47, // 75: studio.Studio.AdminSidecarStatus:output_type -> studio.SidecarStatusResp
-	50, // 76: studio.Studio.AdminCostSummary:output_type -> studio.AdminCostSummaryResp
-	55, // [55:77] is the sub-list for method output_type
-	33, // [33:55] is the sub-list for method input_type
+	20, // 46: studio.Studio.RetryLibraryCopy:input_type -> studio.GetTaskReq
+	24, // 47: studio.Studio.SegmentMask:input_type -> studio.SegmentMaskReq
+	27, // 48: studio.Studio.DetectDetails:input_type -> studio.DetectDetailsReq
+	30, // 49: studio.Studio.RegenerateTask:input_type -> studio.RegenerateTaskReq
+	39, // 50: studio.Studio.AdminListBatches:input_type -> studio.AdminListBatchesReq
+	42, // 51: studio.Studio.AdminGetBatch:input_type -> studio.AdminGetBatchReq
+	45, // 52: studio.Studio.AdminRetryTask:input_type -> studio.AdminTaskReq
+	45, // 53: studio.Studio.AdminForceFail:input_type -> studio.AdminTaskReq
+	0,  // 54: studio.Studio.AdminSidecarStatus:input_type -> studio.Empty
+	48, // 55: studio.Studio.AdminCostSummary:input_type -> studio.AdminCostSummaryReq
+	12, // 56: studio.Studio.SubmitTryon:output_type -> studio.SubmitResp
+	12, // 57: studio.Studio.SubmitPose:output_type -> studio.SubmitResp
+	12, // 58: studio.Studio.SubmitImageGen:output_type -> studio.SubmitResp
+	10, // 59: studio.Studio.PreviewPose:output_type -> studio.PreviewPoseResp
+	14, // 60: studio.Studio.Quote:output_type -> studio.QuoteResp
+	18, // 61: studio.Studio.Models:output_type -> studio.ModelsResp
+	34, // 62: studio.Studio.GetBatch:output_type -> studio.BatchDetail
+	33, // 63: studio.Studio.GetTask:output_type -> studio.TaskInfo
+	36, // 64: studio.Studio.ListHistory:output_type -> studio.ListHistoryResp
+	37, // 65: studio.Studio.CancelBatch:output_type -> studio.CancelBatchResp
+	0,  // 66: studio.Studio.DeleteBatch:output_type -> studio.Empty
+	34, // 67: studio.Studio.RetryTask:output_type -> studio.BatchDetail
+	33, // 68: studio.Studio.UpdateTaskColorFix:output_type -> studio.TaskInfo
+	33, // 69: studio.Studio.RetryLibraryCopy:output_type -> studio.TaskInfo
+	26, // 70: studio.Studio.SegmentMask:output_type -> studio.SegmentMaskResp
+	29, // 71: studio.Studio.DetectDetails:output_type -> studio.DetectDetailsResp
+	34, // 72: studio.Studio.RegenerateTask:output_type -> studio.BatchDetail
+	41, // 73: studio.Studio.AdminListBatches:output_type -> studio.AdminListBatchesResp
+	44, // 74: studio.Studio.AdminGetBatch:output_type -> studio.AdminBatchDetail
+	0,  // 75: studio.Studio.AdminRetryTask:output_type -> studio.Empty
+	0,  // 76: studio.Studio.AdminForceFail:output_type -> studio.Empty
+	47, // 77: studio.Studio.AdminSidecarStatus:output_type -> studio.SidecarStatusResp
+	50, // 78: studio.Studio.AdminCostSummary:output_type -> studio.AdminCostSummaryResp
+	56, // [56:79] is the sub-list for method output_type
+	33, // [33:56] is the sub-list for method input_type
 	33, // [33:33] is the sub-list for extension type_name
 	33, // [33:33] is the sub-list for extension extendee
 	0,  // [0:33] is the sub-list for field type_name

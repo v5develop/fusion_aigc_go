@@ -51,6 +51,7 @@ Java 工具（放大 / 扩图 / 局部重绘）的取消：通过 Java 现有取
 | `POST /canvas/canvases/{id}/nodes/{node_id}/select-candidate` | 选中候选（写回服务端，刷新后保持） |
 | `GET /canvas/runs/{id}` | 查询一次执行 |
 | `POST /canvas/runs/{id}/cancel` | 取消执行 |
+| `POST /canvas/runs/{id}/library-retry` | 重新存入素材库（产物转存素材库失败时，只增 2026-11-11，见 3.4.3） |
 | `GET /canvas/catalog` | 模型 / 参数目录（替代前端写死） |
 | `GET /canvas/templates` | 画布模板列表（不含快照） |
 | `GET /canvas/templates/{id}` | 模板详情（含快照） |
@@ -541,6 +542,35 @@ GET /api/v1/canvas/canvases/{id}/runs?node_id=m_1&limit=50
 | `CANCELED` | 已取消 | 否 |
 | `ADMIN_FORCE_FAIL` | 运营强制失败 | 是 |
 
+### 3.4.3 重新存入素材库（只增，2026-11-11）
+
+```
+POST /api/v1/canvas/runs/{request_id}/library-retry
+```
+
+无请求体。用在 `library_status=failed` 的成功 run 上：后台转存素材库已经永久失败（重试多轮仍失败，或媒体服务返回 4xx），用户手动再试一次。服务端把这个 run 的转存任务重置为待转存（重试次数从头算），并立即开始转存。**不冻结、不扣点**，点数结算不受影响。
+
+成功时返回的结构与 3.3 `GET /runs/{request_id}` 相同，此时 `library_status=pending`：
+
+```json
+{"code": 0, "msg": "ok", "data": {"request_id": "r_5521", "status": "succeeded", "library_status": "pending", "candidates": [ … ], …}}
+```
+
+| 情况 | 结果 |
+|---|---|
+| `library_status=failed` | 重置并开始转存，返回 `library_status=pending` |
+| 已在转存中（`pending`）或已在素材库（空），或 run 不是 `succeeded` | **幂等**：不做任何改动，按当前状态返回（`code=0`） |
+| 同一个 run 距上次转存失败不到 1 分钟（服务端配置 `Library.RetryCooldownSeconds`，默认 60 秒） | `code=4002`，`msg`「操作太频繁，请稍后再试（每分钟最多一次）」 |
+| run 不存在、不属于当前用户或已删除 | `code=4001` |
+| 转存记录已经作废，或这个 run 无法再转存 | `code=4002`，展示 `msg` |
+
+前端：
+
+- 只在 `library_status == "failed"` 时，在该 run 的产物（节点结果区 / 候选菜单）上显示「重新存入素材库」按钮，其它取值都不要显示。
+- 点击后按钮进入加载态，请求成功后按返回的 `library_status`（一般是 `pending`）更新界面，然后按 3.3 低频（例如每 3 秒）轮询 `GET /runs/{request_id}`，直到 `library_status` 变空（已入素材库，地址也会换成素材库的长期地址）或再次变成 `failed`。
+- 收到 `4002` 就展示 `msg`，按钮保持可点击，用户稍后可以再试。
+- 重复点击、多个标签页同时点都是安全的：服务端只会重置一次。
+
 ### 3.5 终态与回填
 
 run 到终态后，服务端把结果写回**画布快照里的该节点**（下一次 `GET /canvases/{id}` 就能看到；`status` 在节点 data 里的取值是 `done` / `error`，和 run 的 `succeeded` / `failed` 对应，见第 7 章）。前端本地也可以继续按原型方式，拿到 run 终态就更新节点，两者结果一致。
@@ -940,6 +970,7 @@ DELETE /api/v1/prompt-library/prompts/{id}
 | `POST /api/workflows/{wf}/nodes/{node}/run` | `POST /api/v1/canvas/canvases/{id}/nodes/{node_id}/run` |
 | `GET /api/runs/{requestId}` | `GET /api/v1/canvas/runs/{request_id}` |
 | `POST /api/runs/{requestId}/cancel` | `POST /api/v1/canvas/runs/{request_id}/cancel` |
+| （无，新增） | `POST /api/v1/canvas/runs/{request_id}/library-retry`（3.4.3） |
 | `POST /api/uploads`（multipart） | 直传 OSS（`api-app.md`），不再走此接口 |
 | 写死的模型表 / 假价 | `GET /api/v1/canvas/catalog` |
 | 写死的 3 个模板 | `GET /api/v1/canvas/templates` |

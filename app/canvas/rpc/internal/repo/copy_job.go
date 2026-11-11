@@ -75,3 +75,45 @@ func (r *CopyJobRepo) Finish(ctx context.Context, id int64, attempt int32, statu
 	n, err := affected(q.Where("id = ?", id).Where("status = ?", model.CopyPending).Where("attempt = ?", attempt).Exec(ctx))
 	return n > 0, err
 }
+
+// CopyAttemptEpoch 用户重试转存时 attempt 跳到的代际步长：ResetFailed 把 attempt 推到下一个整千（1000、2000…），
+// 而不是清零。认领超时被接手的旧持有者手里还拿着旧 attempt，若重置为 0、新一轮又数回同一个值，旧持有者的
+// Renew / Finish / 换地址会重新「对上号」与新持有者并行写（素材可能入两条）；attempt 只增不减就永远对不上。
+// 本代第几次尝试用 CopyRound 取（attempt % 1000），退避与 MaxAttempts 都按它算。
+const CopyAttemptEpoch int32 = 1000
+
+// CopyRound 本代第几次尝试（1 起；未认领为 0）。
+func CopyRound(attempt int32) int32 { return attempt % CopyAttemptEpoch }
+
+// ResetFailed 用户重试转存：永久失败的行重置为待转存（attempt 推到下一代 = 下一个整千、next_at=NOW(3) 立即可被认领、
+// finished_at 清空；last_error 保留供排障）。冷却：上次进终态（finished_at）不足 cooldownSec 秒的不重置——每次重置至少要
+// 跑完一轮才可能再失败，所以同一 run 至多约每 cooldownSec 秒重置一次。返回是否改到（false = 不是永久失败 / 冷却中 /
+// 并发的另一次已重置）。attempt 只增不减：旧代的持有者（认领超时后仍在跑的协程）写入一律落空，见 CopyAttemptEpoch。
+func (r *CopyJobRepo) ResetFailed(ctx context.Context, id int64, cooldownSec int) (bool, error) {
+	n, err := affected(r.db.NewUpdate().Table(TableCopyJob).
+		Set("status = ?", model.CopyPending).Set("attempt = (attempt DIV ? + 1) * ?", CopyAttemptEpoch, CopyAttemptEpoch).
+		Set("next_at = NOW(3)").Set("finished_at = NULL").
+		Where("id = ?", id).Where("status = ?", model.CopyFailed).
+		Where("(finished_at IS NULL OR finished_at <= NOW(3) - INTERVAL ? SECOND)", cooldownSec).Exec(ctx))
+	return n > 0, err
+}
+
+// FailWithRunMark 永久失败：outbox 行进终态（attempt CAS，只有本轮持有者写得到）与成功 run 打转存失败标记
+// （library_status=failed）在同一事务里。返回是否写到（false = 认领已被接手 / 已进终态，什么都没改）。
+// 二者同生同灭：旧做法先打标记再写终态，认领已丢的旧持有者也会把标记打上，而用户重试看到「行在转存中 + 有标记」
+// 只清标记，若随后持有者写了终态，就会留下「行已永久失败、run 显示转存中」且再也无法重试的状态。
+func (r *Repo) FailWithRunMark(ctx context.Context, jobID, runPK int64, attempt int32, reason string) (bool, error) {
+	won := false
+	err := r.RunInTx(ctx, func(ctx context.Context, tx *Repo) error {
+		ok, err := tx.CopyJob.Finish(ctx, jobID, attempt, model.CopyFailed, reason)
+		if err != nil || !ok {
+			return err
+		}
+		if err := tx.Run.MarkCopyFailed(ctx, runPK); err != nil {
+			return err
+		}
+		won = true
+		return nil
+	})
+	return won && err == nil, err
+}

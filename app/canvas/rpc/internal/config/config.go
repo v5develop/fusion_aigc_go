@@ -107,6 +107,8 @@ type Config struct {
 		ClaimSeconds int `json:",default=300"`
 		// SweepBatch 每轮扫描最多接手几行
 		SweepBatch int `json:",default=50"`
+		// RetryCooldownSeconds 用户「重新存入素材库」的冷却：转存任务进永久失败不足这么多秒时不允许再次重置（每 run 约每分钟至多一次）
+		RetryCooldownSeconds int `json:",default=60"`
 	}
 	// Timeouts 各类 run 的总时限（秒），超时置失败（gateway 后端退款并取消调用；studio 取消批次；Java 调取消接口由 Java 退款，无有效登录态时退化为停止跟踪）
 	//

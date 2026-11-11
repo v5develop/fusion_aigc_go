@@ -53,6 +53,9 @@ type ServiceContext struct {
 	Audit *auditdb.Queries
 	// Tier 免费 / 付费分层（与 Java UserTierService 同一判据，读共享库 afv_points_batch / afv_system_config）
 	Tier *usertier.Resolver
+	// KickCopy 把子任务的待转存 outbox 行立即交给本进程的转存池（Poller 启动时挂上；nil、池未就绪或名额满时等扫描接手）。
+	// 用户「重新存入素材库」重置 outbox 后调用。
+	KickCopy func(taskPK int64)
 }
 
 func NewServiceContext(c config.Config) *ServiceContext {

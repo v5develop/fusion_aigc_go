@@ -28,6 +28,9 @@ service Canvas {
   rpc ListRuns(ListRunsReq) returns (ListRunsResp);
   // 选中候选：写回 run.selected_index（GET 画布回填 selectedCandidate 以它为准）
   rpc SelectCandidate(SelectCandidateReq) returns (RunResult);
+  // 重新存入素材库：成功 run 的产物转存永久失败（library_status=failed）时把转存任务重置为待转存并立即执行；
+  // 仅本人；已在转存中 / 已在素材库时幂等返回当前状态；同一 run 每分钟至多重置一次。返回 run（library_status 变为 pending）
+  rpc RetryLibraryCopy(RunIdReq) returns (RunResult);
 
   // ---- 目录 ----
   rpc Catalog(CatalogReq) returns (CatalogResp);

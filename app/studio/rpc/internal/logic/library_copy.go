@@ -166,7 +166,7 @@ func (f *flow) copyBackoff(attempt int32) int {
 
 func (f *flow) copyMaxAttempts() int32 {
 	if n := f.cfg.Library.MaxAttempts; n > 0 {
-		return int32(n)
+		return min(int32(n), repo.CopyAttemptEpoch-1) // 一代内的次数不能跨过代际步长
 	}
 	return 10
 }
@@ -282,6 +282,7 @@ func (f *flow) runCopyJob(ctx context.Context, j *model.CopyJob) {
 		return
 	}
 	attempt := j.Attempt + 1
+	round := repo.CopyRound(attempt) // 本代第几次（用户重试后 attempt 跳到下一个整千，见 repo.CopyAttemptEpoch）
 	finish := func(status int8, why, result string) bool {
 		ok, err := f.repo.CopyJob.Finish(wctx, j.ID, attempt, status, why)
 		if err != nil {
@@ -296,7 +297,7 @@ func (f *flow) runCopyJob(ctx context.Context, j *model.CopyJob) {
 	giveUp := func(err error) {
 		if finish(model.CopyFailed, copyErrText(err), "failed") {
 			log.Errorw(fmt.Sprintf("studio: 子任务 %d 成品转存素材库永久失败（第 %d 次），成品仍以私有引用可看可下载，未进素材库 (check=%s)",
-				j.TaskPK, attempt, copyFailedCheck), logx.Field("task_id", j.TaskID), logx.Field("user_id", j.UserID), logx.Field("err", copyErrText(err)))
+				j.TaskPK, round, copyFailedCheck), logx.Field("task_id", j.TaskID), logx.Field("user_id", j.UserID), logx.Field("err", copyErrText(err)))
 			// 蒙版是成功后的可选步骤：转存不成也照补（maskSourceURL 给网关签一条干净短期地址）
 			f.maskAfterCopy(wctx, t, j.Ref)
 		}
@@ -309,16 +310,16 @@ func (f *flow) runCopyJob(ctx context.Context, j *model.CopyJob) {
 			}
 			return
 		}
-		if attempt >= f.copyMaxAttempts() {
+		if round >= f.copyMaxAttempts() {
 			giveUp(err)
 			return
 		}
-		delay := f.copyBackoff(attempt)
+		delay := f.copyBackoff(round)
 		if werr := f.repo.CopyJob.Retry(wctx, j.ID, attempt, delay, copyErrText(err)); werr != nil {
 			log.Errorf("studio: 转存任务 %d（子任务 %d）写重试失败: %v", j.ID, j.TaskPK, werr)
 		}
 		copyJobs.Inc("retry")
-		log.Infof("studio: 子任务 %d 转存素材库暂时失败（第 %d 次），%d 秒后重试: %v", j.TaskPK, attempt, delay, err)
+		log.Infof("studio: 子任务 %d 转存素材库暂时失败（第 %d 次），%d 秒后重试: %v", j.TaskPK, round, delay, err)
 	}
 	// 写素材库 / 换地址之前确认本轮认领还在（并续期）：复制耗时超过认领时长、已被别的实例接手时，旧持有者不再写
 	stillMine := func() bool {

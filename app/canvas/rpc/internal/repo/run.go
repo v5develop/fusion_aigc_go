@@ -288,6 +288,13 @@ func (r *RunRepo) MarkCopyFailed(ctx context.Context, id int64) error {
 	return err
 }
 
+// ClearCopyFailed 用户重试转存：去掉成功 run 上的转存失败标记（library_status 回到 pending）。与 CopyJob.ResetFailed 同事务。
+func (r *RunRepo) ClearCopyFailed(ctx context.Context, id int64) error {
+	_, err := r.db.NewUpdate().Table(TableRun).Set("error_code = NULL").
+		Where("id = ?", id).Where("status = ?", model.RunSucceeded).Where("error_code = ?", model.CopyFailedCode).Exec(ctx)
+	return err
+}
+
 func nullJSON(b json.RawMessage) any {
 	if len(b) == 0 {
 		return nil

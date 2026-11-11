@@ -115,3 +115,30 @@ func (r *TaskRepo) SwapLibraryRef(ctx context.Context, id int64, oldRef, rid, ur
 		Where("id = ?", id).Where("status = ?", model.TaskSucceeded).Where("result_url = ?", oldRef).Exec(ctx))
 	return n > 0, err
 }
+
+// LatestByRef 子任务当前成品引用对应的 outbox 行（ref 相同的最新一行；没有返回 nil, nil）。
+func (r *CopyJobRepo) LatestByRef(ctx context.Context, taskPK int64, ref string) (*model.CopyJob, error) {
+	x := new(model.CopyJob)
+	return noRows(x, r.db.NewSelect().Model(x).Where("j.task_pk = ?", taskPK).Where("j.ref = ?", ref).
+		OrderExpr("j.id DESC").Limit(1).Scan(ctx))
+}
+
+// CopyAttemptEpoch 用户重试转存时 attempt 跳到的代际步长：ResetFailed 把 attempt 推到下一个整千（1000、2000…）而不是清零。
+// 认领超时被接手的旧持有者手里还拿着旧 attempt，若重置为 0、新一轮又数回同一个值，旧持有者的 Renew / Finish / 换地址会重新
+// 「对上号」与新持有者并行写（素材可能入两条）；attempt 只增不减就永远对不上。本代第几次用 CopyRound 取，退避与 MaxAttempts 按它算。
+const CopyAttemptEpoch int32 = 1000
+
+// CopyRound 本代第几次尝试（1 起；未认领为 0）。
+func CopyRound(attempt int32) int32 { return attempt % CopyAttemptEpoch }
+
+// ResetFailed 用户重试转存：永久失败 / 作废的行重置为待转存（attempt 推到下一代 = 下一个整千、next_at=NOW(3) 立即可被认领、
+// finished_at 清空；last_error 保留供排障）。调用方须已确认子任务仍是成功态、成品仍是本行的 ref（作废的行只有这种情况才会展示为 failed）。
+// 冷却：上次进终态不足 cooldownSec 秒的不重置。返回是否改到（false = 不是终态失败 / 冷却中 / 并发的另一次已重置）。
+func (r *CopyJobRepo) ResetFailed(ctx context.Context, id int64, cooldownSec int) (bool, error) {
+	n, err := affected(r.db.NewUpdate().Table(TableCopyJob).
+		Set("status = ?", model.CopyPending).Set("attempt = (attempt DIV ? + 1) * ?", CopyAttemptEpoch, CopyAttemptEpoch).
+		Set("next_at = NOW(3)").Set("finished_at = NULL").
+		Where("id = ?", id).Where("status IN (?, ?)", model.CopyFailed, model.CopyVoid).
+		Where("(finished_at IS NULL OR finished_at <= NOW(3) - INTERVAL ? SECOND)", cooldownSec).Exec(ctx))
+	return n > 0, err
+}

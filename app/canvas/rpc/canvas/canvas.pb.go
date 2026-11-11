@@ -4435,7 +4435,7 @@ const file_canvas_proto_rawDesc = "" +
 	"\bcost_cny\x18\x06 \x01(\tR\acostCny\x12\x16\n" +
 	"\x06points\x18\a \x01(\x03R\x06points\";\n" +
 	"\x14AdminCostSummaryResp\x12#\n" +
-	"\x04rows\x18\x01 \x03(\v2\x0f.canvas.CostRowR\x04rows2\x8e\x0f\n" +
+	"\x04rows\x18\x01 \x03(\v2\x0f.canvas.CostRowR\x04rows2\xc7\x0f\n" +
 	"\x06Canvas\x12A\n" +
 	"\fListCanvases\x12\x17.canvas.ListCanvasesReq\x1a\x18.canvas.ListCanvasesResp\x12:\n" +
 	"\fCreateCanvas\x12\x17.canvas.CreateCanvasReq\x1a\x11.canvas.CanvasDoc\x123\n" +
@@ -4448,7 +4448,8 @@ const file_canvas_proto_rawDesc = "" +
 	"\x06GetRun\x12\x10.canvas.RunIdReq\x1a\x11.canvas.RunResult\x120\n" +
 	"\tCancelRun\x12\x10.canvas.RunIdReq\x1a\x11.canvas.RunResult\x125\n" +
 	"\bListRuns\x12\x13.canvas.ListRunsReq\x1a\x14.canvas.ListRunsResp\x12@\n" +
-	"\x0fSelectCandidate\x12\x1a.canvas.SelectCandidateReq\x1a\x11.canvas.RunResult\x122\n" +
+	"\x0fSelectCandidate\x12\x1a.canvas.SelectCandidateReq\x1a\x11.canvas.RunResult\x127\n" +
+	"\x10RetryLibraryCopy\x12\x10.canvas.RunIdReq\x1a\x11.canvas.RunResult\x122\n" +
 	"\aCatalog\x12\x12.canvas.CatalogReq\x1a\x13.canvas.CatalogResp\x12D\n" +
 	"\rListTemplates\x12\x18.canvas.ListTemplatesReq\x1a\x19.canvas.ListTemplatesResp\x12:\n" +
 	"\vGetTemplate\x12\x15.canvas.TemplateIdReq\x1a\x14.canvas.TemplateInfo\x12U\n" +
@@ -4563,57 +4564,59 @@ var file_canvas_proto_depIdxs = []int32{
 	16, // 24: canvas.Canvas.CancelRun:input_type -> canvas.RunIdReq
 	18, // 25: canvas.Canvas.ListRuns:input_type -> canvas.ListRunsReq
 	17, // 26: canvas.Canvas.SelectCandidate:input_type -> canvas.SelectCandidateReq
-	20, // 27: canvas.Canvas.Catalog:input_type -> canvas.CatalogReq
-	26, // 28: canvas.Canvas.ListTemplates:input_type -> canvas.ListTemplatesReq
-	28, // 29: canvas.Canvas.GetTemplate:input_type -> canvas.TemplateIdReq
-	29, // 30: canvas.Canvas.CreateTemplateFromCanvas:input_type -> canvas.CreateTemplateFromCanvasReq
-	30, // 31: canvas.Canvas.CreateCanvasFromTemplate:input_type -> canvas.CreateCanvasFromTemplateReq
-	28, // 32: canvas.Canvas.DeleteTemplate:input_type -> canvas.TemplateIdReq
-	32, // 33: canvas.Canvas.ListPrompts:input_type -> canvas.ListPromptsReq
-	34, // 34: canvas.Canvas.CreatePrompt:input_type -> canvas.UpsertPromptReq
-	34, // 35: canvas.Canvas.UpdatePrompt:input_type -> canvas.UpsertPromptReq
-	35, // 36: canvas.Canvas.DeletePrompt:input_type -> canvas.PromptIdReq
-	36, // 37: canvas.Canvas.AdminListRuns:input_type -> canvas.AdminListRunsReq
-	39, // 38: canvas.Canvas.AdminForceFailRun:input_type -> canvas.AdminRunReq
-	40, // 39: canvas.Canvas.AdminListTemplates:input_type -> canvas.AdminListTemplatesReq
-	42, // 40: canvas.Canvas.AdminUpsertOfficialTemplate:input_type -> canvas.AdminUpsertTemplateReq
-	43, // 41: canvas.Canvas.AdminToggleTemplate:input_type -> canvas.AdminToggleReq
-	44, // 42: canvas.Canvas.AdminListPrompts:input_type -> canvas.AdminListPromptsReq
-	46, // 43: canvas.Canvas.AdminUpsertOfficialPrompt:input_type -> canvas.AdminUpsertPromptReq
-	43, // 44: canvas.Canvas.AdminTogglePrompt:input_type -> canvas.AdminToggleReq
-	47, // 45: canvas.Canvas.AdminCostSummary:input_type -> canvas.AdminCostSummaryReq
-	3,  // 46: canvas.Canvas.ListCanvases:output_type -> canvas.ListCanvasesResp
-	5,  // 47: canvas.Canvas.CreateCanvas:output_type -> canvas.CanvasDoc
-	5,  // 48: canvas.Canvas.GetCanvas:output_type -> canvas.CanvasDoc
-	8,  // 49: canvas.Canvas.SaveCanvas:output_type -> canvas.SaveCanvasResp
-	0,  // 50: canvas.Canvas.DeleteCanvas:output_type -> canvas.Empty
-	5,  // 51: canvas.Canvas.SaveAsCanvas:output_type -> canvas.CanvasDoc
-	13, // 52: canvas.Canvas.RunNode:output_type -> canvas.RunNodeResp
-	15, // 53: canvas.Canvas.GetRun:output_type -> canvas.RunResult
-	15, // 54: canvas.Canvas.CancelRun:output_type -> canvas.RunResult
-	19, // 55: canvas.Canvas.ListRuns:output_type -> canvas.ListRunsResp
-	15, // 56: canvas.Canvas.SelectCandidate:output_type -> canvas.RunResult
-	24, // 57: canvas.Canvas.Catalog:output_type -> canvas.CatalogResp
-	27, // 58: canvas.Canvas.ListTemplates:output_type -> canvas.ListTemplatesResp
-	25, // 59: canvas.Canvas.GetTemplate:output_type -> canvas.TemplateInfo
-	25, // 60: canvas.Canvas.CreateTemplateFromCanvas:output_type -> canvas.TemplateInfo
-	5,  // 61: canvas.Canvas.CreateCanvasFromTemplate:output_type -> canvas.CanvasDoc
-	0,  // 62: canvas.Canvas.DeleteTemplate:output_type -> canvas.Empty
-	33, // 63: canvas.Canvas.ListPrompts:output_type -> canvas.ListPromptsResp
-	31, // 64: canvas.Canvas.CreatePrompt:output_type -> canvas.PromptItem
-	31, // 65: canvas.Canvas.UpdatePrompt:output_type -> canvas.PromptItem
-	0,  // 66: canvas.Canvas.DeletePrompt:output_type -> canvas.Empty
-	38, // 67: canvas.Canvas.AdminListRuns:output_type -> canvas.AdminListRunsResp
-	0,  // 68: canvas.Canvas.AdminForceFailRun:output_type -> canvas.Empty
-	41, // 69: canvas.Canvas.AdminListTemplates:output_type -> canvas.AdminListTemplatesResp
-	25, // 70: canvas.Canvas.AdminUpsertOfficialTemplate:output_type -> canvas.TemplateInfo
-	0,  // 71: canvas.Canvas.AdminToggleTemplate:output_type -> canvas.Empty
-	45, // 72: canvas.Canvas.AdminListPrompts:output_type -> canvas.AdminListPromptsResp
-	31, // 73: canvas.Canvas.AdminUpsertOfficialPrompt:output_type -> canvas.PromptItem
-	0,  // 74: canvas.Canvas.AdminTogglePrompt:output_type -> canvas.Empty
-	49, // 75: canvas.Canvas.AdminCostSummary:output_type -> canvas.AdminCostSummaryResp
-	46, // [46:76] is the sub-list for method output_type
-	16, // [16:46] is the sub-list for method input_type
+	16, // 27: canvas.Canvas.RetryLibraryCopy:input_type -> canvas.RunIdReq
+	20, // 28: canvas.Canvas.Catalog:input_type -> canvas.CatalogReq
+	26, // 29: canvas.Canvas.ListTemplates:input_type -> canvas.ListTemplatesReq
+	28, // 30: canvas.Canvas.GetTemplate:input_type -> canvas.TemplateIdReq
+	29, // 31: canvas.Canvas.CreateTemplateFromCanvas:input_type -> canvas.CreateTemplateFromCanvasReq
+	30, // 32: canvas.Canvas.CreateCanvasFromTemplate:input_type -> canvas.CreateCanvasFromTemplateReq
+	28, // 33: canvas.Canvas.DeleteTemplate:input_type -> canvas.TemplateIdReq
+	32, // 34: canvas.Canvas.ListPrompts:input_type -> canvas.ListPromptsReq
+	34, // 35: canvas.Canvas.CreatePrompt:input_type -> canvas.UpsertPromptReq
+	34, // 36: canvas.Canvas.UpdatePrompt:input_type -> canvas.UpsertPromptReq
+	35, // 37: canvas.Canvas.DeletePrompt:input_type -> canvas.PromptIdReq
+	36, // 38: canvas.Canvas.AdminListRuns:input_type -> canvas.AdminListRunsReq
+	39, // 39: canvas.Canvas.AdminForceFailRun:input_type -> canvas.AdminRunReq
+	40, // 40: canvas.Canvas.AdminListTemplates:input_type -> canvas.AdminListTemplatesReq
+	42, // 41: canvas.Canvas.AdminUpsertOfficialTemplate:input_type -> canvas.AdminUpsertTemplateReq
+	43, // 42: canvas.Canvas.AdminToggleTemplate:input_type -> canvas.AdminToggleReq
+	44, // 43: canvas.Canvas.AdminListPrompts:input_type -> canvas.AdminListPromptsReq
+	46, // 44: canvas.Canvas.AdminUpsertOfficialPrompt:input_type -> canvas.AdminUpsertPromptReq
+	43, // 45: canvas.Canvas.AdminTogglePrompt:input_type -> canvas.AdminToggleReq
+	47, // 46: canvas.Canvas.AdminCostSummary:input_type -> canvas.AdminCostSummaryReq
+	3,  // 47: canvas.Canvas.ListCanvases:output_type -> canvas.ListCanvasesResp
+	5,  // 48: canvas.Canvas.CreateCanvas:output_type -> canvas.CanvasDoc
+	5,  // 49: canvas.Canvas.GetCanvas:output_type -> canvas.CanvasDoc
+	8,  // 50: canvas.Canvas.SaveCanvas:output_type -> canvas.SaveCanvasResp
+	0,  // 51: canvas.Canvas.DeleteCanvas:output_type -> canvas.Empty
+	5,  // 52: canvas.Canvas.SaveAsCanvas:output_type -> canvas.CanvasDoc
+	13, // 53: canvas.Canvas.RunNode:output_type -> canvas.RunNodeResp
+	15, // 54: canvas.Canvas.GetRun:output_type -> canvas.RunResult
+	15, // 55: canvas.Canvas.CancelRun:output_type -> canvas.RunResult
+	19, // 56: canvas.Canvas.ListRuns:output_type -> canvas.ListRunsResp
+	15, // 57: canvas.Canvas.SelectCandidate:output_type -> canvas.RunResult
+	15, // 58: canvas.Canvas.RetryLibraryCopy:output_type -> canvas.RunResult
+	24, // 59: canvas.Canvas.Catalog:output_type -> canvas.CatalogResp
+	27, // 60: canvas.Canvas.ListTemplates:output_type -> canvas.ListTemplatesResp
+	25, // 61: canvas.Canvas.GetTemplate:output_type -> canvas.TemplateInfo
+	25, // 62: canvas.Canvas.CreateTemplateFromCanvas:output_type -> canvas.TemplateInfo
+	5,  // 63: canvas.Canvas.CreateCanvasFromTemplate:output_type -> canvas.CanvasDoc
+	0,  // 64: canvas.Canvas.DeleteTemplate:output_type -> canvas.Empty
+	33, // 65: canvas.Canvas.ListPrompts:output_type -> canvas.ListPromptsResp
+	31, // 66: canvas.Canvas.CreatePrompt:output_type -> canvas.PromptItem
+	31, // 67: canvas.Canvas.UpdatePrompt:output_type -> canvas.PromptItem
+	0,  // 68: canvas.Canvas.DeletePrompt:output_type -> canvas.Empty
+	38, // 69: canvas.Canvas.AdminListRuns:output_type -> canvas.AdminListRunsResp
+	0,  // 70: canvas.Canvas.AdminForceFailRun:output_type -> canvas.Empty
+	41, // 71: canvas.Canvas.AdminListTemplates:output_type -> canvas.AdminListTemplatesResp
+	25, // 72: canvas.Canvas.AdminUpsertOfficialTemplate:output_type -> canvas.TemplateInfo
+	0,  // 73: canvas.Canvas.AdminToggleTemplate:output_type -> canvas.Empty
+	45, // 74: canvas.Canvas.AdminListPrompts:output_type -> canvas.AdminListPromptsResp
+	31, // 75: canvas.Canvas.AdminUpsertOfficialPrompt:output_type -> canvas.PromptItem
+	0,  // 76: canvas.Canvas.AdminTogglePrompt:output_type -> canvas.Empty
+	49, // 77: canvas.Canvas.AdminCostSummary:output_type -> canvas.AdminCostSummaryResp
+	47, // [47:78] is the sub-list for method output_type
+	16, // [16:47] is the sub-list for method input_type
 	16, // [16:16] is the sub-list for extension type_name
 	16, // [16:16] is the sub-list for extension extendee
 	0,  // [0:16] is the sub-list for field type_name
