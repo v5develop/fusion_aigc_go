@@ -581,6 +581,7 @@ Idempotency-Key: <UUID>
 | `warnings` | 给用户看的提示（中文、不含供应商 / 网关原文，直接展示在结果卡上）：读图降级「读图失败，已改用文字信息生成」/「读图失败，已按模板生成提示词，建议检查服装图后重试」、品类不符「参考图看起来是针织毛衣，与所选「文胸」不一致，请确认品类」（多件组合：「参考图里没有找齐所选的「上衣、下装」（识别为…），请确认品类或补齐服装图」）、参考图截断（6.4）、姿态配对回退「人物数量与预览时不一致，已按默认配对生成」；没有为 `[]` |
 | `batch.warnings` | 本批各任务 `warnings` 去重合并，批次级提示条用；没有为 `[]` |
 | `asset_id` | 成品在素材库的资产 id（成功的任务入库后才有，没入库 / 已从素材库删除为 0），见 5.7 |
+| `library_status` | **只增（2026-11-11）**，仅成功（`status=2`）时可能有值，不认识 / 缺省按空处理。空 = 成品已在素材库（或不适用：免费档水印视图）；`pending` = 已交付、可看可下载，后台正在转存素材库（通常几秒内完成），此时 `result_url` 是短期签名地址、`asset_id` 可能还是 0；`failed` = 转存素材库永久失败，成品**仍可看可下载**，但素材库里没有这条（`asset_id` 恒为 0）。见 4.6 |
 | `color_fix_params` | 已保存的校色参数，没保存过为 `null`，见 5.7 |
 | `mask_url` | 服装蒙版（白色 + 软 alpha 的 PNG，公开地址），商拍换装 / 姿态复刻成品成功后异步补；空 = 没有，见 5.8 |
 | `batch.cover_url` | 批次封面，历史列表缩略图用（免费档同 `result_url`，是带水印的短期签名地址） |
@@ -596,6 +597,22 @@ Idempotency-Key: <UUID>
 - **付费后**：studio-rpc 每 `FreeWatermark.PromoteMinutes`（默认 10 分钟）扫描一次 `result_url LIKE 'mrw://%'` 且用户已付过钱的子任务，把私有原件复制到公有素材库桶，先改素材库行、再按旧值 CAS 改子任务的 `result_rid / result_url`；任务中心随 `updated_at` 同步。之后该用户的历史成品与素材库都是无水印原图。私有原件不删除（与 Java 不同，Java 转存后会删）。
 - **配置**（`deploy/etc/studio-rpc.yaml` `FreeWatermark`）：`Enabled`（默认 false，= Java `FREE_WATERMARK_ENABLED`）、`Process`（= Java `FREE_WATERMARK_OSS_PROCESS` / 启动日志 `check=free_watermark.process` 的值，assetlib 与 canvas 的 `FreeWatermark.Process` 也必须相同，由同一个 `FREE_WATERMARK_OSS_PROCESS` 一次写入三处）、`SignedTTLSeconds`（600）、`UserTierDefault` / `DisplayWatermarkDefault`（true，DB 没配开关时的默认）、`PromoteMinutes`（10，≤0 关闭）、`CleanupEnabled`（默认 false）/ `RetentionDays`（90）/ `CleanupMinutes`（60）为未付费原件到期清理。服务器上由 `deploy.env` 的 `FREE_WATERMARK_ENABLED` / `FREE_WATERMARK_OSS_PROCESS` 经 mkconf 写入。
 
+
+### 4.6 付费成品先交付、后进素材库（2026-11-11，只增）
+
+付费用户（及未开免费水印时的所有用户）的成品原先要先从网关私有桶复制到素材库公有桶（媒体服务 `resources/copy`，单张通常 1–3 秒，大图更久）、写素材库，之后才置成功；现在这一步移到置成功之后的后台执行，**出图到 `status=2` 少等这几秒**。免费档（4.5，`mrw://` 水印视图）不变。
+
+- **交付**：成品以私有引用 `mr://{rid}.{ext}` 进交付中，同一事务落一行转存 outbox（`afv_studio_copy_job`，`Go_V1.0.30`）→ 确认扣点（只扣一次，与转存无关）→ 置成功。此后轮询即可看到成品：`result_url` 是**短期签名地址**（与免费档同一套现签，默认 10 分钟，每次查询现签，不要缓存或持久化），`library_status=pending`。
+- **后台转存**：置成功后本进程立即转存（进程崩溃 / 名额满时由扫描接手）：复制到素材库公有桶 → 写素材库（`afv_asset` 只写公有地址）→ 按旧值 CAS 把 `result_url` 换成公有长期地址。完成后 `library_status` 变空、`asset_id` 有值。服装蒙版 `mask_url` 也在转存完成后用公有地址补（比之前晚几秒）。
+- **失败**：暂时失败按 5、15、30、60、120、300、600、1800 秒退避重试，超过 10 轮或媒体服务返回 4xx → `library_status=failed`：成品仍以短期签名地址可看可下载，只是不在素材库；不退点（成品已交付）。运营告警 `check=studio.library_copy_failed`。
+- **前端怎么处理**：
+  1. `library_status=pending` 时照常展示 / 下载 `result_url`；「存为素材库版本」（5.7）等依赖 `asset_id` 的按钮置灰或显示「入库中」，**继续按原节奏轮询批次**（批次到终态后也可以对这张图再轮询几次 `GET /tasks/:task_id`），直到 `library_status` 变空且 `asset_id > 0`。
+  2. `library_status=failed` 时隐藏依赖 `asset_id` 的入口（或提示「未能存入素材库」），其余照常。
+  3. 不认识的值按空处理；老版本前端不看这个字段也不会出错（`asset_id=0` 本来就不能调用 5.7）。
+  4. `pending` 期间 `result_url` 是私有桶签名地址：拿它当下一次生成的输入照常可用（服务端按签名反查归属，与免费档一致）；调 `POST /masks` 的限制与 4.5 相同。
+- **转存完成前删除批次**：转存作废，该图不再进素材库（同步转存时代删除批次不影响素材库，这一点不同）。
+- **开关**：`deploy/etc/studio-rpc.yaml` `Library.AsyncCopy`（默认 true）；关掉或 `Go_V1.0.30` 还没执行（落 outbox 失败）时自动退回同步转存，行为与原来一致，上线顺序无要求。
+- **任务中心**：`mr://` 期间同步到任务中心的也是 `mr://`，由 Java 任务中心现签（与画布同口径），转存完成后随 `updated_at` 同步成公有地址。
 ---
 
 ## 5. 查询、轮询、历史、取消、删除
@@ -688,6 +705,7 @@ GET /api/v1/studio/batches/:id
 | `warnings` | string[] | 给用户看的提示（读图降级 / 品类不符 / 参考图截断 / 配对回退），见 4.4；没有为 `[]` |
 | `prompt_text` | string | 实际送生图的完整提示词（姿态 / 商拍），见 4.4 |
 | `prompt_edited` | bool | 提示词经用户编辑后重新生成过 |
+| `library_status` | string | **只增（2026-11-11）**：`""` / `pending` / `failed`，含义见 4.4、4.6 |
 
 `batch` 另有 `warnings`（string[]）：各任务 `warnings` 去重合并。
 
@@ -860,6 +878,7 @@ DELETE /api/v1/studio/batches/:id
 2. **存成素材库版本**：成功的任务带 `asset_id`（该成品在素材库的资产）。前端把烘好的 PNG 先用 Go 上传（`goUploadImage`，地址须为本服务签发），再调资产库已有接口
    `POST /api/v1/asset-library/assets/{asset_id}/versions`（`{"image_url": "…", "params": "{\"color_fix\":{…}}"}`，见 `api-asset-library.md`）追加「校色后」版本。
    归属校验与素材库一致：资产须是本人、未删除；studio 成品入库时 `user_id` 就是提交人，所以本人的 `asset_id` 都能追加版本。`asset_id` 为 0 时（刚成功还没入库 / 已从素材库删除）不要调用。
+   `library_status=pending`（4.6，付费成品正在后台入库）时 `asset_id` 可能还是 0：按钮显示「入库中」并继续轮询，变成非 0 再调用；`failed` 时不会再有 `asset_id`。
 3. **保存参数（可选）**：
 
 ```

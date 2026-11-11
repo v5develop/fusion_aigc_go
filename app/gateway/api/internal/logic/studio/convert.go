@@ -57,6 +57,7 @@ func toTask(t *studio_client.TaskInfo) types.StudioTask {
 		AssetId: t.AssetId, ColorFixParams: toColorFix(t.ColorFixParams), MaskUrl: t.MaskUrl,
 		MaskParts: toMaskParts(t.MaskParts),
 		Warnings:  orEmpty(t.Warnings), PromptText: t.PromptText, PromptEdited: t.PromptEdited,
+		LibraryStatus: t.LibraryStatus,
 	}
 }
 

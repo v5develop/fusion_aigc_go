@@ -28,6 +28,12 @@ Storage:                # 须与网关一致
 Asset:
   Enabled: true
   Type: image
+Library:
+  AsyncCopy: true        # 付费成品先以私有引用 mr:// 进交付中、结算、置成功、对用户可见，转存素材库 + 入库在后台（outbox afv_studio_copy_job，Go_V1.0.30）；false 回到同步转存
+  Workers: 8             # 本进程同时执行的转存任务数
+  MaxAttempts: 10        # 超过记永久失败（成品仍可看可下载，library_status=failed，告警 check=studio.library_copy_failed）
+  ClaimSeconds: 300      # 认领一轮的时长，执行方崩溃后最多这么久由扫描接手
+  SweepBatch: 50
 EntryCodes:
   Tryon: studio_tryon
   Pose: studio_pose

@@ -300,7 +300,8 @@ func (f *flow) resumeDeliver(ctx context.Context, t *model.Task, b *model.Batch,
 }
 
 // deliver 成功：转存素材库桶 → CAS 生成中→交付中（抢交付锁，同时写成品）→ 结算（返回 nil 才交付）
-// → CAS 交付中→成功（写成本）→ 入素材库。交付中的任务不会被强制失败 / 超时失败改掉，结算后不会出现「已扣费却失败」。
+// → 入素材库 → CAS 交付中→成功（写成本）。付费档开 Library.AsyncCopy 时不在这里转存：成品以 mr:// 进交付中并同事务落 outbox，
+// 置成功后后台转存、入素材库、换公开地址（library_copy.go）；免费档写 mrw:// 水印视图，不转存。交付中的任务不会被强制失败 / 超时失败改掉，结算后不会出现「已扣费却失败」。
 func (f *flow) deliver(ctx context.Context, t *model.Task, b *model.Batch, call *aigateway.Call, started time.Time) {
 	f.deliverCall(ctx, t, b, call, started, false)
 }
@@ -313,6 +314,7 @@ func (f *flow) deliverCall(ctx context.Context, t *model.Task, b *model.Batch, c
 		return
 	}
 	var res mediasvc.Resource
+	async := false
 	if t.Status == model.TaskDelivering && t.ResultURL.Valid && t.ResultURL.String != "" {
 		res = mediasvc.Resource{RID: t.ResultRid.String, URL: t.ResultURL.String, Width: int(t.ResultWidth), Height: int(t.ResultHeight)}
 	} else if f.watermarkDelivery(ctx, b.UserID) {
@@ -321,28 +323,14 @@ func (f *flow) deliverCall(ctx context.Context, t *model.Task, b *model.Batch, c
 		res = mediasvc.Resource{RID: outs[0].RID, URL: watermarkRef(outs[0].RID, firstMediaMime(call))}
 		log.Infow("studio deliver: free tier, watermark view (check=studio_free_watermark.deliver)",
 			logx.Field("task_id", t.TaskID.String), logx.Field("user_id", b.UserID))
+	} else if t.Status == model.TaskRunning && f.asyncCopyOn(t) && mediasvc.ValidRID(outs[0].RID) {
+		// 付费档先交付：成品以私有引用 mr:// 进交付中（读时现签），转存素材库移到后台（library_copy.go）。
+		// rid 不合法时拼不成可签的引用（读侧会签成空、Java 也解析不了），这一张走同步转存
+		res = mediasvc.Resource{RID: outs[0].RID, URL: mrRef(outs[0].RID, firstMediaMime(call))}
+		async = true
 	} else {
-		giveUp := overdue || f.now().Sub(started) > f.generateTimeout()+transferGrace
-		if f.media == nil {
-			log.Errorf("studio: 子任务 %d 已出图，但媒体服务未配置，无法转存", t.ID)
-			if giveUp {
-				f.failTask(ctx, t, b, reasonTransfer, true, call.Status)
-			}
-			return
-		}
-		var err error
-		res, err = f.media.CopyToLibrary(ctx, outs[0].RID, mediasvc.PurposeAssetLibrary, "")
-		if err == nil && res.URL == "" {
-			err = &mediasvc.Error{Status: 422, Code: "no_public_url", Message: "素材库桶没有公开地址"}
-		}
-		if err != nil {
-			var me *mediasvc.Error
-			if (errors.As(err, &me) && me.Permanent()) || giveUp {
-				log.Errorf("studio: 子任务 %d 转存失败，放弃: %v", t.ID, err)
-				f.failTask(ctx, t, b, reasonTransfer, true, call.Status)
-				return
-			}
-			log.Errorf("studio: 子任务 %d 转存失败，下一轮重试: %v", t.ID, err)
+		var ok bool
+		if res, ok = f.copyNow(ctx, t, b, call, outs[0].RID, started, overdue); !ok {
 			return
 		}
 	}
@@ -351,9 +339,31 @@ func (f *flow) deliverCall(ctx context.Context, t *model.Task, b *model.Batch, c
 	}
 	// 交付锁：抢到 生成中→交付中 才结算；没抢到说明已被强制失败 / 超时失败 / 别处处理
 	if t.Status == model.TaskRunning {
-		ok, err := f.repo.Task.TransitStatus(ctx, t.ID, model.TaskRunning, model.TaskDelivering, map[string]any{
+		set := map[string]any{
 			"result_rid": res.RID, "result_url": res.URL, "result_width": res.Width, "result_height": res.Height, "gateway_status": call.Status,
-		})
+		}
+		var ok bool
+		var err error
+		if async {
+			ok, err = f.transitWithCopyJob(ctx, t, b, set, res.RID, res.URL)
+			if errors.Is(err, errCopyEnqueue) {
+				// outbox 落不下（如 Go_V1.0.30 还没执行）：事务已回滚，本次退回同步转存（旧行为）
+				log.Errorf("studio: 子任务 %d 落转存 outbox 失败，退回同步转存: %v", t.ID, err)
+				copyJobs.Inc("fallback")
+				var cok bool
+				if res, cok = f.copyNow(ctx, t, b, call, outs[0].RID, started, overdue); !cok {
+					return
+				}
+				if res.Width == 0 || res.Height == 0 {
+					res.Width, res.Height = outs[0].W, outs[0].H
+				}
+				set["result_rid"], set["result_url"], set["result_width"], set["result_height"] = res.RID, res.URL, res.Width, res.Height
+				async = false
+			}
+		}
+		if !async {
+			ok, err = f.repo.Task.TransitStatus(ctx, t.ID, model.TaskRunning, model.TaskDelivering, set)
+		}
 		if err != nil {
 			log.Errorf("studio: 子任务 %d 进交付中失败: %v", t.ID, err)
 			return
@@ -368,6 +378,34 @@ func (f *flow) deliverCall(ctx context.Context, t *model.Task, b *model.Batch, c
 		return
 	}
 	f.finishDelivery(ctx, t, b, call, res, started, overdue)
+}
+
+// copyNow 同步转存（免费档以外、未走 outbox 时）：成品复制到素材库公有桶。ok=false 时已处理（失败退款或留到下一轮）。
+func (f *flow) copyNow(ctx context.Context, t *model.Task, b *model.Batch, call *aigateway.Call, rid string, started time.Time, overdue bool) (mediasvc.Resource, bool) {
+	log := logx.WithContext(ctx)
+	giveUp := overdue || f.now().Sub(started) > f.generateTimeout()+transferGrace
+	if f.media == nil {
+		log.Errorf("studio: 子任务 %d 已出图，但媒体服务未配置，无法转存", t.ID)
+		if giveUp {
+			f.failTask(ctx, t, b, reasonTransfer, true, call.Status)
+		}
+		return mediasvc.Resource{}, false
+	}
+	res, err := f.media.CopyToLibrary(ctx, rid, mediasvc.PurposeAssetLibrary, "")
+	if err == nil && res.URL == "" {
+		err = &mediasvc.Error{Status: 422, Code: "no_public_url", Message: "素材库桶没有公开地址"}
+	}
+	if err != nil {
+		var me *mediasvc.Error
+		if (errors.As(err, &me) && me.Permanent()) || giveUp {
+			log.Errorf("studio: 子任务 %d 转存失败，放弃: %v", t.ID, err)
+			f.failTask(ctx, t, b, reasonTransfer, true, call.Status)
+			return mediasvc.Resource{}, false
+		}
+		log.Errorf("studio: 子任务 %d 转存失败，下一轮重试: %v", t.ID, err)
+		return mediasvc.Resource{}, false
+	}
+	return res, true
 }
 
 // finishDelivery 交付中 → 结算 → 成功。call 可为 nil（续做交付时 gateway 取不到）：成本记 0 并告警。
@@ -447,11 +485,15 @@ func (f *flow) finishDelivery(ctx context.Context, t *model.Task, b *model.Batch
 	if f.bill.Mode() == billing.ModeOn {
 		extra["billing_status"] = model.BillingSettled
 	}
-	// 先入素材库再置成功：批次收敛按子任务状态计数，置成功之后才写资产会出现「批次已终态、资产行还没有」的窗口，
+	// 同步转存 / 免费档：先入素材库再置成功：批次收敛按子任务状态计数，置成功之后才写资产会出现「批次已终态、资产行还没有」的窗口，
 	// 前端在这个窗口里点「存为资产」拿到 asset_id=0。入库失败只记日志不拦交付（saveAsset 内部吞错）；
 	// 置成功失败留在交付中下一轮续做时，saveAsset 按 source_task_id 查重，不会重复写。
+	// 付费先交付（成品是 mr://）：素材库只写公开地址，入库随后台转存完成（library_copy.go），接口在此期间给 library_status=pending。
 	t.ResultURL.String = res.URL
-	f.saveAsset(ctx, t, b, res.URL)
+	pending := isPendingRef(res.URL)
+	if !pending {
+		f.saveAsset(ctx, t, b, res.URL)
+	}
 	ok, err := f.repo.Task.TransitStatus(ctx, t.ID, model.TaskDelivering, model.TaskSucceeded, extra)
 	if err != nil {
 		log.Errorf("studio: 子任务 %d 置成功失败（留在交付中，下一轮续做）: %v", t.ID, err)
@@ -463,8 +505,13 @@ func (f *flow) finishDelivery(ctx context.Context, t *model.Task, b *model.Batch
 	if err := f.repo.Batch.UpdateCounters(ctx, b.ID, 1, 0); err != nil {
 		log.Errorf("studio: 批次 %d 更新计数失败: %v", b.ID, err)
 	}
-	// 服装蒙版（校色只作用于服装）：成功之后异步补，不拖慢、不影响交付
-	f.attachMaskAsync(t, b.UserID, res.URL, tryonMaskParts(t.Kind, b.Payload))
+	if pending {
+		// 后台立即转存素材库（名额满 / 进程崩溃时扫描接手）；蒙版等转存完成后用公开地址补（与之前同一缓存键，不重复付费）
+		f.kickCopy(t.ID)
+	} else {
+		// 服装蒙版（校色只作用于服装）：成功之后异步补，不拖慢、不影响交付
+		f.attachMaskAsync(t, b.UserID, res.URL, tryonMaskParts(t.Kind, b.Payload))
+	}
 	_, costCNY := pipeline.ParseOutputs(call)
 	f.logStep(ctx, b.ID, pipeline.StepLog{
 		JobID: t.TaskID.String, Step: pipeline.StepGenerate, Ms: f.now().Sub(started).Milliseconds(),
@@ -631,17 +678,28 @@ func buildTaskRequest(t *model.Task, b *model.Batch) (aigateway.CallRequest, err
 // kindNames 素材名。
 var kindNames = map[model.Kind]string{model.KindTryon: "商拍换装", model.KindPose: "姿态复刻", model.KindImageGen: "图片生成"}
 
-// saveAsset 成品写素材库（每张一行，source_task_id = 子任务号，entry_code 按 kind 取三个 studio 入口码）。
+// saveAsset 成品写素材库（每张一行，source_task_id = 子任务号，entry_code 按 kind 取三个 studio 入口码）。失败只记日志。
 func (f *flow) saveAsset(ctx context.Context, t *model.Task, b *model.Batch, url string) {
+	if err := f.saveAssetErr(ctx, t, b, url); err != nil {
+		logx.WithContext(ctx).Errorf("studio: 子任务 %d 写素材库失败: %v", t.ID, err)
+	}
+}
+
+// saveAssetErr 同 saveAsset，返回写入错误（后台转存据此重试）。url 只能是素材库公开地址或免费档 mrw://，不能是 mr://
+// （Java 侧多个 afv_asset 读口不解析 mr://，见 library_copy.go）。
+func (f *flow) saveAssetErr(ctx context.Context, t *model.Task, b *model.Batch, url string) error {
 	cfg := f.cfg.Asset
 	if !cfg.Enabled || f.asset == nil {
-		return
+		return nil
+	}
+	if isPendingRef(url) {
+		return errors.New("素材库不写私有引用 mr://")
 	}
 	// 查重：交付在置成功前入库，置成功失败下一轮重来时这里已有一行，不再写第二条（查询失败照写，资产比去重要紧）
 	if m, err := f.repo.Task.AssetIDs(ctx, b.UserID, []string{t.TaskID.String}); err != nil {
 		logx.WithContext(ctx).Errorf("studio: 子任务 %d 入库前查重失败，照常写入: %v", t.ID, err)
 	} else if id := m[t.TaskID.String]; id > 0 && id > regenAssetFloor(t) {
-		return
+		return nil
 	}
 	p, _ := parsePayload(b.Payload)
 	ar := ""
@@ -657,9 +715,7 @@ func (f *flow) saveAsset(ctx context.Context, t *model.Task, b *model.Batch, url
 		EntryCode: svc.EntryCode(f.cfg, t.Kind), Name: kindNames[t.Kind], CoverURL: url, ResultURL: url,
 		AspectRatio: ar, AIPrompt: PromptSummary(t), Properties: string(props),
 	}
-	if err := f.asset(ctx, []asset.Asset{a}); err != nil {
-		logx.WithContext(ctx).Errorf("studio: 子任务 %d 写素材库失败: %v", t.ID, err)
-	}
+	return f.asset(ctx, []asset.Asset{a})
 }
 
 // ---------------------------------------------------------------- 提示词润色

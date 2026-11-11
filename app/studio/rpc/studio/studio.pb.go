@@ -2657,6 +2657,7 @@ type TaskInfo struct {
 	Warnings       []string               `protobuf:"bytes,23,rep,name=warnings,proto3" json:"warnings,omitempty"`                                     // 给用户看的提示：读图降级（「已改用文字信息生成」）、品类不符、参考图被截断等；不含供应商原文
 	PromptText     string                 `protobuf:"bytes,24,opt,name=prompt_text,json=promptText,proto3" json:"prompt_text,omitempty"`               // 实际送生图的完整提示词（含首行图序声明；姿态 / 商拍有，编排完成前为空）
 	PromptEdited   bool                   `protobuf:"varint,25,opt,name=prompt_edited,json=promptEdited,proto3" json:"prompt_edited,omitempty"`        // 提示词经用户编辑后重新生成过（RegenerateTask）
+	LibraryStatus  string                 `protobuf:"bytes,26,opt,name=library_status,json=libraryStatus,proto3" json:"library_status,omitempty"`      // 只增：成品是否已在素材库。空=已在（或不适用：免费档水印视图 / 非成功）；pending=已交付可看可下载，后台转存素材库中（asset_id 可能仍为 0）；failed=转存永久失败，仍可看可下载，不在素材库。仅用户侧接口填
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -2864,6 +2865,13 @@ func (x *TaskInfo) GetPromptEdited() bool {
 		return x.PromptEdited
 	}
 	return false
+}
+
+func (x *TaskInfo) GetLibraryStatus() string {
+	if x != nil {
+		return x.LibraryStatus
+	}
+	return ""
 }
 
 type BatchDetail struct {
@@ -4292,7 +4300,7 @@ const file_studio_proto_rawDesc = "" +
 	"created_at\x18\f \x01(\x03R\tcreatedAt\x12\x1d\n" +
 	"\n" +
 	"updated_at\x18\r \x01(\x03R\tupdatedAt\x12\x1a\n" +
-	"\bwarnings\x18\x0e \x03(\tR\bwarnings\"\xb1\x06\n" +
+	"\bwarnings\x18\x0e \x03(\tR\bwarnings\"\xd8\x06\n" +
 	"\bTaskInfo\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x17\n" +
 	"\atask_id\x18\x02 \x01(\tR\x06taskId\x12\x19\n" +
@@ -4329,7 +4337,8 @@ const file_studio_proto_rawDesc = "" +
 	"\bwarnings\x18\x17 \x03(\tR\bwarnings\x12\x1f\n" +
 	"\vprompt_text\x18\x18 \x01(\tR\n" +
 	"promptText\x12#\n" +
-	"\rprompt_edited\x18\x19 \x01(\bR\fpromptEdited\"^\n" +
+	"\rprompt_edited\x18\x19 \x01(\bR\fpromptEdited\x12%\n" +
+	"\x0elibrary_status\x18\x1a \x01(\tR\rlibraryStatus\"^\n" +
 	"\vBatchDetail\x12'\n" +
 	"\x05batch\x18\x01 \x01(\v2\x11.studio.BatchInfoR\x05batch\x12&\n" +
 	"\x05tasks\x18\x02 \x03(\v2\x10.studio.TaskInfoR\x05tasks\"k\n" +

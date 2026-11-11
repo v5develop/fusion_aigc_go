@@ -37,6 +37,8 @@ type Repo struct {
 	Task  *TaskRepo
 	Cache *CacheRepo
 	Mask  *MaskRepo
+	// CopyJob 付费成品转存素材库 outbox（Go_V1.0.30）
+	CopyJob *CopyJobRepo
 }
 
 // New 根 Repo。
@@ -47,7 +49,7 @@ func New(db *bun.DB) *Repo {
 }
 
 func bind(db bun.IDB) *Repo {
-	return &Repo{Batch: &BatchRepo{db: db}, Task: &TaskRepo{db: db}, Cache: &CacheRepo{db: db}, Mask: &MaskRepo{db: db}}
+	return &Repo{Batch: &BatchRepo{db: db}, Task: &TaskRepo{db: db}, Cache: &CacheRepo{db: db}, Mask: &MaskRepo{db: db}, CopyJob: &CopyJobRepo{db: db}}
 }
 
 // DB 底层 *bun.DB（事务内的 Repo 返回 nil）。

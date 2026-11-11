@@ -388,6 +388,7 @@ message TaskInfo {
   repeated string warnings = 23;         // 给用户看的提示：读图降级（「已改用文字信息生成」）、品类不符、参考图被截断等；不含供应商原文
   string prompt_text = 24;               // 实际送生图的完整提示词（含首行图序声明；姿态 / 商拍有，编排完成前为空）
   bool prompt_edited = 25;               // 提示词经用户编辑后重新生成过（RegenerateTask）
+  string library_status = 26;            // 只增：成品是否已在素材库。空=已在（或不适用：免费档水印视图 / 非成功）；pending=已交付可看可下载，后台转存素材库中（asset_id 可能仍为 0）；failed=转存永久失败，仍可看可下载，不在素材库。仅用户侧接口填
 }
 
 message BatchDetail {

@@ -141,6 +141,7 @@ func attachAssetIDs(ctx context.Context, r *repo.Repo, userID int64, tasks []*st
 	if len(ids) == 0 {
 		return
 	}
+	attachLibraryStatus(ctx, r, tasks)
 	m, err := r.Task.AssetIDs(ctx, userID, ids)
 	if err != nil {
 		logx.WithContext(ctx).Errorf("studio: 查子任务的素材库资产失败（asset_id 留 0）: %v", err)
@@ -150,6 +151,34 @@ func attachAssetIDs(ctx context.Context, r *repo.Repo, userID int64, tasks []*st
 		if t != nil {
 			t.AssetId = m[t.TaskId]
 		}
+	}
+}
+
+// attachLibraryStatus 成功且成品仍是 mr://（付费先交付、待转存素材库）的子任务填 library_status（一次 IN 查询）。
+// 必须在 signViews 之前调用（要看原始引用）。查询失败按 pending 给：成品照常可看，前端只是继续等 asset_id。
+func attachLibraryStatus(ctx context.Context, r *repo.Repo, tasks []*studio.TaskInfo) {
+	refs := map[int64]string{}
+	for _, t := range tasks {
+		if t != nil && t.Status == int32(model.TaskSucceeded) && isPendingRef(t.ResultUrl) {
+			refs[t.Id] = t.ResultUrl
+		}
+	}
+	if len(refs) == 0 {
+		return
+	}
+	var st map[int64]int8
+	if r != nil && r.CopyJob != nil {
+		var err error
+		if st, err = r.CopyJob.StatusByRefs(ctx, refs); err != nil {
+			logx.WithContext(ctx).Errorf("studio: 查成品转存状态失败（library_status 按 pending）: %v", err)
+		}
+	}
+	for _, t := range tasks {
+		if t == nil {
+			continue
+		}
+		s, has := st[t.Id]
+		t.LibraryStatus = libraryStatusOf(t.Status, t.ResultUrl, s, has)
 	}
 }
 

@@ -16,6 +16,9 @@ func TestLoadDevConfig(t *testing.T) {
 	if c.ListenOn != "0.0.0.0:9205" {
 		t.Fatalf("端口应为 9205：%s", c.ListenOn)
 	}
+	if !c.Library.AsyncCopy || c.Library.Workers != 8 || c.Library.MaxAttempts != 10 || c.Library.ClaimSeconds != 300 || c.Library.SweepBatch != 50 {
+		t.Fatalf("付费成品异步转存默认值不对：%+v", c.Library)
+	}
 	if c.TaskIDPrefix.Tryon != "tyo" || c.TaskIDPrefix.Pose != "pse" || c.TaskIDPrefix.ImageGen != "simg" {
 		t.Fatalf("前缀不对：%+v", c.TaskIDPrefix)
 	}

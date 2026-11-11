@@ -26,6 +26,23 @@ type Config struct {
 	InputURLPrefixes []string `json:",optional"`
 	// Asset 成品写进素材库（afv_asset）：每张图一行。EntryCode 不在这里配，按 kind 取 EntryCodes
 	Asset asset.Conf
+	// Library 付费成品转存素材库（resources/copy）移出交付路径：成品先以私有引用 mr://{rid}.{ext} 进交付中、结算、置成功、
+	// 对用户可见（读时现签），转存在后台按 outbox（afv_studio_copy_job，Go_V1.0.30）完成：入素材库（只写公有地址）后把子任务成品
+	// 换成素材库公有地址。免费档（mrw:// 水印视图）不受影响。
+	Library struct {
+		// AsyncCopy 关掉则回到同步转存（转存完才进交付中）。落 outbox 失败（如表还没建）时本次自动退回同步转存
+		AsyncCopy bool `json:",default=true"`
+		// Workers 本进程同时执行的转存任务数（即时转存 + 扫描接手共用）
+		Workers int `json:",default=8"`
+		// MaxAttempts 最多尝试几轮，之后记永久失败（成品仍以 mr:// 可看可下载，library_status=failed，不在素材库）
+		MaxAttempts int `json:",default=10"`
+		// BackoffSeconds 第 n 轮失败后等第 n 项秒数（超出取最后一项）。不配用 5,15,30,60,120,300,600,1800（累计约 50 分钟）
+		BackoffSeconds []int `json:",optional"`
+		// ClaimSeconds 认领一轮的时长：这么久没写回结果视为执行方崩溃，由扫描接手（同幂等键重做，不会重复落桶）
+		ClaimSeconds int `json:",default=300"`
+		// SweepBatch 每轮扫描最多接手几行
+		SweepBatch int `json:",default=50"`
+	}
 	// EntryCodes 三个入口码：计费 offer、素材库分类归属（Go_V1.0.21 seed）、任务中心 entry_code 三处同名
 	EntryCodes struct {
 		Tryon    string `json:",default=studio_tryon"`

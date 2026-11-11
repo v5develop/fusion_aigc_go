@@ -69,11 +69,14 @@ func (p *Poller) Start() {
 	}
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
+	p.f.cp = newCopier(ctx, p.f) // 在第一轮 tick 之前挂上：之后起的协程只读
 	logx.Info("studio poller started")
 	for {
 		p.f.tick(ctx)
 		select {
 		case <-ctx.Done():
+			// 先等转存池收尾（它会起蒙版协程，计入 f.wg），再等其它协程；轮询协程之后再 Kick 会被已关闭的池拒绝，留给扫描
+			p.f.cp.close()
 			p.f.wg.Wait()
 			return
 		case <-ticker.C:
@@ -150,6 +153,9 @@ type flow struct {
 	cleanAt    time.Time
 	cleanAfter int64
 	dropAssets func(ctx context.Context, userID int64, sourceTaskID string) error
+
+	// cp 付费成品转存素材库的执行池（Poller 启动时挂上；后台接口的 flow 没有，等 Poller 扫描接手）
+	cp *copier
 }
 
 // semaphore.Group 的 key：批次编排按 kind 各一个名额池（商拍切图 + 反推要几分钟，不能饿住几秒就编排完的图片生成），
@@ -338,6 +344,7 @@ func (f *flow) tick(ctx context.Context) {
 	f.advanceBatches(ctx)
 	f.submitGenerating(ctx)
 	f.pollRunning(ctx)
+	f.cp.sweep(ctx) // 到点的转存 outbox（即时转存没做成 / 进程崩溃 / 暂时失败退避到点的）交给转存池，不阻塞本轮
 	f.sync(ctx)
 }
 

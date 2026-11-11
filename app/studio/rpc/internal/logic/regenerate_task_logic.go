@@ -136,6 +136,18 @@ func (f *flow) userRegenerate(ctx context.Context, t *model.Task, b *model.Batch
 	if t.Attempt >= regenMaxAttempts {
 		return xerr.New(xerr.Conflict, "这张图已重新生成多次，请调整素材后重新提交")
 	}
+	// 付费成品还在后台入素材库（mr://，library_copy.go）：等它入完再重做。否则重做时记下的 regen_asset_floor 可能早于
+	// 随后才写入的旧成品资产行，新成品交付时会被当成「已入库」而漏写素材库。
+	if t.Status == model.TaskSucceeded && isPendingRef(t.ResultURL.String) && f.repo != nil {
+		j, err := f.repo.CopyJob.GetPendingByTask(ctx, t.ID)
+		if err != nil && !isMissingTable(err) {
+			logx.WithContext(ctx).Errorf("studio: 重新生成子任务 %d 查成品入库状态失败: %v", t.ID, err)
+			return xerr.New(xerr.ServerError, "暂时无法重新生成，请稍后重试")
+		}
+		if j != nil {
+			return xerr.New(xerr.Conflict, "这张图正在存入素材库，请几秒后再试")
+		}
+	}
 	if !f.gwOn {
 		return xerr.New(xerr.NotReady, "生图服务暂未开放，请稍后再试")
 	}

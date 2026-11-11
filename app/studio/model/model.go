@@ -64,7 +64,7 @@ func BatchFinal(s int8) bool {
 const (
 	TaskQueued    int8 = 0 // 排队：等反推完成 / 等并发名额
 	TaskRunning   int8 = 1 // 生成中：已提交 ai-gateway
-	TaskSucceeded int8 = 2 // 成功：已转存、已结算、已入素材库
+	TaskSucceeded int8 = 2 // 成功：已结算；付费成品可能仍是 mr://（后台转存素材库，见 CopyJob），免费档是 mrw:// 水印视图
 	TaskFailed    int8 = 3 // 失败：已退款
 	TaskCanceled  int8 = 4 // 已取消：已退款
 	// TaskDelivering 交付中：已出图并转存，正在确认扣费（Settle）。由 生成中 CAS 进入，抢到才 Settle；
@@ -245,4 +245,31 @@ type InputImage struct {
 	Sha1 string `json:"sha1,omitempty"`
 	// Sha256 内容 SHA-256（随 mr:// 引用一起发给 gateway，便于命中同一 request_hash）
 	Sha256 string `json:"sha256,omitempty"`
+}
+
+// 转存 outbox 状态（afv_studio_copy_job.status）。
+const (
+	CopyPending int8 = 0 // 待转存（子任务成品是 mr://，读时现签）
+	CopyDone    int8 = 1 // 已完成：已入素材库，子任务 result_url 已换成素材库公有地址
+	CopyFailed  int8 = 2 // 永久失败：成品仍以 mr:// 可看可下载，不在素材库（library_status=failed）
+	CopyVoid    int8 = 3 // 作废：子任务已不是成功态 / 已删除 / 成品已换成别的
+)
+
+// CopyJob afv_studio_copy_job（Go_V1.0.30）：一张付费成品转存素材库的 outbox 行。
+type CopyJob struct {
+	bun.BaseModel `bun:"table:afv_studio_copy_job,alias:j"`
+
+	ID         int64          `bun:"id,pk,autoincrement"`
+	TaskPK     int64          `bun:"task_pk,notnull"`
+	TaskID     string         `bun:"task_id,notnull"`
+	UserID     int64          `bun:"user_id,notnull"`
+	SrcRid     string         `bun:"src_rid,notnull"`
+	Ref        string         `bun:"ref,notnull"`
+	Status     int8           `bun:"status,notnull"`
+	Attempt    int32          `bun:"attempt,notnull"`
+	NextAt     time.Time      `bun:"next_at,notnull"`
+	LastError  sql.NullString `bun:"last_error"`
+	CreatedAt  time.Time      `bun:"created_at,notnull,default:current_timestamp(3)"`
+	UpdatedAt  time.Time      `bun:"updated_at,notnull,default:current_timestamp(3)"`
+	FinishedAt sql.NullTime   `bun:"finished_at"`
 }

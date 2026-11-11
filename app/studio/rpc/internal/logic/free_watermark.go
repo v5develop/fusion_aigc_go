@@ -148,9 +148,16 @@ func ridOfSignedURL(raw string, now time.Time) string {
 
 func cacheTTL(ttl time.Duration) time.Duration { return min(240*time.Second, ttl/2) }
 
-// resolveWatermarkViews 把 ptrs 里的 mrw:// 就地换成带水印参数的签名地址；签不出的置空。其它值不动。
-// process 为空 / 不合法或 signer 为 nil 时，水印视图一律置空。
+// plainSigner 不带处理参数的现签（*mediasvc.Client 实现）：付费先交付的 mr:// 成品用。
+type plainSigner interface {
+	ResourceURLs(ctx context.Context, rids []string, ttl time.Duration) (map[string]string, error)
+}
+
+// resolveWatermarkViews 把 ptrs 里的 mrw:// 就地换成带水印参数的签名地址、mr://（付费先交付、待转存素材库的成品）换成普通签名地址；
+// 签不出的置空（绝不下发原始引用）。其它值不动。process 为空 / 不合法或 signer 为 nil 时，水印视图一律置空。
+// mr:// 只会出现在付费交付（watermarkDelivery=false）的成品上，免费档成品永远是 mrw://，所以这里签干净地址不会让免费用户看到原图。
 func resolveWatermarkViews(ctx context.Context, signer processSigner, c config.FreeWatermarkConf, ptrs []*string) {
+	resolvePlainRefs(ctx, signer, c, ptrs)
 	var views []*string
 	var rids []string
 	seen := map[string]bool{}
@@ -174,6 +181,91 @@ func resolveWatermarkViews(ctx context.Context, signer processSigner, c config.F
 	for _, p := range views {
 		*p = urls[watermarkRidOf(*p)] // 签不出 / 引用不合法 = 空串（失败关闭）
 	}
+}
+
+// resolvePlainRefs 把 ptrs 里的 mr:// 就地换成普通签名地址（有效期同水印视图），签不出的置空。
+func resolvePlainRefs(ctx context.Context, signer processSigner, c config.FreeWatermarkConf, ptrs []*string) {
+	var refs []*string
+	var rids []string
+	seen := map[string]bool{}
+	for _, p := range ptrs {
+		if p == nil || !isPendingRef(*p) {
+			continue
+		}
+		refs = append(refs, p)
+		if rid := mrRidOf(*p); rid != "" && !seen[rid] {
+			seen[rid] = true
+			rids = append(rids, rid)
+		}
+	}
+	if len(refs) == 0 {
+		return
+	}
+	var urls map[string]string
+	if len(rids) > 0 {
+		ps, _ := signer.(plainSigner)
+		urls = signPlainRefs(ctx, ps, c, rids)
+	}
+	for _, p := range refs {
+		*p = urls[mrRidOf(*p)] // 签不出 / 引用不合法 = 空串（失败关闭）
+	}
+}
+
+// plainCacheKey 普通签名在 signedCache 里的键（处理串不会是这个值：ValidProcess 不允许空格）。
+const plainCacheKey = "plain "
+
+func signPlainRefs(ctx context.Context, signer plainSigner, c config.FreeWatermarkConf, rids []string) map[string]string {
+	log := logx.WithContext(ctx)
+	if signer == nil {
+		log.Infow("studio: warning private refs blanked: no media service (check=studio_library_copy.sign)", logx.Field("count", len(rids)))
+		return nil
+	}
+	ttl := signTTL(c)
+	now := time.Now()
+	out := make(map[string]string, len(rids))
+	var miss []string
+	signedCache.Lock()
+	for _, rid := range rids {
+		if e, ok := signedCache.m[plainCacheKey+"|"+rid]; ok && now.Sub(e.at) < cacheTTL(ttl) {
+			out[rid] = e.url
+		} else {
+			miss = append(miss, rid)
+		}
+	}
+	signedCache.Unlock()
+	if len(miss) == 0 {
+		return out
+	}
+	got, err := signer.ResourceURLs(ctx, miss, ttl)
+	if err != nil { // 整批失败时逐个重签，只让坏的那几个为空
+		got = map[string]string{}
+		for _, rid := range miss {
+			if ctx.Err() != nil {
+				break
+			}
+			one, e := signer.ResourceURLs(ctx, []string{rid}, ttl)
+			if e != nil {
+				log.Infow("studio: warning private ref sign failed, blanked (check=studio_library_copy.sign)",
+					logx.Field("rid_hint", ridHint(rid)), logx.Field("err", e.Error()))
+				continue
+			}
+			got[rid] = one[rid]
+		}
+	}
+	signedCache.Lock()
+	if len(signedCache.m) > signedCacheMax {
+		signedCache.m = map[string]signedEntry{}
+	}
+	for _, rid := range miss {
+		if u := got[rid]; u != "" {
+			out[rid] = u
+			signedCache.m[plainCacheKey+"|"+rid] = signedEntry{url: u, at: now}
+			// 用户把自己成品的签名地址当输入时能反查回 rid 并校验归属（ownsSigned，result_rid 就是该 rid）
+			indexSigned(rid, u, ttl, now)
+		}
+	}
+	signedCache.Unlock()
+	return out
 }
 
 func signWatermarkViews(ctx context.Context, signer processSigner, c config.FreeWatermarkConf, rids []string) map[string]string {
@@ -316,13 +408,16 @@ func firstMediaMime(call *aigateway.Call) string {
 	return ""
 }
 
-// maskSourceURL 自动补蒙版用的源地址：水印视图签一条干净的短期地址只给网关分割用（不落库、不下发给用户）；
+// maskSourceURL 自动补蒙版用的源地址：水印视图 / 私有引用 mr:// 签一条干净的短期地址只给网关分割用（不落库、不下发给用户）；
 // 其它原样。签不出返回 ""（跳过蒙版）。
 func (f *flow) maskSourceURL(ctx context.Context, resultURL string) string {
-	if !isWatermarkRef(resultURL) {
+	if !isWatermarkRef(resultURL) && !isPendingRef(resultURL) {
 		return resultURL
 	}
 	rid := watermarkRidOf(resultURL)
+	if rid == "" {
+		rid = mrRidOf(resultURL) // 付费成品转存素材库永久失败时仍是 mr://
+	}
 	if rid == "" || f.media == nil {
 		return ""
 	}

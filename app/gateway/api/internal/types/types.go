@@ -1283,6 +1283,7 @@ type StudioTask struct {
 	Warnings       []string              `json:"warnings"`         // 给用户看的提示：「已改用文字信息生成」、「参考图看起来是…，与所选「文胸」不一致」、参考图截断等；没有为 []
 	PromptText     string                `json:"prompt_text"`      // 实际送生图的完整提示词（含首行图序；姿态 / 商拍有，编排完成前为空）
 	PromptEdited   bool                  `json:"prompt_edited"`    // 提示词经用户编辑后重新生成过
+	LibraryStatus  string                `json:"library_status"`   // 只增（2026-11-11）：成品是否已在素材库。空=已在（或不适用：免费档水印视图 / 非成功）；pending=已交付可看可下载，后台转存素材库中，asset_id 可能仍为 0；failed=转存永久失败，仍可看可下载，但素材库里没有
 }
 
 type StudioTaskColorFixReq struct {

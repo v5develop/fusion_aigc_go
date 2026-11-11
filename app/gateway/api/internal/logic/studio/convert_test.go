@@ -58,3 +58,14 @@ func TestToTaskColorFixAndAsset(t *testing.T) {
 		t.Fatalf("缺 %s：%s", want, raw)
 	}
 }
+
+// library_status 原样透传；空值也照样输出键（前端按空处理）。
+func TestToTaskLibraryStatus(t *testing.T) {
+	if got := toTask(&studio_client.TaskInfo{Status: 2, LibraryStatus: "pending"}); got.LibraryStatus != "pending" {
+		t.Fatalf("got %q", got.LibraryStatus)
+	}
+	raw, _ := json.Marshal(toTask(&studio_client.TaskInfo{Status: 2}))
+	if !strings.Contains(string(raw), `"library_status":""`) {
+		t.Fatal(string(raw))
+	}
+}
