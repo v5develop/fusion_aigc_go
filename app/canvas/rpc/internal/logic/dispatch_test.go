@@ -77,12 +77,9 @@ func TestBuildSpecImage(t *testing.T) {
 			{Handle: "prompt", NodeId: "t", Text: "棚拍"},
 			{Handle: "image", Index: 1, NodeId: "a", Image: "https://x/stale.png", CandidateIndex: idx(1)},
 		}}
-	sp, err := c.buildSpec(req, func(node string, i int) string {
-		if node == "a" && i == 1 {
-			return "https://lib/a-1.png"
-		}
-		return ""
-	})
+	sp, err := c.buildSpec(req, &refLookup{c: c, ctx: context.Background(), loaded: true, runs: map[string]*model.NodeRun{
+		"a": {NodeID: "a", Candidates: json.RawMessage(`[{"url":"https://lib/a-0.png"},{"url":"https://lib/a-1.png"}]`)},
+	}})
 	if err != nil {
 		t.Fatal(err)
 	}

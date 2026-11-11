@@ -607,6 +607,12 @@ func (c *core) advanceQueuedRun(ctx context.Context, run *model.NodeRun, gone ma
 	}
 	sp, err := c.specFromRun(ctx, run)
 	if err != nil {
+		if isTemporary(err) {
+			// 现签冻结的上游产物 / 读上游 run 暂时失败：留在排队下轮重试，由排队超时兜底。不加 attempt：
+			// attempt>0 表示「可能已向后端提交过」，会触发按幂等键回收，这里根本没提交
+			logx.WithContext(ctx).Infof("canvas: run %d 重建请求暂时失败，稍后重试: %v", run.ID, err)
+			return
+		}
 		c.failRun(ctx, run, model.RunQueued, "PARAM_INVALID", errMsg(err), true)
 		return
 	}

@@ -60,10 +60,16 @@ func (c *core) RunNode(ctx context.Context, in *canvas.RunNodeReq) (*canvas.RunN
 	if err != nil {
 		return nil, err
 	}
-	sp, err := c.buildSpec(in.Request, c.candidateLookup(ctx, cv.ID))
+	lookup := c.refResolver(ctx, cv.ID)
+	sp, err := c.buildSpec(in.Request, lookup)
 	if err != nil {
 		return nil, err
 	}
+	// 上游引用受理时解析一次、冻结进落库请求：此后每次（重新）派发都用这批产物，不随上游重跑而变
+	// （同一幂等键下请求内容不变，网关不会判幂等冲突；也不会拿用户没提交过的输入出图）
+	st := toStored(in.Request)
+	st.Frozen = lookup.frozenOut()
+	reqJSON, _ = json.Marshal(st)
 	if err := c.checkRefs(doc, in, sp); err != nil {
 		return nil, err
 	}

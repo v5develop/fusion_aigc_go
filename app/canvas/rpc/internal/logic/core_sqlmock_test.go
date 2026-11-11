@@ -230,6 +230,12 @@ func TestRunNodeIdempotency(t *testing.T) {
 	if code, _, _ := xerr.Parse(err); code != xerr.Conflict {
 		t.Fatalf("同 key 不同 body 4002: %v", err)
 	}
+	// 落库请求带服务端冻结的 frozen（受理时解析的上游引用）：同 body 重放仍命中，不判 4002
+	frozen := strings.TrimSuffix(stored, "}") + `,"frozen":{"refs":{"references.0":{"ref":"mr://x","run_id":3,"index":0}}}}`
+	mock.ExpectQuery("WHERE \\(r.user_id = 7\\)").WillReturnRows(sqlmock.NewRows(cols).AddRow(5, "cv_1", "m", 7, "run-1", "image", frozen, 1, 40))
+	if resp, err = c.RunNode(context.Background(), &canvas.RunNodeReq{UserId: 7, CanvasId: "cv_1", NodeId: "m", RunId: "run-1", Request: req}); err != nil || !resp.Replayed {
+		t.Fatalf("frozen 不参与幂等比对: %+v %v", resp, err)
+	}
 	_, err = c.RunNode(context.Background(), &canvas.RunNodeReq{UserId: 7, CanvasId: "cv_1", NodeId: "m", RunId: "", Request: req})
 	if code, _, _ := xerr.Parse(err); code != xerr.ParamMissing {
 		t.Fatalf("缺 Idempotency-Key 1002: %v", err)

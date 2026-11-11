@@ -868,7 +868,7 @@ func (c *core) specFromRun(ctx context.Context, run *model.NodeRun) (*runSpec, e
 			AssetId: r.AssetID, MediaId: r.MediaID, SourceHandle: r.SourceHandle, CandidateIndex: r.CandidateIndex, Mime: r.Mime,
 		})
 	}
-	lookup := c.candidateLookup(ctx, run.CanvasID)
+	lookup := c.runRefResolver(ctx, run, s) // 只现签受理时冻结的上游引用，不重新取「最近一次成功」
 	sp, err := c.buildSpec(req, lookup)
 	if err != nil {
 		return nil, err
@@ -893,34 +893,6 @@ func (c *core) specFromRun(ctx context.Context, run *model.NodeRun) (*runSpec, e
 		sp.ModelGroup = run.ModelGroup
 	}
 	return sp, nil
-}
-
-// candidateLookup 同画布上游节点最近一次成功 run 的候选。
-func (c *core) candidateLookup(ctx context.Context, canvasID string) candidateLookup {
-	var cache map[string]*model.NodeRun
-	return func(nodeID string, i int) string {
-		if cache == nil {
-			cache = map[string]*model.NodeRun{}
-			if runs, err := c.s.Repo.Run.LatestSucceededByNode(ctx, canvasID); err == nil {
-				for _, r := range runs {
-					cache[r.NodeID] = r
-				}
-			}
-		}
-		r := cache[nodeID]
-		if r == nil {
-			return ""
-		}
-		list := r.CandidateList()
-		if i < 0 || i >= len(list) {
-			return ""
-		}
-		u := list[i].URL
-		if isMediaRef(u) { // 引用读时现签（水印视图只签带水印参数的地址；签不出 → 空，调用方当「上游还没有结果」）
-			c.resolveMediaRefs(ctx, []*string{&u})
-		}
-		return u
-	}
 }
 
 // dispatch 把排队的 run 交给后端：成功提交 → 运行中（media 直接到终态）；暂时性错误 → 留在排队，attempt+1；

@@ -91,6 +91,9 @@ type storedRequest struct {
 	Count      int32           `json:"count"`
 	Cfg        float64         `json:"cfg"`
 	Params     json.RawMessage `json:"params,omitempty"`
+	// Frozen 受理时服务端解析出的上游引用（见 ref_resolve.go）；不是客户端请求的一部分，幂等比对时忽略。
+	// 本字段之前受理的 run 没有它（nil），重新派发按旧行为。
+	Frozen *frozenRefs `json:"frozen,omitempty"`
 }
 
 type storedRef struct {
@@ -133,10 +136,16 @@ func parseStored(raw json.RawMessage) storedRequest {
 }
 
 // sameRequest 幂等比对：两份请求 JSON 语义相等（库里的 JSON 列会重排键序，不能比字节）。
+// 服务端冻结的 frozen 不参与比对（同一请求在不同时刻受理会解析出不同的上游产物）。
 func sameRequest(a, b []byte) bool {
 	var x, y any
 	if json.Unmarshal(a, &x) != nil || json.Unmarshal(b, &y) != nil {
 		return false
+	}
+	for _, v := range []any{x, y} {
+		if m, ok := v.(map[string]any); ok {
+			delete(m, "frozen")
+		}
 	}
 	ax, _ := json.Marshal(x)
 	by, _ := json.Marshal(y)

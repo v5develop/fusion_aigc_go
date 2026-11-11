@@ -150,11 +150,10 @@ func parseParams(s string) (map[string]any, error) {
 	return m, nil
 }
 
-// candidateLookup 上游节点（同画布）最近一次成功 run 的第 i 个候选；找不到返回空串。
-type candidateLookup func(nodeID string, index int) string
-
-// buildSpec 校验并归一执行请求。refs 的图片地址：带 candidate_index 时优先取服务端记录的上游候选。
-func (c *core) buildSpec(req *canvas.RunNodeRequest, lookup candidateLookup) (*runSpec, error) {
+// buildSpec 校验并归一执行请求。引用地址按服务端记录解析（见 ref_resolve.go）：受理时图片带 candidate_index 取上游候选、
+// 视频按 node_id 取上游视频、请求里是本画布产物的签名地址时换回长期引用，并把结果冻结进落库请求；重新派发时只现签冻结值。
+// 其它地址原样。lookup 为 nil 时只用请求地址。
+func (c *core) buildSpec(req *canvas.RunNodeRequest, lookup *refLookup) (*runSpec, error) {
 	kind, err := ResolveKind(req.Kind, req.Tool)
 	if err != nil {
 		return nil, err
@@ -163,7 +162,14 @@ func (c *core) buildSpec(req *canvas.RunNodeRequest, lookup candidateLookup) (*r
 	if sp.Params, err = parseParams(req.ToolParams); err != nil {
 		return nil, err
 	}
-	// 引用：提示词口文本、各图片 / 视频口
+	if err := resolveParamURLs(sp.Params, lookup); err != nil {
+		return nil, err
+	}
+	// 引用：提示词口文本、各图片 / 视频口（冻结槽位按落库顺序的下标，与排序无关）
+	pos := make(map[*canvas.RunReference]int, len(req.References))
+	for i, r := range req.References {
+		pos[r] = i
+	}
 	var promptRef string
 	for _, r := range sortRefs(req.References) {
 		h := NormalizeHandle(r.Handle)
@@ -174,11 +180,9 @@ func (c *core) buildSpec(req *canvas.RunNodeRequest, lookup candidateLookup) (*r
 		case HandlePrompt:
 			promptRef = strings.TrimSpace(r.Text)
 		case HandleImage:
-			u := strings.TrimSpace(r.Image)
-			if r.CandidateIndex != nil && lookup != nil {
-				if v := lookup(r.NodeId, int(*r.CandidateIndex)); v != "" {
-					u = v
-				}
+			u, err := lookup.image(refSlot(pos[r]), r.NodeId, r.CandidateIndex, strings.TrimSpace(r.Image))
+			if err != nil {
+				return nil, err
 			}
 			if u == "" {
 				return nil, xerr.Param(fmt.Sprintf("引用 %s 缺少图片地址（上游还没有结果？）", r.NodeId))
@@ -196,7 +200,14 @@ func (c *core) buildSpec(req *canvas.RunNodeRequest, lookup candidateLookup) (*r
 				sp.Images = append(sp.Images, m)
 			}
 		case HandleVideo:
-			u := strings.TrimSpace(r.Video)
+			// 上游是视频产物：按服务端记录现签，不信请求里可能已过期的签名地址
+			u, err := lookup.video(refSlot(pos[r]), r.NodeId, strings.TrimSpace(r.Video))
+			if err != nil {
+				return nil, err
+			}
+			if u == "" {
+				return nil, xerr.Param(fmt.Sprintf("引用 %s 缺少视频地址（上游还没有结果？）", r.NodeId))
+			}
 			if !isHTTP(u) {
 				return nil, xerr.Param(fmt.Sprintf("引用 %s 的视频必须是 http(s) 地址", r.NodeId))
 			}
@@ -436,6 +447,54 @@ func paramStr(m map[string]any, k string) string {
 		}
 	}
 	return ""
+}
+
+// resolveParamURLs 工具参数里的输入图地址（image_url / garment_image / models[].image）若是本画布产物的签名地址，
+// 换成现签的新地址（受理时冻结，派发时只现签冻结值；只改本次构造的 spec，落库的 params 不变）。
+func resolveParamURLs(p map[string]any, lookup *refLookup) error {
+	if lookup == nil || len(p) == 0 {
+		return nil
+	}
+	fix := func(m map[string]any, k, slot string) error {
+		v, ok := m[k].(string)
+		if !ok || strings.TrimSpace(v) == "" {
+			return nil
+		}
+		u, err := lookup.param(slot, strings.TrimSpace(v))
+		if err != nil {
+			return err
+		}
+		if u != strings.TrimSpace(v) {
+			m[k] = u
+		}
+		return nil
+	}
+	if err := fix(p, "image_url", "params.image_url"); err != nil {
+		return err
+	}
+	if err := fix(p, "garment_image", "params.garment_image"); err != nil {
+		return err
+	}
+	if ms, ok := p["models"].([]any); ok {
+		for i, x := range ms {
+			slot := "params.models." + strconv.Itoa(i)
+			switch v := x.(type) {
+			case map[string]any:
+				if err := fix(v, "image", slot+".image"); err != nil {
+					return err
+				}
+			case string:
+				u, err := lookup.param(slot, strings.TrimSpace(v))
+				if err != nil {
+					return err
+				}
+				if u != strings.TrimSpace(v) {
+					ms[i] = u
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // upscaleResolution 放大档位：params.scale 2→2k、4→4k；或 params.resolution / 请求 size（1k/2k/4k）；默认 2k。
