@@ -176,7 +176,7 @@ func TestRunCopyJobDone(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta("FROM afv_asset AS a")).WillReturnRows(sqlmock.NewRows([]string{"source_task_id", "id"}))
 	mock.ExpectExec(qJobUpdate("next_at = GREATEST", 1)).WillReturnResult(ok1)
 	mock.ExpectExec(regexp.QuoteMeta("UPDATE `afv_studio_task` SET result_rid = '" + libRID + "', result_url = '" + libURL +
-		"' WHERE (id = 1) AND (status = 2) AND (deleted = 0) AND (result_url = '" + paidRef + "')")).WillReturnResult(ok1)
+		"' WHERE (id = 1) AND (status = 2) AND (result_url = '" + paidRef + "')")).WillReturnResult(ok1)
 	mock.ExpectExec(qJobUpdate("status = 1, finished_at = NOW(3)", 1)).WillReturnResult(ok1)
 	f.runCopyJob(context.Background(), pendingJob(0))
 	met(t, mock)
@@ -225,13 +225,12 @@ func TestRunCopyJobWaitsWhileDelivering(t *testing.T) {
 	}
 }
 
-// 子任务交付失败（成品已清）/ 已删除 / 已重新生成：作废，不复制。
+// 子任务交付失败 / 退款（成品已清）/ 已取消 / 已重新生成：作废，不复制。（用户删除不在此列，见下面两个用例）
 func TestRunCopyJobVoid(t *testing.T) {
 	cases := map[string]*sqlmock.Rows{
 		"failed":      taskRowRef(model.TaskFailed, "", 0),
-		"deleted":     taskRowRef(model.TaskSucceeded, paidRef, 1),
+		"canceled":    taskRowRef(model.TaskCanceled, "", 1),
 		"regenerated": taskRowRef(model.TaskSucceeded, "mr://other.png", 0),
-		"gone":        sqlmock.NewRows([]string{"id"}),
 	}
 	for name, rows := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -244,6 +243,57 @@ func TestRunCopyJobVoid(t *testing.T) {
 				t.Fatal("作废不应复制 / 入库")
 			}
 		})
+	}
+}
+
+// 付费成品一定进素材库：转存完成前用户删了批次（批次 + 子任务软删），照常复制 → 入素材库 → 换地址（软删行也换，不带 deleted 条件）→ 完成；不动账。
+func TestRunCopyJobDeletedBatchStillCopies(t *testing.T) {
+	f, mock, bill, media, saved := asyncFlow(t)
+	mock.ExpectQuery(qTask1).WillReturnRows(taskRowRef(model.TaskSucceeded, paidRef, 1))
+	mock.ExpectExec(qJobUpdate("attempt = attempt + 1", 0)).WillReturnResult(ok1)
+	mock.ExpectExec(qJobUpdate("next_at = GREATEST", 1)).WillReturnResult(ok1)
+	mock.ExpectQuery(qTask1).WillReturnRows(taskRowRef(model.TaskSucceeded, paidRef, 1))
+	mock.ExpectQuery(qB9).WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "status", "deleted"}).AddRow(9, 7, model.BatchDone, 1))
+	mock.ExpectQuery(regexp.QuoteMeta("FROM afv_asset AS a")).WillReturnRows(sqlmock.NewRows([]string{"source_task_id", "id"}))
+	mock.ExpectExec(qJobUpdate("next_at = GREATEST", 1)).WillReturnResult(ok1)
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE `afv_studio_task` SET result_rid = '" + libRID + "', result_url = '" + libURL +
+		"' WHERE (id = 1) AND (status = 2) AND (result_url = '" + paidRef + "')")).WillReturnResult(ok1)
+	mock.ExpectExec(qJobUpdate("status = 1, finished_at = NOW(3)", 1)).WillReturnResult(ok1)
+	f.runCopyJob(context.Background(), pendingJob(0))
+	met(t, mock)
+	if len(media.copies) != 1 || len(*saved) != 1 || (*saved)[0].ResultURL != libURL || (*saved)[0].SourceTaskID != "simg_1" || (*saved)[0].UserID != 7 {
+		t.Fatalf("删除批次后付费成品仍应入素材库: copies=%v saved=%+v", media.copies, *saved)
+	}
+	if len(bill.settles) != 0 || len(bill.fails) != 0 || len(bill.confirmed) != 0 {
+		t.Fatal("转存不应动账")
+	}
+}
+
+// 子任务行被硬删除（只有人工改库会这样）：用 outbox 行自己的字段兜底——src_rid 照常复制，素材行用户 / source_task_id 取自本行，
+// kind / 入口码按任务号前缀反推；没有子任务行可换地址，入库即完成。
+func TestRunCopyJobOrphanTaskStillCopies(t *testing.T) {
+	f, mock, _, media, saved := asyncFlow(t)
+	f.cfg.TaskIDPrefix.ImageGen = "simg"
+	f.cfg.EntryCodes.ImageGen = "studio_imagegen"
+	gone := func() *sqlmock.Rows { return sqlmock.NewRows([]string{"id"}) }
+	mock.ExpectQuery(qTask1).WillReturnRows(gone())
+	mock.ExpectExec(qJobUpdate("attempt = attempt + 1", 0)).WillReturnResult(ok1)
+	mock.ExpectExec(qJobUpdate("next_at = GREATEST", 1)).WillReturnResult(ok1)
+	mock.ExpectQuery(qTask1).WillReturnRows(gone())
+	mock.ExpectQuery(regexp.QuoteMeta("FROM afv_asset AS a")).WillReturnRows(sqlmock.NewRows([]string{"source_task_id", "id"}))
+	mock.ExpectExec(qJobUpdate("next_at = GREATEST", 1)).WillReturnResult(ok1)
+	mock.ExpectExec(qJobUpdate("status = 1, finished_at = NOW(3)", 1)).WillReturnResult(ok1)
+	f.runCopyJob(context.Background(), pendingJob(0))
+	met(t, mock)
+	if !reflect.DeepEqual(media.copies, []string{wmRID + "|asset_library|studio-copy:" + wmRID}) {
+		t.Fatalf("copies=%v", media.copies)
+	}
+	if len(*saved) != 1 {
+		t.Fatalf("saved=%+v", *saved)
+	}
+	a := (*saved)[0]
+	if a.UserID != 7 || a.SourceTaskID != "simg_1" || a.ResultURL != libURL || a.EntryCode != "studio_imagegen" || a.Name != kindNames[model.KindImageGen] {
+		t.Fatalf("兜底素材行应取自 outbox 行: %+v", a)
 	}
 }
 

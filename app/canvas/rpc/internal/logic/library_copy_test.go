@@ -12,10 +12,12 @@ import (
 	"time"
 
 	"aigc-local-life/app/canvas/model"
+	"aigc-local-life/pkg/asset"
 	"aigc-local-life/pkg/billing"
 	"aigc-local-life/pkg/mediasvc"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/zeromicro/go-zero/core/stores/sqlx"
 )
 
 const (
@@ -292,18 +294,66 @@ func TestCopyJobGivesUpAfterMaxAttempts(t *testing.T) {
 	}
 }
 
-// run 已不是成功态 / 已删除：作废，不复制。
+// run 不是成功态（失败 / 取消 / 退款，没有付费产物）或 run 行已不存在（outbox 不存 rid，无从复制）：作废，不复制、不入库。
 func TestCopyJobVoidWhenRunGone(t *testing.T) {
+	for name, st := range map[string]int8{"failed": model.RunFailed, "canceled": model.RunCanceled, "gone": -1} {
+		t.Run(name, func(t *testing.T) {
+			c, mock, lm, _ := asyncCore(t)
+			mock.ExpectExec("UPDATE `afv_canvas_copy_job` SET attempt = attempt \\+ 1").WillReturnResult(sqlmock.NewResult(0, 1))
+			if st < 0 {
+				mock.ExpectQuery("WHERE \\(r.id = 5\\) LIMIT 1").WillReturnRows(sqlmock.NewRows(copyRunCols))
+			} else {
+				expectRunRow(mock, st, "image", refCands(srcRID0), nil, 0)
+			}
+			mock.ExpectExec("UPDATE `afv_canvas_copy_job` SET status = 3").WillReturnResult(sqlmock.NewResult(0, 1))
+			c.runCopyJob(context.Background(), copyJob(0))
+			if lm.copyCount() != 0 {
+				t.Fatal("没有付费产物的 run 不应转存")
+			}
+			if err := mock.ExpectationsWereMet(); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+// 付费产物一定进素材库：转存完成前用户删了画布 / run 被标 deleted，转存照常做完——复制、换 run 引用、入素材库（素材行取自 run 自己）。
+func TestCopyJobDeletedRunStillCopiesToLibrary(t *testing.T) {
 	c, mock, lm, _ := asyncCore(t)
+	adb, amock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = adb.Close() })
+	c.s.Asset = asset.NewWriter(sqlx.NewSqlConnFromDB(adb))
+	c.s.Config.Asset.Enabled = true
+	c.s.Config.EntryCodes.Image = "canvas.image"
+
 	mock.ExpectExec("UPDATE `afv_canvas_copy_job` SET attempt = attempt \\+ 1").WillReturnResult(sqlmock.NewResult(0, 1))
 	expectRunRow(mock, model.RunSucceeded, "image", refCands(srcRID0), nil, 1)
-	mock.ExpectExec("UPDATE `afv_canvas_copy_job` SET status = 3").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("UPDATE `afv_canvas_copy_job` SET next_at = GREATEST").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("UPDATE `afv_canvas_node_run` SET candidates = '.*https://cdn/lib0.*WHERE \\(id = 5\\) AND \\(status = 2\\)").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("UPDATE `afv_canvas_copy_job` SET next_at = GREATEST").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("UPDATE `afv_canvas_copy_job` SET status = 1").WillReturnResult(sqlmock.NewResult(0, 1))
+
+	amock.ExpectBegin()
+	amock.ExpectQuery("SELECT COUNT\\(1\\) FROM afv_asset").WithArgs("cv_t", int64(7)).WillReturnRows(sqlmock.NewRows([]string{"n"}).AddRow(0))
+	amock.ExpectQuery("FROM `afv_workspace`").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(3))
+	amock.ExpectExec("INSERT INTO afv_asset").WithArgs(int64(7), int64(3), "cv_t", "image", "canvas.image",
+		sqlmock.AnyArg(), "https://cdn/lib0", "https://cdn/lib0", sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(11, 1))
+	amock.ExpectCommit()
+
 	c.runCopyJob(context.Background(), copyJob(0))
-	if lm.copyCount() != 0 {
-		t.Fatal("已删除的 run 不应转存")
+	if lm.copyCount() != 1 {
+		t.Fatalf("已删除的 run 仍应转存: %v", lm.copies)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
+	}
+	if err := amock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("应入素材库: %v", err)
 	}
 }
 

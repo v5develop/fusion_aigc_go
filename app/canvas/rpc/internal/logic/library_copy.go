@@ -17,6 +17,11 @@ package logic
 //   - outbox 与置成功同事务：有 outbox 必有成功 run，成功 run（异步路径）必有 outbox；落 outbox 失败（如 Go_V1.0.29 还没执行）
 //     时整个事务回滚、本次退回同步转存，行为与改造前一致，不会出现「成功了却没人转存」。
 //   - 写 run（换引用）与入素材库之前先续认领（Renew，attempt CAS）：认领已被接手的旧持有者不再写，素材不会入两组。
+//   - 付费产物一定进素材库（产品口径：否则用户会对扣费有异议）：只要 run 是成功态（已交付、已结算确认），转存就做完——
+//     用户在转存完成前删了画布（画布软删不动 run）或 run 被标了 deleted，照常复制、换 run 引用（SwapRefs 本来就不看 deleted）、
+//     入素材库（素材行的用户 / 提示词 / 参数都取自 run 自己，不读画布）。作废只留给「run 不是成功态」（失败 / 取消 / 退款，
+//     没有付费成品）与「run 行已不存在」：outbox 行只存 run 主键 / task_id / user_id，不存产物 rid，硬删除（只有人工改库会这样）后
+//     无从复制，作废并打 ERROR check=canvas.library_copy_orphaned 交人工核对。run 的产物不会被改写（重跑是新的 run 行），没有「成品已换」。
 
 import (
 	"context"
@@ -40,6 +45,8 @@ const (
 	copyKickGrace = 10
 	// copyFailedCheck 转存永久失败的告警判据。
 	copyFailedCheck = "canvas.library_copy_failed"
+	// copyOrphanedCheck run 行已不存在、无从转存的告警判据（只有人工改库会走到）。
+	copyOrphanedCheck = "canvas.library_copy_orphaned"
 	// copyVideoIdx 视频成片的转存下标（与改造前同步转存一致）。
 	copyVideoIdx = 99
 )
@@ -416,14 +423,22 @@ func (c *core) runCopyJob(ctx context.Context, j *model.CopyJob) {
 		retry(err)
 		return
 	}
-	if run != nil && run.Deleted == 0 && !model.RunFinal(run.Status) {
+	if run != nil && !model.RunFinal(run.Status) {
 		// outbox 与置成功同事务落库，正常不会看到未结束的 run；万一看到（人工改库等）不作废，退避后再看——
 		// 作废后 run 再成功时 INSERT IGNORE 撞 uk_run 是空操作，就永远没人转存了
 		retry(fmt.Errorf("run 状态 %d 还未结束", run.Status))
 		return
 	}
-	if run == nil || run.Status != model.RunSucceeded || run.Deleted != 0 {
-		finish(model.CopyVoid, "run 已不是成功态或已删除", "void")
+	if run == nil {
+		// outbox 行不存产物 rid，run 行没了就无从复制（只有人工改库会走到）
+		finish(model.CopyVoid, "run 行已不存在，无产物可转存", "void")
+		log.Errorw(fmt.Sprintf("canvas: run %d 行已不存在，付费产物无从转存素材库，需人工核对 (check=%s)", j.RunPK, copyOrphanedCheck),
+			logx.Field("task_id", j.TaskID), logx.Field("user_id", j.UserID))
+		return
+	}
+	// 不看 run.Deleted / 画布是否已删：用户删除不影响付费产物入素材库
+	if run.Status != model.RunSucceeded {
+		finish(model.CopyVoid, "run 已不是成功态", "void")
 		return
 	}
 	// 写 run / 入素材库之前确认本轮认领还在（并续期）：复制耗时超过认领时长、已被别的实例接手时，旧持有者不再写，

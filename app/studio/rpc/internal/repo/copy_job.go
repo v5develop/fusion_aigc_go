@@ -106,11 +106,12 @@ func (r *CopyJobRepo) StatusByRefs(ctx context.Context, refs map[int64]string) (
 	return out, err
 }
 
-// SwapLibraryRef 转存完成：成功、未删除且 result_url 仍是 oldRef 的子任务，成品换成素材库公有地址（CAS）。返回是否改到。
-// 没改到 = 期间被重新生成 / 运营重做 / 删除，原引用已不是它的成品，不再改。
+// SwapLibraryRef 转存完成：成功且 result_url 仍是 oldRef 的子任务，成品换成素材库公有地址（CAS）。返回是否改到。
+// 不看 deleted：用户删了批次也照常入素材库，已软删的行一并换成公有地址（用户看不到，无害）。
+// 没改到 = 期间被重新生成 / 运营重做，原引用已不是它的成品，不再改。
 func (r *TaskRepo) SwapLibraryRef(ctx context.Context, id int64, oldRef, rid, url string) (bool, error) {
 	n, err := affected(r.db.NewUpdate().Table(TableTask).
 		Set("result_rid = ?", rid).Set("result_url = ?", url).
-		Where("id = ?", id).Where("status = ?", model.TaskSucceeded).Where("deleted = 0").Where("result_url = ?", oldRef).Exec(ctx))
+		Where("id = ?", id).Where("status = ?", model.TaskSucceeded).Where("result_url = ?", oldRef).Exec(ctx))
 	return n > 0, err
 }
