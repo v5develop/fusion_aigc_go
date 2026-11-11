@@ -2,8 +2,10 @@
 //
 // 迁移期（增量双写，不破坏现有调用方）：
 //   - 响应：每个 snake_case 键补一个 camelCase 别名，原键保留；
-//   - 请求：camelCase 键仅当它对应的 snake_case 名在白名单（known_gen.go）中、且请求里没有该 snake 键时，补上 snake 键；
+//   - 请求体：camelCase 键仅当它对应的 snake_case 名在白名单（known_gen.go）中、且请求里没有该 snake 键时，补上 snake 键；
 //     白名单之外的键（如用户自由格式 map 里的键）一律不动。
+//   - URL query：同一规则——camelCase 参数名对应的 snake 名在白名单中、且 query 里没有该 snake 参数时，
+//     追加 snake 参数（值保持原始编码，重复参数逐个追加），原参数保留；snake 参数照旧可用。
 //
 // 非 JSON 响应（SSE、文件、静态资源）原样透传；JSON 响应超过 maxRespBytes 也透传（不改写）。
 package jsoncase
@@ -13,6 +15,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 )
@@ -35,6 +38,7 @@ func Middleware(next http.HandlerFunc) http.HandlerFunc {
 // ---------------------------------------------------------------- 请求
 
 func rewriteRequest(r *http.Request) {
+	rewriteQuery(r)
 	if r.Body == nil || r.Body == http.NoBody || !isJSON(r.Header.Get("Content-Type")) {
 		return
 	}
@@ -55,6 +59,51 @@ func rewriteRequest(r *http.Request) {
 	r.Body = io.NopCloser(bytes.NewReader(out))
 	r.ContentLength = int64(len(out))
 	r.Header.Set("Content-Length", strconv.Itoa(len(out)))
+}
+
+// rewriteQuery 在 RawQuery 上原样追加 snake 别名参数：不重排、不重编码已有参数，
+// 新参数的值直接复用原参数的原始编码（"=" 之后的部分），所以编码不会被改写。
+func rewriteQuery(r *http.Request) {
+	if r.URL == nil || r.URL.RawQuery == "" {
+		return
+	}
+	raw := r.URL.RawQuery
+	pairs := strings.Split(raw, "&")
+	keys := make([]string, len(pairs))
+	present := make(map[string]bool, len(pairs))
+	for i, p := range pairs {
+		k := p
+		if j := strings.IndexByte(p, '='); j >= 0 {
+			k = p[:j]
+		}
+		dk, err := url.QueryUnescape(k)
+		if err != nil {
+			continue // 键编码非法：不参与改写，原样留给下游处理
+		}
+		keys[i] = dk
+		present[dk] = true
+	}
+	var added []string
+	for i, p := range pairs {
+		k := keys[i]
+		if k == "" {
+			continue
+		}
+		snake := toSnake(k)
+		if snake == k || !knownSnake[snake] || present[snake] {
+			continue
+		}
+		if j := strings.IndexByte(p, '='); j >= 0 {
+			added = append(added, snake+p[j:])
+		} else {
+			added = append(added, snake)
+		}
+	}
+	if len(added) == 0 {
+		return
+	}
+	r.URL.RawQuery = raw + "&" + strings.Join(added, "&")
+	r.Form = nil // 防御：确保下游 ParseForm 读到改写后的 query
 }
 
 // addSnakeAliases 递归：白名单内的 snake 键缺失且存在对应 camel 键时补上 snake 键。返回是否改动。
