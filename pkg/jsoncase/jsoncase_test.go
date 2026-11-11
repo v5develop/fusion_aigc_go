@@ -203,3 +203,121 @@ func TestQueryMalformedPairsLeftAlone(t *testing.T) {
 		t.Errorf("malformed query handling:\n got  %q\n want %q", got, want)
 	}
 }
+
+// ---------------------------------------------------------------- 自由格式子树
+
+func captureBody(t *testing.T, body string) (string, map[string]any) {
+	t.Helper()
+	var raw []byte
+	h := func(w http.ResponseWriter, r *http.Request) { raw, _ = io.ReadAll(r.Body) }
+	run(t, h, "POST", body, "application/json")
+	var seen map[string]any
+	if err := json.Unmarshal(raw, &seen); err != nil {
+		t.Fatalf("bad json %q: %v", raw, err)
+	}
+	return string(raw), seen
+}
+
+func TestRequestSnapshotSubtreeUntouched(t *testing.T) {
+	// 快照节点 data 里的 taskId / runId / requestId 都在白名单形态内，但属于前端私有 JSON，不得补 snake
+	snap := `{"nodes":[{"id":"n1","data":{"taskId":"t1","runId":"r1","requestId":"9007199254740993","note":"<b>&</b>"}}],"edges":[]}`
+	raw, seen := captureBody(t, `{"workflowId":"w1","ifMatchRevision":"x","snapshot":`+snap+`}`)
+	if seen["workflow_id"] != "w1" {
+		t.Errorf("typed top-level camel field not mapped: %v", seen)
+	}
+	if !strings.Contains(raw, `"snapshot":`+snap) {
+		t.Errorf("snapshot bytes changed:\n%s", raw)
+	}
+	for _, k := range []string{"task_id", "run_id", "request_id"} {
+		if strings.Contains(raw, `"`+k+`"`) {
+			t.Errorf("snapshot polluted with %s: %s", k, raw)
+		}
+	}
+}
+
+func TestRequestCamelFreeFormKeyAlsoSkipped(t *testing.T) {
+	// 自由格式键按 snake 形式匹配：posePrompts 的 map 键（用户数据）不改名
+	raw, _ := captureBody(t, `{"posePrompts":{"taskId":"x"}}`)
+	if strings.Contains(raw, `"task_id"`) {
+		t.Errorf("free-form value rewritten: %s", raw)
+	}
+	if !strings.Contains(raw, `"pose_prompts":{"taskId":"x"}`) {
+		t.Errorf("pose_prompts alias missing or value changed: %s", raw)
+	}
+}
+
+func TestRequestCanvasToolParamsStillMapped(t *testing.T) {
+	// 画布工具 params 的键是接口字段：web 试穿发 aspectRatio，canvas rpc 读 aspect_ratio
+	_, seen := captureBody(t, `{"kind":"tool","tool":"tryon","params":{"aspectRatio":"9:16","items":["top"]}}`)
+	if p := seen["params"].(map[string]any); p["aspect_ratio"] != "9:16" {
+		t.Errorf("params.aspectRatio not mapped: %v", p)
+	}
+}
+
+func TestRequestNestedTypedStillMapped(t *testing.T) {
+	// 具名结构体里的嵌套对象 / 数组照常补 snake
+	_, seen := captureBody(t, `{"references":[{"nodeId":"n1","assetId":"a1"}],"modelId":"m"}`)
+	ref := seen["references"].([]any)[0].(map[string]any)
+	if ref["asset_id"] != "a1" || seen["model_id"] != "m" {
+		t.Errorf("typed nested camel not mapped: %v", seen)
+	}
+}
+
+func TestRequestUnchangedBodyKeepsBytes(t *testing.T) {
+	body := `{"snapshot":{"nodes":[{"data":{"taskId":"t"}}]},  "name":"a<b"}`
+	raw, _ := captureBody(t, body)
+	if raw != body {
+		t.Errorf("body without typed camel keys was re-encoded:\n got  %s\n want %s", raw, body)
+	}
+}
+
+func TestResponseFreeFormNotAliased(t *testing.T) {
+	resp := `{"code":0,"data":{"canvas_id":"c1","snapshot":{"nodes":[{"data":{"run_id":"r","source_node_id":"s"}}]},` +
+		`"java_image_configs":[{"model_code":"m","max_refs":3}],"items":[{"task_id":"t"}]}}`
+	rec := run(t, jsonHandler(resp), "GET", "", "")
+	body := rec.Body.String()
+	var got map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("bad json: %v", err)
+	}
+	data := got["data"].(map[string]any)
+	if data["canvasId"] != "c1" || data["javaImageConfigs"] == nil {
+		t.Errorf("typed keys not aliased: %v", data)
+	}
+	if data["items"].([]any)[0].(map[string]any)["taskId"] != "t" {
+		t.Errorf("typed nested alias missing: %v", data)
+	}
+	for _, k := range []string{"runId", "sourceNodeId", "modelCode", "maxRefs"} {
+		if strings.Contains(body, `"`+k+`"`) {
+			t.Errorf("free-form blob aliased with %s: %s", k, body)
+		}
+	}
+	if !strings.Contains(body, `"snapshot":{"nodes":[{"data":{"run_id":"r","source_node_id":"s"}}]}`) {
+		t.Errorf("snapshot bytes changed: %s", body)
+	}
+}
+
+func TestFreeFormKeysGenerated(t *testing.T) {
+	for _, k := range []string{"snapshot", "java_image_configs"} {
+		if !freeFormKeys[k] {
+			t.Errorf("%s missing from freeFormKeys; rerun scripts/jsoncase/gen_known.py", k)
+		}
+	}
+	for _, k := range []string{"code", "msg", "data", "params"} {
+		if freeFormKeys[k] {
+			t.Errorf("envelope key %s must not be free-form", k)
+		}
+	}
+}
+
+func TestRequestLargeSnapshotSaveStillMapped(t *testing.T) {
+	// 快照 ≤2MB：超过旧 1MB 上限时 ifMatchRevision 不补 snake，保存会被拒「缺少 if_match_revision」
+	snap := `{"nodes":[{"data":{"note":"` + strings.Repeat("x", 1800<<10) + `"}}],"edges":[]}`
+	raw, seen := captureBody(t, `{"ifMatchRevision":"rev-1","snapshot":`+snap+`}`)
+	if seen["if_match_revision"] != "rev-1" {
+		t.Errorf("if_match_revision not mapped for large snapshot body")
+	}
+	if !strings.Contains(raw, `"snapshot":`+snap) {
+		t.Errorf("large snapshot bytes changed")
+	}
+}

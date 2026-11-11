@@ -90,7 +90,7 @@ Java 工具（放大 / 扩图 / 局部重绘）的取消：通过 Java 现有取
 
 ### 1.4 字段与时间
 
-- 请求体、查询参数、响应以**下划线**命名为准（原型是 camelCase，对照表见第 9 章）；网关中间件 `pkg/jsoncase` 同时兼容 camelCase：请求体与查询参数的 camelCase 名按白名单补成下划线名（两者都给时下划线优先），响应每个下划线键双写 camelCase 别名。前端可一律用 camelCase。
+- 请求体、查询参数、响应以**下划线**命名为准（原型是 camelCase，对照表见第 9 章）；网关中间件 `pkg/jsoncase` 同时兼容 camelCase：请求体与查询参数的 camelCase 名按白名单补成下划线名（两者都给时下划线优先），响应每个下划线键双写 camelCase 别名。前端可一律用 camelCase。**自由格式字段不参与**：`snapshot`、`java_image_configs` / `java_video_configs` 等类型为 `interface{}` / `map` 的字段，中间件在请求、响应两侧都不下钻其内容、原样透传（清单由 `scripts/jsoncase/gen_known.py` 从 types 生成到 `pkg/jsoncase/known_gen.go` 的 `freeFormKeys`）——快照里叫 `taskId` / `runId` 的键不会被补出 `task_id` / `run_id`，响应快照里的下划线键也不会被补 camel 别名。画布运行的工具 `params` 例外：其键是接口字段（见 3.2），照常补下划线名（如 `aspectRatio` → `aspect_ratio`）。
 - 时间是 **unix 毫秒**（原型是 ISO 字符串）。
 - `revision` 是字符串，形如 `1761800000123-a1b2`（保存时的毫秒时间戳 + 4 位随机十六进制，每次保存换新），前端当黑盒，只原样回传，**不要比较大小**。
 - 画布 `id` 是字符串（原型 `workflowId`）。**快照内部**的字段（节点 `data` 里的 `ratio`、`maxImageRefs`、`sourceNodeId` 等）保持**前端原样的 camelCase，不做下划线化**——快照是前端私有文档，服务端只校验、不翻译。下划线化只针对接口的外层字段。

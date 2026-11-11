@@ -234,3 +234,14 @@ var knownSnake = map[string]bool{
 	"workflow_id":            true,
 	"workspace_id":           true,
 }
+
+// freeFormKeys 类型为自由格式（interface{} / any / json.RawMessage / map）的 json 字段名：
+// 请求改写与响应补别名都不下钻其值（值原样保留），键本身照常按所在层处理。
+var freeFormKeys = map[string]bool{
+	"java_image_configs": true, // CanvasCatalogResp.java_image_configs interface{}
+	"java_video_configs": true, // CanvasCatalogResp.java_video_configs interface{}
+	"lengths":            true, // StudioTryonSubmitReq.lengths map[string]string
+	"pose_prompts":       true, // StudioPoseSubmitReq.pose_prompts map[string]string
+	"sleeves":            true, // StudioTryonSubmitReq.sleeves map[string]string
+	"snapshot":           true, // CanvasDetail.snapshot interface{}; CanvasSaveReq.snapshot interface{}; CanvasTemplate.snapshot interface{}
+}

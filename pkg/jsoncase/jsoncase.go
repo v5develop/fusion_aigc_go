@@ -3,7 +3,10 @@
 // 迁移期（增量双写，不破坏现有调用方）：
 //   - 响应：每个 snake_case 键补一个 camelCase 别名，原键保留；
 //   - 请求体：camelCase 键仅当它对应的 snake_case 名在白名单（known_gen.go）中、且请求里没有该 snake 键时，补上 snake 键；
-//     白名单之外的键（如用户自由格式 map 里的键）一律不动。
+//     白名单之外的键一律不动；
+//   - 自由格式字段（freeFormKeys：.api 里类型为 interface{} / any / json.RawMessage / map 的字段名，如画布 snapshot、
+//     Java 透传配置；画布工具 params 除外，其键是接口字段）的值请求、响应两侧都不下钻、原样保留字节——那是调用方私有 JSON，
+//     里面恰好叫 taskId / run_id 的键不是接口字段，补别名会污染落库的快照。字符串承载的 JSON 文本不解析，天然不动。
 //   - URL query：同一规则——camelCase 参数名对应的 snake 名在白名单中、且 query 里没有该 snake 参数时，
 //     追加 snake 参数（值保持原始编码，重复参数逐个追加），原参数保留；snake 参数照旧可用。
 //
@@ -16,12 +19,13 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 )
 
 const (
-	maxReqBytes  = 1 << 20 // 请求体超过 1MB 不改写
+	maxReqBytes  = 4 << 20 // 请求体超过 4MB 不改写（须盖住画布保存：快照 ≤2MB，超限不改写会丢掉 ifMatchRevision → 保存被拒）
 	maxRespBytes = 4 << 20 // 响应体超过 4MB 不改写
 )
 
@@ -49,12 +53,8 @@ func rewriteRequest(r *http.Request) {
 		return
 	}
 	out := raw
-	if v, ok := decode(raw); ok {
-		if addSnakeAliases(v) {
-			if b, err := json.Marshal(v); err == nil {
-				out = b
-			}
-		}
+	if b, changed := rewriteTree(raw, addSnakeAlias); changed {
+		out = b
 	}
 	r.Body = io.NopCloser(bytes.NewReader(out))
 	r.ContentLength = int64(len(out))
@@ -106,33 +106,16 @@ func rewriteQuery(r *http.Request) {
 	r.Form = nil // 防御：确保下游 ParseForm 读到改写后的 query
 }
 
-// addSnakeAliases 递归：白名单内的 snake 键缺失且存在对应 camel 键时补上 snake 键。返回是否改动。
-func addSnakeAliases(v any) bool {
-	changed := false
-	switch t := v.(type) {
-	case map[string]any:
-		for k, child := range t {
-			if changed2 := addSnakeAliases(child); changed2 {
-				changed = true
-			}
-			snake := toSnake(k)
-			if snake == k || !knownSnake[snake] {
-				continue
-			}
-			if _, exists := t[snake]; exists {
-				continue
-			}
-			t[snake] = child
-			changed = true
-		}
-	case []any:
-		for _, child := range t {
-			if addSnakeAliases(child) {
-				changed = true
-			}
-		}
+// addSnakeAlias 请求侧：camel 键对应的 snake 名在白名单内、且本层没有该 snake 键时，补上 snake 键。
+func addSnakeAlias(obj map[string]json.RawMessage, k string) (string, bool) {
+	snake := toSnake(k)
+	if snake == k || !knownSnake[snake] {
+		return "", false
 	}
-	return changed
+	if _, exists := obj[snake]; exists {
+		return "", false
+	}
+	return snake, true
 }
 
 // ---------------------------------------------------------------- 响应
@@ -195,10 +178,8 @@ func (w *respWriter) finish() {
 	}
 	body := w.buf.Bytes()
 	if len(body) <= maxRespBytes {
-		if v, ok := decode(body); ok && addCamelAliases(v) {
-			if b, err := json.Marshal(v); err == nil {
-				body = b
-			}
+		if b, changed := rewriteTree(body, addCamelAlias); changed {
+			body = b
 		}
 	}
 	w.ResponseWriter.Header().Del("Content-Length")
@@ -210,36 +191,120 @@ func (w *respWriter) finish() {
 	_, _ = w.ResponseWriter.Write(body)
 }
 
-// addCamelAliases 递归：snake 键补 camel 别名（原键保留）。返回是否改动。
-func addCamelAliases(v any) bool {
-	changed := false
-	switch t := v.(type) {
-	case map[string]any:
-		for k, child := range t {
-			if addCamelAliases(child) {
-				changed = true
-			}
-			if !strings.Contains(k, "_") {
-				continue
-			}
-			camel := toCamel(k)
-			if camel == k {
-				continue
-			}
-			if _, exists := t[camel]; exists {
-				continue
-			}
-			t[camel] = child
-			changed = true
-		}
-	case []any:
-		for _, child := range t {
-			if addCamelAliases(child) {
-				changed = true
-			}
-		}
+// addCamelAlias 响应侧：snake 键补 camel 别名（原键保留，本层已有该 camel 键时不补）。
+func addCamelAlias(obj map[string]json.RawMessage, k string) (string, bool) {
+	if !strings.Contains(k, "_") {
+		return "", false
 	}
-	return changed
+	camel := toCamel(k)
+	if camel == k {
+		return "", false
+	}
+	if _, exists := obj[camel]; exists {
+		return "", false
+	}
+	return camel, true
+}
+
+// ---------------------------------------------------------------- 改写树
+
+// aliasFunc 判断对象 obj 的键 k 是否要补别名，返回别名。
+type aliasFunc func(obj map[string]json.RawMessage, k string) (string, bool)
+
+// rewriteTree 逐层改写 JSON：对象的每个键先递归改写其值，再按 alias 补别名（别名与原键共享改写后的值）；
+// 自由格式键（freeFormKeys，按键名或其 snake 形式匹配）的值原样保留字节、不下钻——画布快照、工具参数等
+// 调用方私有 JSON 里的键不是接口字段。返回是否改动；未改动时调用方应沿用原始字节。
+func rewriteTree(raw []byte, alias aliasFunc) ([]byte, bool) {
+	v, changed, ok := rewriteValue(raw, alias)
+	if !ok || !changed {
+		return raw, false
+	}
+	return v, true
+}
+
+func rewriteValue(raw json.RawMessage, alias aliasFunc) (json.RawMessage, bool, bool) {
+	switch firstByte(raw) {
+	case '{':
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &obj); err != nil {
+			return raw, false, false
+		}
+		changed := false
+		keys := make([]string, 0, len(obj))
+		for k := range obj {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys) // 别名冲突时结果确定
+		for _, k := range keys {
+			if !isFreeForm(k) {
+				if nv, c, ok := rewriteValue(obj[k], alias); ok && c {
+					obj[k] = nv
+					changed = true
+				}
+			}
+			if name, add := alias(obj, k); add {
+				obj[name] = obj[k]
+				changed = true
+			}
+		}
+		if !changed {
+			return raw, false, true
+		}
+		b, err := marshalNoEscape(obj)
+		if err != nil {
+			return raw, false, false
+		}
+		return b, true, true
+	case '[':
+		var arr []json.RawMessage
+		if err := json.Unmarshal(raw, &arr); err != nil {
+			return raw, false, false
+		}
+		changed := false
+		for i := range arr {
+			if nv, c, ok := rewriteValue(arr[i], alias); ok && c {
+				arr[i] = nv
+				changed = true
+			}
+		}
+		if !changed {
+			return raw, false, true
+		}
+		b, err := marshalNoEscape(arr)
+		if err != nil {
+			return raw, false, false
+		}
+		return b, true, true
+	default:
+		// 标量：原样；非法 JSON 由上层 Unmarshal 报错兜住
+		return raw, false, json.Valid(raw)
+	}
+}
+
+func isFreeForm(k string) bool {
+	return freeFormKeys[k] || freeFormKeys[toSnake(k)]
+}
+
+func firstByte(b []byte) byte {
+	for _, c := range b {
+		switch c {
+		case ' ', '\t', '\n', '\r':
+			continue
+		}
+		return c
+	}
+	return 0
+}
+
+// marshalNoEscape 不做 HTML 转义：未改动的子树（含自由格式值）按原字节输出，只去空白。
+func marshalNoEscape(v any) ([]byte, error) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return nil, err
+	}
+	return bytes.TrimRight(buf.Bytes(), "\n"), nil
 }
 
 // ---------------------------------------------------------------- 工具
@@ -247,16 +312,6 @@ func addCamelAliases(v any) bool {
 func isJSON(ct string) bool {
 	ct = strings.ToLower(ct)
 	return strings.HasPrefix(ct, "application/json") || strings.Contains(ct, "+json")
-}
-
-func decode(raw []byte) (any, bool) {
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	dec.UseNumber()
-	var v any
-	if err := dec.Decode(&v); err != nil {
-		return nil, false
-	}
-	return v, true
 }
 
 // toSnake camelCase → snake_case（只处理 ASCII 字母与数字，其余原样）。
