@@ -1,6 +1,7 @@
 package config
 
 import (
+	"aigc-local-life/pkg/dbpool"
 	"aigc-local-life/pkg/storage"
 
 	"github.com/zeromicro/go-zero/zrpc"
@@ -10,6 +11,8 @@ type Config struct {
 	zrpc.RpcServerConf
 	// DataSource fusion_aigc 库：读 Java 的 afv_asset（只读），读写 afv_asset_ext / version / relation / tag / tag_link 旁表
 	DataSource string
+	// DB 连接池上限（可选；不配用 pkg/dbpool 的服务默认值，见 docs/api/db-pool.md）
+	DB dbpool.Config `json:",optional"`
 	// VideoTypes 额外判为视频的 afv_asset.type。媒体形态与 Java resolveMediaType 同口径：
 	// type=video/image 字面量直接判；已启用的计费 offer 按 afv_billing_offer.category 判；
 	// offer 查不到的才看这里与「名字含 video」。这里对应 Java creaft 兼容入口里 assetMediaType=VIDEO 的那些（Go 读不到那份配置）。

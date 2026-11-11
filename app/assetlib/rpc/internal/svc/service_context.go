@@ -1,6 +1,7 @@
 package svc
 
 import (
+	"aigc-local-life/pkg/dbpool"
 	"strings"
 
 	"aigc-local-life/app/assetlib/rpc/internal/config"
@@ -28,6 +29,7 @@ type ServiceContext struct {
 
 func NewServiceContext(c config.Config) *ServiceContext {
 	conn := sqlx.NewMysql(c.DataSource)
+	dbpool.MustApply("assetlib", conn, c.DB)
 	db, err := bundb.New(conn)
 	if err != nil {
 		logx.Must(err)

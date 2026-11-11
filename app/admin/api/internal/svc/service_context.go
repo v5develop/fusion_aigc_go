@@ -11,6 +11,7 @@ import (
 	"aigc-local-life/app/note/rpc/note"
 	studio "aigc-local-life/app/studio/rpc/studio_client"
 	"aigc-local-life/pkg/adminuser"
+	"aigc-local-life/pkg/dbpool"
 	"aigc-local-life/pkg/session"
 
 	"github.com/zeromicro/go-zero/core/stores/sqlx"
@@ -37,6 +38,7 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	var conn sqlx.SqlConn
 	if c.DataSource != "" {
 		conn = sqlx.NewMysql(c.DataSource)
+		dbpool.MustApply("admin-api", conn, c.DB)
 	}
 	return &ServiceContext{
 		Config:          c,

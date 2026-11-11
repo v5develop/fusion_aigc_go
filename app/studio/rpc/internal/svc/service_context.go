@@ -1,6 +1,7 @@
 package svc
 
 import (
+	"aigc-local-life/pkg/dbpool"
 	"context"
 	"strings"
 	"time"
@@ -60,6 +61,7 @@ type ServiceContext struct {
 
 func NewServiceContext(c config.Config) *ServiceContext {
 	conn := sqlx.NewMysql(c.DataSource)
+	dbpool.MustApply("studio", conn, c.DB)
 	db, err := bundb.New(conn)
 	if err != nil {
 		logx.Must(err)

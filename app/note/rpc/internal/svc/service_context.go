@@ -2,6 +2,7 @@ package svc
 
 import (
 	"aigc-local-life/pkg/billing"
+	"aigc-local-life/pkg/dbpool"
 	"time"
 
 	"aigc-local-life/pkg/taskcenter"
@@ -35,6 +36,7 @@ type ServiceContext struct {
 
 func NewServiceContext(c config.Config) *ServiceContext {
 	conn := sqlx.NewMysql(c.DataSource)
+	dbpool.MustApply("note", conn, c.DB)
 	shared := model.NewSharedModel(conn)
 	entry := c.Asset.EntryCode
 	if entry == "" {

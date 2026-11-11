@@ -11,6 +11,7 @@ import (
 	"aigc-local-life/app/note/rpc/note"
 	studio "aigc-local-life/app/studio/rpc/studio_client"
 	"aigc-local-life/pkg/appuser"
+	"aigc-local-life/pkg/dbpool"
 	"aigc-local-life/pkg/fusion"
 	"aigc-local-life/pkg/session"
 	"aigc-local-life/pkg/storage"
@@ -52,6 +53,7 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	var conn sqlx.SqlConn
 	if c.DataSource != "" {
 		conn = sqlx.NewMysql(c.DataSource)
+		dbpool.MustApply("gateway-api", conn, c.DB)
 	}
 	sess := session.New(c.Auth.Session)
 	var quotaRedis redis.UniversalClient

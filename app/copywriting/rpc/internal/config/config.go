@@ -2,6 +2,7 @@ package config
 
 import (
 	"aigc-local-life/pkg/billing"
+	"aigc-local-life/pkg/dbpool"
 
 	"github.com/zeromicro/go-zero/zrpc"
 )
@@ -10,6 +11,8 @@ type Config struct {
 	zrpc.RpcServerConf
 	// DataSource fusion_aigc 库
 	DataSource string
+	// DB 连接池上限（可选；不配用 pkg/dbpool 的服务默认值，见 docs/api/db-pool.md）
+	DB dbpool.Config `json:",optional"`
 	// Generate 生成相关的限制
 	Generate GenerateConf
 	// Billing 计费：off 不计费 / shadow 只算价 / on 真扣。由 deploy.env 的 BILLING_MODE 经 mkconf 写入

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"aigc-local-life/pkg/dbpool"
 	"aigc-local-life/pkg/fusion"
 	"aigc-local-life/pkg/session"
 	"aigc-local-life/pkg/storage"
@@ -45,6 +46,8 @@ type Config struct {
 	CanvasRpc zrpc.RpcClientConf
 	// DataSource 仅 Storage.Mode=oss 时使用（从 afv_system_config 读公有桶配置）
 	DataSource string `json:",optional"`
+	// DB 连接池上限（可选；不配用 pkg/dbpool 的服务默认值，见 docs/api/db-pool.md）
+	DB dbpool.Config `json:",optional"`
 	// Storage 须与 digitalhuman-rpc 一致：rpc 只接受本存储签发的上传地址
 	Storage storage.Conf
 	// Studio 工作室接口的网关侧限制

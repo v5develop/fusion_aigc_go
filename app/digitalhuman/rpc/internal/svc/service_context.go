@@ -1,6 +1,7 @@
 package svc
 
 import (
+	"aigc-local-life/pkg/dbpool"
 	"time"
 
 	"aigc-local-life/pkg/billing"
@@ -41,6 +42,7 @@ type ServiceContext struct {
 
 func NewServiceContext(c config.Config) *ServiceContext {
 	conn := sqlx.NewMysql(c.DataSource)
+	dbpool.MustApply("digitalhuman", conn, c.DB)
 	shared := model.NewSharedModel(conn)
 	entry := c.Asset.Video.EntryCode
 	if entry == "" {

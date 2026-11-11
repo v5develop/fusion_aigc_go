@@ -9,6 +9,9 @@ Log:
   Encoding: plain
 # 现有系统库：读 Java 的 afv_asset（只读），读写 afv_asset_ext / version / relation / tag / tag_link（Go_V1.0.23）
 DataSource: root:123456@tcp(127.0.0.1:3306)/fusion_aigc?charset=utf8mb4&parseTime=true&loc=Asia%2FShanghai&time_zone=%27%2B08%3A00%27
+# 连接池上限（可选，不写即用默认：MaxOpenConns=10，MaxIdleConns=min(open,10)，ConnMaxLifetimeSeconds=1800；全服务汇总见 docs/api/db-pool.md）
+# DB:
+#   MaxOpenConns: 10
 # 媒体形态口径同 Java：type=video/image 直接判，已启用 offer 按 afv_billing_offer.category 判；
 # offer 查不到的看这里（Java creaft 兼容入口里 assetMediaType=VIDEO 的入口码）与「名字含 video」
 VideoTypes: []

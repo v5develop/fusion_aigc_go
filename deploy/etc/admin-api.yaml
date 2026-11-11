@@ -12,6 +12,9 @@ Auth:
     ExpireHours: 12     # 后台 12 小时，比 App 短
 # 后台登录要读 afv_admin_user
 DataSource: root:123456@tcp(127.0.0.1:3306)/fusion_aigc?charset=utf8mb4&parseTime=true&loc=Asia%2FShanghai&time_zone=%27%2B08%3A00%27
+# 连接池上限（可选，不写即用默认：MaxOpenConns=10，MaxIdleConns=min(open,10)，ConnMaxLifetimeSeconds=1800；全服务汇总见 docs/api/db-pool.md）
+# DB:
+#   MaxOpenConns: 10
 CopywritingRpc:
   Etcd: {Hosts: [127.0.0.1:2379], Key: copywriting.rpc}
   NonBlock: true

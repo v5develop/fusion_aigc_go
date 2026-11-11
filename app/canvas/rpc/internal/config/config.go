@@ -1,6 +1,7 @@
 package config
 
 import (
+	"aigc-local-life/pkg/dbpool"
 	"fmt"
 	"strings"
 	"time"
@@ -18,6 +19,8 @@ type Config struct {
 	zrpc.RpcServerConf
 	// DataSource fusion_aigc 库（afv_canvas* / afv_prompt_library_item 新表 + 计费 / 任务中心 / 素材库共享表）
 	DataSource string
+	// DB 连接池上限（可选；不配用 pkg/dbpool 的服务默认值，见 docs/api/db-pool.md）
+	DB dbpool.Config `json:",optional"`
 	// Billing 计费：off 不计费（默认）/ shadow 只算价 / on 真扣。只有 gateway 后端（image / video / tool_i2p）由 Go 计费，
 	// 每个 node run 一张预留单（RequestID = canvas-<task_id>）；Java 兼容工具与 studio 试穿由对方计费，Go 不 Hold。
 	Billing billing.Conf

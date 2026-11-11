@@ -1,6 +1,7 @@
 package config
 
 import (
+	"aigc-local-life/pkg/dbpool"
 	"aigc-local-life/pkg/session"
 	"aigc-local-life/pkg/token"
 
@@ -24,7 +25,9 @@ type Config struct {
 		Session session.Conf
 	}
 	// DataSource 后台登录要读 afv_admin_user；不配则登录接口返回「暂未开放」
-	DataSource      string `json:",optional"`
+	DataSource string `json:",optional"`
+	// DB 连接池上限（可选；不配用 pkg/dbpool 的服务默认值，见 docs/api/db-pool.md）
+	DB              dbpool.Config `json:",optional"`
 	CopywritingRpc  zrpc.RpcClientConf
 	DigitalHumanRpc zrpc.RpcClientConf
 	NoteRpc         zrpc.RpcClientConf

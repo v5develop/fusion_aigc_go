@@ -42,6 +42,9 @@ NoteRpc:
   NonBlock: true
 # 仅 Storage.Mode=oss 时需要（读 afv_system_config 的公有桶配置）
 DataSource: root:123456@tcp(127.0.0.1:3306)/fusion_aigc?charset=utf8mb4&parseTime=true&loc=Asia%2FShanghai&time_zone=%27%2B08%3A00%27
+# 连接池上限（可选，不写即用默认：MaxOpenConns=20，MaxIdleConns=min(open,10)，ConnMaxLifetimeSeconds=1800；全服务汇总见 docs/api/db-pool.md）
+# DB:
+#   MaxOpenConns: 20
 Storage:                # 须与 digitalhuman-rpc 一致
   Mode: local
   Prefix: aigc-local-life

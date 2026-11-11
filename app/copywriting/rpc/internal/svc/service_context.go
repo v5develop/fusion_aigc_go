@@ -1,6 +1,7 @@
 package svc
 
 import (
+	"aigc-local-life/pkg/dbpool"
 	"context"
 	"time"
 
@@ -33,6 +34,7 @@ type ServiceContext struct {
 
 func NewServiceContext(c config.Config) *ServiceContext {
 	conn := sqlx.NewMysql(c.DataSource)
+	dbpool.MustApply("copywriting", conn, c.DB)
 	option := model.NewAfvCopywritingOptionModel(conn)
 	return &ServiceContext{
 		Config:      c,

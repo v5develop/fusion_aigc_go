@@ -9,6 +9,9 @@ Log:
   Encoding: plain
 # 现有系统库；OSS 配置从库里读，不写在这里
 DataSource: root:123456@tcp(127.0.0.1:3306)/fusion_aigc?charset=utf8mb4&parseTime=true&loc=Asia%2FShanghai&time_zone=%27%2B08%3A00%27
+# 连接池上限（可选，不写即用默认：MaxOpenConns=10，MaxIdleConns=min(open,10)，ConnMaxLifetimeSeconds=1800；全服务汇总见 docs/api/db-pool.md）
+# DB:
+#   MaxOpenConns: 10
 # 计费：off 不计费 / shadow 只算价记日志、不拦用户 / on 真扣（服务器上由 deploy.env 的 BILLING_MODE 写入）
 Billing:
   Mode: "off"

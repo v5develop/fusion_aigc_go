@@ -1,6 +1,7 @@
 package config
 
 import (
+	"aigc-local-life/pkg/dbpool"
 	"strings"
 	"time"
 
@@ -16,6 +17,8 @@ type Config struct {
 	zrpc.RpcServerConf
 	// DataSource fusion_aigc 库（afv_studio_* 新表 + 计费/任务中心/素材库共享表）
 	DataSource string
+	// DB 连接池上限（可选；不配用 pkg/dbpool 的服务默认值，见 docs/api/db-pool.md）
+	DB dbpool.Config `json:",optional"`
 	// Billing 计费：off 不计费（默认）/ shadow 只算价记日志 / on 真扣。由 deploy.env 的 BILLING_MODE 写入。
 	// 每个子任务一张预留单；入口码见 EntryCodes。
 	Billing billing.Conf

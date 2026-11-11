@@ -2,6 +2,7 @@ package svc
 
 import (
 	"aigc-local-life/pkg/billing"
+	"aigc-local-life/pkg/dbpool"
 	"strings"
 	"time"
 
@@ -44,6 +45,7 @@ type ServiceContext struct {
 
 func NewServiceContext(c config.Config) *ServiceContext {
 	conn := sqlx.NewMysql(c.DataSource)
+	dbpool.MustApply("imagegen", conn, c.DB)
 	shared := model.NewSharedModel(conn)
 	return &ServiceContext{
 		TaskCenter:      taskcenter.New(conn, 10*time.Minute, taskSources(c)...),
