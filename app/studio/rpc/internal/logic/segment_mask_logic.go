@@ -71,7 +71,7 @@ func segmentMask(ctx context.Context, m *masker, owns func(string) bool, in *stu
 			return nil, terr
 		}
 		if !ok {
-			return nil, xerr.Param("任务不存在或还没有成品")
+			return nil, xerr.NewReason(xerr.ParamError, xerr.ReasonMaskSourceNotFound, "任务不存在或还没有成品")
 		}
 		if rid != "" {
 			res, err = m.GetPrivate(ctx, in.GetUserId(), rid, src, target, in.GetParts())

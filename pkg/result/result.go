@@ -35,6 +35,15 @@ func fail(code int, msg string) Body {
 	return Body{Code: code, Reason: xerr.Reason(code), Msg: msg}
 }
 
+// failErr 同 fail，但优先带错误自己的细分 reason（码不变，只增）。
+func failErr(code int, msg string, err error) Body {
+	b := fail(code, msg)
+	if r := xerr.ReasonOf(err); r != "" {
+		b.Reason = r
+	}
+	return b
+}
+
 // httpStatus 返回业务码对应的 HTTP 状态：未登录为 401，其余保持 200。
 func httpStatus(code int) int {
 	if code == xerr.Unauthorized {
@@ -53,7 +62,7 @@ func Setup() {
 	})
 	httpx.SetErrorHandlerCtx(func(ctx context.Context, err error) (int, any) {
 		if code, msg, isBiz := xerr.Parse(err); isBiz {
-			return httpStatus(code), fail(code, msg)
+			return httpStatus(code), failErr(code, msg, err)
 		}
 		if _, isGrpc := status.FromError(err); isGrpc {
 			// 下游服务的非业务错误，不暴露细节

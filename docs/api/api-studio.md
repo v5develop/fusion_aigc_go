@@ -979,11 +979,16 @@ POST /api/v1/studio/masks
 | 情况 | 返回 |
 |---|---|
 | 缺地址 / 区域不支持 / 地址不是本服务的 | `1002` / `1003` |
-| 没识别到对应区域（图里没有服装 / 人物 / 主体） | `4001`「没识别到对应区域」（24 小时内同一张图同一区域直接返回该结果） |
-| 超出频率 | `4002`「识别太频繁，请稍后再试」 |
+| 没识别到对应区域（图里没有服装 / 人物 / 主体） | `4001` · reason `RESOURCE_NOT_FOUND`「没识别到对应区域」（24 小时内同一张图同一区域直接返回该结果） |
+| 超出频率 | `4002` · reason `RESOURCE_CONFLICT`「识别太频繁，请稍后再试」 |
+| 来源不存在（`canvas_request_id` 指向的执行不是本人的 / 已删除） | `4001` · reason `MASK_SOURCE_NOT_FOUND`（只增，2026-11-11） |
+| 来源还没成功（`canvas_request_id` 指向的执行未成功出图） | `4002` · reason `MASK_SOURCE_NOT_READY`（只增，2026-11-11） |
+| 来源任务不存在 / 不是本人的 / 已删除 / 还没有成品（`task_id`） | `1003`（码不变）· reason `MASK_SOURCE_NOT_FOUND`（只增，2026-11-11） |
 | 图片格式 / 尺寸 / 分辨率供应商不支持 | `1003`「这张图的格式或尺寸暂不支持区域识别」（不缓存；换一张图再试，同图重试结果一样） |
 | 识别服务暂不可用 | `6001`「区域识别暂不可用，请稍后再试」（不缓存，可重试） |
 | 网关 / 媒体服务未配置 | `7003` |
+
+**reason 区分来源错误与识别结果**（只增）：前端请按信封 `reason` 分支，不要按 `msg` 文案。`4001` / `4002` 同码不同义：`RESOURCE_NOT_FOUND` = 没识别到区域、`MASK_SOURCE_NOT_FOUND` = 来源不存在；`RESOURCE_CONFLICT` = 识别太频繁、`MASK_SOURCE_NOT_READY` = 来源执行未成功。来源类 reason 只出现在带来源字段（`task_id` / `canvas_request_id`）的请求上；老后端没有这两个 reason（4001 / 4002 一律是上表前两行的 reason），前端遇到无 reason 时可回退按文案判断。
 
 识别走 ai-gateway `image.segment`：服装 `imgseg.aliyun-cloth`（阿里云 SegmentCloth）、商品 `imgseg.aliyun-commodity`（SegmentCommodity）、
 人物 `imgseg.aliyun-body`（SegmentBody）、背景 `imgseg.aliyun-hd`（SegmentHDCommonImage 取反）。

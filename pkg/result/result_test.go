@@ -1,7 +1,10 @@
 package result
 
 import (
+	"context"
 	"encoding/json"
+	"github.com/zeromicro/go-zero/rest/httpx"
+	"google.golang.org/grpc/status"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -75,5 +78,29 @@ func TestErrorWritesEnvelope(t *testing.T) {
 	_ = json.Unmarshal(rec.Body.Bytes(), &m)
 	if m["code"].(float64) != 2001 || m["reason"] != "UNAUTHORIZED" {
 		t.Fatalf("信封不对：%s", rec.Body.String())
+	}
+}
+
+// 错误处理器优先带错误自己的细分 reason（经 gRPC status 透传），码不变；无细分仍按码派生。
+func TestErrorHandlerCarriesDetailedReason(t *testing.T) {
+	Setup()
+	for _, c := range []struct {
+		err    error
+		reason string
+	}{
+		{status.Convert(xerr.NewReason(xerr.NotFound, xerr.ReasonMaskSourceNotFound, "执行记录不存在")).Err(), "MASK_SOURCE_NOT_FOUND"},
+		{xerr.New(xerr.NotFound, "没识别到对应区域"), "RESOURCE_NOT_FOUND"},
+		{xerr.NewReason(xerr.Conflict, xerr.ReasonMaskSourceNotReady, "还没成功"), "MASK_SOURCE_NOT_READY"},
+		{xerr.New(xerr.Conflict, "识别太频繁"), "RESOURCE_CONFLICT"},
+	} {
+		w := httptest.NewRecorder()
+		httpx.ErrorCtx(context.Background(), w, c.err)
+		var b Body
+		if err := json.Unmarshal(w.Body.Bytes(), &b); err != nil {
+			t.Fatal(err)
+		}
+		if b.Reason != c.reason {
+			t.Fatalf("reason=%q want %q (%s)", b.Reason, c.reason, w.Body.String())
+		}
 	}
 }

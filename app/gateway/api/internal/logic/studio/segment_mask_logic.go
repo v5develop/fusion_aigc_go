@@ -92,7 +92,7 @@ func (l *SegmentMaskLogic) maskSource(uid int64, req *types.StudioMaskReq) (*stu
 	}
 	src, err := l.svcCtx.CanvasRpc.CandidateSource(l.ctx, &canvas_client.CandidateSourceReq{UserId: uid, Id: id, CandidateIndex: req.CandidateIndex})
 	if err != nil {
-		return nil, err
+		return nil, maskSourceErr(err)
 	}
 	if src.Rid != "" {
 		// 私有候选：image_url 只是前端展示用的签名地址，不再参与判断（来源已由 canvas-rpc 按归属确定）
@@ -104,4 +104,16 @@ func (l *SegmentMaskLogic) maskSource(uid int64, req *types.StudioMaskReq) (*stu
 	}
 	in.ImageUrl = src.Url // 公开候选：按落库的长期地址走原口径（本服务存储 / 素材库白名单）
 	return in, nil
+}
+
+// maskSourceErr 把画布来源错误换成蒙版专属 reason（码不变）：4001 → MASK_SOURCE_NOT_FOUND，4002 → MASK_SOURCE_NOT_READY；
+// 其余（1003 非图片 / 下标不合法等）原样返回。与「没识别到区域」（4001 RESOURCE_NOT_FOUND）、「识别太频繁」（4002 RESOURCE_CONFLICT）区分。
+func maskSourceErr(err error) error {
+	switch code, _, _ := xerr.Parse(err); code {
+	case xerr.NotFound:
+		return xerr.WithReason(err, xerr.ReasonMaskSourceNotFound)
+	case xerr.Conflict:
+		return xerr.WithReason(err, xerr.ReasonMaskSourceNotReady)
+	}
+	return err
 }

@@ -9,6 +9,7 @@ import (
 	"aigc-local-life/app/gateway/api/internal/types"
 	"aigc-local-life/pkg/ctxdata"
 	"aigc-local-life/pkg/userquota"
+	"aigc-local-life/pkg/xerr"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
@@ -19,12 +20,13 @@ import (
 type fakeCandidateCanvas struct {
 	canvas_client.Canvas
 	resp *canvas_client.CandidateSourceResp
+	err  error
 	got  []*canvas_client.CandidateSourceReq
 }
 
 func (f *fakeCandidateCanvas) CandidateSource(_ context.Context, in *canvas_client.CandidateSourceReq, _ ...grpc.CallOption) (*canvas_client.CandidateSourceResp, error) {
 	f.got = append(f.got, in)
-	return f.resp, nil
+	return f.resp, f.err
 }
 
 func maskSourceCtx(t *testing.T, cv *fakeCandidateCanvas) (*svc.ServiceContext, *fakeMaskStudio, context.Context) {
@@ -84,5 +86,33 @@ func TestSegmentMaskSourceRejects(t *testing.T) {
 	}
 	if len(rpc.got) != 0 || len(cv.got) != 0 {
 		t.Fatalf("不应调 rpc: studio=%d canvas=%d", len(rpc.got), len(cv.got))
+	}
+}
+
+// 画布来源错误换成蒙版专属 reason：4001 → MASK_SOURCE_NOT_FOUND，4002 → MASK_SOURCE_NOT_READY，码不变；
+// 与「没识别到区域」「识别太频繁」的 reason（RESOURCE_NOT_FOUND / RESOURCE_CONFLICT）区分；其它错误原样。
+func TestSegmentMaskSourceErrorReasons(t *testing.T) {
+	cases := []struct {
+		err    error
+		code   int
+		reason string
+	}{
+		{xerr.NotFoundf("执行记录"), xerr.NotFound, "MASK_SOURCE_NOT_FOUND"},
+		{xerr.New(xerr.Conflict, "这次执行还没有成功的图片"), xerr.Conflict, "MASK_SOURCE_NOT_READY"},
+		{xerr.Param("候选下标不合法"), xerr.ParamError, "PARAM_INVALID"},
+	}
+	for _, c := range cases {
+		cv := &fakeCandidateCanvas{err: c.err}
+		s, rpc, ctx := maskSourceCtx(t, cv)
+		_, err := NewSegmentMaskLogic(ctx, s).SegmentMask(&types.StudioMaskReq{CanvasRequestId: "41", Target: "garment"})
+		if code, _, _ := xerr.Parse(err); code != c.code {
+			t.Fatalf("码应不变 %d: %v", c.code, err)
+		}
+		if got := xerr.ReasonOf(err); got != c.reason {
+			t.Fatalf("reason=%q want %q", got, c.reason)
+		}
+		if len(rpc.got) != 0 {
+			t.Fatal("来源失败不应调识别")
+		}
 	}
 }
