@@ -269,6 +269,32 @@ func (r *RunRepo) UpdateIfStatus(ctx context.Context, id int64, status int8, set
 	})
 }
 
+// SwapRefs 转存完成：把成功 run 的候选 / 视频地址换成素材库地址（只改 status=成功 的行；videoURL 为空不动视频列）。
+// 顺手清掉转存失败标记（之前某轮记过永久失败、后来人工重置重做成功时）。
+func (r *RunRepo) SwapRefs(ctx context.Context, id int64, candidates json.RawMessage, videoURL string) (bool, error) {
+	q := r.db.NewUpdate().Table(TableRun).Set("candidates = ?", nullJSON(candidates))
+	if videoURL != "" {
+		q = q.Set("video_url = ?", videoURL)
+	}
+	q = q.Set("error_code = IF(error_code = ?, NULL, error_code)", model.CopyFailedCode)
+	n, err := affected(q.Where("id = ?", id).Where("status = ?", model.RunSucceeded).Exec(ctx))
+	return n > 0, err
+}
+
+// MarkCopyFailed 转存永久失败：在成功 run 上打 error_code 标记（library_status=failed），产物仍是 mr:// 引用、照常可看可下载。
+func (r *RunRepo) MarkCopyFailed(ctx context.Context, id int64) error {
+	_, err := r.db.NewUpdate().Table(TableRun).Set("error_code = ?", model.CopyFailedCode).
+		Where("id = ?", id).Where("status = ?", model.RunSucceeded).Exec(ctx)
+	return err
+}
+
+func nullJSON(b json.RawMessage) any {
+	if len(b) == 0 {
+		return nil
+	}
+	return string(b)
+}
+
 // AdminFilter 后台列表筛选。
 type AdminFilter struct {
 	UserID         int64

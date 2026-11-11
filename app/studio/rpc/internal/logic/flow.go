@@ -113,7 +113,9 @@ type flow struct {
 	bill  flowBiller
 	asset func(ctx context.Context, list []asset.Asset) error
 	sync  func(ctx context.Context)
-	now   func() time.Time
+	// syncSoon 收尾路径上的任务中心同步（异步，不挡批次收敛）；nil 时退回 sync
+	syncSoon func()
+	now      func() time.Time
 
 	// catalog 拉 gateway 模型组（feature_limits），缓存 catalogTTL；nil 表示不可用
 	catalog  func(ctx context.Context) ([]aigateway.ModelGroup, error)
@@ -191,6 +193,7 @@ func newFlow(s *svc.ServiceContext) *flow {
 				_ = s.TaskCenter.Sync(ctx) // 失败已在 taskcenter 里记日志
 			}
 		},
+		syncSoon: s.TaskSync.Kick,
 	}
 	if s.MediaSvc != nil { // 别把 nil 指针装进接口
 		f.media = s.MediaSvc
@@ -217,6 +220,7 @@ func newFlow(s *svc.ServiceContext) *flow {
 func newAdminFlow(s *svc.ServiceContext) *flow {
 	f := newFlow(s)
 	f.sync = func(context.Context) {}
+	f.syncSoon = func() {}
 	return f
 }
 
@@ -578,6 +582,15 @@ func (f *flow) converge(ctx context.Context, batchID int64) {
 	}
 	f.stepLog(ctx, b.ID, model.StepLog{Step: stepFinished, TaskTotal: int(b.TaskTotal), Detail: batchStatusName(to),
 		Ms: f.now().Sub(b.CreatedAt).Milliseconds()})
+	f.syncNow(ctx)
+}
+
+// syncNow 批次到终态后让任务中心尽快看到：异步合并执行（不挡收敛 / 编排协程），后台 tick 每轮兜底。
+func (f *flow) syncNow(ctx context.Context) {
+	if f.syncSoon != nil {
+		f.syncSoon()
+		return
+	}
 	f.sync(ctx)
 }
 

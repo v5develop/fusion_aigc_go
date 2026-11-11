@@ -159,6 +159,22 @@ func (c *core) budget(k model.RunKind) (expected, timeout time.Duration) {
 	return 60 * time.Second, time.Duration(t.Tool) * time.Second
 }
 
+// hardCap gateway 后端 run 的硬上限（从创建算起）：调用已被供应商受理时软时限过后继续等到这里。不小于软时限。
+func (c *core) hardCap(k model.RunKind) time.Duration {
+	_, soft := c.budget(k)
+	t := c.s.Config.Timeouts
+	var sec int
+	switch k {
+	case model.KindImage:
+		sec = t.ImageHardCap
+	case model.KindVideo:
+		sec = t.VideoHardCap
+	case model.KindToolI2P:
+		sec = t.I2PHardCap
+	}
+	return max(soft, time.Duration(sec)*time.Second)
+}
+
 // progressOf 进度估算：排队 0，运行中按已耗时 / 预计耗时线性到 95，成功 100，其余取库里的值。
 func (c *core) progressOf(r *model.NodeRun) int32 {
 	switch r.Status {
@@ -197,9 +213,12 @@ func (c *core) toResult(ctx context.Context, r *model.NodeRun) *canvas.RunResult
 		out.FinishedAt = ms(r.FinishedAt.Time)
 	}
 	if r.Status == model.RunSucceeded {
-		for _, x := range c.resolvedRun(ctx, r).CandidateList() {
+		rr := c.resolvedRun(ctx, r)
+		for _, x := range rr.CandidateList() {
 			out.Candidates = append(out.Candidates, &canvas.Candidate{Url: x.URL, Width: int32(x.W), Height: int32(x.H)})
 		}
+		out.VideoUrl = rr.VideoURL.String
+		out.LibraryStatus = libraryStatus(r)
 	}
 	if r.Status == model.RunFailed || r.Status == model.RunCanceled {
 		out.Error = r.ErrorReason.String

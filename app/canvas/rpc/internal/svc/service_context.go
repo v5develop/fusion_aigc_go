@@ -47,6 +47,8 @@ type ServiceContext struct {
 	// WatchRun 刚转运行中的 gateway run 交给长轮询协程（Poller 启动时挂上；nil 或名额满时由扫描兜底）。
 	// 调用方须已放掉该 run 的租约：长轮询协程要自己抢租约。
 	WatchRun func(runID int64)
+	// KickCopy 刚置成功、已落 outbox 的 run 立即在后台转存素材库（Poller 启动时挂上；nil 或名额满时等扫描接手）。
+	KickCopy func(runID int64)
 }
 
 func NewServiceContext(c config.Config) *ServiceContext {

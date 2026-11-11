@@ -68,11 +68,20 @@ Poll:
   Watchers: 64           # 同时长轮询 gateway 的 run 数（全进程）；满了新 run 由兜底扫描 batchGet，慢一个扫描间隔
   LookupConcurrency: 8   # 兜底扫描里 Java 任务 / studio 批次查询的并发度
   FanoutConcurrency: 4   # 单个 run 内：参考图拉入、N 张网关提交、N 张产物转存素材库的并发度
+Library:
+  AsyncCopy: true        # 产物先以私有引用 mr:// 置成功、结算、对用户可见，转存素材库在后台（outbox afv_canvas_copy_job，Go_V1.0.29）；false 回到同步转存
+  Workers: 8             # 本进程同时执行的转存任务数
+  MaxAttempts: 10        # 超过记永久失败（产物仍可看可下载，library_status=failed，告警 check=canvas.library_copy_failed）
+  ClaimSeconds: 300      # 认领一轮的时长，执行方崩溃后最多这么久由扫描接手
+  SweepBatch: 50
 Timeouts:
-  Image: 300
+  Image: 300             # 软时限（从 run 创建算起，含提交阶段）：到点时没有调用被供应商受理 → 失败退款并取消
   Video: 900
   Tool: 600
   I2P: 180
+  ImageHardCap: 900      # 硬上限：已被供应商受理（受理后取消也照样扣费）的调用不取消、最多等到这里；须小于 Billing.Hold（启动自检）
+  VideoHardCap: 1800
+  I2PHardCap: 600
 Limits:
   MaxSnapshotBytes: 2097152
   MaxNodes: 2000

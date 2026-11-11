@@ -189,7 +189,7 @@ func isHTTP(u string) bool {
 // selectedCandidate 是用户的选择，不剥离：有成功 run 的节点以 run.selected_index 为准（POST .../select-candidate 写回），
 // 没有 run 的节点（模板示例、导入的旧画布）保留快照里的值。
 var (
-	transientKeys = []string{"status", "progress", "runId", "requestId", "errorMessage", "requestedCount"}
+	transientKeys = []string{"status", "progress", "runId", "requestId", "errorMessage", "requestedCount", "libraryStatus"}
 	resultKeys    = []string{"candidates", "image", "video", "assetId", "resultText", "resultImage", "tryonResults"}
 )
 
@@ -274,6 +274,9 @@ func backfillResult(n *Node, r *model.NodeRun) {
 		sel = 0
 	}
 	n.Data["selectedCandidate"] = sel
+	if r.LibraryState != "" {
+		n.Data["libraryStatus"] = r.LibraryState // 产物已交付、素材库转存中 / 转存失败（地址是 10 分钟现签，不要存进节点内容）
+	}
 	if len(urls) > 0 {
 		n.Data["candidates"] = urls
 	}

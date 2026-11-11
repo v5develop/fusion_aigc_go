@@ -28,6 +28,7 @@ import (
 // mediaOutput 后端产物（待落素材库桶）。Stable=true 表示已是我方长期地址（studio 成品），不再转存。
 type mediaOutput struct {
 	RID, URL string
+	Mime     string // 拼 mr://{rid}.{ext} 的扩展名用（可空）
 	W, H     int
 	Stable   bool
 }
@@ -100,9 +101,9 @@ func ClassifyGateway(kind model.RunKind, calls []*aigateway.Call) outcome {
 			case model.KindVideo:
 				if c.Result != nil && c.Result.Video != nil {
 					v := c.Result.Video
-					o.video = &mediaOutput{RID: v.Rid, URL: v.URL, W: v.Width, H: v.Height}
+					o.video = &mediaOutput{RID: v.Rid, URL: v.URL, Mime: v.Mime, W: v.Width, H: v.Height}
 					if cv := c.Result.Cover; cv != nil {
-						o.cover = &mediaOutput{RID: cv.Rid, URL: cv.URL, W: cv.Width, H: cv.Height}
+						o.cover = &mediaOutput{RID: cv.Rid, URL: cv.URL, Mime: cv.Mime, W: cv.Width, H: cv.Height}
 					}
 					o.actual++
 				}
@@ -122,7 +123,7 @@ func ClassifyGateway(kind model.RunKind, calls []*aigateway.Call) outcome {
 			default:
 				if c.Result != nil {
 					for _, m := range c.Result.Media() {
-						o.outputs = append(o.outputs, mediaOutput{RID: m.Rid, URL: m.URL, W: m.Width, H: m.Height})
+						o.outputs = append(o.outputs, mediaOutput{RID: m.Rid, URL: m.URL, Mime: m.Mime, W: m.Width, H: m.Height})
 						o.actual++
 					}
 				}
@@ -262,73 +263,78 @@ func (c *core) endRun(ctx context.Context, run *model.NodeRun, from, to int8, co
 	return true
 }
 
-// succeed 成功收尾：产物转存素材库桶 → 结算（gateway）→ CAS 成功 → 入素材库。ready 非空表示产物已转存（裁剪）。
+// succeed 成功收尾：产物落成长期引用 → （Library.AsyncCopy）同一事务里 CAS 成功 + 落转存 outbox → 结算（gateway）→
+// 后台转存素材库并入库；关掉异步或落 outbox 失败时退回同步转存：全部转存完才 CAS 成功，再结算、入素材库（改造前的行为）。
+// ready 非空表示产物已就绪（裁剪：异步时是私有引用 mr://，同步时已转存）。
+//
+// CAS 成功与落 outbox 必须同一事务：先落 outbox 再 CAS 时，两步之间崩溃 / CAS 报错会留下一行「run 还在运行中」的 outbox，
+// 扫描把它作废后 run 下轮收尾再落（INSERT IGNORE 撞 uk_run）是空操作 → run 成功了却永远没人转存（library_status 一直 pending）；
+// 先 CAS 再落 outbox 则反过来会出现「成功了却没有 outbox」。同事务后二者同生同灭。
 func (c *core) succeed(ctx context.Context, run *model.NodeRun, o outcome, ready []model.Candidate) {
 	log := logx.WithContext(ctx)
 	cands := ready
 	var videoURL string
 	if ready == nil {
-		var outs []mediaOutput
-		if run.Kind == model.KindVideo {
-			if o.cover != nil {
-				outs = append(outs, *o.cover)
-			}
-		} else {
-			outs = o.outputs
-		}
-		// 各产物（含视频）并发转存（Poll.FanoutConcurrency）：幂等键仍是 canvas-copy:{task_id}:{i}（视频 i=99），
-		// 下轮重试 / 别的实例接管时同键得到同一个 rid，不会重复落桶。判定按下标顺序取第一个错误，与原先逐个转存、遇错即停一致：
-		// 暂时性 → 整个 run 下轮重试（已转存的按同键复用）；永久 → 失败退款。
-		type job struct {
-			idx   int
-			m     mediaOutput
-			video bool
-		}
-		jobs := make([]job, 0, len(outs)+1)
-		for i, m := range outs {
-			jobs = append(jobs, job{idx: i, m: m})
-		}
-		if o.video != nil {
-			jobs = append(jobs, job{idx: 99, m: *o.video, video: true})
-		}
-		res := make([]model.Candidate, len(jobs))
-		errs := fanout(len(jobs), c.fanoutLimit(), func(j int) error {
-			jb := jobs[j]
-			if jb.m.Stable {
-				res[j] = model.Candidate{RID: jb.m.RID, URL: jb.m.URL, W: jb.m.W, H: jb.m.H}
-				return nil
-			}
-			cand, err := c.persistOutput(ctx, run, jb.idx, jb.m)
-			res[j] = cand
-			return err
-		})
-		for j, err := range errs {
-			if err == nil {
-				continue
-			}
-			what := "产物"
-			if jobs[j].video {
-				what = "视频"
-			}
-			if isTemporary(err) {
-				log.Errorf("canvas: run %d %s转存暂时失败，下轮重试: %v", run.ID, what, err)
-				return
-			}
-			c.failRun(ctx, run, model.RunRunning, "UPSTREAM_FAILED", what+"转存失败", true)
+		var ok bool
+		if cands, videoURL, ok = c.stageOutputs(ctx, run, o); !ok {
 			return
-		}
-		for j, jb := range jobs {
-			if jb.video {
-				videoURL = res[j].URL
-			} else {
-				cands = append(cands, res[j])
-			}
 		}
 	}
 	actual := o.actual
 	if actual <= 0 {
 		actual = max(1, len(cands))
 	}
+	async := false
+	pending := run.Backend != model.BackendStudio && hasPendingRefs(cands, videoURL)
+	if pending && c.asyncCopyOn(run) {
+		ok, err := c.transitWithCopyJob(ctx, run, c.successSet(run, o, cands, videoURL, actual))
+		switch {
+		case err == nil && !ok:
+			return // 已被取消 / 强制失败（取消时已退款）；事务回滚，不留 outbox
+		case err == nil:
+			async = true
+		case errors.Is(err, errCopyEnqueue):
+			copyJobs.Inc("fallback")
+			log.Errorf("canvas: run %d 落转存 outbox 失败，本次退回同步转存（check=canvas.library_copy_enqueue）: %v", run.ID, err)
+		default:
+			log.Errorf("canvas: run %d 置成功失败: %v", run.ID, err)
+			return
+		}
+	}
+	if !async {
+		if pending {
+			// 同步转存：各产物（含视频）并发（Poll.FanoutConcurrency），幂等键 canvas-copy:{task_id}:{i}（视频 i=99），
+			// 下轮重试 / 别的实例接管时同键得到同一个 rid，不会重复落桶。判定按下标顺序取第一个错误：
+			// 暂时性 → 整个 run 下轮重试（已转存的按同键复用）；永久 → 失败退款。
+			nc, nv, jobs, errs := c.copyRefs(ctx, run, cands, videoURL)
+			if !c.outputErrs(ctx, run, jobs, errs) {
+				return
+			}
+			cands, videoURL = nc, nv
+		}
+		ok, err := c.s.Repo.Run.Transit(ctx, run.ID, model.RunRunning, model.RunSucceeded, c.successSet(run, o, cands, videoURL, actual))
+		if err != nil {
+			log.Errorf("canvas: run %d 置成功失败: %v", run.ID, err)
+			return
+		}
+		if !ok {
+			return // 已被取消 / 强制失败（取消时已退款）
+		}
+	}
+	run.Status = model.RunSucceeded
+	// 结算只看 run 已成功，与转存无关（异步转存的成败都不再动账）
+	if held(run) {
+		c.settle(ctx, run, settleQuantity(run.Kind, actual), o.calls)
+	}
+	if async {
+		c.kickCopy(run) // 转存完成后由后台入素材库（候选换成素材库地址之后才入库，素材库里不出现私有引用）
+		return
+	}
+	c.insertAssets(ctx, run, cands, videoURL)
+}
+
+// successSet 置成功时写的列。
+func (c *core) successSet(run *model.NodeRun, o outcome, cands []model.Candidate, videoURL string, actual int) map[string]any {
 	set := map[string]any{"progress": 100, "candidates": string(repo.MarshalCandidates(cands))}
 	if len(cands) == 0 {
 		set["candidates"] = nil
@@ -348,19 +354,7 @@ func (c *core) succeed(ctx context.Context, run *model.NodeRun, o outcome, ready
 			set["points"] = run.Points * int64(actual) / int64(req)
 		}
 	}
-	ok, err := c.s.Repo.Run.Transit(ctx, run.ID, model.RunRunning, model.RunSucceeded, set)
-	if err != nil {
-		log.Errorf("canvas: run %d 置成功失败: %v", run.ID, err)
-		return
-	}
-	if !ok {
-		return // 已被取消 / 强制失败（取消时已退款）
-	}
-	run.Status = model.RunSucceeded
-	if held(run) {
-		c.settle(ctx, run, settleQuantity(run.Kind, actual), o.calls)
-	}
-	c.insertAssets(ctx, run, cands, videoURL)
+	return set
 }
 
 // settleQuantity 结算时交给 billing.Settle 的实际产出量。
@@ -374,10 +368,32 @@ func settleQuantity(kind model.RunKind, actual int) int {
 	return 0
 }
 
-// insertAssets 成品入素材库（只有 Go 生成的：gateway 图 / 视频、裁剪；Java 与 studio 的成品由对方入库）。
+// insertAssets 成品入素材库（同步转存路径；只有 Go 生成的：gateway 图 / 视频、裁剪；Java 与 studio 的成品由对方入库）。
 func (c *core) insertAssets(ctx context.Context, run *model.NodeRun, cands []model.Candidate, videoURL string) {
-	if !c.s.Config.Asset.Enabled || !run.TaskID.Valid {
+	list := c.assetList(run, cands, videoURL)
+	if len(list) == 0 {
 		return
+	}
+	if err := c.s.Asset.InsertSet(ctx, list); err != nil {
+		logx.WithContext(ctx).Errorf("canvas: run %d 入素材库失败（成品已在画布）: %v", run.ID, err)
+	}
+}
+
+// insertAssetsOnce 异步转存完成后入素材库：同一 task_id 已有资产行（含用户已删的）就不再写，后台重做不会写出第二组。
+// 返回错误由调用方退避重试。
+func (c *core) insertAssetsOnce(ctx context.Context, run *model.NodeRun, cands []model.Candidate, videoURL string) error {
+	list := c.assetList(run, cands, videoURL)
+	if len(list) == 0 {
+		return nil
+	}
+	_, err := c.s.Asset.InsertSetOnce(ctx, list)
+	return err
+}
+
+// assetList 本 run 要写进素材库的资产行；不入库（开关关 / 工具类 / 没有成品）时为空。
+func (c *core) assetList(run *model.NodeRun, cands []model.Candidate, videoURL string) []asset.Asset {
+	if !c.s.Config.Asset.Enabled || !run.TaskID.Valid || c.s.Asset == nil {
+		return nil
 	}
 	var entry, typ string
 	switch run.Kind {
@@ -388,7 +404,7 @@ func (c *core) insertAssets(ctx context.Context, run *model.NodeRun, cands []mod
 	case model.KindToolCrop:
 		entry, typ = c.s.Config.EntryCodes.Crop, "image"
 	default:
-		return
+		return nil
 	}
 	req := parseStored(run.Request)
 	var related []string
@@ -412,7 +428,7 @@ func (c *core) insertAssets(ctx context.Context, run *model.NodeRun, cands []mod
 	var list []asset.Asset
 	if run.Kind == model.KindVideo {
 		if videoURL == "" {
-			return
+			return nil
 		}
 		cover := ""
 		if len(cands) > 0 {
@@ -426,9 +442,7 @@ func (c *core) insertAssets(ctx context.Context, run *model.NodeRun, cands []mod
 				CoverURL: cd.URL, ResultURL: cd.URL, AspectRatio: req.Ratio, AIPrompt: trunc(req.Prompt, 2000), Properties: string(props)})
 		}
 	}
-	if err := c.s.Asset.InsertSet(ctx, list); err != nil {
-		logx.WithContext(ctx).Errorf("canvas: run %d 入素材库失败（成品已在画布）: %v", run.ID, err)
-	}
+	return list
 }
 
 // ---------------- 轮询器 ----------------
@@ -441,6 +455,7 @@ func (c *core) insertAssets(ctx context.Context, run *model.NodeRun, cands []mod
 //     超时 → gateway 主动 Cancel 后置失败退款；studio 取消批次后置失败；Java 调取消接口（由 Java 退款，无有效登录态时退化为停止跟踪）后置失败。
 //  3. TaskCenter.Sync（image / video 两类进任务中心；RunNode / CancelRun 另有异步同步，见 svc.AsyncSync）。
 //  4. 每分钟给排队 / 运行中、已冻结（held）的 gateway run 续期预留单（billing.Renew），排队久的不会过期被回收。
+//  5. 产物转存素材库 outbox（afv_canvas_copy_job）：到点的行交给转存池（主路径是置成功后立即 Kick，见 library_copy.go）。
 //
 // 多实例：每个 run 一把行租约（pkg/lease，lease_owner / lease_until，TTL 3 分钟，后台每分钟批量续租）。
 // 扫描只列没有租约或租约已过期的 run，逐个 Acquire，抢不到就跳过；RunNode 内联提交前也先抢，抢不到交给持有者。
@@ -452,6 +467,7 @@ type Poller struct {
 	done    chan struct{}
 	started atomic.Bool
 	w       *watcher
+	cp      *copier
 }
 
 // NewPoller 建推进器并把长轮询入口挂到 svc.WatchRun（RunNode 内联提交成功后经它交给长轮询协程）。
@@ -460,6 +476,8 @@ func NewPoller(s *svc.ServiceContext) *Poller {
 	p := &Poller{c: newCore(s), ctx: ctx, cancel: cancel, done: make(chan struct{})}
 	p.w = newWatcher(ctx, p.c)
 	s.WatchRun = func(id int64) { p.w.Watch(id) }
+	p.cp = newCopier(ctx, p.c)
+	s.KickCopy = func(id int64) { p.cp.Kick(id) }
 	return p
 }
 
@@ -467,7 +485,8 @@ func (p *Poller) Start() {
 	p.started.Store(true)
 	ctx := p.ctx
 	defer close(p.done)
-	defer p.w.close() // 先于 close(done)：Stop 返回时长轮询协程都已放掉租约退出
+	defer p.w.close()  // 先于 close(done)：Stop 返回时长轮询协程都已放掉租约退出
+	defer p.cp.close() // 同上：在做的转存记下本轮结局后返回
 	interval := time.Duration(p.c.s.Config.Poll.IntervalSeconds) * time.Second
 	if interval <= 0 {
 		interval = 3 * time.Second
@@ -491,6 +510,7 @@ func (p *Poller) Stop() {
 		<-p.done
 	} else {
 		p.w.close()
+		p.cp.close()
 	}
 }
 
@@ -504,6 +524,7 @@ func (p *Poller) Tick(ctx context.Context) {
 	for _, run := range c.pollRunning(ctx) {
 		c.handOff(run) // 扫描看到仍在跑的 gateway run（重启 / 名额满 / 协程退出后没人管的）：再交给长轮询协程
 	}
+	p.cp.sweep(ctx) // 到点的转存 outbox（即时转存没做成 / 进程崩溃 / 暂时失败退避到点的）交给转存池，不阻塞本轮
 	if err := c.s.TaskCenter.Sync(ctx); err != nil {
 		logx.WithContext(ctx).Errorf("canvas: 任务中心同步失败: %v", err)
 	}
@@ -691,7 +712,8 @@ func (c *core) pollGateway(ctx context.Context, runs []*model.NodeRun) {
 		chunk := ids[i:min(len(ids), i+aigateway.MaxBatchGet)]
 		got, err := c.s.Gateway.BatchGet(ctx, chunk)
 		if err != nil {
-			// 不整轮跳过：查不到的调用按未完成处理，下面照样做超时判断与取消（gateway 长时间不可用时冻结不会悬空到被回收）
+			// 不整轮跳过：查不到的调用按状态未知处理（软时限过后不在不知道是否已受理时取消），硬上限照样失败退款并取消
+			// （硬上限 < 预留时长，gateway 长时间不可用时冻结不会悬空到被回收）
 			logx.WithContext(ctx).Errorf("canvas: gateway batchGet 失败（本批按未完成处理，仍做超时判断）: %v", err)
 			continue
 		}
@@ -706,10 +728,9 @@ func (c *core) pollGateway(ctx context.Context, runs []*model.NodeRun) {
 		}
 		o := ClassifyGateway(run.Kind, cs)
 		o.calls = cs
-		if !o.done && c.expired(run) {
-			if c.failRun(ctx, run, model.RunRunning, "TIMEOUT", "生成超时，点数已退回", true) {
-				c.cancelCalls(ctx, run.ID, callIDs(run), "生成超时")
-			}
+		if !o.done {
+			// 超时：已被供应商受理的调用不取消、等到硬上限（见 gateway_timeout.go）；batchGet 失败的调用按状态未知处理
+			c.applyGatewayTimeout(ctx, run, callIDs(run), c.gatewayTimeout(run, callIDs(run), cs))
 			continue
 		}
 		c.apply(ctx, run, o)

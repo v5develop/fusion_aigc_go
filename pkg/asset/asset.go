@@ -94,6 +94,41 @@ func (w *Writer) InsertSet(ctx context.Context, list []Asset) error {
 	})
 }
 
+// InsertSetOnce 同 InsertSet，但同一用户、同一 source_task_id 已有资产行（含已被用户删除的）时什么都不写，返回 false。
+// 给会重试的后台写入用（如画布异步转存：入库后、标记完成前崩溃，重做时不能写出第二组；用户删掉的也不能被重做写回来）。
+// 查重与写入在同一事务里；并发同 source_task_id 的写入方由调用方自己互斥（画布靠 outbox 认领），这里不加锁。
+func (w *Writer) InsertSetOnce(ctx context.Context, list []Asset) (bool, error) {
+	if len(list) == 0 {
+		return false, nil
+	}
+	if list[0].SourceTaskID == "" {
+		return true, w.InsertSet(ctx, list)
+	}
+	wrote := false
+	err := w.conn.TransactCtx(ctx, func(ctx context.Context, s sqlx.Session) error {
+		var n int64
+		if err := s.QueryRowCtx(ctx, &n, "SELECT COUNT(1) FROM afv_asset WHERE source_task_id = ? AND user_id = ?",
+			list[0].SourceTaskID, list[0].UserID); err != nil {
+			return err
+		}
+		if n > 0 {
+			return nil
+		}
+		wsID, err := workspace.EnsurePersonal(ctx, s, list[0].UserID, "")
+		if err != nil {
+			return err
+		}
+		for _, a := range list {
+			if _, err := insert(ctx, s, wsID, a); err != nil {
+				return err
+			}
+		}
+		wrote = true
+		return nil
+	})
+	return wrote, err
+}
+
 // InsertWithItems 写一行主资产 + 若干子资产。
 func (w *Writer) InsertWithItems(ctx context.Context, a Asset, items []Item) error {
 	return w.conn.TransactCtx(ctx, func(ctx context.Context, s sqlx.Session) error {

@@ -69,7 +69,7 @@ func BackendOf(k RunKind) Backend {
 const (
 	RunQueued    int8 = 0 // 排队：已收单（gateway 后端已冻结点数），待提交后端
 	RunRunning   int8 = 1 // 运行中：已提交后端，由轮询器推进
-	RunSucceeded int8 = 2 // 成功：已转存、已结算、已入素材库
+	RunSucceeded int8 = 2 // 成功：已结算；产物可能仍是私有引用 mr://（后台转存素材库，见 CopyJob），转存后换成素材库地址并入库
 	RunFailed    int8 = 3 // 失败：gateway 后端已退款
 	RunCanceled  int8 = 4 // 已取消：gateway 后端已退款
 	// RunSubmitting 提交中：已落库（task_id / billing_request_id 已生成），正在冻结点数；冻结成功后一次 CAS 转排队。
@@ -153,7 +153,8 @@ type Canvas struct {
 	UpdatedAt   time.Time       `bun:"updated_at,notnull,default:current_timestamp(3)"`
 }
 
-// Candidate afv_canvas_node_run.candidates 的一项。RID 为媒体服务资源（素材库桶），URL 为长期可读地址。
+// Candidate afv_canvas_node_run.candidates 的一项。RID 为媒体服务资源，URL 为长期可读地址：素材库桶的公开地址，
+// 或转存完成前的私有引用 mr://{rid}.{ext}（读时现签，见 logic/media_ref.go；RID 此时是私有源 rid）。
 type Candidate struct {
 	RID string `json:"rid,omitempty"`
 	URL string `json:"url"`
@@ -196,6 +197,9 @@ type NodeRun struct {
 	StartedAt        sql.NullTime    `bun:"started_at"`
 	FinishedAt       sql.NullTime    `bun:"finished_at"`
 	UpdatedAt        time.Time       `bun:"updated_at,notnull,default:current_timestamp(3)"`
+
+	// LibraryState 读出口算出的 library_status（pending / failed / 空），不落库：引用被换成现签地址之前算好带出来。
+	LibraryState string `bun:"-"`
 }
 
 // CandidateList 解出候选（解析失败按空）。
@@ -205,6 +209,35 @@ func (r *NodeRun) CandidateList() []Candidate {
 		_ = json.Unmarshal(r.Candidates, &out)
 	}
 	return out
+}
+
+// 转存 outbox 状态（afv_canvas_copy_job.status）。
+const (
+	CopyPending int8 = 0 // 待转存
+	CopyDone    int8 = 1 // 已完成：run 的引用已换成素材库地址，已入素材库
+	CopyFailed  int8 = 2 // 永久失败：产物仍以 mr:// 可看可下载，run.error_code=CopyFailedCode
+	CopyVoid    int8 = 3 // 作废：run 已不是成功态 / 已删除
+)
+
+// CopyFailedCode 转存永久失败时写在**成功** run 上的 error_code 标记（成功 run 的 error_code 不对外当失败展示，
+// 只用于 library_status=failed 与运营排查）。
+const CopyFailedCode = "LIBRARY_COPY_FAILED"
+
+// CopyJob afv_canvas_copy_job：一个成功 run 的产物转存素材库任务（Go_V1.0.29）。
+type CopyJob struct {
+	bun.BaseModel `bun:"table:afv_canvas_copy_job,alias:j"`
+
+	ID         int64          `bun:"id,pk,autoincrement"`
+	RunPK      int64          `bun:"run_pk,notnull"`
+	TaskID     string         `bun:"task_id,notnull"`
+	UserID     int64          `bun:"user_id,notnull"`
+	Status     int8           `bun:"status,notnull"`
+	Attempt    int32          `bun:"attempt,notnull"`
+	NextAt     time.Time      `bun:"next_at,notnull"`
+	LastError  sql.NullString `bun:"last_error"`
+	CreatedAt  time.Time      `bun:"created_at,notnull,default:current_timestamp(3)"`
+	UpdatedAt  time.Time      `bun:"updated_at,notnull,default:current_timestamp(3)"`
+	FinishedAt sql.NullTime   `bun:"finished_at"`
 }
 
 // Template afv_canvas_template：画布模板。

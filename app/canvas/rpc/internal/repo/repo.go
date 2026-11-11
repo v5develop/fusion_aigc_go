@@ -1,4 +1,4 @@
-// Package repo 画布四张表（afv_canvas / afv_canvas_node_run / afv_canvas_template / afv_prompt_library_item）的 bun 数据访问。
+// Package repo 画布各表（afv_canvas / afv_canvas_node_run / afv_canvas_template / afv_prompt_library_item / afv_canvas_copy_job）的 bun 数据访问。
 //
 // 约定（与 app/studio/rpc/internal/repo 一致）：
 //   - 全部方法带 ctx；查单条找不到返回 (nil, nil)。
@@ -33,6 +33,7 @@ type Repo struct {
 	Run      *RunRepo
 	Template *TemplateRepo
 	Prompt   *PromptRepo
+	CopyJob  *CopyJobRepo
 }
 
 // New 根 Repo。
@@ -43,7 +44,8 @@ func New(db *bun.DB) *Repo {
 }
 
 func bind(db bun.IDB) *Repo {
-	return &Repo{Canvas: &CanvasRepo{db: db}, Run: &RunRepo{db: db}, Template: &TemplateRepo{db: db}, Prompt: &PromptRepo{db: db}}
+	return &Repo{Canvas: &CanvasRepo{db: db}, Run: &RunRepo{db: db}, Template: &TemplateRepo{db: db}, Prompt: &PromptRepo{db: db},
+		CopyJob: &CopyJobRepo{db: db}}
 }
 
 // RunInTx 在事务里执行 fn。

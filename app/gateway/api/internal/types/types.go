@@ -384,6 +384,7 @@ type CanvasRunResult struct {
 	Retryable      bool              `json:"retryable"`
 	CreatedAt      int64             `json:"created_at"`
 	FinishedAt     int64             `json:"finished_at"`
+	LibraryStatus  string            `json:"library_status,omitempty"` // 只增：空=已在素材库或不适用；pending=已交付（地址是 10 分钟现签，勿存进节点内容），后台转存素材库中；failed=转存失败，仍可看可下载但不在素材库
 }
 
 type CanvasRunsReq struct {

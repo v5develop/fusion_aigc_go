@@ -99,11 +99,8 @@ func newDeps(s *svc.ServiceContext) *deps {
 		},
 		prefix: func(k model.Kind) string { return svc.Prefix(c, k) },
 		entry:  func(k model.Kind) string { return svc.EntryCode(c, k) },
-		sync: func(ctx context.Context) {
-			if s.TaskCenter != nil {
-				_ = s.TaskCenter.Sync(ctx) // 失败已在 taskcenter 里记日志
-			}
-		},
+		// 提交 / 冻结失败后的任务中心同步移出请求路径（异步、合并、带重试），不占提交响应时间；后台 tick 每轮兜底
+		sync: func(context.Context) { s.TaskSync.Kick() },
 		newTaskID: func(prefix string, id int64) string {
 			return aigc.NewLifeTaskID(prefix, taskcenter.Ref(prefix, id), taskIDStage)
 		},

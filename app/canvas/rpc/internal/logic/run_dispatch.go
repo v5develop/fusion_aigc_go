@@ -213,8 +213,9 @@ func (c *core) maxCost(k model.RunKind) string {
 
 // gatewayRequests 构造本 run 的 gateway 调用（image count 张 = count 个调用；video / i2p 各 1 个）。
 func (c *core) gatewayRequests(ctx context.Context, run *model.NodeRun, sp *runSpec) ([]aigateway.CallRequest, error) {
-	_, timeout := c.budget(run.Kind)
-	deadline := c.now().Add(timeout).UTC()
+	// deadline_at 按硬上限给：已受理的调用软时限过后我们还会等到硬上限，网关不能先把它判超时（deadline_at 不参与 request_hash，
+	// 同幂等键重提时改了也不冲突）
+	deadline := c.now().Add(c.hardCap(run.Kind)).UTC()
 	base := aigateway.CallRequest{
 		ModelGroup: sp.ModelGroup, Labels: runLabels(run), MediaPurpose: aigateway.MediaPurposeIntermediate,
 		Constraints: &aigateway.Constraints{DeadlineAt: &deadline},
@@ -797,6 +798,7 @@ func (c *core) submitStudio(ctx context.Context, run *model.NodeRun, sp *runSpec
 // ---------------- 媒体服务裁剪（同步） ----------------
 
 // runCrop 裁剪：输入图拉入 → 归一化框换像素框 → image/crop → 复制到素材库桶。
+// Library.AsyncCopy 时不在这里复制：候选是裁剪结果的私有引用 mr://（读时现签），由 succeed 落转存 outbox 后台复制。
 func (c *core) runCrop(ctx context.Context, run *model.NodeRun, sp *runSpec) ([]model.Candidate, error) {
 	if c.s.Media == nil {
 		return nil, xerr.New(xerr.NotReady, "裁剪暂未开放（媒体服务未配置）")
@@ -822,7 +824,11 @@ func (c *core) runCrop(ctx context.Context, run *model.NodeRun, sp *runSpec) ([]
 	if err != nil || len(crops) == 0 {
 		return nil, mediaErr("裁剪失败", err)
 	}
-	cand, err := c.copyToLibrary(ctx, crops[0].RID, "canvas-copy:"+run.TaskID.String+":0")
+	ext := mimeExt(crops[0].Mime, false)
+	if c.asyncCopyOn(run) {
+		return []model.Candidate{{RID: crops[0].RID, URL: mrRef(crops[0].RID, ext), W: crops[0].Width, H: crops[0].Height}}, nil
+	}
+	cand, err := c.copyToLibrary(ctx, crops[0].RID, "canvas-copy:"+run.TaskID.String+":0", ext)
 	if err != nil {
 		return nil, err
 	}
@@ -832,49 +838,21 @@ func (c *core) runCrop(ctx context.Context, run *model.NodeRun, sp *runSpec) ([]
 	return []model.Candidate{cand}, nil
 }
 
-// copyToLibrary rid → 素材库桶（公有可读）的候选。
-func (c *core) copyToLibrary(ctx context.Context, rid, idem string) (model.Candidate, error) {
+// copyToLibrary rid → 素材库桶（公有可读）的候选。素材库桶没给公开地址时落素材库 rid 的长期引用 mr://{rid}.{ext}
+// （读时现签），绝不落签名地址。
+func (c *core) copyToLibrary(ctx context.Context, rid, idem, ext string) (model.Candidate, error) {
 	res, err := c.s.Media.CopyToLibrary(ctx, rid, mediasvc.PurposeAssetLibrary, idem)
 	if err != nil {
 		return model.Candidate{}, mediaErr("转存素材库失败", err)
 	}
 	u := res.URL
 	if u == "" {
-		urls, err := c.s.Media.ResourceURLs(ctx, []string{res.RID}, 24*time.Hour)
-		if err != nil {
-			return model.Candidate{}, mediaErr("取素材地址失败", err)
+		if !mediasvc.ValidRID(res.RID) {
+			return model.Candidate{}, mediaErr("转存素材库失败", &mediasvc.Error{Status: 422, Code: "no_rid", Message: "素材库没有返回资源号"})
 		}
-		u = urls[res.RID]
+		u = mrRef(res.RID, ext)
 	}
 	return model.Candidate{RID: res.RID, URL: u, W: res.Width, H: res.Height}, nil
-}
-
-// persistOutput 上游产物落素材库桶：gateway 产物（rid）直接复制；外部 URL（Java 结果）先拉入再复制。
-// 媒体服务未配置时（仅开发）原样用上游地址。
-func (c *core) persistOutput(ctx context.Context, run *model.NodeRun, i int, o mediaOutput) (model.Candidate, error) {
-	if c.s.Media == nil {
-		logx.WithContext(ctx).Infof("canvas: 媒体服务未配置，run %d 的产物直接使用上游地址（仅开发环境）", run.ID)
-		return model.Candidate{RID: o.RID, URL: o.URL, W: o.W, H: o.H}, nil
-	}
-	rid := o.RID
-	if rid == "" {
-		res, err := c.s.Media.IngestURL(ctx, o.URL, mediasvc.PurposeIntermediate, "")
-		if err != nil {
-			return model.Candidate{}, mediaErr("拉取产物失败", err)
-		}
-		rid = res.RID
-		if o.W == 0 {
-			o.W, o.H = res.Width, res.Height
-		}
-	}
-	cand, err := c.copyToLibrary(ctx, rid, fmt.Sprintf("canvas-copy:%s:%d", run.TaskID.String, i))
-	if err != nil {
-		return model.Candidate{}, err
-	}
-	if cand.W == 0 {
-		cand.W, cand.H = o.W, o.H
-	}
-	return cand, nil
 }
 
 // specFromRun 由落库的请求重建 runSpec（轮询器重提用）。

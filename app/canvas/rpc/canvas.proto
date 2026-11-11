@@ -211,6 +211,9 @@ message RunResult {
   int64 created_at = 18;
   int64 finished_at = 19;
   string task_id = 20;
+  // 产物是否已进素材库（只增）：空=已在素材库或不适用；pending=已交付（地址是 10 分钟现签），后台转存素材库中；
+  // failed=转存永久失败，产物仍可看可下载，但不在素材库
+  string library_status = 21;
 }
 
 message RunIdReq {

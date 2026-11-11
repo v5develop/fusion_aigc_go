@@ -1242,8 +1242,11 @@ type RunResult struct {
 	CreatedAt      int64                  `protobuf:"varint,18,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	FinishedAt     int64                  `protobuf:"varint,19,opt,name=finished_at,json=finishedAt,proto3" json:"finished_at,omitempty"`
 	TaskId         string                 `protobuf:"bytes,20,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// 产物是否已进素材库（只增）：空=已在素材库或不适用；pending=已交付（地址是 10 分钟现签），后台转存素材库中；
+	// failed=转存永久失败，产物仍可看可下载，但不在素材库
+	LibraryStatus string `protobuf:"bytes,21,opt,name=library_status,json=libraryStatus,proto3" json:"library_status,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *RunResult) Reset() {
@@ -1412,6 +1415,13 @@ func (x *RunResult) GetFinishedAt() int64 {
 func (x *RunResult) GetTaskId() string {
 	if x != nil {
 		return x.TaskId
+	}
+	return ""
+}
+
+func (x *RunResult) GetLibraryStatus() string {
+	if x != nil {
+		return x.LibraryStatus
 	}
 	return ""
 }
@@ -4167,7 +4177,7 @@ const file_canvas_proto_rawDesc = "" +
 	"\tCandidate\x12\x10\n" +
 	"\x03url\x18\x01 \x01(\tR\x03url\x12\x14\n" +
 	"\x05width\x18\x02 \x01(\x05R\x05width\x12\x16\n" +
-	"\x06height\x18\x03 \x01(\x05R\x06height\"\xcf\x04\n" +
+	"\x06height\x18\x03 \x01(\x05R\x06height\"\xf6\x04\n" +
 	"\tRunResult\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x15\n" +
@@ -4195,7 +4205,8 @@ const file_canvas_proto_rawDesc = "" +
 	"created_at\x18\x12 \x01(\x03R\tcreatedAt\x12\x1f\n" +
 	"\vfinished_at\x18\x13 \x01(\x03R\n" +
 	"finishedAt\x12\x17\n" +
-	"\atask_id\x18\x14 \x01(\tR\x06taskId\"3\n" +
+	"\atask_id\x18\x14 \x01(\tR\x06taskId\x12%\n" +
+	"\x0elibrary_status\x18\x15 \x01(\tR\rlibraryStatus\"3\n" +
 	"\bRunIdReq\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\x03R\x02id\"\x90\x01\n" +

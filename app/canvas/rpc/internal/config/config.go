@@ -92,12 +92,36 @@ type Config struct {
 		// 第 n 次失败后等第 n 项，用完仍失败则退化为停止跟踪。不配用 15,30,60,120,240（约 8 分钟）
 		JavaStopBackoffSeconds []int `json:",optional"`
 	}
+	// Library 产物转存素材库（resources/copy）移出交付路径：run 先以私有引用 mr://{rid}.{ext} 置成功、结算、对用户可见，
+	// 转存在后台按 outbox（afv_canvas_copy_job，Go_V1.0.29）完成，完成后把 run 的引用换成素材库地址并入素材库。
+	Library struct {
+		// AsyncCopy 关掉则回到同步转存（全部转存完才置成功）。落 outbox 失败（如表还没建）时本次自动退回同步转存
+		AsyncCopy bool `json:",default=true"`
+		// Workers 本进程同时执行的转存任务数（即时转存 + 扫描接手共用）
+		Workers int `json:",default=8"`
+		// MaxAttempts 最多尝试几轮，之后记永久失败（产物仍以 mr:// 可看可下载，library_status=failed）
+		MaxAttempts int `json:",default=10"`
+		// BackoffSeconds 第 n 轮失败后等第 n 项秒数（超出取最后一项）。不配用 5,15,30,60,120,300,600,1800（累计约 50 分钟）
+		BackoffSeconds []int `json:",optional"`
+		// ClaimSeconds 认领一轮的时长：这么久没写回结果视为执行方崩溃，由扫描接手（同幂等键重做，不会重复落桶）
+		ClaimSeconds int `json:",default=300"`
+		// SweepBatch 每轮扫描最多接手几行
+		SweepBatch int `json:",default=50"`
+	}
 	// Timeouts 各类 run 的总时限（秒），超时置失败（gateway 后端退款并取消调用；studio 取消批次；Java 调取消接口由 Java 退款，无有效登录态时退化为停止跟踪）
+	//
+	// gateway 后端（image / video / i2p）另有硬上限 *HardCap（秒，从 run 创建算起）：到了软时限时，只要还有调用已被供应商受理
+	// （受理后供应商照常扣费、取消也省不下钱），就不取消、继续等到硬上限；没有受理的调用按软时限照旧失败退款并取消。
+	// 硬上限小于软时限时按软时限；网关调用的 deadline_at = 提交时刻 + 硬上限，网关不会先于我们把调用判超时。
 	Timeouts struct {
 		Image int `json:",default=300"`
 		Video int `json:",default=900"`
 		Tool  int `json:",default=600"`
 		I2P   int `json:",default=180"`
+		// ImageHardCap / VideoHardCap / I2PHardCap gateway 调用已受理时最多等到 run 创建后这么久（秒）
+		ImageHardCap int `json:",default=900"`
+		VideoHardCap int `json:",default=1800"`
+		I2PHardCap   int `json:",default=600"`
 	}
 	Limits struct {
 		MaxSnapshotBytes  int `json:",default=2097152"` // 2MB
@@ -137,6 +161,9 @@ func (c Config) CheckHold() error {
 		{"Timeouts.I2P", c.Timeouts.I2P, def, "Billing.Hold.DefaultMinutes"},
 		{"Timeouts.Tool", c.Timeouts.Tool, def, "Billing.Hold.DefaultMinutes"},
 		{"Timeouts.Video", c.Timeouts.Video, video, "Billing.Hold.VideoMinutes"},
+		{"Timeouts.ImageHardCap", c.Timeouts.ImageHardCap, def, "Billing.Hold.DefaultMinutes"},
+		{"Timeouts.I2PHardCap", c.Timeouts.I2PHardCap, def, "Billing.Hold.DefaultMinutes"},
+		{"Timeouts.VideoHardCap", c.Timeouts.VideoHardCap, video, "Billing.Hold.VideoMinutes"},
 	} {
 		if it.sec >= it.holdMin*60 {
 			bad = append(bad, fmt.Sprintf("%s=%ds 不小于 %s=%d 分钟（%ds）", it.name, it.sec, it.holdKey, it.holdMin, it.holdMin*60))

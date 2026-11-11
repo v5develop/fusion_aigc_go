@@ -169,10 +169,29 @@ func (c *core) watchRun(ctx context.Context, id int64) {
 			return
 		}
 		if c.expired(run) {
-			if c.failRun(ctx, run, model.RunRunning, "TIMEOUT", "生成超时，点数已退回", true) {
-				c.cancelCalls(ctx, run.ID, ids, "生成超时")
+			// 软时限已过：刷新未终态调用的状态再判（已受理的不取消、等到硬上限，见 gateway_timeout.go）
+			view := make([]*aigateway.Call, len(ids))
+			copy(view, cs)
+			var open []string
+			for i, cid := range ids {
+				if view[i] == nil {
+					open = append(open, cid)
+				}
 			}
-			return
+			if got, err := c.s.Gateway.BatchGet(ctx, open); len(open) > 0 && err == nil {
+				byID := make(map[string]*aigateway.Call, len(got))
+				for j := range got {
+					byID[got[j].ID] = &got[j]
+				}
+				for i, cid := range ids {
+					if view[i] == nil {
+						view[i] = byID[cid]
+					}
+				}
+			}
+			if c.applyGatewayTimeout(ctx, run, ids, c.gatewayTimeout(run, ids, view)) {
+				return
+			}
 		}
 		if gap := watchMinGap - time.Since(start); gap > 0 {
 			select {

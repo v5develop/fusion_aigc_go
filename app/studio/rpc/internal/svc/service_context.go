@@ -34,6 +34,8 @@ type ServiceContext struct {
 	Storage    storage.Store
 	Moderation moderation.Checker
 	TaskCenter *taskcenter.Syncer
+	// TaskSync 请求 / 收尾路径上的任务中心同步（异步、合并、带重试），不占提交响应与批次收敛的时间；后台 tick 仍同步跑一轮兜底
+	TaskSync *taskcenter.AsyncSync
 	// MediaSvc 共享媒体服务（下载 / conform / 裁图 / 组图 / resources/copy）；未配置为 nil
 	MediaSvc *mediasvc.Client
 	// DB 业务读写的 bun 句柄（bundb.New：复用 Conn 的连接池，挂 logx QueryHook，慢阈值 500ms）
@@ -63,7 +65,7 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	if err != nil {
 		logx.Must(err)
 	}
-	return &ServiceContext{
+	sc := &ServiceContext{
 		Reverse:      newReverse(c),
 		PreviewSlots: make(chan struct{}, c.PreviewSidecarSlots()),
 		Audit:        audit,
@@ -82,6 +84,8 @@ func NewServiceContext(c config.Config) *ServiceContext {
 			UserTierEnabled: c.FreeWatermark.UserTierDefault, DisplayWatermarkEnabled: c.FreeWatermark.DisplayWatermarkDefault,
 		}),
 	}
+	sc.TaskSync = taskcenter.NewAsyncSync("studio", sc.TaskCenter.Sync)
+	return sc
 }
 
 // Prefix 某类型的子任务号 / 任务中心坐标前缀。

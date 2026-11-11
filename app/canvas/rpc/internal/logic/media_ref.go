@@ -17,7 +17,9 @@ import (
 //     签不出 / 没配处理串 → 空串，绝不签干净原件；
 //   - mr://{rid}[.ext]   私有资源引用：读时现签。
 //
-// 绝不把 600 秒的签名地址落库；读出口（RunResult / 画布回填 / 上游候选引用）统一过 resolveMediaRefs。
+//   - 画布自己的产物在异步转存素材库完成前也是 mr://{rid}.{ext}（见 library_copy.go），转存完成后换成素材库公开地址。
+//
+// 绝不把 600 秒的签名地址落库；读出口（RunResult 候选与视频 / 画布回填 / 上游候选引用）统一过 resolveMediaRefs。
 
 const (
 	refPrefix   = "mr://"
@@ -130,7 +132,7 @@ func ridHint(rid string) string {
 	return rid[:6] + "…" + rid[len(rid)-4:]
 }
 
-// resolvedRuns 返回候选引用已换成现签地址的浅拷贝（不改原 run，不回写库）。
+// resolvedRuns 返回候选 / 视频引用已换成现签地址的浅拷贝（不改原 run，不回写库）。
 func (c *core) resolvedRuns(ctx context.Context, runs []*model.NodeRun) []*model.NodeRun {
 	out := make([]*model.NodeRun, len(runs))
 	for i, r := range runs {
@@ -139,17 +141,32 @@ func (c *core) resolvedRuns(ctx context.Context, runs []*model.NodeRun) []*model
 	return out
 }
 
+// resolvedRun 候选与视频地址里的 mr:// / mrw:// 现签；LibraryState 在换掉引用之前按原值算好（异步转存未完成 = pending）。
 func (c *core) resolvedRun(ctx context.Context, r *model.NodeRun) *model.NodeRun {
-	if r == nil || len(r.Candidates) == 0 || !strings.Contains(string(r.Candidates), "mr") {
+	if r == nil {
 		return r
 	}
+	hasVideoRef := isMediaRef(r.VideoURL.String)
+	if !hasVideoRef && (len(r.Candidates) == 0 || !strings.Contains(string(r.Candidates), "mr")) {
+		return r
+	}
+	cp := *r
+	cp.LibraryState = libraryStatus(r)
 	list := r.CandidateList()
 	var ptrs []*string
 	for i := range list {
 		ptrs = append(ptrs, &list[i].URL)
 	}
+	video := r.VideoURL.String
+	if hasVideoRef {
+		ptrs = append(ptrs, &video)
+	}
 	c.resolveMediaRefs(ctx, ptrs)
-	cp := *r
-	cp.Candidates = repo.MarshalCandidates(list)
+	if len(r.Candidates) > 0 {
+		cp.Candidates = repo.MarshalCandidates(list)
+	}
+	if hasVideoRef {
+		cp.VideoURL.String = video
+	}
 	return &cp
 }
