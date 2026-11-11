@@ -776,6 +776,7 @@ POST /api/v1/canvas/canvases/from-template
 - 单次轮询请求超时 / 网络错误 ≠ 任务失败：原型是同一次最多重试 2 次、间隔 0.8 秒，再抛错；仍然不要取消。
 - 页面关闭后 run 仍会在服务端跑完（计费、入素材库照常）。重新打开画布时节点 `status` 可能是 `running`，前端应按 `data.runId` 对应的 run 继续轮询；`runId` 不是 `request_id`，可直接取节点回填的 `data.requestId`（服务端回填，即该节点最近一次 run 的 `request_id`）。
 - 用户点停止：先调 `cancel`，再把本地轮询中止；不要只中止本地轮询。
+- 服务端完成检测（只影响「出图 → run 变 `succeeded`」的延迟，接口不变）：生图 / 生视频 / 反推（gateway 后端）提交后由每个 run 一个长轮询协程盯着网关（`GET /v1/calls/{id}?wait=AiGateway.LongPollWait`，默认 20 秒），网关出图后约 0–1 秒内开始收尾；`count>1` 的 N 张产物并发转存素材库（`Poll.FanoutConcurrency`，默认 4，幂等键 `canvas-copy:{task_id}:{i}`），参考图并发拉入、N 张并发提交（幂等键 `canvas:{task_id}:{i}`）。每 `Poll.IntervalSeconds`（3 秒）的扫描只兜底：排队重提、Java / studio 工具（查询并发 `Poll.LookupConcurrency`）、长轮询名额满（`Poll.Watchers`，默认 64）或进程重启后没人管的 run。任务中心同步移出 `RunNode` / `cancel` 的请求路径（异步合并、失败重试，扫描每轮兜底），新 run 出现在任务中心可能晚 1–2 秒。
 
 ### 7.4 计费口径
 

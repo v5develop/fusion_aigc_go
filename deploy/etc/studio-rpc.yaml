@@ -40,8 +40,14 @@ TaskIDPrefix:
 Poll:
   IntervalSeconds: 5
   Concurrency: 3        # 每批次同时生图数（s1.1 验收口径）
-  BatchConcurrency: 2   # 同时编排（下载 / 切图 / 反推）的批次数
-  Workers: 16           # 同时长轮询 gateway 的子任务数
+  BatchConcurrency: 2   # 编排名额回退值（KindBatchConcurrency 某项没配时用）
+  KindBatchConcurrency: # 编排（下载 / 切图 / 反推 / 参考图入库）名额按 kind 分池，商拍的几分钟编排不再饿住图片生成
+    Tryon: 2
+    Pose: 2
+    ImageGen: 4
+  Workers: 64           # 同时长轮询 gateway 的子任务数；每个子任务一直长轮询到终态，生效值取 max(Workers, MaxRunning)
+  MaxRunning: 64        # 全局（库里总数）同时在 gateway 生成中的子任务上限
+  HoldConcurrency: 4    # 提交时逐张冻结的并发度；任一张失败，已冻结的全部各退一次
   BatchSize: 100
 Moderation:
   Mode: keyword         # 与 AI文案共用 BLOCKWORD 词库
@@ -51,7 +57,7 @@ AiGateway:
   BaseURL: ""
   KeyID: fusion-go-v1
   Secret: ""
-  LongPollWait: 20
+  LongPollWait: 20      # GET /v1/calls/{id}?wait= 每次挂起秒数（≤25）；子任务循环长轮询到终态
   TimeoutSeconds: 30
   MaxCostCNY: "5.00"    # 每次生图调用的供应商成本上限（人民币，网关软上限）
 # 图片生成 rewrite_prompt=true 时的润色模型组（gateway chat.completion）；失败按原提示词继续

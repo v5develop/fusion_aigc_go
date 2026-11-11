@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/zeromicro/go-zero/core/logx"
@@ -225,6 +226,9 @@ type Syncer struct {
 	// synced 每个源是否已经成功做过一次全量同步。只有成功过的源才改用窗口同步：
 	// 某个源一直失败时，只让它自己反复全量，不拖累其他源。
 	synced []bool
+	// mu 串行化整轮 Sync（也保护 synced）：轮询器与请求路径（异步）可能同时 Sync。两轮并发对同一批任务中心行
+	// INSERT … SELECT … ON DUPLICATE KEY UPDATE 会互相等锁甚至死锁（1213）白白报错，串行后后到的一轮读到的一定不旧于先到的
+	mu     sync.Mutex
 	window time.Duration
 }
 
@@ -241,6 +245,8 @@ func (y *Syncer) Sync(ctx context.Context) error {
 	if y == nil {
 		return nil
 	}
+	y.mu.Lock()
+	defer y.mu.Unlock()
 	window := int64(y.window / time.Second)
 	var errs []error
 	for i, s := range y.sources {

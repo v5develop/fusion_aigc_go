@@ -219,6 +219,12 @@ func (r *RunRepo) ReleaseLease(ctx context.Context, id int64, owner string) erro
 	return lease.Release(ctx, r.db, TableRun, id, owner)
 }
 
+// KeepLease 抢 run 的行租约并后台每 1/3 TTL 心跳续租（pkg/lease.Keep）；ok=false 表示别的实例持有。
+// 返回的 ctx 在租约明确丢失（被接管）或一直续不上时取消；stop 停止心跳并释放租约（幂等）。
+func (r *RunRepo) KeepLease(ctx context.Context, id int64, owner string, ttl time.Duration) (context.Context, func(), bool, error) {
+	return lease.Keep(ctx, r.db, TableRun, id, owner, ttl)
+}
+
 // LeaseSet 一组 run 的租约（逐个抢 / 放，后台心跳批量续租）；用完 Close。
 func (r *RunRepo) LeaseSet(owner string, ttl time.Duration) *lease.Set {
 	return lease.NewSet(r.db, TableRun, owner, ttl)

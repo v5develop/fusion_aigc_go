@@ -110,9 +110,8 @@ func (c *core) RunNode(ctx context.Context, in *canvas.RunNodeReq) (*canvas.RunN
 	if err := c.dispatchInline(ctx, run, sp, bearer); err != nil {
 		return nil, err
 	}
-	if c.s.TaskCenter != nil {
-		_ = c.s.TaskCenter.Sync(ctx)
-	}
+	// 任务中心同步移出请求路径（全量窗口同步 1–2s）：异步合并执行，失败重试，Poller 每轮也会兜底同步
+	c.s.TaskSync.Kick()
 	return &canvas.RunNodeResp{
 		RequestId: strconv.FormatInt(run.ID, 10), RunId: runID, Status: model.StatusText(run.Status), Credits: run.Points,
 		Warnings: mergeWarnings(warns, sp.Warnings), SettleMode: sp.SettleMode, MaxPoints: maxPointsOf(sp.SettleMode, run.Points),
@@ -120,6 +119,7 @@ func (c *core) RunNode(ctx context.Context, in *canvas.RunNodeReq) (*canvas.RunN
 }
 
 // dispatchInline 持有租约时内联提交；抢不到（或抢租约出错）就留在排队交给轮询器。
+// 提交成功转运行中的 gateway run：放掉租约后立刻交给长轮询协程（不等下一轮扫描）。
 func (c *core) dispatchInline(ctx context.Context, run *model.NodeRun, sp *runSpec, bearer string) error {
 	owner := lease.Owner()
 	ok, err := c.s.Repo.Run.AcquireLease(ctx, run.ID, owner, runLeaseTTL)
@@ -130,14 +130,14 @@ func (c *core) dispatchInline(ctx context.Context, run *model.NodeRun, sp *runSp
 	if !ok {
 		return nil
 	}
-	defer func() {
-		rctx, cancel := detached(ctx)
-		if err := c.s.Repo.Run.ReleaseLease(rctx, run.ID, owner); err != nil {
-			logx.WithContext(ctx).Errorf("canvas: run %d 释放租约失败（到期自动失效）: %v", run.ID, err)
-		}
-		cancel()
-	}()
-	return c.dispatch(ctx, run, sp, bearer)
+	err = c.dispatch(ctx, run, sp, bearer)
+	rctx, cancel := detached(ctx)
+	if rerr := c.s.Repo.Run.ReleaseLease(rctx, run.ID, owner); rerr != nil {
+		logx.WithContext(ctx).Errorf("canvas: run %d 释放租约失败（到期自动失效）: %v", run.ID, rerr)
+	}
+	cancel()
+	c.handOff(run)
+	return err
 }
 
 // mergeWarnings 合并告警（去重、保序）。
@@ -301,9 +301,7 @@ func (c *core) CancelRun(ctx context.Context, in *canvas.RunIdReq) (*canvas.RunR
 	}
 	c.cancelUpstream(ctx, r, "用户取消")
 	c.reclaimUnrefCalls(ctx, r, "用户取消")
-	if c.s.TaskCenter != nil {
-		_ = c.s.TaskCenter.Sync(ctx)
-	}
+	c.s.TaskSync.Kick()
 	return c.toResult(ctx, r), nil
 }
 

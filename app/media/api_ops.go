@@ -246,7 +246,9 @@ func (s *Server) storeMeta(ctx context.Context, purpose, path string, meta Media
 	if err != nil {
 		return MediaResult{}, err
 	}
+	putStart := time.Now()
 	obj, err := s.putAndClearPending(ctx, store, objPath, path, meta.Mime, reused)
+	logStage(ctx, "put", putStart) // 写对象存储（OSS / S3 / 本地盘）
 	if err != nil {
 		return MediaResult{}, err
 	}
@@ -258,7 +260,9 @@ func (s *Server) storeMeta(ctx context.Context, purpose, path string, meta Media
 	}
 	s.objCache.insertFacts(rid, store, objPath, obj.Version, path, facts)
 	obj.RID, obj.Class = rid, class
+	urlStart := time.Now()
 	u, err := s.objects.URL(ctx, obj)
+	logStage(ctx, "url", urlStart) // 签发 / 拼出访问地址
 	if err != nil {
 		return MediaResult{}, err
 	}

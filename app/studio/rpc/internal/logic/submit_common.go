@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"aigc-local-life/app/studio/model"
@@ -53,6 +55,8 @@ type deps struct {
 	sync       func(ctx context.Context)                              // 任务中心同步一轮
 	newTaskID  func(prefix string, id int64) string                   // 子任务号
 	now        func() time.Time
+	// holdConc 逐张冻结的并发度（Poll.HoldConcurrency）；<=1 串行（单测直接构造 deps 时为 0，保持确定的顺序）
+	holdConc int
 }
 
 // ownsSigned 输入图是用户自己成品的签名水印地址（本实例刚签出的 mrw:// 视图）：反查 rid 并确认该用户有这条成品。
@@ -103,7 +107,8 @@ func newDeps(s *svc.ServiceContext) *deps {
 		newTaskID: func(prefix string, id int64) string {
 			return aigc.NewLifeTaskID(prefix, taskcenter.Ref(prefix, id), taskIDStage)
 		},
-		now: time.Now,
+		now:      time.Now,
+		holdConc: positive(c.Poll.HoldConcurrency, 4),
 	}
 }
 
@@ -284,28 +289,15 @@ func (d *deps) submit(ctx context.Context, sp *submitSpec) (*studio.SubmitResp, 
 		return nil, err
 	}
 
-	// 8. 逐张冻结（与 RPC ctx 的取消脱钩，独立 60s 超时）：每张成功立刻写计费镜像；
-	// 任一失败：这张也 Fail 一次（冻结可能已落库只是响应丢了），已冻结的逐个退回，批次与子任务置失败
+	// 8. 逐张冻结（与 RPC ctx 的取消脱钩，独立 60s 超时；并发度 holdConc）：每张成功立刻写计费镜像；
+	// 任一失败：还没开始的不再冻结，等在途的全部返回后统一善后——失败的每张也 Fail 一次（冻结可能已落库只是响应丢了），
+	// 成功的每张退回一次，批次与子任务置失败
 	hctx, cancel := detached(ctx)
 	defer cancel()
-	var points int64
-	st := billingStatusOf(d.bill.Mode())
-	held := make([]*model.Task, 0, len(tasks))
-	for _, t := range tasks {
-		r, err := d.bill.Hold(hctx, d.charge(sp, t))
-		if err != nil {
-			d.holdFailed(ctx, b, held, t, err)
-			return nil, err
-		}
-		if r != nil {
-			points += r.PricePoints
-		}
-		if st != model.BillingNone {
-			if err := d.repo.Task.SetBilling(hctx, t.ID, t.BillingRequestID.String, st); err != nil {
-				log.Errorf("studio: 子任务 %d 写计费状态失败（退款不依赖它）: %v", t.ID, err)
-			}
-		}
-		held = append(held, t)
+	held, failed, points, herr := d.holdAll(hctx, sp, tasks)
+	if herr != nil {
+		d.holdFailed(ctx, b, held, failed, herr)
+		return nil, herr
 	}
 	if points > 0 {
 		if err := d.repo.Batch.SetEstimatedPoints(hctx, b.ID, points); err != nil {
@@ -326,6 +318,80 @@ func (d *deps) submit(ctx context.Context, sp *submitSpec) (*studio.SubmitResp, 
 	d.sync(ctx)
 
 	return &studio.SubmitResp{BatchId: b.ID, TaskTotal: int32(len(tasks)), EstimatedPoints: points, TaskIds: taskIDs(tasks), Warnings: sp.Warnings}, nil
+}
+
+// holdAll 逐张冻结（并发度 holdConc，<=1 串行）。返回冻结成功的（held，按子任务顺序）、冻结报错的（failed）、
+// 成功各张的点数合计，以及按子任务顺序第一个错误（nil = 全部成功）。
+// 一旦有失败，还没开始的不再冻结（它们没有预留单，不用退）；在途的照常等返回，成败都记下来交给善后，保证每张预留单
+// 恰好被处理一次：成功的退一次、报错的 Fail 一次。
+func (d *deps) holdAll(ctx context.Context, sp *submitSpec, tasks []*model.Task) (held, failed []*model.Task, points int64, firstErr error) {
+	type result struct {
+		done bool
+		r    *billing.Reservation
+		err  error
+	}
+	st := billingStatusOf(d.bill.Mode())
+	res := make([]result, len(tasks))
+	var abort atomic.Bool
+	one := func(i int) {
+		if abort.Load() {
+			return
+		}
+		t := tasks[i]
+		defer func() {
+			// 冻结在子协程里 panic：记成这张冻结失败（善后 Fail 一次 + 退回已冻结的），不打崩进程、不留下没人退的预留单
+			if p := recover(); p != nil {
+				logx.WithContext(ctx).Errorf("studio: 子任务 %d 冻结 panic: %v", t.ID, p)
+				res[i] = result{done: true, err: fmt.Errorf("studio: 冻结异常: %v", p)}
+				abort.Store(true)
+			}
+		}()
+		r, err := d.bill.Hold(ctx, d.charge(sp, t))
+		res[i] = result{done: true, r: r, err: err}
+		if err != nil {
+			abort.Store(true)
+			return
+		}
+		if st != model.BillingNone {
+			if err := d.repo.Task.SetBilling(ctx, t.ID, t.BillingRequestID.String, st); err != nil {
+				logx.WithContext(ctx).Errorf("studio: 子任务 %d 写计费状态失败（退款不依赖它）: %v", t.ID, err)
+			}
+		}
+	}
+	if conc := min(d.holdConc, len(tasks)); conc <= 1 {
+		for i := range tasks {
+			one(i)
+		}
+	} else {
+		sem := make(chan struct{}, conc)
+		var wg sync.WaitGroup
+		for i := range tasks {
+			wg.Add(1)
+			sem <- struct{}{}
+			go func() {
+				defer wg.Done()
+				defer func() { <-sem }()
+				one(i)
+			}()
+		}
+		wg.Wait()
+	}
+	for i, x := range res {
+		switch {
+		case !x.done:
+		case x.err != nil:
+			failed = append(failed, tasks[i])
+			if firstErr == nil {
+				firstErr = x.err
+			}
+		default:
+			held = append(held, tasks[i])
+			if x.r != nil {
+				points += x.r.PricePoints
+			}
+		}
+	}
+	return held, failed, points, firstErr
 }
 
 // replay 幂等命中：指纹一致返回原批次（replayed=true），不一致报幂等冲突。
@@ -412,15 +478,17 @@ func billingStatusOf(mode string) int8 {
 	return model.BillingNone
 }
 
-// holdFailed 冻结中途失败的善后：失败那张（failed，可为 nil）也 Fail 一次，退回已冻结的、子任务全部置失败、批次 提交中→失败。
+// holdFailed 冻结中途失败的善后：冻结报错的（failed，可为空）也各 Fail 一次，退回已冻结的、子任务全部置失败、批次 提交中→失败。
 // 用与调用方取消脱钩的独立 60s 超时；都是尽力而为（只记日志），没做完的由 Poller 的提交中兜底（reapSubmitting）收尾。
-func (d *deps) holdFailed(ctx context.Context, b *model.Batch, held []*model.Task, failed *model.Task, cause error) {
+func (d *deps) holdFailed(ctx context.Context, b *model.Batch, held, failed []*model.Task, cause error) {
 	ctx, cancel := detached(ctx)
 	defer cancel()
 	log := logx.WithContext(ctx)
 	const refundReason = "提交未完成，点数已退回"
-	if failed != nil && d.bill.Mode() == billing.ModeOn {
-		d.bill.Fail(ctx, b.UserID, failed.BillingRequestID.String, refundReason)
+	if d.bill.Mode() == billing.ModeOn {
+		for _, t := range failed {
+			d.bill.Fail(ctx, b.UserID, t.BillingRequestID.String, refundReason)
+		}
 	}
 	for _, t := range held {
 		d.bill.Fail(ctx, b.UserID, t.BillingRequestID.String, refundReason)

@@ -43,14 +43,25 @@ type Config struct {
 		IntervalSeconds int `json:",default=5"`
 		// Concurrency 每个批次同时在 gateway 生成中的子任务上限（s1.1 验收口径：生图并发 3）
 		Concurrency int `json:",default=3"`
-		// BatchConcurrency 同时编排（下载 / 切图 / 反推）的批次数
+		// BatchConcurrency 同时编排（下载 / 切图 / 反推）的批次数。只作 KindBatchConcurrency.Tryon / Pose 未配时的回退值
 		BatchConcurrency int `json:",default=2"`
-		// Workers 同时长轮询 gateway 的子任务数（全进程）
-		Workers int `json:",default=16"`
+		// KindBatchConcurrency 按 kind 分开的编排名额（各自一个池子，互不挤占）：商拍切图 + 反推一批要几分钟，
+		// 共用一个池子时会把只需几秒（参考图入库 + 可选润色）的图片生成饿住。<=0 回退：Tryon / Pose → BatchConcurrency，ImageGen → 4
+		KindBatchConcurrency struct {
+			Tryon    int `json:",optional"`
+			Pose     int `json:",optional"`
+			ImageGen int `json:",optional"`
+		} `json:",optional"`
+		// Workers 同时长轮询 gateway 的子任务数（全进程）。每个生成中的子任务占一个名额持续长轮询直到终态，
+		// 所以生效值取 max(Workers, MaxRunning)：名额少于 MaxRunning 时多派发的子任务只能等下一轮扫描，白等 Poll 间隔
+		Workers int `json:",default=64"`
 		// BatchSize 每轮最多推进多少个批次 / 子任务
 		BatchSize int `json:",default=100"`
 		// MaxRunning 全进程（多实例时各实例按库里总数判断）同时在 gateway 生成中的子任务上限，达到后不再派发新的
 		MaxRunning int `json:",default=64"`
+		// HoldConcurrency 提交时逐张冻结（Hold + 写计费镜像）的并发度。任一张失败：已冻结的全部退回（各退一次）。
+		// 同一用户的冻结在账户行锁上仍是串行的，并发省的是报价查询与往返；<=0 按 4
+		HoldConcurrency int `json:",default=4"`
 		// PreviewCacheCleanMinutes 清理配对预览缓存（afv_studio_prompt_cache.batch_id < 0）的间隔（分钟），每个实例各自按此间隔跑，
 		// 删除幂等、并发安全；<= 0 关闭。PreviewCacheRetainHours 只删早于这么多小时的行（须明显大于复用窗口 2h）；
 		// PreviewCacheCleanBatch 每条 DELETE 的行数上限。
@@ -238,4 +249,44 @@ func (c Config) ModelGroupMap() map[string]string {
 		out[k] = modelgroup.Canonical(g)
 	}
 	return out
+}
+
+// 编排名额（按 kind）的回退值。
+const defaultImageGenBatchConcurrency = 4
+
+// BatchSlots kind 的编排名额（tryon / pose / imagegen 各一个池子）。
+func (c Config) BatchSlots(kind string) int {
+	base := c.Poll.BatchConcurrency
+	if base <= 0 {
+		base = 2
+	}
+	k := c.Poll.KindBatchConcurrency
+	switch kind {
+	case "tryon":
+		if k.Tryon > 0 {
+			return k.Tryon
+		}
+	case "pose":
+		if k.Pose > 0 {
+			return k.Pose
+		}
+	case "imagegen":
+		if k.ImageGen > 0 {
+			return k.ImageGen
+		}
+		return max(base, defaultImageGenBatchConcurrency)
+	}
+	return base
+}
+
+// PollWorkers 长轮询名额：max(Workers, MaxRunning)（各自 <=0 按 64）。
+func (c Config) PollWorkers() int {
+	w, m := c.Poll.Workers, c.Poll.MaxRunning
+	if w <= 0 {
+		w = 64
+	}
+	if m <= 0 {
+		m = 64
+	}
+	return max(w, m)
 }

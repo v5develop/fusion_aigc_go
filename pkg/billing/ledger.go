@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	mrand "math/rand/v2"
 	"strconv"
 	"strings"
 	"time"
@@ -132,7 +133,67 @@ func freeze(ctx context.Context, conn sqlx.SqlConn, c Charge, q *Quote, hold tim
 	}
 
 	var out *Reservation
-	err := conn.TransactCtx(ctx, func(ctx context.Context, s sqlx.Session) error {
+	err := retryDeadlock(ctx, func() error {
+		out = nil
+		return freezeTx(ctx, conn, c, q, hold, bizID, idem, no, p, &out)
+	})
+
+	switch {
+	case err == nil:
+		return out, nil
+	case isDup(err):
+		// 并发下同一个 bizId 有人先写成功了，读回来原样返回，不重复扣
+		logx.WithContext(ctx).Infof("billing: %s 并发冻结，返回已有的单", bizID)
+		return loadHeldOrAny(ctx, conn, bizID)
+	default:
+		return nil, err
+	}
+}
+
+// deadlockRetries 冻结事务遇 InnoDB 死锁（1213）时最多重做几次。
+//
+// 同一用户并发冻结（如 studio 一次提交多张并发冻结、或多个请求同时提交）时：各事务先对不存在的幂等键 FOR UPDATE，
+// 在唯一索引的同一间隙上各留一把间隙锁（互相兼容），先拿到账户锁的事务插预留单时要等别人的间隙锁、别人又在等它的账户锁，
+// InnoDB 判死锁回滚其中一个。被回滚的事务什么都没写（整笔回滚），按同一幂等键重做是安全的：
+// 对方已提交则第 1 步命中原单原样返回，否则重新排队拿锁，不会重复冻结。
+// 4 张并发冻结时最不走运的一张最多可能连当 3 次牺牲者，留些余量。
+const deadlockRetries = 5
+
+// deadlockBackoff 第 i 次重做前的退避：10ms×(i+1) 再加同样幅度的随机抖动。
+// 不加抖动时互相死锁的几笔事务会同一时刻重做、再撞一次。
+func deadlockBackoff(i int) time.Duration {
+	base := time.Duration(10*(i+1)) * time.Millisecond
+	return base + mrand.N(base)
+}
+
+// retryDeadlock 执行 fn，遇死锁回滚（1213）时短暂退避后重做，其余错误原样返回。
+func retryDeadlock(ctx context.Context, fn func() error) error {
+	var err error
+	for i := 0; ; i++ {
+		if err = fn(); err == nil || !isDeadlock(err) || i >= deadlockRetries {
+			return err
+		}
+		logx.WithContext(ctx).Infof("billing: 冻结事务死锁回滚，第 %d 次重做: %v", i+1, err)
+		select {
+		case <-ctx.Done():
+			return err
+		case <-time.After(deadlockBackoff(i)):
+		}
+	}
+}
+
+// isDeadlock MySQL 死锁回滚（ER_LOCK_DEADLOCK 1213）。
+func isDeadlock(err error) bool {
+	var me *mysql.MySQLError
+	return errors.As(err, &me) && me.Number == 1213
+}
+
+// freezeTx 冻结的一次事务（见 freeze 的加锁顺序说明）。
+func freezeTx(ctx context.Context, conn sqlx.SqlConn, c Charge, q *Quote, hold time.Duration,
+	bizID, idem, no string, p int64, outp **Reservation) error {
+	return conn.TransactCtx(ctx, func(ctx context.Context, s sqlx.Session) error {
+		out := (*Reservation)(nil)
+		defer func() { *outp = out }()
 		// 1) 先锁幂等键行。已经有了说明是重试，原样返回。
 		if old, err := lockByIdem(ctx, s, idem); err != nil {
 			return err
@@ -206,17 +267,6 @@ func freeze(ctx context.Context, conn sqlx.SqlConn, c Charge, q *Quote, hold tim
 		out = &Reservation{No: no, PricePoints: p, Quote: q, variantCode: q.VariantCode, carrierModelID: q.CarrierModelID}
 		return nil
 	})
-
-	switch {
-	case err == nil:
-		return out, nil
-	case isDup(err):
-		// 并发下同一个 bizId 有人先写成功了，读回来原样返回，不重复扣
-		logx.WithContext(ctx).Infof("billing: %s 并发冻结，返回已有的单", bizID)
-		return loadHeldOrAny(ctx, conn, bizID)
-	default:
-		return nil, err
-	}
 }
 
 // lockByIdem 按幂等键锁住预留单。没有就返回 nil——

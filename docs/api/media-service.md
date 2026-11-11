@@ -286,7 +286,7 @@ Content-Type: <可选，仅作提示>
 
 `probe` 返回 `MediaMeta`（同 `object` 的元数据字段，不含 `key`）；`frames` 返回 `frames[]`，每帧是 `timestamp_s` 加一个对象。
 
-**阶段耗时（可选，只增字段）**：`ingest`、`ingest/upload`、`resources/copy` 本次实际执行的成功响应在 `MediaResult` 上多一个 `"timings": [{"stage": "probe", "dur_ms": 22}, ...]`，按发生顺序列出服务端各阶段耗时（`read_body`、`idem_begin`、`validate`、`probe`、`hash`、`place_object`、`ingest_local`、`idem_finish`，按路由取其中实际经过的）。幂等重放（`Idempotent-Replayed: true`）与其它路由不带该字段；调用方不认识可以忽略。
+**阶段耗时（可选，只增字段）**：`ingest`、`ingest/upload`、`resources/copy` 本次实际执行的成功响应在 `MediaResult` 上多一个 `"timings": [{"stage": "probe", "dur_ms": 22}, ...]`，按发生顺序列出服务端各阶段耗时（`read_body`、`idem_begin`、`validate`、`fetch`（从源地址下载到本地盘，含 DNS / TLS / 传输）、`copy_src_head`（复制：定位源桶 + 待删除检查）、`copy_read`（复制：取源字节，本机缓存命中近 0）、`probe`、`hash`、`place_object`、`put`（写对象存储）、`url`（签发 / 拼出访问地址）、`ingest_local`、`idem_finish`，按路由取其中实际经过的）。同名阶段同时打一行日志 `media stage trace_id=… stage=… dur_ms=…`，转存慢在供应商源站（`fetch`）还是我方存储（`put` / `copy_read`）据此区分。幂等重放（`Idempotent-Replayed: true`）与其它路由不带该字段；调用方不认识可以忽略。
 
 ## 错误
 

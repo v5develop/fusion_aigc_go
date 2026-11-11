@@ -207,6 +207,8 @@ func (f *fetcher) download(ctx context.Context, rawURL, dir, name string) (strin
 // downloadWithHeaders 同 download，并随原始请求发送 headers（已经过 validateHeaders 白名单校验）。
 // 头只随 rawURL 的来源发送；跳转到别的来源时由 CheckRedirect 剥掉。错误信息与日志里都不出现头的值。
 func (f *fetcher) downloadWithHeaders(ctx context.Context, rawURL string, headers http.Header, dir, name string) (string, error) {
+	// fetch 阶段：从发请求到字节落本地盘（含 DNS / TLS / 首字节 / 传输），转存慢在供应商源站还是在我方存储由此区分
+	defer logStage(ctx, "fetch", time.Now())
 	u, err := url.Parse(rawURL)
 	if err != nil || u.Host == "" {
 		return "", badInput("视频地址无效")

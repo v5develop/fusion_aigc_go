@@ -135,7 +135,7 @@ func TestUploadBytesTimingsAndDigest(t *testing.T) {
 	if out.Object.Sha256 != sha256Hex(data) {
 		t.Fatalf("sha256 必须是字节的真实摘要: %s", out.Object.Sha256)
 	}
-	assertStages(t, body, []string{"read_body", "idem_begin", "validate", "probe", "hash", "place_object", "ingest_local", "idem_finish"}, nil)
+	assertStages(t, body, []string{"read_body", "idem_begin", "validate", "probe", "hash", "place_object", "put", "url", "ingest_local", "idem_finish"}, nil)
 
 	replay := uploadBytes(t, ts.URL, "intermediate", "k-timings-upload", data)
 	if replay.Header.Get("Idempotent-Replayed") != "true" {
@@ -154,7 +154,7 @@ func TestIngestTimingsAndAbsentElsewhere(t *testing.T) {
 			"source": f.url("src.mp4"), "purpose": "intermediate"}, testToken, "k-timings-ingest")
 	}
 	body := readBody(t, ingest())
-	assertStages(t, body, []string{"idem_begin", "validate", "probe", "hash", "place_object", "idem_finish"}, nil)
+	assertStages(t, body, []string{"idem_begin", "validate", "fetch", "probe", "hash", "place_object", "put", "url", "idem_finish"}, nil)
 	assertNoTimings(t, readBody(t, ingest()))
 
 	// probe 路由没有收集器：响应不变
@@ -215,7 +215,7 @@ func TestCopyHeadsOncePerCandidateAndSkipsProbeOnHit(t *testing.T) {
 			if !tc.wantProbe {
 				forbid = []string{"probe"}
 			}
-			want := []string{"idem_begin", "hash", "place_object", "idem_finish"}
+			want := []string{"idem_begin", "copy_src_head", "copy_read", "hash", "place_object", "put", "url", "idem_finish"}
 			if tc.wantProbe {
 				want = append(want, "probe")
 			}

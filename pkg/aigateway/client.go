@@ -85,10 +85,25 @@ func New(cfg Config) *Client {
 		timeout:  cfg.Timeout,
 		longPoll: min(cfg.LongPollWait, MaxWait),
 		// 超时按请求用 context 控制（长轮询要更长），这里不设 Client.Timeout
-		hc:    &http.Client{},
+		hc:    &http.Client{Transport: newTransport()},
 		now:   time.Now,
 		nonce: NewNonce,
 	}
+}
+
+// maxIdleConnsPerHost 到网关的空闲连接保留数。默认 Transport 只留 2 条：几十个长轮询协程（canvas Poll.Watchers、
+// studio Poll.Workers）各挂一条连接，每轮长轮询返回后多出来的连接都被关掉、下一轮重新握手（TCP + TLS）。
+const maxIdleConnsPerHost = 256
+
+func newTransport() http.RoundTripper {
+	t, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		return http.DefaultTransport
+	}
+	t = t.Clone()
+	t.MaxIdleConns = max(t.MaxIdleConns, maxIdleConnsPerHost)
+	t.MaxIdleConnsPerHost = maxIdleConnsPerHost
+	return t
 }
 
 // Enabled 是否已配置地址。

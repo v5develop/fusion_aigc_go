@@ -39,11 +39,12 @@ type Config struct {
 	TaskIDPrefix string `json:",default=cv"`
 	// AiGateway 生图 / 生视频 / 反推（/v1/calls，HMAC，调用方 fusion-go）。BaseURL 为空时 image / video / i2p 返回「暂未开放」
 	AiGateway struct {
-		BaseURL        string `json:",optional"`
-		KeyID          string `json:",optional"`
-		Secret         string `json:",optional"`
-		LongPollWait   int    `json:",default=20"`
-		TimeoutSeconds int    `json:",default=30"`
+		BaseURL string `json:",optional"`
+		KeyID   string `json:",optional"`
+		Secret  string `json:",optional"`
+		// LongPollWait 运行中 gateway run 的长轮询（GET /v1/calls/{id}?wait=）每次挂起的秒数（1–60，网关上限 60）
+		LongPollWait   int `json:",default=20"`
+		TimeoutSeconds int `json:",default=30"` // 单次 HTTP 超时（不含长轮询等待）
 	}
 	// Media 共享媒体服务：裁剪（image/crop）、产物转存素材库桶（resources/copy）、Java 结果与蒙版拉入（ingest）。
 	// 配了 NacosServerAddr 订阅实例，BaseURL 只作回退；都留空则裁剪 / 重绘不可用，产物不转存（直接用上游地址，只用于开发）。
@@ -75,8 +76,16 @@ type Config struct {
 		Points     int64  `json:",default=0"` // catalog 展示用单价（实扣以计费为准）
 	}
 	Poll struct {
+		// IntervalSeconds 兜底扫描间隔。运行中 gateway run 的完成检测主路径是每个 run 一个长轮询协程（Watchers），
+		// 扫描只兜底：排队重提、Java / studio 轮询、长轮询协程没接住的 run（名额满 / 进程重启 / 租约被接管）
 		IntervalSeconds int `json:",default=3"`
 		BatchSize       int `json:",default=100"`
+		// Watchers 同时长轮询 gateway 的 run 数（全进程）。名额满时新 run 交给扫描兜底（batchGet，慢一个扫描间隔）
+		Watchers int `json:",default=64"`
+		// LookupConcurrency 扫描里 Java 任务 / studio 批次查询的并发度（原先逐个串行）
+		LookupConcurrency int `json:",default=8"`
+		// FanoutConcurrency 单个 run 内的扇出并发度：参考图拉入媒体服务、N 张 gateway 提交、N 张产物转存素材库
+		FanoutConcurrency int `json:",default=4"`
 		// MaxSubmitAttempts 提交后端遇暂时性错误（429 / 5xx / 网络）时最多尝试几次，之后置失败退款
 		MaxSubmitAttempts int `json:",default=5"`
 		// JavaStopBackoffSeconds 停止 Java 任务（取消 / 找回任务号 / Poller 场景缺令牌）暂时失败后的重试退避（秒）：
@@ -275,6 +284,15 @@ func (c Config) FindModel(model, modelID, kind string) (ModelSpec, bool) {
 		}
 	}
 	return ModelSpec{}, false
+}
+
+// LongPollWait 长轮询每次挂起的时长（1–60 秒，<=0 按 20 秒）。
+func (c Config) LongPollWait() time.Duration {
+	s := c.AiGateway.LongPollWait
+	if s <= 0 {
+		s = 20
+	}
+	return time.Duration(min(s, 60)) * time.Second
 }
 
 // FreeWatermarkConf 免费档水印读时签名配置。

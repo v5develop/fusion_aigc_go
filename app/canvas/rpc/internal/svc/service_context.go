@@ -1,6 +1,7 @@
 package svc
 
 import (
+	"context"
 	"strings"
 	"sync"
 	"time"
@@ -41,6 +42,11 @@ type ServiceContext struct {
 	Studio studio.Studio
 	// Bearers 用户最近一次请求带来的 Bearer（轮询 Java 任务时代用户查询；只在内存，不落库）
 	Bearers *BearerCache
+	// TaskSync 请求路径上的任务中心同步（异步、合并、带重试），不占 RunNode / CancelRun 的响应时间；nil 时不做
+	TaskSync *AsyncSync
+	// WatchRun 刚转运行中的 gateway run 交给长轮询协程（Poller 启动时挂上；nil 或名额满时由扫描兜底）。
+	// 调用方须已放掉该 run 的租约：长轮询协程要自己抢租约。
+	WatchRun func(runID int64)
 }
 
 func NewServiceContext(c config.Config) *ServiceContext {
@@ -49,7 +55,7 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	if err != nil {
 		logx.Must(err)
 	}
-	return &ServiceContext{
+	sc := &ServiceContext{
 		Config: c, Conn: conn, DB: db, Repo: repo.New(db),
 		Billing:    billing.New(c.Billing, conn),
 		Asset:      asset.NewWriter(conn),
@@ -60,6 +66,8 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		Studio:     newStudio(c),
 		Bearers:    NewBearerCache(2 * time.Hour),
 	}
+	sc.TaskSync = NewAsyncSync(sc.TaskCenter.Sync)
+	return sc
 }
 
 // TaskSources image / video 两类 run 同步进任务中心（tool_* 不进：裁剪不计费，Java / studio 工具由对方记任务中心，
@@ -192,4 +200,83 @@ func (b *BearerCache) Delete(userID int64) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	delete(b.m, userID)
+}
+
+// AsyncSync 把任务中心同步移出请求路径：Kick 立即返回；后台同一时刻只跑一轮，跑的期间再有 Kick 只记一个「脏」标记，
+// 本轮结束后补跑一轮（合并多次请求）。每轮暂时失败最多再试 2 次（退避 0.5s / 1s），仍失败只记日志——
+// Poller 每个扫描间隔也会全量窗口同步一次，这里只是让新 run 更快出现在任务中心。
+type AsyncSync struct {
+	sync    func(ctx context.Context) error
+	backoff []time.Duration
+	timeout time.Duration
+
+	mu      sync.Mutex
+	running bool
+	dirty   bool
+	wg      sync.WaitGroup
+}
+
+// NewAsyncSync fn 为 nil 时 Kick 是空操作。
+func NewAsyncSync(fn func(ctx context.Context) error) *AsyncSync {
+	return &AsyncSync{sync: fn, backoff: []time.Duration{500 * time.Millisecond, time.Second}, timeout: 30 * time.Second}
+}
+
+// Kick 请求一轮同步（不阻塞）。
+func (a *AsyncSync) Kick() {
+	if a == nil || a.sync == nil {
+		return
+	}
+	a.mu.Lock()
+	if a.running {
+		a.dirty = true
+		a.mu.Unlock()
+		return
+	}
+	a.running = true
+	a.wg.Add(1)
+	a.mu.Unlock()
+	go a.loop()
+}
+
+// Wait 等后台这一轮（含补跑）结束（单测 / 优雅退出用）。
+func (a *AsyncSync) Wait() {
+	if a != nil {
+		a.wg.Wait()
+	}
+}
+
+func (a *AsyncSync) loop() {
+	defer a.wg.Done()
+	for {
+		a.once()
+		a.mu.Lock()
+		if !a.dirty {
+			a.running = false
+			a.mu.Unlock()
+			return
+		}
+		a.dirty = false
+		a.mu.Unlock()
+	}
+}
+
+func (a *AsyncSync) once() {
+	defer func() {
+		if r := recover(); r != nil {
+			logx.Errorf("canvas: 任务中心异步同步 panic: %v", r)
+		}
+	}()
+	var err error
+	for i := 0; ; i++ {
+		ctx, cancel := context.WithTimeout(context.Background(), a.timeout)
+		err = a.sync(ctx)
+		cancel()
+		if err == nil || i >= len(a.backoff) {
+			break
+		}
+		time.Sleep(a.backoff[i])
+	}
+	if err != nil {
+		logx.Errorf("canvas: 任务中心异步同步失败（Poller 下一轮兜底）: %v", err)
+	}
 }

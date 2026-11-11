@@ -158,6 +158,21 @@ func (c *core) mediaRef(ctx context.Context, url string) (aigateway.MediaRef, er
 	return aigateway.MediaRef{URI: aigateway.MRScheme + res.RID, Sha256: res.SHA256, Mime: res.Mime}, nil
 }
 
+// mediaRefs 一组输入图并发拉入媒体服务（Poll.FanoutConcurrency），结果与 urls 一一对应。
+// 出错时返回按下标顺序的第一个错误（与原先逐张拉入、遇错即停报的是同一张）；拉入按内容幂等，重提时重复拉入无副作用。
+func (c *core) mediaRefs(ctx context.Context, urls []string) ([]aigateway.MediaRef, error) {
+	out := make([]aigateway.MediaRef, len(urls))
+	errs := fanout(len(urls), c.fanoutLimit(), func(i int) error {
+		r, err := c.mediaRef(ctx, urls[i])
+		out[i] = r
+		return err
+	})
+	if err := firstErr(errs); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // mediaErr 媒体服务错误：4xx 视为输入问题（永久），其余暂时性。
 func mediaErr(what string, err error) error {
 	var me *mediasvc.Error
@@ -206,15 +221,11 @@ func (c *core) gatewayRequests(ctx context.Context, run *model.NodeRun, sp *runS
 		Limits:      &aigateway.Limits{MaxCost: c.maxCost(run.Kind)},
 	}
 	refs := func(list []refMedia) ([]aigateway.MediaRef, error) {
-		out := make([]aigateway.MediaRef, 0, len(list))
-		for _, m := range list {
-			r, err := c.mediaRef(ctx, m.URL)
-			if err != nil {
-				return nil, err
-			}
-			out = append(out, r)
+		urls := make([]string, len(list))
+		for i, m := range list {
+			urls[i] = m.URL
 		}
-		return out, nil
+		return c.mediaRefs(ctx, urls)
 	}
 	switch run.Kind {
 	case model.KindImage:
@@ -248,31 +259,34 @@ func (c *core) gatewayRequests(ctx context.Context, run *model.NodeRun, sp *runS
 	case model.KindVideo:
 		in := videoGenerateInput{Prompt: sp.Prompt, DurationS: sp.DurationS, Resolution: videoResolution(sp.Size),
 			AspectRatio: sp.Ratio, GenerateAudio: sp.Sound}
-		var err error
+		// 首帧、尾帧、参考图、参考视频一次并发拉入（顺序同原先逐个拉入，出错报的是同一个）
+		urls := make([]string, 0, 2+len(sp.Images)+len(sp.Videos))
 		if sp.First != "" {
-			r, err := c.mediaRef(ctx, sp.First)
-			if err != nil {
-				return nil, err
-			}
-			in.FirstFrame = &r
+			urls = append(urls, sp.First)
 		}
 		if sp.Last != "" {
-			r, err := c.mediaRef(ctx, sp.Last)
-			if err != nil {
-				return nil, err
-			}
-			in.LastFrame = &r
+			urls = append(urls, sp.Last)
 		}
-		if in.ReferenceImages, err = refs(sp.Images); err != nil {
+		for _, m := range sp.Images {
+			urls = append(urls, m.URL)
+		}
+		urls = append(urls, sp.Videos...)
+		all, err := c.mediaRefs(ctx, urls)
+		if err != nil {
 			return nil, err
 		}
-		vids := make([]refMedia, 0, len(sp.Videos))
-		for _, v := range sp.Videos {
-			vids = append(vids, refMedia{URL: v})
+		if sp.First != "" {
+			r := all[0]
+			in.FirstFrame, all = &r, all[1:]
 		}
-		if in.ReferenceVideos, err = refs(vids); err != nil {
-			return nil, err
+		if sp.Last != "" {
+			r := all[0]
+			in.LastFrame, all = &r, all[1:]
 		}
+		in.ReferenceImages = make([]aigateway.MediaRef, len(sp.Images))
+		copy(in.ReferenceImages, all[:len(sp.Images)])
+		in.ReferenceVideos = make([]aigateway.MediaRef, len(sp.Videos))
+		copy(in.ReferenceVideos, all[len(sp.Images):])
 		req := base
 		req.Operation, req.Input = opVideoGenerate, in
 		return []aigateway.CallRequest{req}, nil
@@ -313,8 +327,9 @@ func videoResolution(s string) string {
 	return l
 }
 
-// submitGateway 提交全部调用，返回 call id 列表（逗号分隔写 backend_ref）。出错时也返回已拿到的 id：
-// 暂时性错误重提用同一幂等键会拿回它们；最终失败由 dispatch 取消（count>1 部分提交失败不留孤儿调用）。
+// submitGateway 并发提交全部调用（Poll.FanoutConcurrency，每张幂等键 canvas:{task_id}:{i}），成功时返回按下标排列的 call id
+// （逗号分隔写 backend_ref）。出错时返回按下标顺序的第一个错误，以及所有已拿到的 id（含排在出错那张之后、并发提交成功的）：
+// 暂时性错误重提用同一幂等键会拿回它们；最终失败由 dispatch 取消（count>1 部分提交失败不留孤儿调用）并整单退款。
 func (c *core) submitGateway(ctx context.Context, run *model.NodeRun, sp *runSpec) ([]string, error) {
 	if !c.s.Gateway.Enabled() {
 		return nil, xerr.New(xerr.NotReady, "生成服务暂未开放，请稍后再试")
@@ -326,16 +341,48 @@ func (c *core) submitGateway(ctx context.Context, run *model.NodeRun, sp *runSpe
 	if err != nil {
 		return nil, err
 	}
-	ids := make([]string, 0, len(reqs))
-	for i, r := range reqs {
+	ids := make([]string, len(reqs))
+	errs := fanout(len(reqs), c.fanoutLimit(), func(i int) error {
 		key, _ := gatewayIdem(run, i)
-		call, err := c.s.Gateway.Submit(ctx, r, aigateway.SubmitOptions{IdempotencyKey: key})
+		call, err := c.s.Gateway.Submit(ctx, reqs[i], aigateway.SubmitOptions{IdempotencyKey: key})
 		if err != nil {
-			return ids, gatewayErr(err)
+			return err
 		}
-		ids = append(ids, call.ID)
+		ids[i] = call.ID
+		return nil
+	})
+	if err := firstErr(errs); err != nil {
+		got := make([]string, 0, len(ids))
+		for _, id := range ids {
+			if id != "" {
+				got = append(got, id)
+			}
+		}
+		first := gatewayErr(err)
+		if !isTemporary(first) {
+			// 首个错误是永久的，但并发提交时别的张可能遇到暂时性错误（超时 / 5xx：网关上可能已建调用、只是响应没拿到）。
+			// 原先逐张提交遇错即停，后面的张根本不会发出；现在要标出来，让 dispatch 按幂等键回收，不留孤儿调用
+			for _, e := range errs {
+				if e != nil && isTemporary(gatewayErr(e)) {
+					return got, &maybeCreatedErr{first}
+				}
+			}
+		}
+		return got, first
 	}
 	return ids, nil
+}
+
+// maybeCreatedErr 提交以永久错误失败，但其它张有结局未知（暂时性错误）的提交：网关上可能已建了调用。
+// Unwrap 透出首个错误，isTemporary / xerr.Parse 的判定与报错文案不变。
+type maybeCreatedErr struct{ error }
+
+func (e *maybeCreatedErr) Unwrap() error { return e.error }
+
+// submitMaybeCreated 提交失败时网关上是否可能留有没拿到调用号的调用（需按幂等键取回并取消）。
+func submitMaybeCreated(err error) bool {
+	var m *maybeCreatedErr
+	return isTemporary(err) || errors.As(err, &m)
 }
 
 // ---------------- Java 兼容工具 ----------------
@@ -949,9 +996,12 @@ func (c *core) dispatch(ctx context.Context, run *model.NodeRun, sp *runSpec, be
 			c.stopJava(ctx, run, stopSubmit, msg, bearer, 0)
 			return xerr.New(code, msg)
 		}
-		if c.failRun(ctx, run, model.RunQueued, ecode, msg, true) {
-			c.cancelCalls(ctx, run.ID, acquired, "提交失败")
-			if run.Backend == model.BackendGateway && (run.Attempt > 0 || isTemporary(err)) {
+		failed := c.failRun(ctx, run, model.RunQueued, ecode, msg, true)
+		// 已拿到的调用一律取消：抢到失败（已退款）时是孤儿；没抢到说明 run 已被取消 / 强制失败 / 超时（钱已由那条路径处理），
+		// 这批调用同样没人要了（并发提交时可能有排在出错那张之后已建好的）
+		c.cancelCalls(ctx, run.ID, acquired, "提交失败")
+		if failed {
+			if run.Backend == model.BackendGateway && (run.Attempt > 0 || submitMaybeCreated(err)) {
 				// 此前（或这次超时的）提交可能已在 gateway 建了调用但 backend_ref 没写上：按幂等键取回并取消
 				r := *run
 				r.Attempt = max(r.Attempt, 1)

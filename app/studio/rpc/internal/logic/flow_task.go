@@ -34,24 +34,74 @@ func deliveryOverdue(t *model.Task, now time.Time, grace time.Duration) bool {
 	return t.Status == model.TaskDelivering && now.Sub(t.UpdatedAt) > grace
 }
 
-// pollTask 一个 生成中 子任务走一步：补提交 → 长轮询 → 终态处理；交付中 的续做交付。续期在 maintain 里统一做。
-func (f *flow) pollTask(ctx context.Context, id int64) {
-	log := logx.WithContext(ctx)
-	t, err := f.repo.Task.GetByID(ctx, id)
-	if err != nil || t == nil || t.AdminLocked != 0 || (t.Status != model.TaskRunning && t.Status != model.TaskDelivering) {
-		return
+// minPollGap 长轮询循环相邻两次的最小间隔：网关没按 wait 挂起（立即返回非终态）时不至于空转打满网关。变量便于单测调小。
+var minPollGap = time.Second
+
+// pollTask 一个 生成中 子任务循环推进到终态：每一步补提交 → GET ?wait= 长轮询 → 终态处理（见 pollStep）；
+// 调用未终态就接着长轮询（不等下一轮扫描），出错 / 交付暂时做不了就交回扫描。ctx 是子任务租约的 ctx：
+// 进程停止或租约丢失时取消，循环随即退出（已做的都是 CAS，接管方按调用号续跑）。
+// 返回子任务所在批次与它是否已到终态（调用方据此立刻给同批派发下一个排队子任务）。
+func (f *flow) pollTask(ctx context.Context, id int64) (batchID int64, finished bool) {
+	for {
+		start := time.Now()
+		again, bid, final := f.pollStep(ctx, id)
+		if bid > 0 {
+			batchID = bid
+		}
+		if final { // 读到时已是终态（扫描列表过时 / 别处刚收尾）
+			return batchID, true
+		}
+		if ctx.Err() != nil {
+			return batchID, false
+		}
+		if !again {
+			t, err := f.repo.Task.GetByID(ctx, id)
+			if err != nil || t == nil {
+				return batchID, false
+			}
+			return t.BatchID, model.TaskFinal(t.Status)
+		}
+		if gap := minPollGap - time.Since(start); gap > 0 {
+			select {
+			case <-ctx.Done():
+				return batchID, false
+			case <-time.After(gap):
+			}
+		}
 	}
+}
+
+// pollStep 一个 生成中 子任务走一步：补提交 → 长轮询 → 终态处理；交付中 的续做交付。续期在 maintain 里统一做。
+// again=true 表示调用仍在跑（或刚按 retry_failed 重开），应接着长轮询；false 表示这一步已到头（终态 / 出错交回扫描）。
+// final=true 表示读到子任务时它已是终态（什么都没做）；batchID 是读到的子任务所在批次（没读到为 0）。
+func (f *flow) pollStep(ctx context.Context, id int64) (again bool, batchID int64, final bool) {
+	t, err := f.repo.Task.GetByID(ctx, id)
+	if err != nil || t == nil {
+		return false, 0, false
+	}
+	if model.TaskFinal(t.Status) {
+		return false, t.BatchID, true
+	}
+	if t.AdminLocked != 0 || (t.Status != model.TaskRunning && t.Status != model.TaskDelivering) {
+		return false, t.BatchID, false
+	}
+	return f.pollStepTask(ctx, t), t.BatchID, false
+}
+
+// pollStepTask pollStep 对一个 生成中 / 交付中 子任务的推进（返回值同 pollStep 的 again）。
+func (f *flow) pollStepTask(ctx context.Context, t *model.Task) bool {
+	log := logx.WithContext(ctx)
 	b, err := f.repo.Batch.GetByID(ctx, t.BatchID, 0)
 	if err != nil || b == nil {
-		return
+		return false
 	}
 	started := t.UpdatedAt
 	if t.StartedAt.Valid {
 		started = t.StartedAt.Time
 	}
-	if t.Status == model.TaskDelivering { // 结算前进程退出 / 结算暂时失败：续做交付
+	if t.Status == model.TaskDelivering { // 结算前进程退出 / 结算暂时失败：续做交付（做不了交回扫描，不在这里空转）
 		f.resumeDeliver(ctx, t, b, started)
-		return
+		return false
 	}
 	timedOut := f.now().Sub(started) > f.generateTimeout()
 
@@ -63,19 +113,19 @@ func (f *flow) pollTask(ctx context.Context, id int64) {
 			if err != nil {
 				log.Errorf("studio: 子任务 %d 超时且取不回调用号: %v", t.ID, err)
 				f.failTask(ctx, t, b, reasonTimeout, true, "")
-				return
+				return false
 			}
 			f.cancelOnTimeout(ctx, t, b, call, started)
-			return
+			return false
 		}
 		if err != nil {
 			if pipeline.RetryableSubmitErr(err) {
 				log.Infof("studio: 子任务 %d 提交 gateway 暂时失败，下一轮重提: %v", t.ID, err)
-				return
+				return false
 			}
 			log.Errorf("studio: 子任务 %d 提交 gateway 失败: %v", t.ID, err)
 			f.failTask(ctx, t, b, reasonSubmitFailed, true, "")
-			return
+			return false
 		}
 		t.GatewayCallID.String, t.GatewayCallID.Valid = call.ID, true
 		t.GatewayStatus.String = call.Status
@@ -86,12 +136,12 @@ func (f *flow) pollTask(ctx context.Context, id int64) {
 	if err != nil {
 		if errors.Is(err, aigateway.ErrNotFound) {
 			f.failTask(ctx, t, b, reasonLost, true, "")
-			return
+			return false
 		}
 		if !errors.Is(err, context.Canceled) {
 			log.Errorf("studio: 子任务 %d 查询 gateway 失败: %v", t.ID, err)
 		}
-		return
+		return false
 	}
 	if call.Status != t.GatewayStatus.String {
 		_ = f.repo.Task.SetGateway(ctx, t.ID, "", call.Status)
@@ -99,10 +149,14 @@ func (f *flow) pollTask(ctx context.Context, id int64) {
 	if !call.IsTerminal() {
 		if timedOut {
 			f.cancelOnTimeout(ctx, t, b, call, started)
+			return false
 		}
-		return
+		return true
 	}
+	act, _ := decideTerminal(call)
 	f.onTerminal(ctx, t, b, call, started)
+	// retry_failed 重开了调用：接着长轮询新的一轮（下一步重读子任务，重开没成 / 已置失败时自然停下）
+	return act == actRetry
 }
 
 // cancelOnTimeout 超时：取消 gateway 调用（尽力而为）。取消时已出图（返回 SUCCEEDED）照常交付，其它终态按终态处理，

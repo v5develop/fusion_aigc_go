@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"aigc-local-life/app/canvas/model"
@@ -275,33 +276,53 @@ func (c *core) succeed(ctx context.Context, run *model.NodeRun, o outcome, ready
 		} else {
 			outs = o.outputs
 		}
+		// 各产物（含视频）并发转存（Poll.FanoutConcurrency）：幂等键仍是 canvas-copy:{task_id}:{i}（视频 i=99），
+		// 下轮重试 / 别的实例接管时同键得到同一个 rid，不会重复落桶。判定按下标顺序取第一个错误，与原先逐个转存、遇错即停一致：
+		// 暂时性 → 整个 run 下轮重试（已转存的按同键复用）；永久 → 失败退款。
+		type job struct {
+			idx   int
+			m     mediaOutput
+			video bool
+		}
+		jobs := make([]job, 0, len(outs)+1)
 		for i, m := range outs {
-			if m.Stable {
-				cands = append(cands, model.Candidate{RID: m.RID, URL: m.URL, W: m.W, H: m.H})
-				continue
-			}
-			cand, err := c.persistOutput(ctx, run, i, m)
-			if err != nil {
-				if isTemporary(err) {
-					log.Errorf("canvas: run %d 产物转存暂时失败，下轮重试: %v", run.ID, err)
-					return
-				}
-				c.failRun(ctx, run, model.RunRunning, "UPSTREAM_FAILED", "产物转存失败", true)
-				return
-			}
-			cands = append(cands, cand)
+			jobs = append(jobs, job{idx: i, m: m})
 		}
 		if o.video != nil {
-			v, err := c.persistOutput(ctx, run, 99, *o.video)
-			if err != nil {
-				if isTemporary(err) {
-					log.Errorf("canvas: run %d 视频转存暂时失败，下轮重试: %v", run.ID, err)
-					return
-				}
-				c.failRun(ctx, run, model.RunRunning, "UPSTREAM_FAILED", "视频转存失败", true)
+			jobs = append(jobs, job{idx: 99, m: *o.video, video: true})
+		}
+		res := make([]model.Candidate, len(jobs))
+		errs := fanout(len(jobs), c.fanoutLimit(), func(j int) error {
+			jb := jobs[j]
+			if jb.m.Stable {
+				res[j] = model.Candidate{RID: jb.m.RID, URL: jb.m.URL, W: jb.m.W, H: jb.m.H}
+				return nil
+			}
+			cand, err := c.persistOutput(ctx, run, jb.idx, jb.m)
+			res[j] = cand
+			return err
+		})
+		for j, err := range errs {
+			if err == nil {
+				continue
+			}
+			what := "产物"
+			if jobs[j].video {
+				what = "视频"
+			}
+			if isTemporary(err) {
+				log.Errorf("canvas: run %d %s转存暂时失败，下轮重试: %v", run.ID, what, err)
 				return
 			}
-			videoURL = v.URL
+			c.failRun(ctx, run, model.RunRunning, "UPSTREAM_FAILED", what+"转存失败", true)
+			return
+		}
+		for j, jb := range jobs {
+			if jb.video {
+				videoURL = res[j].URL
+			} else {
+				cands = append(cands, res[j])
+			}
 		}
 	}
 	actual := o.actual
@@ -414,29 +435,39 @@ func (c *core) insertAssets(ctx context.Context, run *model.NodeRun, cands []mod
 
 // Poller 后台推进器：每轮
 //  1. 排队的 run：超时置失败退款；否则提交后端（RunNode 内联提交遇暂时性错误时留下的）。
-//  2. 运行中的 run 按后端轮询：gateway BatchGet / Java GET /api/v1/tasks/{taskUid}（用缓存的用户 Bearer）/ studio GetBatch；
+//  2. 运行中的 run 按后端轮询：gateway BatchGet（兜底：主路径是每个 run 一个长轮询协程，见 watch.go；仍在跑的交给它）/
+//     Java GET /api/v1/tasks/{taskUid}（用缓存的用户 Bearer）/ studio GetBatch（Java / studio 查询按 Poll.LookupConcurrency 并发）；
 //     成功 → 转存 → 结算 → CAS 成功 → 入素材库；失败 / 取消 → 退款（gateway）；UNKNOWN 不退款标待对账；
 //     超时 → gateway 主动 Cancel 后置失败退款；studio 取消批次后置失败；Java 调取消接口（由 Java 退款，无有效登录态时退化为停止跟踪）后置失败。
-//  3. TaskCenter.Sync（image / video 两类进任务中心）。
+//  3. TaskCenter.Sync（image / video 两类进任务中心；RunNode / CancelRun 另有异步同步，见 svc.AsyncSync）。
 //  4. 每分钟给排队 / 运行中、已冻结（held）的 gateway run 续期预留单（billing.Renew），排队久的不会过期被回收。
 //
 // 多实例：每个 run 一把行租约（pkg/lease，lease_owner / lease_until，TTL 3 分钟，后台每分钟批量续租）。
 // 扫描只列没有租约或租约已过期的 run，逐个 Acquire，抢不到就跳过；RunNode 内联提交前也先抢，抢不到交给持有者。
 // 进程崩溃不释放，租约到期后其它实例接管：有 backend_ref 的先查上游，没有的按幂等键重提，不会重复提交 / 扣费。
 type Poller struct {
-	c      *core
-	cancel context.CancelFunc
-	done   chan struct{}
+	c       *core
+	ctx     context.Context
+	cancel  context.CancelFunc
+	done    chan struct{}
+	started atomic.Bool
+	w       *watcher
 }
 
+// NewPoller 建推进器并把长轮询入口挂到 svc.WatchRun（RunNode 内联提交成功后经它交给长轮询协程）。
 func NewPoller(s *svc.ServiceContext) *Poller {
-	return &Poller{c: newCore(s), done: make(chan struct{})}
+	ctx, cancel := context.WithCancel(context.Background())
+	p := &Poller{c: newCore(s), ctx: ctx, cancel: cancel, done: make(chan struct{})}
+	p.w = newWatcher(ctx, p.c)
+	s.WatchRun = func(id int64) { p.w.Watch(id) }
+	return p
 }
 
 func (p *Poller) Start() {
-	ctx, cancel := context.WithCancel(context.Background())
-	p.cancel = cancel
+	p.started.Store(true)
+	ctx := p.ctx
 	defer close(p.done)
+	defer p.w.close() // 先于 close(done)：Stop 返回时长轮询协程都已放掉租约退出
 	interval := time.Duration(p.c.s.Config.Poll.IntervalSeconds) * time.Second
 	if interval <= 0 {
 		interval = 3 * time.Second
@@ -455,9 +486,11 @@ func (p *Poller) Start() {
 }
 
 func (p *Poller) Stop() {
-	if p.cancel != nil {
-		p.cancel()
+	p.cancel()
+	if p.started.Load() {
 		<-p.done
+	} else {
+		p.w.close()
 	}
 }
 
@@ -468,7 +501,9 @@ func (p *Poller) Tick(ctx context.Context) {
 	c.maintain(ctx)
 	c.advanceSubmitting(ctx)
 	c.advanceQueued(ctx)
-	c.pollRunning(ctx)
+	for _, run := range c.pollRunning(ctx) {
+		c.handOff(run) // 扫描看到仍在跑的 gateway run（重启 / 名额满 / 协程退出后没人管的）：再交给长轮询协程
+	}
 	if err := c.s.TaskCenter.Sync(ctx); err != nil {
 		logx.WithContext(ctx).Errorf("canvas: 任务中心同步失败: %v", err)
 	}
@@ -514,6 +549,7 @@ func (c *core) advanceQueued(ctx context.Context) {
 		mine = append(mine, run)
 		c.advanceQueuedRun(ctx, run, gone)
 		ls.Release(ctx, run.ID)
+		c.handOff(run) // 重提成功转运行中：放掉租约后交给长轮询协程
 	}
 	c.touch(ctx, mine, model.RunQueued)
 }
@@ -567,18 +603,19 @@ func errMsg(err error) string {
 	return "参数不合法"
 }
 
-func (c *core) pollRunning(ctx context.Context) {
+// pollRunning 扫描运行中的 run，返回处理后仍在运行中的 gateway run（租约已放掉，调用方交给长轮询协程）。
+func (c *core) pollRunning(ctx context.Context) (stillRunning []*model.NodeRun) {
 	list, err := c.s.Repo.Run.ListByStatus(ctx, model.RunRunning, c.s.Config.Poll.BatchSize)
 	if err != nil {
 		logx.WithContext(ctx).Errorf("canvas: 查运行中 run 失败: %v", err)
-		return
+		return nil
 	}
 	if len(list) == 0 {
-		return
+		return nil
 	}
 	ls := c.leases()
-	defer ls.Close() // gateway 的 run 一起 batchGet，处理完由 Close 统一释放
-	var gw, mine []*model.NodeRun
+	defer ls.Close() // gateway 的 run 一起 batchGet，处理完由 Close 统一释放（下面正常路径先显式 Close，这里兜 panic）
+	var gw, mine, lookups []*model.NodeRun
 	// Java 工具所在画布已删：取消 Java 任务（不再交付到已删画布）
 	var javaRuns []*model.NodeRun
 	for _, run := range list {
@@ -599,10 +636,9 @@ func (c *core) pollRunning(ctx context.Context) {
 		case model.BackendGateway:
 			gw = append(gw, run)
 			continue
-		case model.BackendJava:
-			c.pollJavaRun(ctx, run, javaGone[run.CanvasID])
-		case model.BackendStudio:
-			c.pollStudio(ctx, run)
+		case model.BackendJava, model.BackendStudio:
+			lookups = append(lookups, run) // 下面并发查（每个都要一次 Java / studio 往返，逐个串行会把一轮拖到秒级）
+			continue
 		case model.BackendMedia:
 			// 裁剪在 RunNode 内同步完成；停在运行中说明收尾时进程退出，超时置失败
 			if c.expired(run) {
@@ -611,8 +647,25 @@ func (c *core) pollRunning(ctx context.Context) {
 		}
 		ls.Release(ctx, run.ID)
 	}
+	fanout(len(lookups), c.lookupLimit(), func(i int) error {
+		run := lookups[i]
+		if run.Backend == model.BackendJava {
+			c.pollJavaRun(ctx, run, javaGone[run.CanvasID])
+		} else {
+			c.pollStudio(ctx, run)
+		}
+		ls.Release(ctx, run.ID)
+		return nil
+	})
 	c.pollGateway(ctx, gw)
 	c.touch(ctx, mine, model.RunRunning)
+	ls.Close() // 先放掉租约，长轮询协程才抢得到
+	for _, run := range gw {
+		if run.Status == model.RunRunning {
+			stillRunning = append(stillRunning, run)
+		}
+	}
+	return stillRunning
 }
 
 func callIDs(run *model.NodeRun) []string {

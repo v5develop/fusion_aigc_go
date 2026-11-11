@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"time"
 )
 
 // copyReq 显式复制请求（契约 CopyReq）：源 rid 与目标用途；幂等键走 Idempotency-Key 头。
@@ -45,17 +46,23 @@ func (s *Server) copyResource(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.withJob(w, r, func(ctx context.Context, dir string) (any, error) {
+		headStart := time.Now()
 		srcStore, srcVer, err := s.resolveSourceStore(ctx, srcClass, srcPath)
 		if err != nil {
+			logStage(ctx, "copy_src_head", headStart)
 			return nil, err
 		}
 		// 待删除的对象不能再复制（与读取一样返回 410）
-		if err := s.checkReadable(ctx, srcStore, srcPath); err != nil {
+		err = s.checkReadable(ctx, srcStore, srcPath)
+		logStage(ctx, "copy_src_head", headStart) // 定位源桶 + 待删除检查
+		if err != nil {
 			return nil, err
 		}
 		// 源字节在本机对象缓存里（同机刚写入或刚读过）且版本与存储一致时直接用本地文件，不再下载。
 		// 版本用上面探测存在性时同一次 HEAD 拿到的，不再 HEAD 第二次
+		readStart := time.Now()
 		local, facts, err := s.readObjectAt(ctx, req.Rid, srcStore, srcPath, dir, srcVer)
+		logStage(ctx, "copy_read", readStart) // 取源字节（本机缓存命中则近 0，否则从存储下载）
 		if err != nil {
 			return nil, err
 		}

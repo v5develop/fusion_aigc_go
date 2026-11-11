@@ -36,8 +36,8 @@ AiGateway:
   BaseURL: ""
   KeyID: fusion-go-v1
   Secret: ""
-  LongPollWait: 20
-  TimeoutSeconds: 30
+  LongPollWait: 20       # 运行中 gateway run 的长轮询每次挂起秒数（1–60）：完成检测主路径，出图后约 0–1 秒内收尾
+  TimeoutSeconds: 30     # 单次 HTTP 超时（不含长轮询等待）
 # 共享媒体服务：参考图拉入成 mr://、裁剪、产物转存素材库桶。NacosServerAddr 配了就订阅实例，BaseURL 只作回退
 Media:
   NacosServerAddr: 127.0.0.1:8848
@@ -62,9 +62,12 @@ MaxCostCNY:
   Video: "60.00"
   I2P: "1.00"
 Poll:
-  IntervalSeconds: 3
+  IntervalSeconds: 3     # 兜底扫描间隔（排队重提 / Java / studio / 长轮询没接住的 gateway run）；gateway 完成检测走长轮询，不靠它
   BatchSize: 100
   MaxSubmitAttempts: 5
+  Watchers: 64           # 同时长轮询 gateway 的 run 数（全进程）；满了新 run 由兜底扫描 batchGet，慢一个扫描间隔
+  LookupConcurrency: 8   # 兜底扫描里 Java 任务 / studio 批次查询的并发度
+  FanoutConcurrency: 4   # 单个 run 内：参考图拉入、N 张网关提交、N 张产物转存素材库的并发度
 Timeouts:
   Image: 300
   Video: 900

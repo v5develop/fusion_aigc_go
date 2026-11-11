@@ -27,14 +27,16 @@ import (
 //
 // 每轮（Poll.IntervalSeconds，默认 5s）：
 //
-//  1. advanceBatches：排队 / 切图中 / 反推中 的批次 → 后台编排（flow_batch.go），同时最多 Poll.BatchConcurrency 个；
+//  1. advanceBatches：排队 / 切图中 / 反推中 的批次 → 后台编排（flow_batch.go），名额按 kind 分池（Poll.KindBatchConcurrency，
+//     商拍 / 姿态 / 图片生成互不挤占）；
 //     商拍 下载规整 → crop-plan → 裁图 → crop-check → 组图 → analyze-batch；姿态 下载规整 → pose source → 每姿势 pose prompt；
 //     图片生成 参考图入库 → （可选）chat.completion 润色。结束时每个子任务写好 prompt_text / input_images，批次进 生成中。
 //  2. submitGenerating：生成中 的批次里排队的子任务按每批 Poll.Concurrency（默认 3）个名额 CAS 排队→生成中。
-//  3. pollRunning：生成中 的子任务（同时最多 Poll.Workers 个）：没有 gateway_call_id 的提交（幂等键保证不重复扣费）；
-//     有的 GET ?wait= 长轮询，未超时就 Billing.Renew；终态按 flow_task.go 处理（转存 → 结算 → CAS 成功 → 入素材库；失败退款）。
+//  3. pollRunning：生成中 的子任务（同时最多 max(Poll.Workers, Poll.MaxRunning) 个）：没有 gateway_call_id 的提交（幂等键保证不重复扣费）；
+//     有的 GET ?wait= 长轮询，一直循环到终态（不是每轮只问一次），终态按 flow_task.go 处理（转存 → 结算 → CAS 成功 → 入素材库；失败退款）。
 //     交付中 的子任务（转存后、结算前进程退出）续做交付。
-//  4. 每个子任务到终态后 converge 收敛批次（全部成功 / 全部失败 / 部分成功 / 已取消），并兜底扫一遍 生成中 的批次。
+//  4. 每个子任务到终态后 converge 收敛批次（全部成功 / 全部失败 / 部分成功 / 已取消），并立刻派发同批的下一个排队子任务
+//     （不等下一轮扫描）；submitGenerating 兜底扫一遍 生成中 的批次。
 //  5. maintain（每 maintainEvery 一次，flow_guard.go）：未终态批次下已冻结的子任务批量续期；提交中超过 5 分钟的批次退款置失败；
 //     已终态却还有排队子任务的批次拉回；终态任务仍是「已冻结」的计费镜像按预留单真实状态回写。
 //  6. TaskCenter.Sync。
@@ -128,7 +130,9 @@ type flow struct {
 	sem      *semaphore.Group
 	owner    string   // 行租约持有者（pkg/lease.Owner，进程内共用）
 	inflight sync.Map // 本地去重："b:<id>" 编排中、"t:<id>" 轮询中、"s:<id>" 派发中（跨实例互斥靠行租约）
-	wg       sync.WaitGroup
+	// redispatch 批次 id → 有人请求过派发（派发中时后到的请求只记这个标记，由持有者派完再补一轮，不丢）
+	redispatch sync.Map
+	wg         sync.WaitGroup
 
 	maintAt time.Time // 上次 maintain 的时间（零值 = 下一轮立刻做）
 
@@ -146,11 +150,25 @@ type flow struct {
 	dropAssets func(ctx context.Context, userID int64, sourceTaskID string) error
 }
 
-// semaphore.Group 的 key：批次编排、子任务轮询各一个全局名额池。
+// semaphore.Group 的 key：批次编排按 kind 各一个名额池（商拍切图 + 反推要几分钟，不能饿住几秒就编排完的图片生成），
+// 子任务轮询一个全局名额池。
 const (
-	semBatch int64 = -1
-	semPoll  int64 = -2
+	semBatchTryon    int64 = -1
+	semPoll          int64 = -2
+	semBatchPose     int64 = -3
+	semBatchImageGen int64 = -4
 )
+
+// semBatchKey 批次编排名额池的 key（未知 kind 归商拍池）。
+func semBatchKey(k model.Kind) int64 {
+	switch k {
+	case model.KindPose:
+		return semBatchPose
+	case model.KindImageGen:
+		return semBatchImageGen
+	}
+	return semBatchTryon
+}
 
 // 行租约时长。持有期间每 1/3 TTL 心跳续租一次；进程崩溃后最多这么久由其它实例接管。
 const (
@@ -329,9 +347,9 @@ func (f *flow) advanceBatches(ctx context.Context) {
 			continue
 		}
 		for _, b := range list {
-			id := b.ID
+			id, kind := b.ID, b.Kind
 			f.goClaimed(fmt.Sprintf("b:%d", id), func() {
-				release, err := f.sem.Acquire(ctx, semBatch, positive(f.cfg.Poll.BatchConcurrency, 2))
+				release, err := f.sem.Acquire(ctx, semBatchKey(kind), f.cfg.BatchSlots(string(kind)))
 				if err != nil {
 					return
 				}
@@ -361,25 +379,56 @@ func (f *flow) submitGenerating(ctx context.Context) {
 		return
 	}
 	for _, b := range list {
-		key := fmt.Sprintf("s:%d", b.ID)
+		f.dispatchBatch(ctx, b.ID)
+	}
+}
+
+// dispatchBatch 派发一个 生成中 批次的排队子任务（本地去重 → 抢批次租约 → submitBatch → 起轮询协程）。
+// 抢不到（本实例别处正在派发 / 别的实例在编排或派发）就跳过，由持有者或下一轮扫描处理。ctx 须是 Poller 的 ctx：
+// 新起的轮询协程沿用它，不能随调用方（某个子任务的租约）结束而取消。
+//
+// 同批几个子任务几乎同时到终态时，后到的那次派发会撞上本地去重：只记一个标记，由正在派发的持有者派完再补一轮
+// （它那一轮读子任务时，后到者可能还没写终态，空出来的名额不补就要白等一个扫描间隔）。
+func (f *flow) dispatchBatch(ctx context.Context, batchID int64) {
+	if batchID <= 0 || ctx.Err() != nil {
+		return
+	}
+	key := fmt.Sprintf("s:%d", batchID)
+	f.redispatch.Store(batchID, struct{}{})
+	for {
 		if !f.claim(key) {
-			continue
+			return // 持有者会看到标记补一轮
 		}
-		ok, err := f.repo.Batch.AcquireLease(ctx, b.ID, f.owner, leasePoll)
-		if err != nil {
-			logx.WithContext(ctx).Errorf("studio: 批次 %d 抢租约失败: %v", b.ID, err)
-		}
-		if ok { // 抢不到：别的实例在编排 / 派发这个批次
-			started := f.submitBatch(ctx, b.ID)
-			rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-			if err := f.repo.Batch.ReleaseLease(rctx, b.ID, f.owner); err != nil {
-				logx.WithContext(ctx).Errorf("studio: 批次 %d 释放租约失败（到期自动失效）: %v", b.ID, err)
+		for ctx.Err() == nil {
+			if _, pending := f.redispatch.LoadAndDelete(batchID); !pending {
+				break
 			}
-			cancel()
-			f.spawnPolls(ctx, started)
+			f.dispatchBatchOnce(ctx, batchID)
 		}
 		f.release(key)
+		// 放掉之前、最后一次检查之后又有人记了标记：它撞上去重已经返回，这里接着补
+		if _, pending := f.redispatch.Load(batchID); !pending || ctx.Err() != nil {
+			return
+		}
 	}
+}
+
+// dispatchBatchOnce 一轮派发（调用方已占本地去重 key）：抢批次租约 → submitBatch → 放租约 → 起轮询协程。
+func (f *flow) dispatchBatchOnce(ctx context.Context, batchID int64) {
+	ok, err := f.repo.Batch.AcquireLease(ctx, batchID, f.owner, leasePoll)
+	if err != nil {
+		logx.WithContext(ctx).Errorf("studio: 批次 %d 抢租约失败: %v", batchID, err)
+	}
+	if !ok { // 抢不到：别的实例在编排 / 派发这个批次
+		return
+	}
+	started := f.submitBatch(ctx, batchID)
+	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	if err := f.repo.Batch.ReleaseLease(rctx, batchID, f.owner); err != nil {
+		logx.WithContext(ctx).Errorf("studio: 批次 %d 释放租约失败（到期自动失效）: %v", batchID, err)
+	}
+	cancel()
+	f.spawnPolls(ctx, started)
 }
 
 // spawnPolls 刚派发的子任务各起轮询协程（用 Poller 的 ctx，不随批次租约结束而取消）。
@@ -471,23 +520,29 @@ func (f *flow) pollRunning(ctx context.Context) {
 }
 
 // spawnPoll 起一个子任务的轮询协程：本地去重 → 本地名额 → 抢子任务租约（抢不到 = 别的实例在轮询，跳过）。
+// 子任务轮询到头（终态 / 暂时出错交回扫描）后放掉租约，立刻给同批派发下一个排队的子任务（名额刚空出来，不等下一轮扫描）。
 func (f *flow) spawnPoll(ctx context.Context, taskID int64) {
 	f.goClaimed(fmt.Sprintf("t:%d", taskID), func() {
-		release, err := f.sem.Acquire(ctx, semPoll, positive(f.cfg.Poll.Workers, 16))
+		release, err := f.sem.Acquire(ctx, semPoll, f.cfg.PollWorkers())
 		if err != nil {
 			return
 		}
-		defer release()
 		lctx, stop, ok, err := f.repo.Task.KeepLease(ctx, taskID, f.owner, leasePoll)
 		if err != nil {
+			release()
 			logx.WithContext(ctx).Errorf("studio: 子任务 %d 抢租约失败: %v", taskID, err)
 			return
 		}
 		if !ok {
+			release()
 			return
 		}
-		defer stop()
-		f.pollTask(lctx, taskID)
+		batchID, finished := f.pollTask(lctx, taskID)
+		stop()
+		release()
+		if finished {
+			f.dispatchBatch(ctx, batchID)
+		}
 	})
 }
 
