@@ -1967,11 +1967,14 @@ func (x *UpdateTaskColorFixReq) GetParams() *ColorFixParams {
 }
 
 type SegmentMaskReq struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
-	ImageUrl      string                 `protobuf:"bytes,2,opt,name=image_url,json=imageUrl,proto3" json:"image_url,omitempty"` // 必填：本存储签发 / 素材库域名的 http(s) 地址
-	Target        string                 `protobuf:"bytes,3,opt,name=target,proto3" json:"target,omitempty"`                     // garment 服装 / product 商品主体 / person 人物 / background 背景（主体之外）
-	Parts         []string               `protobuf:"bytes,4,rep,name=parts,proto3" json:"parts,omitempty"`                       // 仅 garment：细分部位 tops 上衣 / coat 外套 / pants 下装 / skirt 裙装 / shoes 鞋 / bag 包 / hat 帽；空=全部服装
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	UserId   int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	ImageUrl string                 `protobuf:"bytes,2,opt,name=image_url,json=imageUrl,proto3" json:"image_url,omitempty"` // 必填：本存储签发 / 素材库域名的 http(s) 地址
+	Target   string                 `protobuf:"bytes,3,opt,name=target,proto3" json:"target,omitempty"`                     // garment 服装 / product 商品主体 / person 人物 / background 背景（主体之外）
+	Parts    []string               `protobuf:"bytes,4,rep,name=parts,proto3" json:"parts,omitempty"`                       // 仅 garment：细分部位 tops 上衣 / coat 外套 / pants 下装 / skirt 裙装 / shoes 鞋 / bag 包 / hat 帽；空=全部服装
+	// 只增（2026-11-11）：精确指明图片来源，私有签名地址不再靠反查（见 logic/mask_source.go）。三者至多一个；都不给按 image_url 判断。
+	TaskId        string `protobuf:"bytes,5,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`          // studio 子任务号：按该用户未删除子任务的成品（含 mr:// / mrw:// 私有成品）识别；带 image_url 时须与该成品一致
+	SourceRid     string `protobuf:"bytes,6,opt,name=source_rid,json=sourceRid,proto3" json:"source_rid,omitempty"` // 仅内部：调用方（网关经 canvas-rpc CandidateSource）已确认归属的私有成品 rid（画布候选）；用户请求不得直传
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2032,6 +2035,20 @@ func (x *SegmentMaskReq) GetParts() []string {
 		return x.Parts
 	}
 	return nil
+}
+
+func (x *SegmentMaskReq) GetTaskId() string {
+	if x != nil {
+		return x.TaskId
+	}
+	return ""
+}
+
+func (x *SegmentMaskReq) GetSourceRid() string {
+	if x != nil {
+		return x.SourceRid
+	}
+	return ""
 }
 
 // 一个部位的蒙版。
@@ -4242,12 +4259,15 @@ const file_studio_proto_rawDesc = "" +
 	"\x15UpdateTaskColorFixReq\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\tR\x06taskId\x12\x17\n" +
 	"\auser_id\x18\x02 \x01(\x03R\x06userId\x12.\n" +
-	"\x06params\x18\x03 \x01(\v2\x16.studio.ColorFixParamsR\x06params\"t\n" +
+	"\x06params\x18\x03 \x01(\v2\x16.studio.ColorFixParamsR\x06params\"\xac\x01\n" +
 	"\x0eSegmentMaskReq\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x1b\n" +
 	"\timage_url\x18\x02 \x01(\tR\bimageUrl\x12\x16\n" +
 	"\x06target\x18\x03 \x01(\tR\x06target\x12\x14\n" +
-	"\x05parts\x18\x04 \x03(\tR\x05parts\"9\n" +
+	"\x05parts\x18\x04 \x03(\tR\x05parts\x12\x17\n" +
+	"\atask_id\x18\x05 \x01(\tR\x06taskId\x12\x1d\n" +
+	"\n" +
+	"source_rid\x18\x06 \x01(\tR\tsourceRid\"9\n" +
 	"\bMaskPart\x12\x12\n" +
 	"\x04part\x18\x01 \x01(\tR\x04part\x12\x19\n" +
 	"\bmask_url\x18\x02 \x01(\tR\amaskUrl\"\xad\x01\n" +

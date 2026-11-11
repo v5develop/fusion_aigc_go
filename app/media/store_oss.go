@@ -129,10 +129,11 @@ func host(b OSSBucket) string {
 // Put 把本地文件写到 store 的 path 下。覆盖写，同路径同内容结果一致。
 func (o *OSSStore) Put(ctx context.Context, store, path, localPath, mime string) (StoredObject, error) {
 	// 调用方已算过摘要（storeWithMeta / 字节上传）时复用，不再整读一遍文件
-	sum, size, err := hashFileKnown(ctx, localPath)
+	d, err := digestFileKnown(ctx, localPath)
 	if err != nil {
 		return StoredObject{}, fmt.Errorf("media: 读取源文件: %w", err)
 	}
+	sum, size := d.sum, d.size
 	if classOfPath(path) == "" || !validStore(store) {
 		return StoredObject{}, errInvalidObjectKey
 	}
@@ -142,9 +143,18 @@ func (o *OSSStore) Put(ctx context.Context, store, path, localPath, mime string)
 	}
 	defer f.Close()
 	// 落桶时已知的事实（sha256 + probe 元数据）写进对象元数据：之后服务端复制不读字节也能给出结果（copy_server.go）
-	etag, err := o.putStreamWith(ctx, store, path, mime, factsHeaders(ctx, localPath, sum, size), f, size)
+	etag, crc, err := o.putStreamWith(ctx, store, path, mime, factsHeaders(ctx, localPath, sum, size), f, size)
 	if err != nil {
 		return StoredObject{}, err
+	}
+	// OSS 对收到的字节给出 CRC64，与本地算的（事实里签进去的那个）核对。不一致绝不让写入失败（CRC64 绑定只是
+	// 服务端复制的加速条件，不能挡用户写入）：限流打 ERROR（check=media.crc64_mismatch），对象保留，照常返回。
+	// 对象上的事实带的是本地 CRC64，与 OSS 对当前字节给出的 CRC64 不等，trustFacts 必然判 source_crc64_mismatch，
+	// 等同于「事实不带 CRC64」：之后对它的复制一律回退原路径（读真实字节、重算 sha256、probe），不会按这份事实
+	// 做服务端复制。只有日后该路径被写成 CRC64 恰好等于事实里那个值的字节（即本地这份字节）时事实才会再被当真，
+	// 那时事实描述的正是当前字节。任一侧没有 CRC64 时不核对。
+	if d.crc64 != "" && crc != "" && d.crc64 != crc {
+		logCRC64Mismatch(store, path, d.crc64, crc)
 	}
 	return StoredObject{Store: store, Key: path, Sha256: sum, Size: size, Mime: mime, Version: normalizeETag(etag)}, nil
 }
@@ -308,31 +318,49 @@ func (o *OSSStore) remove(ctx context.Context, store, path string) (bool, error)
 }
 
 func (o *OSSStore) putBytes(ctx context.Context, store, key, contentType string, data []byte) error {
-	_, err := o.putStream(ctx, store, key, contentType, bytes.NewReader(data), int64(len(data)))
+	_, _, err := o.putStreamWith(ctx, store, key, contentType, nil, bytes.NewReader(data), int64(len(data)))
 	return err
 }
 
 // putStream 写入对象，返回响应里的 ETag（对象缓存用作版本；没有则为空）。
 func (o *OSSStore) putStream(ctx context.Context, store, key, contentType string, body io.Reader, size int64) (string, error) {
-	return o.putStreamWith(ctx, store, key, contentType, nil, body, size)
+	etag, _, err := o.putStreamWith(ctx, store, key, contentType, nil, body, size)
+	return etag, err
 }
 
-// putStreamWith 同 putStream，另外带 x-oss-* 头（小写键，进入签名）。headers 为空时与 putStream 的请求完全相同。
-func (o *OSSStore) putStreamWith(ctx context.Context, store, key, contentType string, headers map[string]string, body io.Reader, size int64) (string, error) {
+// putStreamWith 同 putStream，另外带 x-oss-* 头（小写键，进入签名），并返回响应里的 x-oss-hash-crc64ecma（没有为空）。
+// headers 为空时与 putStream 的请求完全相同。
+func (o *OSSStore) putStreamWith(ctx context.Context, store, key, contentType string, headers map[string]string, body io.Reader, size int64) (string, string, error) {
 	b, err := o.bucket(store)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	resp, err := o.send(ctx, http.MethodPut, b, key, "", contentType, headers, body, size)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		return "", fmt.Errorf("media: OSS 写入返回 %d: %s", resp.StatusCode, raw)
+		return "", "", fmt.Errorf("media: OSS 写入返回 %d: %s", resp.StatusCode, raw)
 	}
-	return resp.Header.Get("ETag"), nil
+	return resp.Header.Get("ETag"), ossCRC64Of(resp.Header), nil
+}
+
+// ossCRC64Header OSS 对对象字节算的 CRC64（PutObject / CopyObject / CompleteMultipartUpload 响应与 HEAD 都带）。
+const ossCRC64Header = "x-oss-hash-crc64ecma"
+
+// ossCRC64Of 读 x-oss-hash-crc64ecma，按无符号十进制归一（去空白、去前导零）；没有或不是数字返回空（按「不知道」处理）。
+func ossCRC64Of(h http.Header) string {
+	v := strings.TrimSpace(h.Get(ossCRC64Header))
+	if v == "" {
+		return ""
+	}
+	n, err := strconv.ParseUint(v, 10, 64)
+	if err != nil {
+		return ""
+	}
+	return formatCRC64(n)
 }
 
 func (o *OSSStore) exists(ctx context.Context, store, key string) (bool, error) {

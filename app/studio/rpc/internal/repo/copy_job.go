@@ -2,9 +2,12 @@ package repo
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 
 	"aigc-local-life/app/studio/model"
 
+	"github.com/go-sql-driver/mysql"
 	"github.com/uptrace/bun"
 )
 
@@ -19,13 +22,57 @@ type CopyJobRepo struct{ db bun.IDB }
 
 // Enqueue 落一行待转存（同一子任务同一产物已有行时什么都不做：INSERT IGNORE 撞 uk_task_src）。delaySec 后才对扫描可见，
 // 留给本进程置成功后的即时转存（Kick），进程崩溃时由扫描接手。
+//
+// j.BillingRequestID 写进 billing_request_id（Go_V1.0.31）：这张成品的预留单，成品已换时据此判断旧成品是否付过费。
+// 列还不存在（迁移未执行）时去掉这一列重写一次——MySQL 的 1054 只回滚这一条语句、不影响所在事务，行为退回改造前。
 func (r *CopyJobRepo) Enqueue(ctx context.Context, j *model.CopyJob, delaySec int) error {
-	row := &model.CopyJob{TaskPK: j.TaskPK, TaskID: j.TaskID, UserID: j.UserID, SrcRid: j.SrcRid, Ref: j.Ref, Status: model.CopyPending}
-	_, err := r.db.NewInsert().Model(row).
-		ExcludeColumn("id", "created_at", "updated_at", "finished_at", "last_error").
-		Value("next_at", "NOW(3) + INTERVAL ? SECOND", delaySec).
-		Ignore().Exec(ctx)
+	insert := func(withBill bool) error {
+		row := &model.CopyJob{TaskPK: j.TaskPK, TaskID: j.TaskID, UserID: j.UserID, SrcRid: j.SrcRid, Ref: j.Ref, Status: model.CopyPending}
+		q := r.db.NewInsert().Model(row).
+			ExcludeColumn("id", "created_at", "updated_at", "finished_at", "last_error").
+			Value("next_at", "NOW(3) + INTERVAL ? SECOND", delaySec)
+		if withBill {
+			q = q.Value("billing_request_id", "?", j.BillingRequestID)
+		}
+		_, err := q.Ignore().Exec(ctx)
+		return err
+	}
+	withBill := j.BillingRequestID != ""
+	err := insert(withBill)
+	if err != nil && withBill && IsUnknownColumn(err) {
+		err = insert(false)
+	}
 	return err
+}
+
+// BillingRequestID 行的 billing_request_id（没有 / 列还不存在返回 "", nil）。只在成品已不是本行引用时读，
+// 常规路径不碰这一列，迁移未执行时扫描 / 认领照常工作。
+func (r *CopyJobRepo) BillingRequestID(ctx context.Context, id int64) (string, error) {
+	var v sql.NullString
+	err := r.db.NewSelect().Table(TableCopyJob).Column("billing_request_id").Where("id = ?", id).Limit(1).Scan(ctx, &v)
+	switch {
+	case errors.Is(err, sql.ErrNoRows), IsUnknownColumn(err):
+		return "", nil
+	case err != nil:
+		return "", err
+	}
+	return v.String, nil
+}
+
+// HasNewerJob 同一子任务是否有比 id 更晚落的 outbox 行（任何状态）。一轮交付最多落一行（uk_task_src），行按交付先后递增，
+// 有更晚的行 = 本行不是子任务最近一轮交付的成品（用于 billing_request_id 为空的旧行判定「成品已换」）。
+func (r *CopyJobRepo) HasNewerJob(ctx context.Context, taskPK, id int64) (bool, error) {
+	n, err := r.db.NewSelect().Table(TableCopyJob).Where("task_pk = ?", taskPK).Where("id > ?", id).Limit(1).Count(ctx)
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
+// IsUnknownColumn MySQL 1054（列不存在：新增列的迁移还没执行）。
+func IsUnknownColumn(err error) bool {
+	var me *mysql.MySQLError
+	return errors.As(err, &me) && me.Number == 1054
 }
 
 // GetPendingByTask 子任务的待转存行（没有返回 nil, nil）。

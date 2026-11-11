@@ -12,8 +12,10 @@ package logic
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math/big"
 	"strconv"
+	"strings"
 	"time"
 
 	"aigc-local-life/app/canvas/model"
@@ -148,6 +150,53 @@ func (c *core) cancelCalls(ctx context.Context, runID int64, ids []string, why s
 			logx.WithContext(ctx).Infof("canvas: run %d %s，取消 gateway 调用 %s: %v", runID, why, id, err)
 		}
 	}
+}
+
+// cancelUnrecordedCalls 置状态的 CAS 没抢到时收尾本次提交拿到的 gateway 调用：重读 run 再决定取消哪些。
+//
+// 没抢到说明 run 已被别处推进：取消 / 强制失败 / 超时（钱已由那条路径处理），或——提交耗时超过行租约（3 分钟）后 run 被别的实例
+// 接手，它用同一幂等键（canvas:<task_id>:<i>，与轮次无关）重提拿回同一批调用、正在或即将写进 backend_ref 跟踪（用户的点数还冻结着）。
+//   - run 还没到终态（排队 / 运行中）：归接手方。一个都不取消——接手方可能已拿到、但还没写进 backend_ref，按「没记录」取消会误杀；
+//     接手方按同一幂等键会拿回这批调用中它提交到的每一条，它自己失败时由它的失败路径（cancelCalls + reclaimQueuedCalls）收尾。
+//   - run 已到终态 / 行已不在：run 行记录在案的调用归记录它的那条路径（成功的不能取消；取消 / 超时路径按 callIDs(run) 自己取消），
+//     只取消没记录的（真正的孤儿）。
+//
+// 重读失败时一个都不取消：宁可留一个由网关 deadline 兜底收尾的孤儿调用，也不误杀别人在跟踪的调用；打 ERROR 交排查。
+func (c *core) cancelUnrecordedCalls(ctx context.Context, runID int64, ids []string, why string) {
+	if len(ids) == 0 || !c.s.Gateway.Enabled() {
+		return
+	}
+	rctx, cancel := detached(ctx)
+	cur, err := c.s.Repo.Run.Get(rctx, runID)
+	cancel()
+	if err != nil {
+		logx.WithContext(ctx).Errorw(fmt.Sprintf("canvas: run %d %s，重读 run 失败，不取消本次拿到的调用（可能已被别的实例接手在跟踪） (check=canvas.submit_orphan_calls)", runID, why),
+			logx.Field("calls", strings.Join(ids, ",")), logx.Field("err", err.Error()))
+		return
+	}
+	if cur != nil && !model.RunFinal(cur.Status) {
+		logx.WithContext(ctx).Infof("canvas: run %d %s，run 仍在进行（状态 %d，已被别的实例接手），本次拿到的调用 %s 归接手方，不取消",
+			runID, why, cur.Status, strings.Join(ids, ","))
+		return
+	}
+	recorded := map[string]bool{}
+	if cur != nil {
+		for _, id := range callIDs(cur) {
+			recorded[id] = true
+		}
+	}
+	var orphans, kept []string
+	for _, id := range ids {
+		if recorded[id] {
+			kept = append(kept, id)
+		} else {
+			orphans = append(orphans, id)
+		}
+	}
+	if len(kept) > 0 {
+		logx.WithContext(ctx).Infof("canvas: run %d %s，调用 %s 已记录在 run 上（别的实例接手在跟踪），不取消", runID, why, strings.Join(kept, ","))
+	}
+	c.cancelCalls(ctx, runID, orphans, why)
 }
 
 // cancelStudio 尽力取消 studio 批次。

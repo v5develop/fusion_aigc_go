@@ -31,13 +31,19 @@ func (l *SegmentMaskLogic) SegmentMask(in *studio.SegmentMaskReq) (*studio.Segme
 	return segmentMask(l.ctx, newMasker(l.svcCtx), newDeps(l.svcCtx).owns, in)
 }
 
-// segmentMask 校验入参与地址来源后取蒙版。地址只认本存储签发或白名单前缀（素材库域名）：不替任意第三方地址下载。
+// segmentMask 校验入参与地址来源后取蒙版。来源优先按请求带的标识精确取（source_rid 画布候选 / task_id 子任务，见 mask_source.go
+// 文件头），否则地址只认本存储签发或白名单前缀（素材库域名），或该用户自己成品的私有签名地址（mr:// / mrw:// 读时现签：反查 rid +
+// 归属校验，兜底口径）。私有成品交给网关的是按 rid 现签的干净地址，缓存按 mr://{rid}：不替任意第三方地址下载。
 func segmentMask(ctx context.Context, m *masker, owns func(string) bool, in *studio.SegmentMaskReq) (*studio.SegmentMaskResp, error) {
 	if in.GetUserId() <= 0 {
 		return nil, xerr.New(xerr.ParamMissing, "缺少用户")
 	}
 	u := strings.TrimSpace(in.GetImageUrl())
-	if u == "" {
+	taskID, srcRID := strings.TrimSpace(in.GetTaskId()), strings.TrimSpace(in.GetSourceRid())
+	if taskID != "" && srcRID != "" {
+		return nil, xerr.Param("task_id 与画布候选只能给一个")
+	}
+	if u == "" && taskID == "" && srcRID == "" {
 		return nil, xerr.New(xerr.ParamMissing, "请提供图片地址")
 	}
 	target, ok := normalizeMaskTarget(in.GetTarget())
@@ -47,12 +53,42 @@ func segmentMask(ctx context.Context, m *masker, owns func(string) bool, in *stu
 	if _, err := normalizeMaskParts(target, in.GetParts()); err != nil {
 		return nil, err
 	}
-	if owns == nil || !owns(u) {
-		logx.WithContext(ctx).Infow("studio mask: image url not from own storage (check=mask_url_owned)",
-			logx.Field("user_id", in.GetUserId()))
-		return nil, xerr.Param("图片地址不是本服务的地址")
+	var (
+		res maskResult
+		err error
+	)
+	switch {
+	case srcRID != "":
+		// 画布候选：网关已经 canvas-rpc 确认归属，只差现签
+		src, serr := m.signRID(ctx, srcRID)
+		if serr != nil {
+			return nil, serr
+		}
+		res, err = m.GetPrivate(ctx, in.GetUserId(), srcRID, src, target, in.GetParts())
+	case taskID != "":
+		rid, src, public, ok, terr := m.resolveTask(ctx, in.GetUserId(), taskID, u)
+		if terr != nil {
+			return nil, terr
+		}
+		if !ok {
+			return nil, xerr.Param("任务不存在或还没有成品")
+		}
+		if rid != "" {
+			res, err = m.GetPrivate(ctx, in.GetUserId(), rid, src, target, in.GetParts())
+		} else {
+			res, err = m.Get(ctx, in.GetUserId(), public, target, in.GetParts())
+		}
+	case owns != nil && owns(u):
+		res, err = m.Get(ctx, in.GetUserId(), u, target, in.GetParts())
+	default:
+		rid, src, ok := m.resolveOwned(ctx, in.GetUserId(), u)
+		if !ok {
+			logx.WithContext(ctx).Infow("studio mask: image url not from own storage nor own private result (check=mask_url_owned)",
+				logx.Field("user_id", in.GetUserId()))
+			return nil, xerr.Param("图片地址不是本服务的地址")
+		}
+		res, err = m.GetPrivate(ctx, in.GetUserId(), rid, src, target, in.GetParts())
 	}
-	res, err := m.Get(ctx, in.GetUserId(), u, target, in.GetParts())
 	if err != nil {
 		return nil, err
 	}

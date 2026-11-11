@@ -5,8 +5,11 @@ package studio
 
 import (
 	"context"
+	"strconv"
+	"strings"
 	"time"
 
+	"aigc-local-life/app/canvas/rpc/canvas_client"
 	"aigc-local-life/app/gateway/api/internal/svc"
 	"aigc-local-life/app/gateway/api/internal/types"
 	"aigc-local-life/app/studio/rpc/studio_client"
@@ -44,9 +47,12 @@ func (l *SegmentMaskLogic) SegmentMask(req *types.StudioMaskReq) (resp *types.St
 		l.Infow("studio mask quota exceeded", logx.Field("user_id", uid), logx.Field("window", quotaWindow(r)))
 		return nil, xerr.New(xerr.Conflict, msgPreviewTooFrequent)
 	}
-	out, err := l.svcCtx.StudioRpc.SegmentMask(l.ctx, &studio_client.SegmentMaskReq{
-		UserId: uid, ImageUrl: req.ImageUrl, Target: req.Target, Parts: req.Parts,
-	}, zrpc.WithCallTimeout(maskCallTimeout))
+	in, err := l.maskSource(uid, req)
+	if err != nil {
+		l.svcCtx.MaskQuota.Refund(l.ctx, uid) // 来源不合法没有识别调用：不占额度
+		return nil, err
+	}
+	out, err := l.svcCtx.StudioRpc.SegmentMask(l.ctx, in, zrpc.WithCallTimeout(maskCallTimeout))
 	if err != nil {
 		return nil, err
 	}
@@ -56,4 +62,46 @@ func (l *SegmentMaskLogic) SegmentMask(req *types.StudioMaskReq) (resp *types.St
 	avail := append(make([]string, 0, len(out.AvailableParts)), out.AvailableParts...)
 	return &types.StudioMaskResp{MaskUrl: out.MaskUrl, Target: out.Target, Cached: out.Cached,
 		Parts: toMaskParts(out.Parts), AvailableParts: avail}, nil
+}
+
+// maskSource 组 SegmentMask 请求。图片来源（只增，2026-11-11）：task_id（studio 子任务，studio-rpc 自己按归属取成品）或
+// canvas_request_id + candidate_index（画布候选：先调 canvas-rpc CandidateSource 按 run 归属取候选，私有引用给 rid、
+// 填进只有网关会填的 source_rid；公开地址作 image_url），都不给按 image_url（老前端）。前端给的 source_rid 不存在这个入口。
+func (l *SegmentMaskLogic) maskSource(uid int64, req *types.StudioMaskReq) (*studio_client.SegmentMaskReq, error) {
+	in := &studio_client.SegmentMaskReq{UserId: uid, ImageUrl: strings.TrimSpace(req.ImageUrl), Target: req.Target, Parts: req.Parts,
+		TaskId: strings.TrimSpace(req.TaskId)}
+	reqID := strings.TrimSpace(req.CanvasRequestId)
+	if reqID == "" {
+		if req.CandidateIndex != nil {
+			return nil, xerr.Param("candidate_index 需配合 canvas_request_id")
+		}
+		if in.ImageUrl == "" && in.TaskId == "" {
+			return nil, xerr.New(xerr.ParamMissing, "请提供图片地址")
+		}
+		return in, nil
+	}
+	if in.TaskId != "" {
+		return nil, xerr.Param("task_id 与 canvas_request_id 只能给一个")
+	}
+	id, err := strconv.ParseInt(reqID, 10, 64)
+	if err != nil || id <= 0 {
+		return nil, xerr.Param("canvas_request_id 不合法")
+	}
+	if l.svcCtx.CanvasRpc == nil {
+		return nil, xerr.New(xerr.NotReady, "画布暂未开放")
+	}
+	src, err := l.svcCtx.CanvasRpc.CandidateSource(l.ctx, &canvas_client.CandidateSourceReq{UserId: uid, Id: id, CandidateIndex: req.CandidateIndex})
+	if err != nil {
+		return nil, err
+	}
+	if src.Rid != "" {
+		// 私有候选：image_url 只是前端展示用的签名地址，不再参与判断（来源已由 canvas-rpc 按归属确定）
+		in.SourceRid, in.ImageUrl = src.Rid, ""
+		return in, nil
+	}
+	if src.Url == "" {
+		return nil, xerr.Param("这张图片暂时不可用")
+	}
+	in.ImageUrl = src.Url // 公开候选：按落库的长期地址走原口径（本服务存储 / 素材库白名单）
+	return in, nil
 }

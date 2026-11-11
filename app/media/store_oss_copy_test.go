@@ -9,6 +9,8 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"hash"
+	"hash/crc64"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -27,22 +29,49 @@ import (
 // 支持 CopyObject、InitiateMultipartUpload / UploadPartCopy / CompleteMultipartUpload / Abort；
 // 每个签名请求都按 OSS v1 规则复算签名（含子资源与 x-oss-* 头），不符记入 sigErrors。
 type copyOSS struct {
-	mu        sync.Mutex
-	secrets   map[string]string // AK → SK
-	objs      map[string]*fakeObj
-	uploads   map[string]*fakeUpload
-	nextID    int
-	denyCopy  bool     // 带 x-oss-copy-source 的请求一律 403 AccessDenied（目标密钥读不了源桶）
-	copyFail  int      // 非 0 时带 x-oss-copy-source 的请求一律返回该状态码
-	ifMatches []string // 复制请求带的 x-oss-copy-source-if-match
-	failPart  int      // 第几片 UploadPartCopy 返回 500（0 不失败）
-	sigErrors []string
-	gets      int // 对象 GET 次数（下载字节）
-	puts      int // 带字节的 PUT 次数（上传字节）
-	copies    int // CopyObject 次数
-	partReqs  []string
-	aborted   int
-	copyAKs   []string // 复制请求使用的 AccessKey
+	mu         sync.Mutex
+	secrets    map[string]string // AK → SK
+	objs       map[string]*fakeObj
+	uploads    map[string]*fakeUpload
+	nextID     int
+	denyCopy   bool     // 带 x-oss-copy-source 的请求一律 403 AccessDenied（目标密钥读不了源桶）
+	copyFail   int      // 非 0 时带 x-oss-copy-source 的请求一律返回该状态码
+	ifMatches  []string // 复制请求带的 x-oss-copy-source-if-match
+	failPart   int      // 第几片 UploadPartCopy 返回 500（0 不失败）
+	sigErrors  []string
+	gets       int // 对象 GET 次数（下载字节）
+	puts       int // 带字节的 PUT 次数（上传字节）
+	copies     int // CopyObject 次数
+	partReqs   []string
+	aborted    int
+	copyAKs    []string // 复制请求使用的 AccessKey
+	noCRC      bool     // 不返回 x-oss-hash-crc64ecma（模拟非 OSS 的 S3 兼容存储）
+	badCopyCRC bool     // 复制（CopyObject / CompleteMultipartUpload）响应给出错误的 CRC64
+	noCopyCRC  bool     // 复制响应不带 CRC64（HEAD 照常带）：应改为 HEAD 目标核对
+	putCRC     string   // 非空时 PUT 响应用它作 CRC64（模拟写上去的字节与本地不一致）
+	dstHeads   int      // 对复制目标的 HEAD 次数
+}
+
+// crcOf OSS 口径的 CRC64（十进制）。
+func crcOf(b []byte) string {
+	return strconv.FormatUint(crc64.Checksum(b, crc64.MakeTable(crc64.ECMA)), 10)
+}
+
+func (f *copyOSS) setCRC(w http.ResponseWriter, b []byte) {
+	if !f.noCRC {
+		w.Header().Set("x-oss-hash-crc64ecma", crcOf(b))
+	}
+}
+
+// setCopyCRC 复制响应的 CRC64：按 badCopyCRC / noCopyCRC 注入。
+func (f *copyOSS) setCopyCRC(w http.ResponseWriter, b []byte) {
+	switch {
+	case f.noCopyCRC:
+	case f.badCopyCRC:
+		w.Header().Set("x-oss-hash-crc64ecma", "12345")
+	default:
+		f.setCRC(w, b)
+	}
 }
 
 type fakeObj struct {
@@ -190,6 +219,7 @@ func (f *copyOSS) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		f.objs[up.key] = &fakeObj{data: data, ctype: up.ctype, meta: up.meta}
 		delete(f.uploads, q.Get("uploadId"))
+		f.setCopyCRC(w, data)
 		_, _ = io.WriteString(w, "<CompleteMultipartUploadResult><ETag>\"MULTI-"+strconv.Itoa(len(body.Parts))+"\"</ETag></CompleteMultipartUploadResult>")
 	case r.Method == http.MethodDelete && q.Has("uploadId"):
 		delete(f.uploads, q.Get("uploadId"))
@@ -204,6 +234,7 @@ func (f *copyOSS) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		f.objs[k] = &fakeObj{data: so.data, ctype: so.ctype, meta: so.meta}
+		f.setCopyCRC(w, so.data)
 		_, _ = io.WriteString(w, "<CopyObjectResult><ETag>"+etagOf(so.data)+"</ETag></CopyObjectResult>")
 	case r.Method == http.MethodPut:
 		if r.Header.Get("x-oss-forbid-overwrite") == "true" && f.objs[k] != nil {
@@ -216,6 +247,11 @@ func (f *copyOSS) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		f.objs[k] = &fakeObj{data: data, ctype: r.Header.Get("Content-Type"), meta: userMeta(r.Header)}
 		w.Header().Set("ETag", etagOf(data))
+		if f.putCRC != "" {
+			w.Header().Set("x-oss-hash-crc64ecma", f.putCRC)
+		} else {
+			f.setCRC(w, data)
+		}
 	case r.Method == http.MethodGet:
 		o := f.objs[k]
 		if o == nil {
@@ -241,6 +277,10 @@ func (f *copyOSS) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if o.sclass != "" {
 			w.Header().Set("x-oss-storage-class", o.sclass)
 		}
+		if strings.HasPrefix(k, "asset/") || strings.HasPrefix(k, "third/") {
+			f.dstHeads++
+		}
+		f.setCRC(w, o.data)
 		w.Header().Set("ETag", etagOf(o.data))
 		w.Header().Set("Content-Length", strconv.Itoa(len(o.data)))
 	case r.Method == http.MethodDelete:
@@ -307,13 +347,14 @@ var testFactsMeta = MediaMeta{Mime: "video/mp4", DurationS: 6.5, Width: 720, Hei
 func putWithFacts(t *testing.T, st ObjectStore, store, path, content string, meta MediaMeta) StoredObject {
 	t.Helper()
 	local := writeFixture(t, content)
-	sum, size, err := hashFile(local)
+	d, err := digestFile(local)
 	if err != nil {
 		t.Fatal(err)
 	}
+	sum, size := d.sum, d.size
 	meta.Size = size
-	sealed := sealFacts(testFactsID, storedFacts{V: storedFactsVersion, Sha256: sum, Size: size, Meta: meta})
-	ctx := withSealedFacts(withKnownDigest(context.Background(), local, sum, size), local, sum, size, sealed)
+	sealed := sealFacts(testFactsID, storedFacts{V: storedFactsVersion, Sha256: sum, Size: size, CRC64: d.crc64, Meta: meta})
+	ctx := withSealedFacts(withKnownDigestCRC(context.Background(), local, sum, d.crc64, size), local, sum, size, sealed)
 	obj, err := st.Put(ctx, store, path, local, meta.Mime)
 	if err != nil {
 		t.Fatal(err)
@@ -389,7 +430,7 @@ func TestOSSFactsAbsentOrStale(t *testing.T) {
 		fake.objs["priv/"+ossWorkPath].meta = map[string]string{ossFactsHeader: v}
 		fake.mu.Unlock()
 	}
-	good := storedFacts{V: 1, Sha256: strings.Repeat("b", 64), Size: int64(len("plain2")), Meta: MediaMeta{Mime: "video/mp4"}}
+	good := storedFacts{V: 1, Sha256: strings.Repeat("b", 64), Size: int64(len("plain2")), CRC64: crcOf([]byte("plain2")), Meta: MediaMeta{Mime: "video/mp4"}}
 	setMeta(sealFacts(testFactsID, good))
 	if h, reason := trustedHead(t, st, storePrivate, ossWorkPath); h.Facts == nil || reason != "" {
 		t.Fatalf("签名、字节数、内容类型都对的事实应当可用: %s", reason)
@@ -613,7 +654,7 @@ func TestOSSServerCopySourceChangedAfterHead(t *testing.T) {
 	}
 	fake.copyFail = http.StatusConflict
 	h2, _ := trustedHead(t, st, storePrivate, ossWorkPath)
-	h2.Facts = h.Facts
+	h2.Facts, h2.CRC64 = h.Facts, h.CRC64 // 注入的失败在 if-match 之前返回：这里只验失败归类
 	_, _, err = st.ServerCopy(context.Background(), storePrivate, ossWorkPath, storeAsset, ossAssetPath2, h2)
 	if !errors.As(err, &refused) || refused.remember {
 		t.Fatalf("409 err = %v", err)
@@ -753,5 +794,248 @@ func TestDisableServerSideCopyDefault(t *testing.T) {
 	}
 	if err := conf.LoadFromYamlBytes([]byte("OSS:\n  DisableServerSideCopy: true\n"), &c); err != nil || !c.OSS.DisableServerSideCopy {
 		t.Fatalf("写 true 时应关闭: %v", err)
+	}
+}
+
+// 落桶写出的事实带 CRC64（签名覆盖），与 PUT 响应、HEAD 的 x-oss-hash-crc64ecma 一致；字节上传读请求体时同样算出。
+func TestOSSPutFactsCarryCRC64(t *testing.T) {
+	st, fake := newCopyTestOSS(t, nil)
+	putWithFacts(t, st, storePrivate, ossWorkPath, "clip-bytes", testFactsMeta)
+	f := openFacts(testFactsID, fake.obj("priv/" + ossWorkPath).meta[ossFactsHeader])
+	if f == nil || f.CRC64 == "" || f.CRC64 != crcOf([]byte("clip-bytes")) {
+		t.Fatalf("事实必须带这份字节的 CRC64: %+v", f)
+	}
+	h, reason := trustedHead(t, st, storePrivate, ossWorkPath)
+	if reason != "" || h.CRC64 != f.CRC64 || h.Facts == nil {
+		t.Fatalf("HEAD CRC64 = %q reason=%s", h.CRC64, reason)
+	}
+	// 字节上传：读请求体时与 sha256 一起算 CRC64，与整读文件算的相同
+	p := writeFixture(t, "")
+	_, crc, n, err := copyWithDigest(p, strings.NewReader("upload-bytes"))
+	if err != nil || n != int64(len("upload-bytes")) || crc != crcOf([]byte("upload-bytes")) {
+		t.Fatalf("copyWithDigest crc=%q n=%d err=%v", crc, n, err)
+	}
+	if d, err := digestFile(p); err != nil || d.crc64 != crc {
+		t.Fatalf("digestFile crc=%q err=%v", d.crc64, err)
+	}
+	// 登记的摘要带 CRC64 时原样沿用（不再整读）
+	marker := strings.Repeat("f", 64)
+	if d, _ := digestFileKnown(withKnownDigestCRC(context.Background(), p, marker, "42", n), p); d.sum != marker || d.crc64 != "42" {
+		t.Fatalf("登记的摘要应被沿用: %+v", d)
+	}
+	// 响应头格式归一：前导零 / 空白不影响，非数字当作没有
+	if ossCRC64Of(http.Header{"X-Oss-Hash-Crc64ecma": {" 0042 "}}) != "42" || ossCRC64Of(http.Header{"X-Oss-Hash-Crc64ecma": {"abc"}}) != "" {
+		t.Fatal("CRC64 头归一化不对")
+	}
+}
+
+// resetCRC64MismatchLog 清掉 CRC64 不一致日志的限流状态（测试之间互不影响）。
+func resetCRC64MismatchLog(t *testing.T) {
+	t.Helper()
+	reset := func() {
+		crc64MismatchLog.mu.Lock()
+		crc64MismatchLog.last, crc64MismatchLog.suppressed = time.Time{}, 0
+		crc64MismatchLog.mu.Unlock()
+	}
+	reset()
+	t.Cleanup(reset)
+}
+
+// PUT 响应的 CRC64 与本地字节不一致（传输损坏 / 实现差异）：写入绝不失败，对象保留，限流打 ERROR；
+// 对象上的事实因 CRC64 对不上不再被当真（等同不带 CRC64），复制回退原路径。
+func TestOSSPutCRC64MismatchNeverFailsWrite(t *testing.T) {
+	resetCRC64MismatchLog(t)
+	logs := captureLog(t)
+	st, fake := newCopyTestOSS(t, nil)
+	fake.putCRC = "1"
+	obj := putWithFacts(t, st, storePrivate, ossWorkPath, "clip-bytes", testFactsMeta)
+	if obj.Key != ossWorkPath || fake.obj("priv/"+ossWorkPath) == nil {
+		t.Fatalf("对象应保留: %+v", obj)
+	}
+	if n := strings.Count(logs.String(), "check=media.crc64_mismatch"); n != 1 || !strings.Contains(logs.String(), "media ERROR") {
+		t.Fatalf("应打一条 ERROR: %d %s", n, logs.String())
+	}
+	// 限流：紧接着的第二次不一致不再打
+	putWithFacts(t, st, storePrivate, ossWorkPath, "clip-bytes", testFactsMeta)
+	if n := strings.Count(logs.String(), "check=media.crc64_mismatch"); n != 1 {
+		t.Fatalf("应限流: %d", n)
+	}
+	// 窗口过后再打，并带累计被压掉的次数
+	crc64MismatchLog.mu.Lock()
+	crc64MismatchLog.last = time.Now().Add(-crc64MismatchEvery - time.Second)
+	crc64MismatchLog.mu.Unlock()
+	if !logCRC64Mismatch(storePrivate, ossWorkPath, "2", "3") || !strings.Contains(logs.String(), "suppressed_since_last=1") {
+		t.Fatalf("窗口过后应再打并带累计次数: %s", logs.String())
+	}
+	// 模拟真实损坏：OSS 上的字节与本地不同（HEAD 的 CRC64 是 OSS 的），事实里是本地 CRC64 → 不当真
+	fake.mu.Lock()
+	fake.objs["priv/"+ossWorkPath].data = []byte("CLIP-BYTEZ")
+	fake.mu.Unlock()
+	if h, reason := trustedHead(t, st, storePrivate, ossWorkPath); h.Facts != nil || reason != "source_crc64_mismatch" {
+		t.Fatalf("CRC64 不符的事实不能用于服务端复制: %s", reason)
+	}
+	// 存储不返回 CRC64（非 OSS）：不核对，照常成功
+	fake.putCRC, fake.noCRC = "", true
+	local := writeFixture(t, "clip-bytes")
+	d, _ := digestFile(local)
+	ctx := withKnownDigestCRC(context.Background(), local, d.sum, d.crc64, d.size)
+	if _, err := st.Put(ctx, storePrivate, ossWorkPath, local, "video/mp4"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// CRC64 实现自检：OSS crc64ecma（CRC-64/XZ）已知向量；错误的实现（例如 ISO 表、未取反）必须被识别。
+func TestCRC64SelfTest(t *testing.T) {
+	if err := selfTestCRC64(newCRC64); err != nil {
+		t.Fatalf("内置实现应通过自检: %v", err)
+	}
+	if !crc64Binding {
+		t.Fatal("自检通过时绑定应启用")
+	}
+	if got := crc64.Checksum([]byte("123456789"), ossCRC64Table); got != 0x995DC9BBDF1939FA || crcOf([]byte("123456789")) != "11051210869376104954" {
+		t.Fatalf("check 值 = %#x", got)
+	}
+	iso := crc64.MakeTable(crc64.ISO)
+	if err := selfTestCRC64(func() hash.Hash64 { return crc64.New(iso) }); err == nil {
+		t.Fatal("ISO 表应自检失败")
+	}
+}
+
+// 自检不过（绑定关闭）：本地不给 CRC64，事实不带 CRC64，PUT 不核对，复制回退原路径。
+func TestCRC64BindingDisabledOmitsCRC(t *testing.T) {
+	prev := crc64Binding
+	crc64Binding = false
+	t.Cleanup(func() { crc64Binding = prev })
+	p := writeFixture(t, "")
+	if _, crc, _, err := copyWithDigest(p, strings.NewReader("upload-bytes")); err != nil || crc != "" {
+		t.Fatalf("关闭后字节上传不应给 CRC64: %q %v", crc, err)
+	}
+	if d, err := digestFile(p); err != nil || d.crc64 != "" || d.sum == "" {
+		t.Fatalf("关闭后整读不应给 CRC64: %+v %v", d, err)
+	}
+	st, fake := newCopyTestOSS(t, nil)
+	fake.putCRC = "1" // 关闭后不核对，也就不打不一致日志
+	logs := captureLog(t)
+	putWithFacts(t, st, storePrivate, ossWorkPath, "clip-bytes", testFactsMeta)
+	if strings.Contains(logs.String(), "crc64_mismatch") {
+		t.Fatalf("关闭后不应核对: %s", logs.String())
+	}
+	if h, reason := trustedHead(t, st, storePrivate, ossWorkPath); h.Facts != nil || reason != "source_facts_no_crc64" {
+		t.Fatalf("关闭后事实不带 CRC64，应回退: %s", reason)
+	}
+}
+
+// 事实与字节的绑定：事实里没有 CRC64（旧事实）、HEAD 不给 CRC64、两者不等，都不当真。
+func TestOSSFactsCRC64Binding(t *testing.T) {
+	st, fake := newCopyTestOSS(t, nil)
+	putWithFacts(t, st, storePrivate, ossWorkPath, "clip-bytes", testFactsMeta)
+	sealed := fake.obj("priv/" + ossWorkPath).meta[ossFactsHeader]
+
+	// 把这份真签名的事实原样抄到等长、同类型的另一份字节上：CRC64 对不上
+	fake.mu.Lock()
+	fake.objs["priv/"+ossWorkPath].data = []byte("CLIP-BYTES")
+	fake.mu.Unlock()
+	if h, reason := trustedHead(t, st, storePrivate, ossWorkPath); h.Facts != nil || reason != "source_crc64_mismatch" {
+		t.Fatalf("CRC64 不符的事实必须丢弃: %s", reason)
+	}
+	fake.mu.Lock()
+	fake.objs["priv/"+ossWorkPath].data = []byte("clip-bytes")
+	fake.mu.Unlock()
+
+	// 存储不给 CRC64：无法证明事实描述当前字节
+	fake.noCRC = true
+	if h, reason := trustedHead(t, st, storePrivate, ossWorkPath); h.Facts != nil || reason != "source_crc64_missing" {
+		t.Fatalf("HEAD 无 CRC64 时必须丢弃: %s", reason)
+	}
+	fake.noCRC = false
+	if _, reason := trustedHead(t, st, storePrivate, ossWorkPath); reason != "" || sealed == "" {
+		t.Fatalf("恢复后应可用: %s", reason)
+	}
+}
+
+// 旧格式事实（绑定上线前写入，JSON 里没有 crc64 键）：签名照样验得过，但不绑定字节，不用于服务端复制。
+func TestOSSLegacyFactsStillVerifyButAreNotTrusted(t *testing.T) {
+	st, fake := newCopyTestOSS(t, nil)
+	putWithFacts(t, st, storePrivate, ossWorkPath, "clip-bytes", testFactsMeta)
+	meta := testFactsMeta
+	meta.Size = int64(len("clip-bytes"))
+	// 按改动前的结构体逐字节构造 payload，并用同一密钥签名（与旧版本 sealFacts 产物相同）
+	legacy := struct {
+		V      int       `json:"v"`
+		Sha256 string    `json:"sha256"`
+		Size   int64     `json:"size"`
+		Meta   MediaMeta `json:"meta"`
+	}{V: 1, Sha256: strings.Repeat("a", 64), Size: meta.Size, Meta: meta}
+	raw, _ := json.Marshal(legacy)
+	payload := base64.RawURLEncoding.EncodeToString(raw)
+	v := payload + "." + base64.RawURLEncoding.EncodeToString(testFactsID.mac(factsMACLabel, payload))
+	// 新代码写出的不带 CRC64 的事实与旧格式逐字节相同（omitempty）：格式向后兼容
+	if sealFacts(testFactsID, storedFacts{V: 1, Sha256: legacy.Sha256, Size: legacy.Size, Meta: meta}) != v {
+		t.Fatal("不带 CRC64 的事实应与旧格式逐字节相同")
+	}
+	f := openFacts(testFactsID, v)
+	if f == nil || f.Sha256 != legacy.Sha256 || f.CRC64 != "" {
+		t.Fatalf("旧事实必须仍能验签: %+v", f)
+	}
+	fake.mu.Lock()
+	fake.objs["priv/"+ossWorkPath].meta = map[string]string{ossFactsHeader: v}
+	fake.mu.Unlock()
+	h, reason := trustedHead(t, st, storePrivate, ossWorkPath)
+	if h.Facts != nil || reason != "source_facts_no_crc64" {
+		t.Fatalf("旧事实不应用于服务端复制: %s", reason)
+	}
+	// 存储层也守一道：调用方硬塞没绑定的事实，不复制
+	h.Facts = f
+	_, _, err := st.ServerCopy(context.Background(), storePrivate, ossWorkPath, storeAsset, ossAssetPath2, h)
+	var refused *serverCopyRefused
+	if !errors.As(err, &refused) || refused.reason != "source_crc64_unverified" || fake.copies != 0 {
+		t.Fatalf("err = %v copies=%d", err, fake.copies)
+	}
+}
+
+// 复制后核对目标 CRC64：响应里的不等 → 回退（不记这对桶）；响应没带 → HEAD 目标核对。
+func TestOSSServerCopyVerifiesDestCRC64(t *testing.T) {
+	st, fake := newCopyTestOSS(t, nil)
+	putWithFacts(t, st, storePrivate, ossWorkPath, "clip-bytes", testFactsMeta)
+	h, _ := trustedHead(t, st, storePrivate, ossWorkPath)
+	fake.badCopyCRC = true
+	_, _, err := st.ServerCopy(context.Background(), storePrivate, ossWorkPath, storeAsset, ossAssetPath2, h)
+	var refused *serverCopyRefused
+	if !errors.As(err, &refused) || refused.reason != "dest_crc64_mismatch" || refused.remember {
+		t.Fatalf("err = %v", err)
+	}
+	if r := st.ServerCopyEligible(storePrivate, storeAsset); r != "" {
+		t.Fatalf("目标校验失败不应暂停这对桶: %q", r)
+	}
+	// 分片复制同样核对完成响应里的 CRC64
+	st.copier.threshold, st.copier.partSize = 4, 4
+	_, _, err = st.ServerCopy(context.Background(), storePrivate, ossWorkPath, storeAsset, ossAssetPath2, h)
+	if !errors.As(err, &refused) || refused.reason != "dest_crc64_mismatch" {
+		t.Fatalf("multipart err = %v", err)
+	}
+	st.copier.threshold = defaultCopyMultipartThreshold
+	fake.badCopyCRC, fake.noCopyCRC = false, true
+	heads := fake.dstHeads
+	if _, _, err := st.ServerCopy(context.Background(), storePrivate, ossWorkPath, storeAsset, ossAssetPath2, h); err != nil {
+		t.Fatal(err)
+	}
+	if fake.dstHeads != heads+1 {
+		t.Fatalf("响应没带 CRC64 时应 HEAD 目标一次: %d", fake.dstHeads-heads)
+	}
+	// 分片复制的完成响应没带 CRC64：同样 HEAD 目标核对（OSS 对合成后的整个对象给 CRC64）
+	st.copier.threshold, st.copier.partSize = 4, 4
+	heads = fake.dstHeads
+	if _, mode, err := st.ServerCopy(context.Background(), storePrivate, ossWorkPath, storeAsset, ossAssetPath2, h); err != nil || mode != "multipart" {
+		t.Fatalf("multipart mode=%s err=%v", mode, err)
+	}
+	if fake.dstHeads != heads+1 {
+		t.Fatalf("分片复制响应没带 CRC64 时应 HEAD 目标一次: %d", fake.dstHeads-heads)
+	}
+	st.copier.threshold = defaultCopyMultipartThreshold
+	// 响应没带、HEAD 也没有：无法证明，回退
+	fake.noCRC = true
+	_, _, err = st.ServerCopy(context.Background(), storePrivate, ossWorkPath, storeAsset, ossAssetPath2, h)
+	if !errors.As(err, &refused) || refused.reason != "dest_crc64_missing" {
+		t.Fatalf("err = %v", err)
 	}
 }

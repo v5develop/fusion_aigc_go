@@ -6,13 +6,17 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"hash"
+	"hash/crc64"
 	"io"
 	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -355,43 +359,160 @@ func copyAtomic(from, to string) error {
 	return os.Rename(tmpName, to)
 }
 
-// knownDigest 某个本地文件已经算好的 sha256 与字节数（字节上传在读请求体时算出，落桶时算出），
+// knownDigest 某个本地文件已经算好的 sha256、CRC64 与字节数（字节上传在读请求体时算出，落桶时算出），
 // 经 context 传给 storeWithMeta 与存储的 Put，同一个文件在一次写入里只整读一次。
+// crc64 是 OSS 口径的 CRC-64/ECMA（十进制字符串，与 x-oss-hash-crc64ecma 同格式），没算过为空。
 type knownDigest struct {
-	path string
-	sum  string
-	size int64
+	path  string
+	sum   string
+	crc64 string
+	size  int64
 }
 
 type knownDigestKey struct{}
 
-// withKnownDigest 登记 path 的摘要。只对这一个路径生效：别的文件（索引、其它产物）照常自己算。
+// withKnownDigest 登记 path 的摘要（不带 CRC64）。只对这一个路径生效：别的文件（索引、其它产物）照常自己算。
 func withKnownDigest(ctx context.Context, path, sum string, size int64) context.Context {
-	return context.WithValue(ctx, knownDigestKey{}, knownDigest{path: path, sum: sum, size: size})
+	return withKnownDigestCRC(ctx, path, sum, "", size)
+}
+
+// withKnownDigestCRC 同 withKnownDigest，另外登记 CRC64（空表示不知道：落桶写出的事实不带 CRC64，之后不走服务端复制）。
+func withKnownDigestCRC(ctx context.Context, path, sum, crc string, size int64) context.Context {
+	return context.WithValue(ctx, knownDigestKey{}, knownDigest{path: path, sum: sum, crc64: crc, size: size})
+}
+
+// fileDigest 一个本地文件的 sha256、CRC64（可能为空，见 knownDigest）与字节数。
+type fileDigest struct {
+	sum   string
+	crc64 string
+	size  int64
 }
 
 // hashFileKnown 优先用 context 里登记的摘要：路径一致且文件当前大小与登记的一致才用；否则整读计算（与 hashFile 相同）。
 func hashFileKnown(ctx context.Context, path string) (string, int64, error) {
+	d, err := digestFileKnown(ctx, path)
+	return d.sum, d.size, err
+}
+
+// digestFileKnown 同 hashFileKnown，另外给出 CRC64：登记的摘要带不带 CRC64 原样给出；整读时与 sha256 同一遍算出。
+func digestFileKnown(ctx context.Context, path string) (fileDigest, error) {
 	if k, ok := ctx.Value(knownDigestKey{}).(knownDigest); ok && k.path == path && k.sum != "" {
 		if st, err := os.Stat(path); err == nil && st.Mode().IsRegular() && st.Size() == k.size {
-			return k.sum, k.size, nil
+			return fileDigest{sum: k.sum, crc64: k.crc64, size: k.size}, nil
 		}
 	}
-	return hashFile(path)
+	return digestFile(path)
 }
 
 func hashFile(path string) (string, int64, error) {
+	d, err := digestFile(path)
+	return d.sum, d.size, err
+}
+
+// digestFile 整读一遍文件，同时算 sha256 与 CRC64（CRC64 很便宜，省得服务端复制前再读一遍）。
+func digestFile(path string) (fileDigest, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return "", 0, err
+		return fileDigest{}, err
 	}
 	defer f.Close()
 	h := sha256.New()
-	n, err := io.Copy(h, f)
+	c := newCRC64()
+	n, err := io.Copy(io.MultiWriter(h, c), f)
 	if err != nil {
-		return "", 0, err
+		return fileDigest{}, err
 	}
-	return hex.EncodeToString(h.Sum(nil)), n, nil
+	return fileDigest{sum: hex.EncodeToString(h.Sum(nil)), crc64: localCRC64(c), size: n}, nil
+}
+
+// ossCRC64Table OSS 的 CRC64：CRC-64/ECMA-182 多项式（0x42F0E1EBA9EA3693）的反射形式，初值与结果异或都是全 1，
+// 即 CRC-64/XZ（"123456789" 的校验值 0x995DC9BBDF1939FA）；Go 的 hash/crc64 ECMA 表内部做了首尾取反，正是这一口径。
+// 阿里云官方 Go SDK（aliyun-oss-go-sdk oss/utils.go crcTable()、alibabacloud-oss-go-sdk-v2 oss/utils_crc.go）
+// 校验 x-oss-hash-crc64ecma 用的也是 crc64.New(crc64.MakeTable(crc64.ECMA))，其测试向量见 ossCRC64Vectors。
+var ossCRC64Table = crc64.MakeTable(crc64.ECMA)
+
+func newCRC64() hash.Hash64 { return crc64.New(ossCRC64Table) }
+
+// formatCRC64 与 x-oss-hash-crc64ecma 相同的格式：无符号十进制。
+func formatCRC64(v uint64) string { return strconv.FormatUint(v, 10) }
+
+// ossCRC64Vectors CRC-64/XZ（= OSS crc64ecma）的已知向量：前两条取自阿里云 OSS Go SDK 的 crc_test.go
+// （TestCRCCombine），"123456789" 也是 CRC 目录里 CRC-64/XZ 的 check 值。
+var ossCRC64Vectors = []struct {
+	in   string
+	want uint64
+}{
+	{"123456789", 0x995DC9BBDF1939FA},
+	{"This is a test of the emergency broadcast system.", 0x27DB187FC15BBC72},
+	{"", 0},
+}
+
+// crc64Binding 事实与字节的 CRC64 绑定是否启用。进程启动时对实现做自检（selfTestCRC64），不过则关闭：
+// 关闭后本地不再给出 CRC64（localCRC64 返回空），写出的事实不带 CRC64，服务端复制一律回退原路径（慢但正确），
+// 写入也不再与 OSS 的 CRC64 核对。绑定只是复制的加速条件，任何情况下都不能让它挡住用户写入。
+var crc64Binding = initCRC64Binding()
+
+func initCRC64Binding() bool {
+	if err := selfTestCRC64(newCRC64); err != nil {
+		log.Printf("media ERROR check=media.crc64_selftest_failed: %v；关闭 CRC64 绑定，服务端复制回退原路径", err)
+		return false
+	}
+	return true
+}
+
+// selfTestCRC64 用已知向量核对 CRC64 实现（分块写入与一次写入都要对）。
+func selfTestCRC64(newHash func() hash.Hash64) error {
+	for _, v := range ossCRC64Vectors {
+		h := newHash()
+		_, _ = io.WriteString(h, v.in)
+		if got := h.Sum64(); got != v.want {
+			return fmt.Errorf("CRC64(%q) = %#x，期望 %#x", v.in, got, v.want)
+		}
+		h = newHash()
+		for i := 0; i < len(v.in); i++ {
+			_, _ = h.Write([]byte{v.in[i]})
+		}
+		if got := h.Sum64(); got != v.want {
+			return fmt.Errorf("CRC64(%q) 分块 = %#x，期望 %#x", v.in, got, v.want)
+		}
+	}
+	return nil
+}
+
+// localCRC64 本地算出的 CRC64（十进制）；绑定关闭时返回空（按「不知道」处理，见 crc64Binding）。
+func localCRC64(h hash.Hash64) string {
+	if !crc64Binding {
+		return ""
+	}
+	return formatCRC64(h.Sum64())
+}
+
+// crc64MismatchLog 本地与 OSS 的 CRC64 不一致时的 ERROR 日志限流：进程内第一次立即打，之后每 crc64MismatchEvery
+// 最多打一次（带期间累计次数），不会刷屏。
+var crc64MismatchLog struct {
+	mu         sync.Mutex
+	last       time.Time
+	suppressed int
+}
+
+const crc64MismatchEvery = 10 * time.Minute
+
+// logCRC64Mismatch 记一次 CRC64 不一致（限流）。返回这次是否真的打了日志（测试用）。
+func logCRC64Mismatch(store, path, local, remote string) bool {
+	l := &crc64MismatchLog
+	l.mu.Lock()
+	now := time.Now()
+	if !l.last.IsZero() && now.Sub(l.last) < crc64MismatchEvery {
+		l.suppressed++
+		l.mu.Unlock()
+		return false
+	}
+	suppressed := l.suppressed
+	l.last, l.suppressed = now, 0
+	l.mu.Unlock()
+	log.Printf("media ERROR check=media.crc64_mismatch store=%s path=%s local_crc64=%s oss_crc64=%s suppressed_since_last=%d："+
+		"写入照常成功、对象保留；对象上事实里的 CRC64 与 OSS 不符，服务端复制会回退原路径", store, path, local, remote, suppressed)
+	return true
 }
 
 // extOf 只为常见类型加扩展名，其余不加。扩展名只影响本地文件名，不进入对象键。

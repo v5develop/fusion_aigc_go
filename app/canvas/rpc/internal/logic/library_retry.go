@@ -51,7 +51,7 @@ func (c *core) RetryLibraryCopy(ctx context.Context, in *canvas.RunIdReq) (*canv
 			return nil, xerr.New(xerr.Conflict, "暂时无法重新存入素材库，请联系客服")
 		}
 		err = c.s.Repo.RunInTx(ctx, func(ctx context.Context, tx *repo.Repo) error {
-			if err := tx.CopyJob.Enqueue(ctx, r.ID, r.TaskID.String, r.UserID, 0); err != nil {
+			if err := tx.CopyJob.Enqueue(ctx, r.ID, r.TaskID.String, r.UserID, 0, copySnapshotOf(r, r.Candidates, r.VideoURL.String)); err != nil {
 				return err
 			}
 			return tx.Run.ClearCopyFailed(ctx, r.ID)

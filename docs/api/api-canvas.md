@@ -487,6 +487,7 @@ run 不存在或不属于当前用户：`code=4001`。
 **产物先交付、后进素材库（2026-11-11，canvas-rpc `Library.AsyncCopy`，默认开）**：生图 / 生视频 / 裁剪 / Java 工具的 run 出图后立即 `succeeded`（结算同时完成），不再等「复制到素材库公有桶」。此时 `candidates[].url` / `video_url` 是服务端按私有资源现签的 **10 分钟**地址（库里存的是长期引用 `mr://…`，每次查询现签），`library_status=pending`；后台转存完成后（幂等键 `canvas-copy:{task_id}:{i}`，视频 `i=99`，失败按退避重试）同一个 run 的地址换成素材库长期地址、`library_status` 变空，并写入素材库。前端注意：
 
 - `pending` / `failed` 时**不要把这些 URL 存进节点内容**（例如拖成新的图片节点、写进 `data.image`），10 分钟后会失效；需要引用就用节点连线 + `candidate_index`（服务端按 run 现取），或在 `library_status` 变空后再取地址。地址过期了重新 `GET /runs/{request_id}`（或重新打开画布）拿新签名即可。
+- 对 `pending` / `failed` 的候选做区域蒙版（`POST /api/v1/studio/masks`，见 api-studio.md 5.8）时，**带 `canvas_request_id`（= 本 run 的 `request_id`）+ `candidate_index`**，服务端按 run 归属取原件识别；只传这些 10 分钟地址会被当作来源不明拒收（1003）。（只增，2026-11-11）
 - `pending` 时可以继续正常轮询，也可以不管：服务端换地址不需要前端参与；想展示「素材库同步中」可以在 `succeeded` 后低频（如 3 秒）再查一两次直到 `library_status` 为空。
 - `failed`：产物照常可看可下载，提示「未能保存到素材库」即可；点数照常结算（产物已交付），不会退款。
 - 画布回填（`GET /canvases/{id}`）的节点 `data` 多一个只读键 `libraryStatus`（取值同上，空时不出现），保存时服务端会剥离，前端不必回传。

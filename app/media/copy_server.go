@@ -21,8 +21,9 @@ import (
 //
 // 复制结果必须与原路径逐字段一致（sha256、size、mime、时长、宽高、帧率、音轨、色彩），而这些值原来是读字节时
 // 算出来的（hash + probe）。媒体服务没有资源表，所以落桶时把这份字节的事实（storedFacts）写进对象自己的元数据
-// （OSS：x-oss-meta-media-facts）；复制时 HEAD 源对象读回。元数据跟着每次 PUT 整体替换，只描述这次写入的字节，
-// 且读回时核对大小，不会张冠李戴。没有事实的源（本功能上线前写入的对象、客户端直传的对象）回退原路径。
+// （OSS：x-oss-meta-media-facts）；复制时 HEAD 源对象读回。元数据跟着每次 PUT 整体替换，只描述这次写入的字节；
+// 事实里带这份字节的 CRC64，读回时与 OSS 对当前字节给出的 x-oss-hash-crc64ecma 核对，不会张冠李戴（见 storedFacts）。
+// 没有事实或事实不带 CRC64 的源（本功能 / CRC64 绑定上线前写入的对象、客户端直传的对象）回退原路径。
 //
 // rid 派生、索引、待删除标记的处理与原路径完全相同（同一个幂等键得到同一个 rid、同一个路径）：
 // 服务端复制失败（权限 / 不支持）时回退原路径，原路径沿用刚写的索引，结果不变。
@@ -45,6 +46,7 @@ type objectHead struct {
 	ETag         string            // 原样的 ETag：复制请求带 x-oss-copy-source-if-match，只复制 HEAD 到的这一版
 	ContentType  string            // 源对象的 Content-Type
 	StorageClass string            // x-oss-storage-class（低频 / 归档不做服务端复制）
+	CRC64        string            // x-oss-hash-crc64ecma：OSS 对当前字节算的 CRC64（十进制）；存储不给（非 OSS 的 S3 兼容存储等）为空
 	UserMeta     map[string]string // 全部 x-oss-meta-*（小写键）：分片复制不自动带元数据，要显式写到目标
 	Facts        *storedFacts      // 验签通过的事实（由 Server.trustedFacts 填，存储层不填）
 }
@@ -72,10 +74,15 @@ func refusedCopy(reason string, err error) error {
 func refusedOnce(reason string, err error) error { return &serverCopyRefused{reason: reason, err: err} }
 
 // storedFacts 落桶时对这份字节已知的事实，写在对象元数据里。V 是格式版本，不认识的版本视为没有。
+//
+// CRC64 是这份字节的 CRC-64/ECMA（OSS 口径，十进制，与 x-oss-hash-crc64ecma 同格式），在签名覆盖范围内。
+// 它是后加的可选字段（omitempty，V 不变）：之前写入的事实没有这个键，payload 字节没变，原签名照样验得过——
+// 只是这样的事实不绑定字节，trustFacts 不拿它做服务端复制（回退原路径）。
 type storedFacts struct {
 	V      int       `json:"v"`
 	Sha256 string    `json:"sha256"`
 	Size   int64     `json:"size"`
+	CRC64  string    `json:"crc64,omitempty"`
 	Meta   MediaMeta `json:"meta"`
 }
 
@@ -93,10 +100,21 @@ const factsMACLabel = "facts"
 // （只有本服务持有，rid 与对象键也由它派生），没有密钥的写入方伪造不了；验签失败一律按「没有事实」回退原路径
 // （读字节、算 sha256、probe），结果仍然正确，只是慢。
 //
-// 残余风险（文档已注明）：签名只绑定事实本身，不绑定字节内容（落桶时为了不再整读文件，拿不到 OSS 的 CRC64/ETag）。
-// 读回时另外核对字节数与内容类型、复制请求带 x-oss-copy-source-if-match（只复制 HEAD 时那一版字节），所以
-// 不带事实的覆盖写、被别的写入方改过的对象都会被识别；能做到「把一份真签名的事实连同等长、同类型的另一份字节
-// 写到已被引用的路径上」的一方本来就能直接篡改该路径上的内容，这不是服务端复制新引入的面。
+// 事实与字节的绑定：签名覆盖事实里的 CRC64（落桶时与 sha256 同一遍对本地字节算出，字节上传则在读请求体时算出，
+// 不额外整读；Put 后还与 OSS 响应的 x-oss-hash-crc64ecma 核对，不一致只限流打 ERROR、写入照常成功——
+// 此时事实里的 CRC64 与对象当前字节不符，下面的核对必然不过，等同于不带 CRC64；进程启动时 CRC64 实现自检不过
+// 则整体关闭绑定，事实不带 CRC64，见 store.go 的 crc64Binding）。复制前 HEAD 源对象，
+// OSS 对当前字节给出 x-oss-hash-crc64ecma，与事实里的 CRC64 相等才把事实当真；复制请求带
+// x-oss-copy-source-if-match（只复制 HEAD 到的那一版），复制完成后再核对目标的 CRC64 与源一致。
+// 于是「把一份真签名的事实连同等长、同类型的另一份字节写到某路径上」（例如有写权限的一方把 A 的元数据原样
+// 抄到 B 上）会因 CRC64 对不上而回退原路径（读字节、重新算 sha256、probe），不会把 A 的 sha256 / 宽高安到 B 上。
+//
+// CRC64 不是密码学摘要：能刻意构造与 A 同 CRC64、同长度、同类型的另一份字节的一方仍可绕过；但这样的一方
+// 本来就能直接改写该路径上的字节，这不是服务端复制新引入的面。sha256 仍只在本机读字节时算，复制不重算。
+//
+// 缺 CRC64 时一律回退原路径，而不是退回「只核对字节数与内容类型」：旧事实（绑定上线前写入）与不给
+// x-oss-hash-crc64ecma 的存储（非 OSS 的 S3 兼容实现）都无法证明事实描述的是当前字节；回退只是慢一次，
+// 回退写出的新对象带 CRC64，之后的复制即可走服务端。
 
 // sealFacts 编码并签名事实。
 func sealFacts(id *identity, f storedFacts) string {
@@ -143,7 +161,8 @@ func isLowerHex64(s string) bool {
 	return true
 }
 
-// trustedFacts 源对象上的事实能否当真：有、验签通过、字节数与内容类型与这次 HEAD 一致，且存储类型是标准型。
+// trustedFacts 源对象上的事实能否当真：有、验签通过、字节数与内容类型与这次 HEAD 一致、存储类型是标准型，
+// 且事实里的 CRC64 与 HEAD 给出的当前字节 CRC64 相等。
 // 不能时返回回退原因（日志用）。
 func (s *Server) trustedFacts(h objectHead) (*storedFacts, string) { return trustFacts(s.id, h) }
 
@@ -165,6 +184,16 @@ func trustFacts(id *identity, h objectHead) (*storedFacts, string) {
 	if h.StorageClass != "" && !strings.EqualFold(h.StorageClass, "Standard") {
 		return nil, "source_storage_class"
 	}
+	// 事实必须绑定当前字节：事实里的 CRC64 与 OSS 对当前字节给出的 CRC64 相等。任一侧没有都无法证明，回退原路径
+	if f.CRC64 == "" {
+		return nil, "source_facts_no_crc64" // 绑定上线前写入的事实
+	}
+	if h.CRC64 == "" {
+		return nil, "source_crc64_missing" // 存储不给 x-oss-hash-crc64ecma
+	}
+	if f.CRC64 != h.CRC64 {
+		return nil, "source_crc64_mismatch" // 字节被换过（例如别处的事实被原样抄过来）
+	}
 	return f, ""
 }
 
@@ -179,9 +208,10 @@ type storeFactsVal struct {
 
 // withStoreFacts 登记本地文件 path 的事实（只在 probe 过的落桶里调用），存储的 Put 据此写对象元数据。
 // 与 withKnownDigest 一样只对这一个路径生效：同一请求里写的索引、其它产物不带。
-func (s *Server) withStoreFacts(ctx context.Context, path, sum string, size int64, meta MediaMeta) context.Context {
+// crc 为空（不知道这份字节的 CRC64）时照样写事实，只是之后不能据此服务端复制（见 trustFacts）。
+func (s *Server) withStoreFacts(ctx context.Context, path, sum, crc string, size int64, meta MediaMeta) context.Context {
 	return withSealedFacts(ctx, path, sum, size,
-		sealFacts(s.id, storedFacts{V: storedFactsVersion, Sha256: sum, Size: size, Meta: meta}))
+		sealFacts(s.id, storedFacts{V: storedFactsVersion, Sha256: sum, Size: size, CRC64: crc, Meta: meta}))
 }
 
 func withSealedFacts(ctx context.Context, path, sum string, size int64, sealed string) context.Context {

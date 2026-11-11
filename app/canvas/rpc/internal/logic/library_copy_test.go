@@ -18,6 +18,7 @@ import (
 	"aigc-local-life/pkg/mediasvc"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/go-sql-driver/mysql"
 	"github.com/zeromicro/go-zero/core/stores/sqlx"
 )
 
@@ -124,7 +125,9 @@ func TestAsyncSucceedVisibleBeforeCopy(t *testing.T) {
 	mock.ExpectBegin()
 	mock.ExpectExec("UPDATE `afv_canvas_node_run` SET `status` = 2, .*mr://" + srcRID0 + "\\.png.*mr://" + srcRID1 + "\\.webp.* WHERE \\(`id` = 5\\) AND \\(`status` = 1\\)").
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec("INSERT IGNORE INTO `afv_canvas_copy_job` .*VALUES \\(.*5, 'cv_t', 7, 0, 0, NOW\\(3\\) \\+ INTERVAL 10 SECOND\\)").
+	// 落行同时存下入素材库所需的快照（src_snapshot：kind / 请求 / mr:// 候选），run 行被硬删除时据此兜底
+	mock.ExpectExec("INSERT IGNORE INTO `afv_canvas_copy_job` .*`src_snapshot`.*VALUES \\(.*5, 'cv_t', 7, 0, 0, NOW\\(3\\) \\+ INTERVAL 10 SECOND, " +
+		"'\\{\"kind\":\"image\".*mr://" + srcRID0 + "\\.png.*mr://" + srcRID1 + "\\.webp.*'\\)").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
 	mock.ExpectExec("UPDATE `afv_canvas_node_run` AS `r` SET .*`billing_status` = 'unsettled'.*WHERE \\(id = 5\\)").
@@ -300,7 +303,7 @@ func TestCopyJobGivesUpAfterMaxAttempts(t *testing.T) {
 	}
 }
 
-// run 不是成功态（失败 / 取消 / 退款，没有付费产物）或 run 行已不存在（outbox 不存 rid，无从复制）：作废，不复制、不入库。
+// run 不是成功态（失败 / 取消 / 退款，没有付费产物）或 run 行已不存在且转存行没有快照（旧行，无从复制）：作废，不复制、不入库。
 func TestCopyJobVoidWhenRunGone(t *testing.T) {
 	for name, st := range map[string]int8{"failed": model.RunFailed, "canceled": model.RunCanceled, "gone": -1} {
 		t.Run(name, func(t *testing.T) {
@@ -308,6 +311,9 @@ func TestCopyJobVoidWhenRunGone(t *testing.T) {
 			mock.ExpectExec("UPDATE `afv_canvas_copy_job` SET attempt = attempt \\+ 1").WillReturnResult(sqlmock.NewResult(0, 1))
 			if st < 0 {
 				mock.ExpectQuery("WHERE \\(r.id = 5\\) LIMIT 1").WillReturnRows(sqlmock.NewRows(copyRunCols))
+				// 旧行（Go_V1.0.31 之前落的）没有快照：无从复制，作废
+				mock.ExpectQuery("SELECT `src_snapshot` FROM `afv_canvas_copy_job` WHERE \\(id = 9\\) LIMIT 1").
+					WillReturnRows(sqlmock.NewRows([]string{"src_snapshot"}).AddRow(nil))
 			} else {
 				expectRunRow(mock, st, "image", refCands(srcRID0), nil, 0)
 			}
@@ -553,5 +559,97 @@ func TestCopyRoundAndMaxAttemptsClamp(t *testing.T) {
 	c.s.Config.Library.MaxAttempts = 5000
 	if got := c.copyMaxAttempts(); got != repo.CopyAttemptEpoch-1 {
 		t.Errorf("copyMaxAttempts = %d, want clamp to %d", got, repo.CopyAttemptEpoch-1)
+	}
+}
+
+// run 行被硬删除（人工改库）但转存行带快照（Go_V1.0.31）：按快照照常复制（同一批幂等键）、入素材库（素材行取自快照），
+// 没有 run 行可换引用、不写 run；重做时 InsertSetOnce 查重，不会写出第二组。
+func TestCopyJobOrphanRunUsesSnapshot(t *testing.T) {
+	c, mock, lm, _ := asyncCore(t)
+	adb, amock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = adb.Close() })
+	c.s.Asset = asset.NewWriter(sqlx.NewSqlConnFromDB(adb))
+	c.s.Config.Asset.Enabled = true
+	c.s.Config.EntryCodes.Image = "canvas.image"
+	run := gatewayRun(5, model.RunSucceeded)
+	run.Request = json.RawMessage(`{"model":"Banana","prompt":"一只猫","ratio":"1:1"}`)
+	snap := copySnapshotOf(run, json.RawMessage(refCands(srcRID0, srcRID1)), "")
+
+	mock.ExpectExec("UPDATE `afv_canvas_copy_job` SET attempt = attempt \\+ 1").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery("WHERE \\(r.id = 5\\) LIMIT 1").WillReturnRows(sqlmock.NewRows(copyRunCols))
+	mock.ExpectQuery("SELECT `src_snapshot` FROM `afv_canvas_copy_job` WHERE \\(id = 9\\) LIMIT 1").
+		WillReturnRows(sqlmock.NewRows([]string{"src_snapshot"}).AddRow(string(snap)))
+	mock.ExpectExec("UPDATE `afv_canvas_copy_job` SET next_at = GREATEST").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("UPDATE `afv_canvas_copy_job` SET next_at = GREATEST").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("UPDATE `afv_canvas_copy_job` SET status = 1, finished_at = NOW\\(3\\) WHERE \\(id = 9\\) AND \\(status = 0\\) AND \\(attempt = 1\\)").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	amock.ExpectBegin()
+	amock.ExpectQuery("SELECT COUNT\\(1\\) FROM afv_asset").WithArgs("cv_t", int64(7)).WillReturnRows(sqlmock.NewRows([]string{"n"}).AddRow(0))
+	amock.ExpectQuery("FROM `afv_workspace`").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(3))
+	for _, u := range []string{"https://cdn/lib0", "https://cdn/lib1"} {
+		amock.ExpectExec("INSERT INTO afv_asset").WithArgs(int64(7), int64(3), "cv_t", "image", "canvas.image",
+			sqlmock.AnyArg(), u, u, "1:1", sqlmock.AnyArg(), "一只猫").WillReturnResult(sqlmock.NewResult(11, 1))
+	}
+	amock.ExpectCommit()
+
+	c.runCopyJob(context.Background(), copyJob(0))
+	if lm.copies["canvas-copy:cv_t:0"] != 1 || lm.copies["canvas-copy:cv_t:1"] != 1 || lm.copyCount() != 2 {
+		t.Fatalf("应按快照用同一批幂等键复制: %v", lm.copies)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err) // 没有 UPDATE afv_canvas_node_run：run 行已不存在
+	}
+	if err := amock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("应入素材库: %v", err)
+	}
+}
+
+// 视频 run 的快照：成片与封面都带上，run 行没了照样复制成片（i=99）与封面（i=0）。
+func TestOrphanRunFromSnapshot(t *testing.T) {
+	run := gatewayRun(5, model.RunSucceeded)
+	run.Kind = model.KindVideo
+	snap := copySnapshotOf(run, json.RawMessage(refCands(srcRID0)), "mr://"+srcVideo+".mp4")
+	j := copyJob(0)
+	r := orphanRun(j, snap)
+	if r == nil || r.ID != 5 || r.UserID != 7 || r.TaskID.String != "cv_t" || r.Kind != model.KindVideo || r.Status != model.RunSucceeded ||
+		r.VideoURL.String != "mr://"+srcVideo+".mp4" || len(r.CandidateList()) != 1 || r.CanvasID != run.CanvasID || r.NodeID != run.NodeID {
+		t.Fatalf("快照应还原入素材库所需字段: %+v", r)
+	}
+	if !hasPendingRefs(r.CandidateList(), r.VideoURL.String) {
+		t.Fatal("快照里的 mr:// 应待转存")
+	}
+	for name, raw := range map[string][]byte{"nil": nil, "bad": []byte("{"), "nokind": []byte(`{"candidates":[]}`), "empty": []byte(`{"kind":"image"}`)} {
+		if orphanRun(j, raw) != nil {
+			t.Fatalf("%s: 无效快照应退回旧行为", name)
+		}
+	}
+}
+
+// src_snapshot 列还不存在（Go_V1.0.31 未执行）：同一事务里去掉这一列重写，照常走 outbox；读快照报 1054 按没有处理。
+func TestCopyJobEnqueueWithoutSnapshotColumn(t *testing.T) {
+	c, mock := mockCore(t)
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT IGNORE INTO `afv_canvas_copy_job` .*`src_snapshot`").
+		WillReturnError(&mysql.MySQLError{Number: 1054, Message: "Unknown column 'src_snapshot' in 'field list'"})
+	mock.ExpectExec("INSERT IGNORE INTO `afv_canvas_copy_job` \\(`run_pk`, `task_id`, `user_id`, `status`, `attempt`, `next_at`\\) VALUES \\(5, 'cv_t', 7, 0, 0, NOW\\(3\\) \\+ INTERVAL 10 SECOND\\)").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+	err := c.s.Repo.RunInTx(context.Background(), func(ctx context.Context, tx *repo.Repo) error {
+		return tx.CopyJob.Enqueue(ctx, 5, "cv_t", 7, 10, []byte(`{"kind":"image"}`))
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mock.ExpectQuery("SELECT `src_snapshot` FROM `afv_canvas_copy_job`").
+		WillReturnError(&mysql.MySQLError{Number: 1054, Message: "Unknown column 'src_snapshot' in 'field list'"})
+	if raw, err := c.s.Repo.CopyJob.SourceSnapshot(context.Background(), 9); err != nil || raw != nil {
+		t.Fatalf("列不存在应按没有快照: %s %v", raw, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
 	}
 }

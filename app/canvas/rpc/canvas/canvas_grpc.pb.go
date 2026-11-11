@@ -31,6 +31,7 @@ const (
 	Canvas_ListRuns_FullMethodName                    = "/canvas.Canvas/ListRuns"
 	Canvas_SelectCandidate_FullMethodName             = "/canvas.Canvas/SelectCandidate"
 	Canvas_RetryLibraryCopy_FullMethodName            = "/canvas.Canvas/RetryLibraryCopy"
+	Canvas_CandidateSource_FullMethodName             = "/canvas.Canvas/CandidateSource"
 	Canvas_Catalog_FullMethodName                     = "/canvas.Canvas/Catalog"
 	Canvas_ListTemplates_FullMethodName               = "/canvas.Canvas/ListTemplates"
 	Canvas_GetTemplate_FullMethodName                 = "/canvas.Canvas/GetTemplate"
@@ -83,6 +84,9 @@ type CanvasClient interface {
 	// 重新存入素材库：成功 run 的产物转存永久失败（library_status=failed）时把转存任务重置为待转存并立即执行；
 	// 仅本人；已在转存中 / 已在素材库时幂等返回当前状态；同一 run 每分钟至多重置一次。返回 run（library_status 变为 pending）
 	RetryLibraryCopy(ctx context.Context, in *RunIdReq, opts ...grpc.CallOption) (*RunResult, error)
+	// 只增（2026-11-11）：成功 run 某个图片候选的来源（仅本人、未删除）：私有引用（mr:// / mrw://，转存素材库前 / 失败 / 免费档）给 rid，
+	// 否则给长期地址。供区域蒙版（POST /api/v1/studio/masks 的 canvas_request_id + candidate_index）按归属精确取图，不下发给前端。
+	CandidateSource(ctx context.Context, in *CandidateSourceReq, opts ...grpc.CallOption) (*CandidateSourceResp, error)
 	// ---- 目录 ----
 	Catalog(ctx context.Context, in *CatalogReq, opts ...grpc.CallOption) (*CatalogResp, error)
 	// ---- 模板 ----
@@ -230,6 +234,16 @@ func (c *canvasClient) RetryLibraryCopy(ctx context.Context, in *RunIdReq, opts 
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(RunResult)
 	err := c.cc.Invoke(ctx, Canvas_RetryLibraryCopy_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *canvasClient) CandidateSource(ctx context.Context, in *CandidateSourceReq, opts ...grpc.CallOption) (*CandidateSourceResp, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CandidateSourceResp)
+	err := c.cc.Invoke(ctx, Canvas_CandidateSource_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -457,6 +471,9 @@ type CanvasServer interface {
 	// 重新存入素材库：成功 run 的产物转存永久失败（library_status=failed）时把转存任务重置为待转存并立即执行；
 	// 仅本人；已在转存中 / 已在素材库时幂等返回当前状态；同一 run 每分钟至多重置一次。返回 run（library_status 变为 pending）
 	RetryLibraryCopy(context.Context, *RunIdReq) (*RunResult, error)
+	// 只增（2026-11-11）：成功 run 某个图片候选的来源（仅本人、未删除）：私有引用（mr:// / mrw://，转存素材库前 / 失败 / 免费档）给 rid，
+	// 否则给长期地址。供区域蒙版（POST /api/v1/studio/masks 的 canvas_request_id + candidate_index）按归属精确取图，不下发给前端。
+	CandidateSource(context.Context, *CandidateSourceReq) (*CandidateSourceResp, error)
 	// ---- 目录 ----
 	Catalog(context.Context, *CatalogReq) (*CatalogResp, error)
 	// ---- 模板 ----
@@ -525,6 +542,9 @@ func (UnimplementedCanvasServer) SelectCandidate(context.Context, *SelectCandida
 }
 func (UnimplementedCanvasServer) RetryLibraryCopy(context.Context, *RunIdReq) (*RunResult, error) {
 	return nil, status.Error(codes.Unimplemented, "method RetryLibraryCopy not implemented")
+}
+func (UnimplementedCanvasServer) CandidateSource(context.Context, *CandidateSourceReq) (*CandidateSourceResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method CandidateSource not implemented")
 }
 func (UnimplementedCanvasServer) Catalog(context.Context, *CatalogReq) (*CatalogResp, error) {
 	return nil, status.Error(codes.Unimplemented, "method Catalog not implemented")
@@ -816,6 +836,24 @@ func _Canvas_RetryLibraryCopy_Handler(srv interface{}, ctx context.Context, dec 
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(CanvasServer).RetryLibraryCopy(ctx, req.(*RunIdReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Canvas_CandidateSource_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CandidateSourceReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CanvasServer).CandidateSource(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Canvas_CandidateSource_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CanvasServer).CandidateSource(ctx, req.(*CandidateSourceReq))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1216,6 +1254,10 @@ var Canvas_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "RetryLibraryCopy",
 			Handler:    _Canvas_RetryLibraryCopy_Handler,
+		},
+		{
+			MethodName: "CandidateSource",
+			Handler:    _Canvas_CandidateSource_Handler,
 		},
 		{
 			MethodName: "Catalog",

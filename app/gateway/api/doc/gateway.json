@@ -12444,12 +12444,19 @@
             "schema": {
               "type": "object",
               "required": [
-                "image_url",
                 "target"
               ],
               "properties": {
+                "candidate_index": {
+                  "description": "配合 canvas_request_id：候选下标（0 起）；不传 = 该执行当前选中的候选",
+                  "type": "integer"
+                },
+                "canvas_request_id": {
+                  "description": "画布执行的 request_id（GET /api/v1/canvas/runs/:id 的 id）：识别该执行的图片候选",
+                  "type": "string"
+                },
                 "image_url": {
-                  "description": "本服务存储签发 / 素材库域名的 http(s) 地址（如任务 result_url）；第三方地址拒收",
+                  "description": "本服务存储签发 / 素材库域名的 http(s) 地址（如任务 result_url）；第三方地址拒收。带 task_id / canvas_request_id 时可不传（传了须是同一张图）",
                   "type": "string"
                 },
                 "parts": {
@@ -12468,6 +12475,10 @@
                     "person",
                     "background"
                   ]
+                },
+                "task_id": {
+                  "description": "studio 子任务号（批次详情 tasks[].task_id）：识别该子任务的成品",
+                  "type": "string"
                 }
               }
             }
@@ -14952,7 +14963,7 @@
       "in": "header"
     }
   },
-  "x-date": "2026-11-11 17:42:44",
+  "x-date": "2026-11-11 20:30:32",
   "x-description": "This is a goctl generated swagger file.",
   "x-github": "https://github.com/zeromicro/go-zero",
   "x-go-zero-doc": "https://go-zero.dev/",

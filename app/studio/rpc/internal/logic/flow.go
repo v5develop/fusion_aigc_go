@@ -125,7 +125,9 @@ type flow struct {
 	gwOn  bool
 	bill  flowBiller
 	asset func(ctx context.Context, list []asset.Asset) error
-	sync  func(ctx context.Context)
+	// assetOnce 按成品地址查重写一条资产（成品已换后补入旧成品用，见 library_copy.go）
+	assetOnce func(ctx context.Context, a asset.Asset) (bool, error)
+	sync      func(ctx context.Context)
 	// syncSoon 收尾路径上的任务中心同步（异步，不挡批次收敛）；nil 时退回 sync
 	syncSoon func()
 	now      func() time.Time
@@ -200,7 +202,8 @@ func newFlow(s *svc.ServiceContext) *flow {
 	f := &flow{
 		cfg: s.Config, repo: s.Repo, rev: s.Reverse, bill: s.Billing,
 		sem: semaphore.NewGroup(), now: time.Now, owner: lease.Owner(),
-		asset: func(ctx context.Context, list []asset.Asset) error { return s.Asset.InsertSet(ctx, list) },
+		asset:     func(ctx context.Context, list []asset.Asset) error { return s.Asset.InsertSet(ctx, list) },
+		assetOnce: func(ctx context.Context, a asset.Asset) (bool, error) { return s.Asset.InsertOnceByURL(ctx, a) },
 		dropAssets: func(ctx context.Context, userID int64, sourceTaskID string) error {
 			return s.Asset.SoftDeleteByTask(ctx, userID, sourceTaskID)
 		},

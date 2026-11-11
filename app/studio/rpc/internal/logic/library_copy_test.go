@@ -62,14 +62,21 @@ func asyncFlow(t *testing.T) (*flow, sqlmock.Sqlmock, *fakeFlowBill, *copyMedia,
 }
 
 var (
-	qJobInsert = regexp.QuoteMeta("INSERT IGNORE INTO `afv_studio_copy_job` (`task_pk`, `task_id`, `user_id`, `src_rid`, `ref`, `status`, `attempt`, `next_at`) VALUES (1, 'simg_1', 7, '" +
-		wmRID + "', '" + paidRef + "', 0, 0, NOW(3) + INTERVAL 10 SECOND)")
-	qTask1 = regexp.QuoteMeta("WHERE (t.id = 1) LIMIT 1")
+	// 落行同时记下这张成品的预留单（billing_request_id，Go_V1.0.31）：成品已换时据此判断旧成品是否付过费
+	qJobInsert = regexp.QuoteMeta("INSERT IGNORE INTO `afv_studio_copy_job` (`task_pk`, `task_id`, `user_id`, `src_rid`, `ref`, `status`, `attempt`, `next_at`, `billing_request_id`) VALUES (1, 'simg_1', 7, '" +
+		wmRID + "', '" + paidRef + "', 0, 0, NOW(3) + INTERVAL 10 SECOND, 'studio-simg_1')")
+	qJobBill = regexp.QuoteMeta("SELECT `billing_request_id` FROM `afv_studio_copy_job` WHERE (id = 5) LIMIT 1")
+	qTask1   = regexp.QuoteMeta("WHERE (t.id = 1) LIMIT 1")
 )
 
 func taskRowRef(status int8, url string, deleted int8) *sqlmock.Rows {
 	return sqlmock.NewRows([]string{"id", "batch_id", "user_id", "kind", "task_id", "status", "result_rid", "result_url", "deleted"}).
 		AddRow(1, 9, 7, "imagegen", "simg_1", status, wmRID, url, deleted)
+}
+
+// expectJobBill 转存行的 billing_request_id（nil = 本列上线前落的旧行）。
+func expectJobBill(mock sqlmock.Sqlmock, v any) {
+	mock.ExpectQuery(qJobBill).WillReturnRows(sqlmock.NewRows([]string{"billing_request_id"}).AddRow(v))
 }
 
 func pendingJob(attempt int32) *model.CopyJob {
@@ -236,6 +243,7 @@ func TestRunCopyJobVoid(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			f, mock, _, media, saved := asyncFlow(t)
 			mock.ExpectQuery(qTask1).WillReturnRows(rows)
+			expectJobBill(mock, nil) // 旧行：无从判断旧成品是否付费，按旧行为作废
 			mock.ExpectExec(qJobUpdate("status = 3", 0)).WillReturnResult(ok1)
 			f.runCopyJob(context.Background(), pendingJob(0))
 			met(t, mock)
@@ -304,6 +312,7 @@ func TestRunCopyJobVoidWhenChangedDuringCopy(t *testing.T) {
 	mock.ExpectExec(qJobUpdate("attempt = attempt + 1", 0)).WillReturnResult(ok1)
 	mock.ExpectExec(qJobUpdate("next_at = GREATEST", 1)).WillReturnResult(ok1)
 	mock.ExpectQuery(qTask1).WillReturnRows(taskRowRef(model.TaskRunning, "", 0))
+	expectJobBill(mock, nil)
 	mock.ExpectExec(qJobUpdate("status = 3", 1)).WillReturnResult(ok1)
 	f.runCopyJob(context.Background(), pendingJob(0))
 	met(t, mock)
@@ -613,6 +622,7 @@ func TestRunCopyJobAlreadySwappedFinishesDone(t *testing.T) {
 	f, mock, _, media, saved := asyncFlow(t)
 	mock.ExpectQuery(qTask1).WillReturnRows(sqlmock.NewRows([]string{"id", "batch_id", "user_id", "kind", "task_id", "status", "result_rid", "result_url", "deleted"}).
 		AddRow(1, 9, 7, "imagegen", "simg_1", model.TaskSucceeded, libRID, libURL, 0))
+	expectJobBill(mock, nil)
 	mock.ExpectExec(qJobUpdate("status = 1, finished_at = NOW(3)", 0)).WillReturnResult(ok1)
 	mock.ExpectQuery(qB9).WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "status"}).AddRow(9, 7, model.BatchDone))
 	f.runCopyJob(context.Background(), pendingJob(0))

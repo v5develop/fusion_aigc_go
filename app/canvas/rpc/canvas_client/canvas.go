@@ -28,6 +28,8 @@ type (
 	AdminUpsertPromptReq        = canvas.AdminUpsertPromptReq
 	AdminUpsertTemplateReq      = canvas.AdminUpsertTemplateReq
 	Candidate                   = canvas.Candidate
+	CandidateSourceReq          = canvas.CandidateSourceReq
+	CandidateSourceResp         = canvas.CandidateSourceResp
 	CanvasDoc                   = canvas.CanvasDoc
 	CanvasIdReq                 = canvas.CanvasIdReq
 	CanvasSummary               = canvas.CanvasSummary
@@ -84,6 +86,8 @@ type (
 		SelectCandidate(ctx context.Context, in *SelectCandidateReq, opts ...grpc.CallOption) (*RunResult, error)
 		// 重新存入素材库：成功 run 的产物转存永久失败（library_status=failed）时把转存任务重置为待转存并立即执行；
 		RetryLibraryCopy(ctx context.Context, in *RunIdReq, opts ...grpc.CallOption) (*RunResult, error)
+		// 只增（2026-11-11）：成功 run 某个图片候选的来源（仅本人、未删除）：私有引用（mr:// / mrw://，转存素材库前 / 失败 / 免费档）给 rid，
+		CandidateSource(ctx context.Context, in *CandidateSourceReq, opts ...grpc.CallOption) (*CandidateSourceResp, error)
 		// ---- 目录 ----
 		Catalog(ctx context.Context, in *CatalogReq, opts ...grpc.CallOption) (*CatalogResp, error)
 		// ---- 模板 ----
@@ -184,6 +188,12 @@ func (m *defaultCanvas) SelectCandidate(ctx context.Context, in *SelectCandidate
 func (m *defaultCanvas) RetryLibraryCopy(ctx context.Context, in *RunIdReq, opts ...grpc.CallOption) (*RunResult, error) {
 	client := canvas.NewCanvasClient(m.cli.Conn())
 	return client.RetryLibraryCopy(ctx, in, opts...)
+}
+
+// 只增（2026-11-11）：成功 run 某个图片候选的来源（仅本人、未删除）：私有引用（mr:// / mrw://，转存素材库前 / 失败 / 免费档）给 rid，
+func (m *defaultCanvas) CandidateSource(ctx context.Context, in *CandidateSourceReq, opts ...grpc.CallOption) (*CandidateSourceResp, error) {
+	client := canvas.NewCanvasClient(m.cli.Conn())
+	return client.CandidateSource(ctx, in, opts...)
 }
 
 // ---- 目录 ----

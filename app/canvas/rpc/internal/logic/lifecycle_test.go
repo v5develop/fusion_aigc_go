@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"hash/crc32"
 	"image"
 	"image/color"
@@ -729,5 +730,133 @@ func TestDispatchGatewayExhaustedReclaims(t *testing.T) {
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// 提交以永久错误失败、置失败的 CAS 没抢到（提交超过行租约，run 已被别的实例接手、同幂等键重提拿回同一批调用并转运行中）：
+// 重读 run，backend_ref 里记录在案的调用不取消（别的实例正在跟踪，用户点数还冻结着）。
+func TestDispatchFailCASLostKeepsCallsTrackedByTakeover(t *testing.T) {
+	c, mock := mockCore(t)
+	c.s.Billing = billing.New(billing.Conf{Mode: billing.ModeOff}, nil)
+	rec := fakeGateway(t, c, 200, 400)
+	run := gatewayRun(41, model.RunQueued)
+	run.Request = json.RawMessage(`{"model":"Banana","prompt":"p","count":2}`)
+	run.RequestedCount = 2
+	sp, err := c.specFromRun(context.Background(), run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mock.ExpectExec("SET `status` = 3, .*`error_code` = 'PARAM_INVALID'.* WHERE \\(`id` = 41\\) AND \\(`status` = 0\\)").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery("FROM `afv_canvas_node_run` AS `r` WHERE \\(r.id = 41\\)").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "status", "backend", "backend_ref"}).AddRow(41, model.RunRunning, "gateway", "call_aaaaaaaaaa07"))
+	if err := c.dispatch(context.Background(), run, sp, ""); err == nil {
+		t.Fatal("永久错误应回错误")
+	}
+	if rec.has("/v1/calls/call_aaaaaaaaaa07/cancel") {
+		t.Fatalf("别的实例在跟踪的调用不能取消: %v", rec.paths)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// 同上但 run 是在排队时被取消 / 强制失败的（backend_ref 为空，没人跟踪这批调用）：照常取消，不留孤儿。
+func TestDispatchFailCASLostCancelsUnrecordedCalls(t *testing.T) {
+	c, mock := mockCore(t)
+	c.s.Billing = billing.New(billing.Conf{Mode: billing.ModeOff}, nil)
+	rec := fakeGateway(t, c, 200, 400)
+	run := gatewayRun(41, model.RunQueued)
+	run.Request = json.RawMessage(`{"model":"Banana","prompt":"p","count":2}`)
+	run.RequestedCount = 2
+	sp, err := c.specFromRun(context.Background(), run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mock.ExpectExec("SET `status` = 3, .*WHERE \\(`id` = 41\\) AND \\(`status` = 0\\)").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery("FROM `afv_canvas_node_run` AS `r` WHERE \\(r.id = 41\\)").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "status", "backend", "backend_ref"}).AddRow(41, model.RunCanceled, "gateway", nil))
+	if err := c.dispatch(context.Background(), run, sp, ""); err == nil {
+		t.Fatal("永久错误应回错误")
+	}
+	if !rec.has("/v1/calls/call_aaaaaaaaaa07/cancel") {
+		t.Fatalf("没人跟踪的调用应取消: %v", rec.paths)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// 重读 run 失败：一个都不取消（宁可留给网关 deadline 兜底，也不误杀别的实例在跟踪的调用）。
+func TestDispatchFailCASLostRereadErrorSkipsCancel(t *testing.T) {
+	c, mock := mockCore(t)
+	c.s.Billing = billing.New(billing.Conf{Mode: billing.ModeOff}, nil)
+	rec := fakeGateway(t, c, 200, 400)
+	run := gatewayRun(41, model.RunQueued)
+	run.Request = json.RawMessage(`{"model":"Banana","prompt":"p","count":2}`)
+	run.RequestedCount = 2
+	sp, err := c.specFromRun(context.Background(), run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mock.ExpectExec("SET `status` = 3").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery("FROM `afv_canvas_node_run` AS `r` WHERE \\(r.id = 41\\)").WillReturnError(errors.New("db down"))
+	_ = c.dispatch(context.Background(), run, sp, "")
+	if rec.has("/v1/calls/call_aaaaaaaaaa07/cancel") {
+		t.Fatalf("重读失败不应取消: %v", rec.paths)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// 提交成功但转运行中的 CAS 没抢到：同样只取消 run 行没记录的调用（接手的实例已把同一批调用写进 backend_ref 时不动）。
+func TestDispatchRunningCASLostKeepsRecordedCalls(t *testing.T) {
+	c, mock := mockCore(t)
+	c.s.Billing = billing.New(billing.Conf{Mode: billing.ModeOff}, nil)
+	rec := fakeGateway(t, c, 200)
+	run := gatewayRun(41, model.RunQueued)
+	run.Request = json.RawMessage(`{"model":"Banana","prompt":"p","count":1}`)
+	sp, err := c.specFromRun(context.Background(), run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mock.ExpectExec("SET `status` = 1, .*WHERE \\(`id` = 41\\) AND \\(`status` = 0\\)").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery("FROM `afv_canvas_node_run` AS `r` WHERE \\(r.id = 41\\)").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "status", "backend", "backend_ref"}).AddRow(41, model.RunRunning, "gateway", "call_aaaaaaaaaa07"))
+	if err := c.dispatch(context.Background(), run, sp, ""); err != nil {
+		t.Fatal(err)
+	}
+	if rec.has("/v1/calls/call_aaaaaaaaaa07/cancel") {
+		t.Fatalf("接手实例在跟踪的调用不能取消: %v", rec.paths)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// run 仍未到终态但 backend_ref 还空（别的实例接手后已按同一幂等键拿到调用、还没写进 backend_ref）：一个都不取消，归接手方。
+func TestDispatchCASLostRunLiveUnrecordedNotCancelled(t *testing.T) {
+	for _, st := range []int8{model.RunQueued, model.RunRunning} {
+		c, mock := mockCore(t)
+		c.s.Billing = billing.New(billing.Conf{Mode: billing.ModeOff}, nil)
+		rec := fakeGateway(t, c, 200)
+		run := gatewayRun(41, model.RunQueued)
+		run.Request = json.RawMessage(`{"model":"Banana","prompt":"p","count":1}`)
+		sp, err := c.specFromRun(context.Background(), run)
+		if err != nil {
+			t.Fatal(err)
+		}
+		mock.ExpectExec("SET `status` = 1, .*WHERE \\(`id` = 41\\) AND \\(`status` = 0\\)").WillReturnResult(sqlmock.NewResult(0, 0))
+		mock.ExpectQuery("FROM `afv_canvas_node_run` AS `r` WHERE \\(r.id = 41\\)").
+			WillReturnRows(sqlmock.NewRows([]string{"id", "status", "backend", "backend_ref"}).AddRow(41, st, "gateway", nil))
+		if err := c.dispatch(context.Background(), run, sp, ""); err != nil {
+			t.Fatal(err)
+		}
+		if rec.has("/v1/calls/call_aaaaaaaaaa07/cancel") {
+			t.Fatalf("status=%d: 接手方可能还没记下的调用不能取消: %v", st, rec.paths)
+		}
+		if err := mock.ExpectationsWereMet(); err != nil {
+			t.Fatal(err)
+		}
 	}
 }

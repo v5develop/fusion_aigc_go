@@ -129,6 +129,36 @@ func (w *Writer) InsertSetOnce(ctx context.Context, list []Asset) (bool, error) 
 	return wrote, err
 }
 
+// InsertOnceByURL 写一条资产，但同一用户、同一 source_task_id、同一 result_url 已有行（含已被用户删除的）时什么都不写，返回 false。
+// 给「同一任务先后有多张成品、每张各入一次」的后台写入用（如 studio 重新生成后旧成品补入素材库）：按成品地址查重，
+// 不受同任务其它成品行的影响；调用方保证同一成品重做时地址不变（复制幂等键固定）。查重不加锁，并发由调用方互斥（outbox 认领）。
+func (w *Writer) InsertOnceByURL(ctx context.Context, a Asset) (bool, error) {
+	if a.SourceTaskID == "" || a.ResultURL == "" {
+		return true, w.InsertSet(ctx, []Asset{a})
+	}
+	wrote := false
+	err := w.conn.TransactCtx(ctx, func(ctx context.Context, s sqlx.Session) error {
+		var n int64
+		if err := s.QueryRowCtx(ctx, &n, "SELECT COUNT(1) FROM afv_asset WHERE source_task_id = ? AND user_id = ? AND result_url = ?",
+			a.SourceTaskID, a.UserID, a.ResultURL); err != nil {
+			return err
+		}
+		if n > 0 {
+			return nil
+		}
+		wsID, err := workspace.EnsurePersonal(ctx, s, a.UserID, "")
+		if err != nil {
+			return err
+		}
+		if _, err := insert(ctx, s, wsID, a); err != nil {
+			return err
+		}
+		wrote = true
+		return nil
+	})
+	return wrote, err
+}
+
 // InsertWithItems 写一行主资产 + 若干子资产。
 func (w *Writer) InsertWithItems(ctx context.Context, a Asset, items []Item) error {
 	return w.conn.TransactCtx(ctx, func(ctx context.Context, s sqlx.Session) error {

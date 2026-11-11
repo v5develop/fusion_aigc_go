@@ -29,6 +29,7 @@ var knownSnake = map[string]bool{
 	"canceled_tasks":         true,
 	"candidate_index":        true,
 	"canvas_id":              true,
+	"canvas_request_id":      true,
 	"char_url":               true,
 	"cloth_image_url":        true,
 	"color_fix":              true,

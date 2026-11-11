@@ -119,6 +119,9 @@ type masker struct {
 	wait    time.Duration // 网关长轮询单次等待
 	maxCost string        // limits.max_cost（人民币，空 = 不封顶）
 	now     func() time.Time
+	// sign / owner 私有签名地址来源（用户自己的 mr:// / mrw:// 成品，见 mask_source.go）；nil = 不认私有签名地址
+	sign  maskSigner
+	owner maskOwner
 }
 
 // maskPart 一个部位的蒙版（也是 afv_studio_mask_cache.part_masks / afv_studio_task.mask_parts 的 JSON 元素）。
@@ -225,6 +228,20 @@ func normalizeMaskURL(raw string) (string, string, error) {
 // 生成蒙版、转存、落缓存。imageURL 的来源校验（本存储 / 素材库域名）由调用方做。错误：没识别到 → errMaskNoRegion（4001）；
 // 图片格式 / 尺寸不收 → errMaskUnsupportedImage（1003）；网关 / 媒体服务失败 → errMaskUnavailable（6001）。
 func (m *masker) Get(ctx context.Context, userID int64, imageURL, target string, parts []string) (maskResult, error) {
+	return m.get(ctx, userID, imageURL, "", target, parts)
+}
+
+// GetPrivate 私有成品（rid）的区域蒙版：srcURL 是按 rid 现签的干净短期地址（只交给网关），缓存键 / 幂等键按稳定引用
+// mr://{rid}（签名每次不同；水印视图 mrw:// 与原件同一份蒙版）。rid 的归属由调用方确认。
+func (m *masker) GetPrivate(ctx context.Context, userID int64, rid, srcURL, target string, parts []string) (maskResult, error) {
+	if !mediasvc.ValidRID(rid) {
+		return maskResult{}, xerr.Param("图片地址不合法")
+	}
+	return m.get(ctx, userID, srcURL, maskPrivateRef(rid), target, parts)
+}
+
+// get ref 非空 = 按稳定引用做缓存键（imageURL 只交给网关），否则按规范化地址。
+func (m *masker) get(ctx context.Context, userID int64, imageURL, ref, target string, parts []string) (maskResult, error) {
 	log := logx.WithContext(ctx)
 	target, ok := normalizeMaskTarget(target)
 	if !ok {
@@ -238,6 +255,9 @@ func (m *masker) Get(ctx context.Context, userID int64, imageURL, target string,
 	norm, key, err := normalizeMaskURL(imageURL)
 	if err != nil {
 		return maskResult{}, xerr.Param(err.Error())
+	}
+	if ref != "" {
+		norm, key = ref, maskRefKey(ref)
 	}
 	if !m.Ready() {
 		return maskResult{}, xerr.New(xerr.NotReady, "区域识别暂未开放，请稍后再试")
@@ -642,9 +662,20 @@ func newMasker(s *svc.ServiceContext) *masker {
 		m.gw = s.Gateway
 	}
 	if s.MediaSvc != nil { // 别把 nil 指针装进接口
-		m.media = s.MediaSvc
+		m.media, m.sign = s.MediaSvc, s.MediaSvc
+	}
+	if s.Repo != nil && s.Repo.Task != nil {
+		m.owner = s.Repo.Task
 	}
 	return m
+}
+
+// privateRidOf 私有引用（mr:// / mrw://）→ rid；不是私有引用返回 ""。
+func privateRidOf(v string) string {
+	if rid := watermarkRidOf(v); rid != "" {
+		return rid
+	}
+	return mrRidOf(v)
 }
 
 // maskKinds 成品置成功后自动补服装蒙版的任务类型（商拍换装 / 姿态复刻的成品是穿着服装的人物）。
@@ -670,11 +701,18 @@ func (f *flow) attachMaskAsync(t *model.Task, userID int64, resultURL string, pa
 				logx.Field("task_id", taskID))
 			return
 		}
-		res, err := f.mask.Get(ctx, userID, src, MaskGarment, parts)
+		// 私有引用（mr:// / mrw://）按稳定引用 mr://{rid} 做缓存键：与 POST /api/v1/studio/masks 拿签名地址来识别时同一份缓存
+		get := func(p []string) (maskResult, error) {
+			if rid := privateRidOf(resultURL); rid != "" {
+				return f.mask.GetPrivate(ctx, userID, rid, src, MaskGarment, p)
+			}
+			return f.mask.Get(ctx, userID, src, MaskGarment, p)
+		}
+		res, err := get(parts)
 		if len(parts) > 0 && err != nil && !errors.Is(err, errMaskNoRegion) && !errors.Is(err, errMaskUnsupportedImage) {
 			log.Infow("studio mask: warning per-item mask unavailable, fall back to whole garment (check=task_mask_parts_fallback)",
 				logx.Field("task_id", taskID), logx.Field("parts", strings.Join(parts, ",")), logx.Field("reason", err.Error()))
-			res, err = f.mask.Get(ctx, userID, src, MaskGarment, nil)
+			res, err = get(nil)
 		}
 		if errors.Is(err, errMaskUnsupportedImage) {
 			log.Infow("studio mask: warning task result image unsupported for segmentation, mask_url stays empty (check=task_mask_unsupported)",

@@ -26,10 +26,18 @@ package logic
 //     补蒙版要付网关费用）。作废只留给「成品没付费 / 不再是它」：交付失败（预留失效）、退款、取消、成品已换。
 //     子任务行被硬删除（只有人工改库会这样）时用 outbox 行自己的字段兜底：src_rid 照常复制，素材行的用户 / source_task_id
 //     取自本行，kind / 入口码按任务号前缀反推（见 orphanTask），不再作废。
-//   - 成品已换（重新生成 / 运营重做）：旧成品同样付过费，但用户侧重新生成在转存期间被拒（regenerate_task_logic.go，
-//     「这张图正在存入素材库」），运营重做只收失败 / 已取消，所以正常走不到；万一走到（竞态 / 人工改库）仍作废——
-//     此时再入旧成品会让新成品的 regen_asset_floor 查重误判「已入库」而漏写新成品——并打 ERROR check=studio.library_copy_superseded
-//     交人工核对。
+//   - 成品已换（重新生成 / 运营重做）：用户侧重新生成在转存期间被拒（regenerate_task_logic.go，「这张图正在存入素材库」），
+//     运营重做只收失败 / 已取消，所以正常走不到；万一走到（竞态 / 人工改库），按本行的 billing_request_id（Go_V1.0.31，
+//     这张成品的预留单）判定：子任务的计费请求号已不是它 = 子任务已换到新一轮；预留单已确认扣费（CONFIRMED / PARTIALLY_REFUNDED）
+//     的旧成品照常复制并入素材库，不换子任务成品地址（那是新成品的），也不补蒙版；预留单已退 / 过期 / 没有 = 没付费，作废；
+//     仍冻结 / 查不到 = 稍后再看。旧成品的资产行在 properties 带 supersededSrcRid=<src_rid> 标记（source_task_id 照旧是子任务号，
+//     Java 侧按任务串联不受影响）：子任务的 asset_id 与 regen_asset_floor（repo.AssetIDs）不认带标记的行，新成品入库按成品地址
+//     查重（saveAssetErr），所以旧成品无论早于 / 晚于新成品入库都不会顶替或挡住新成品；旧成品自身按（source_task_id, 地址）查重，
+//     重做不写第二条。计费未开启（off / shadow）时没有扣费可核对，交付过的旧成品照常入库。
+//     billing_request_id 为空的旧行（本列上线前落的）按结构判定（priorRoundsOf）：子任务重做过且有更晚的转存行、或当前成品是另一个
+//     私有引用时，旧成品属于第 0..attempt-1 轮之一（计费请求号确定），这些轮的预留单全部已扣费 → 入库，全部未扣费 → 作废，
+//     两种都有 → 判定不了，作废并打 ERROR check=studio.library_copy_superseded reason=ambiguous_pre_migration；
+//     结构上判定不了（没重做过 / 当前成品已是素材库地址且无更晚的行 / 当前不是成功态且无更晚的行）走原逻辑（见 supersedeOf）。
 
 import (
 	"context"
@@ -42,6 +50,7 @@ import (
 	"aigc-local-life/app/studio/model"
 	"aigc-local-life/app/studio/rpc/internal/repo"
 	"aigc-local-life/app/studio/rpc/internal/svc"
+	"aigc-local-life/pkg/billing"
 	"aigc-local-life/pkg/mediasvc"
 
 	"github.com/go-sql-driver/mysql"
@@ -133,7 +142,8 @@ func (f *flow) transitWithCopyJob(ctx context.Context, t *model.Task, b *model.B
 		if err != nil || !got {
 			return err
 		}
-		j := &model.CopyJob{TaskPK: t.ID, TaskID: t.TaskID.String, UserID: b.UserID, SrcRid: srcRid, Ref: ref}
+		j := &model.CopyJob{TaskPK: t.ID, TaskID: t.TaskID.String, UserID: b.UserID, SrcRid: srcRid, Ref: ref,
+			BillingRequestID: t.BillingRequestID.String}
 		if err := tx.CopyJob.Enqueue(ctx, j, copyKickGrace); err != nil {
 			return fmt.Errorf("%w: %w", errCopyEnqueue, err)
 		}
@@ -219,6 +229,141 @@ func (f *flow) voidCopyJob(ctx context.Context, j *model.CopyJob, attempt int32,
 	return true
 }
 
+// supersedeVerdict 成品已换时旧成品的结论（见文件头「成品已换」）。
+type supersedeVerdict int
+
+const (
+	notSuperseded       supersedeVerdict = iota // 不是成品已换（子任务还在本行这一轮），或结构上判定不了（见 priorRoundsOf）：走原逻辑
+	supersededPaid                              // 已换到新一轮，旧成品已确认扣费（或计费未开启、没有扣费可核对）：入素材库（带标记），不换地址
+	supersededUnpaid                            // 已换到新一轮，旧成品没扣费（预留已退 / 过期 / 没有单）：作废
+	supersededPending                           // 旧成品的预留单仍冻结 / 查询失败：稍后再看
+	supersededAmbiguous                         // 已换到新一轮，但旧行没记计费请求号、候选轮次里有扣费的也有没扣费的：作废并告警人工核对
+)
+
+// supersedeOf 判定成品已换。t 为 nil（子任务行硬删除）或仍以本行引用为成功成品时不算。
+//
+// 「已换」与旧成品属于哪一轮：
+//   - 本行记了 billing_request_id（Go_V1.0.31 之后落的行）：子任务的计费请求号已不是它 = 已到新一轮（重做每轮换号，
+//     retryBillingRequestID）；旧成品就是这一张预留单。号相同 = 同一轮（交付失败 / 取消 / 本行已换成公开地址），交给原逻辑。
+//   - 没记（本列上线前落的行，或落行时列还不存在）：按结构判定（priorRoundsOf），旧成品属于第 0..attempt-1 轮之一，
+//     这些轮的计费请求号是确定的（studio-<task_id>、studio-<task_id>-r<n>）。
+//
+// 付费判定：
+//   - 计费未开启（off / shadow）：没有扣费可核对，交付过的旧成品照常入库（与同步转存时代一致：入库在确认扣点之前）。
+//   - 计费开启：查旧成品所属（候选）轮次的预留单。全部已确认（CONFIRMED / PARTIALLY_REFUNDED）→ 入库；全部已退 / 过期 →
+//     作废；有冻结中或查询失败 → 稍后再看；候选轮次里两种都有（只会出现在没记计费请求号的旧行）→ 判定不了，作废并告警。
+//     没有预留单的轮次（""：冻结前就失败，不可能出图）不计入。
+func (f *flow) supersedeOf(ctx context.Context, j *model.CopyJob, t *model.Task) (supersedeVerdict, error) {
+	if t == nil || jobLive(t, j) {
+		return notSuperseded, nil
+	}
+	reqID, err := f.repo.CopyJob.BillingRequestID(ctx, j.ID)
+	if err != nil {
+		return supersededPending, fmt.Errorf("读转存行计费请求号失败: %w", err)
+	}
+	var reqs []string
+	if reqID != "" {
+		if t.BillingRequestID.String == reqID {
+			return notSuperseded, nil
+		}
+		reqs = []string{reqID}
+	} else {
+		if reqs, err = f.priorRoundsOf(ctx, j, t); err != nil {
+			return supersededPending, err
+		}
+		if len(reqs) == 0 {
+			return notSuperseded, nil
+		}
+	}
+	if f.bill == nil || f.bill.Mode() != billing.ModeOn {
+		return supersededPaid, nil
+	}
+	paid, unpaid := 0, 0
+	for _, id := range reqs {
+		st, err := f.bill.Status(ctx, j.UserID, id)
+		switch {
+		case err != nil:
+			return supersededPending, fmt.Errorf("查旧成品预留单 %s 失败: %w", id, err)
+		case st == resvHeld:
+			return supersededPending, fmt.Errorf("旧成品预留单 %s 仍冻结", id)
+		case st == resvConfirmed || st == resvPartiallyRefunded:
+			paid++
+		case st == "" && len(reqs) > 1:
+			// 候选轮次没有预留单：冻结前就失败，不可能出过图，不计入
+		default:
+			unpaid++
+		}
+	}
+	switch {
+	case paid > 0 && unpaid == 0:
+		return supersededPaid, nil
+	case paid == 0:
+		return supersededUnpaid, nil
+	}
+	return supersededAmbiguous, nil
+}
+
+// priorRoundsOf 没记计费请求号的旧行：结构上能确定「成品已换、旧成品属于第 0..attempt-1 轮之一」时返回这些轮的计费请求号，
+// 否则返回 nil（交给原逻辑）。能确定的两种情况（子任务已重做过，attempt ≥ 1）：
+//  1. 同一子任务有更晚落的 outbox 行：一轮交付最多一行、行按交付先后递增，本行不是最近一轮的成品；
+//  2. 子任务成功且成品是另一个私有引用（mr:// / mrw://）：同一轮只有一张成品，当前这张不是本行的。
+//
+// 确定不了、仍走原逻辑的（文档逐条写明）：没重做过（attempt=0，只有一轮，原逻辑本就精确）；子任务成功且成品已是素材库地址
+// 而没有更晚的行（按「本行换的」收尾，见 alreadySwapped）；子任务当前不是成功态而没有更晚的行（作废，原逻辑）。
+func (f *flow) priorRoundsOf(ctx context.Context, j *model.CopyJob, t *model.Task) ([]string, error) {
+	if t == nil || t.Attempt < 1 || !t.TaskID.Valid || t.TaskID.String == "" {
+		return nil, nil
+	}
+	newer, err := f.repo.CopyJob.HasNewerJob(ctx, j.TaskPK, j.ID)
+	if err != nil {
+		return nil, fmt.Errorf("查同一子任务更晚的转存行失败: %w", err)
+	}
+	cur := t.ResultURL.String
+	otherRef := t.Status == model.TaskSucceeded && cur != j.Ref && (isPendingRef(cur) || isWatermarkRef(cur))
+	if !newer && !otherRef {
+		return nil, nil
+	}
+	reqs := make([]string, 0, t.Attempt)
+	reqs = append(reqs, BillingPrefix+t.TaskID.String)
+	for n := 1; n < int(t.Attempt); n++ {
+		reqs = append(reqs, retryBillingRequestID(t.TaskID.String, n))
+	}
+	return reqs, nil
+}
+
+// voidAmbiguous 判定不了旧成品是否付过费（见 supersedeOf）：作废并告警人工核对（宁可少入一张也不白送没付费的成品）。
+func (f *flow) voidAmbiguous(ctx context.Context, j *model.CopyJob, attempt int32) {
+	if ok, err := f.repo.CopyJob.Finish(ctx, j.ID, attempt, model.CopyVoid, "成品已换，旧成品是否付费判定不了"); err != nil || !ok {
+		if err != nil {
+			logx.WithContext(ctx).Errorf("studio: 转存任务 %d（子任务 %d）写作废失败: %v", j.ID, j.TaskPK, err)
+		}
+		return
+	}
+	copyJobs.Inc("void")
+	logx.WithContext(ctx).Errorw(fmt.Sprintf("studio: 子任务 %d 成品已换，旧转存行没记计费请求号且候选轮次付费情况不一，旧成品未入素材库，需人工核对 (check=%s)",
+		j.TaskPK, copySupersededCheck), logx.Field("task_id", j.TaskID), logx.Field("user_id", j.UserID), logx.Field("src_rid", j.SrcRid),
+		logx.Field("reason", "ambiguous_pre_migration"))
+}
+
+// saveSupersededAsset 成品已换但付过费的旧成品入素材库：带 supersededSrcRid 标记（不参与子任务 asset_id / regen_asset_floor），
+// 按（source_task_id, 地址）查重写一次；同地址已有未标记的行（上一轮按当前成品入了库、随后换地址才发现成品已换）补上标记。
+// 提示词不写：子任务行上的提示词已是新一轮的，写上会张冠李戴。
+func (f *flow) saveSupersededAsset(ctx context.Context, t *model.Task, b *model.Batch, j *model.CopyJob, url string) error {
+	if !f.cfg.Asset.Enabled || f.assetOnce == nil {
+		return nil
+	}
+	if isPendingRef(url) {
+		return errors.New("素材库不写私有引用 mr://")
+	}
+	a := f.assetRow(t, b, url, map[string]any{repo.AssetSupersededKey: j.SrcRid})
+	a.AIPrompt = ""
+	if _, err := f.assetOnce(ctx, a); err != nil {
+		return err
+	}
+	_, err := f.repo.Task.MarkAssetSuperseded(ctx, b.UserID, j.TaskID, url, j.SrcRid)
+	return err
+}
+
 // alreadySwapped 子任务成品已是素材库地址：上一轮换地址（SwapLibraryRef）已写成、但写终态前崩溃 / 写终态失败。
 // 有待转存行期间，成功子任务的 result_url 只有本协议会改（重新生成在转存期间被拒，运营重做只收失败 / 已取消），
 // 所以「成功、成品不再是引用而是素材库 rid」只能是本行换的，按完成收尾（并补上次没来得及补的蒙版）。软删的行同样可能是本行换的
@@ -258,10 +403,26 @@ func (f *flow) runCopyJob(ctx context.Context, j *model.CopyJob) {
 		}
 		return
 	}
+	verdict, verr := f.supersedeOf(ctx, j, t)
+	switch verdict {
+	case supersededPending:
+		// 不认领、不占尝试次数，稍后再看（预留单冻结到期会变成已过期 → 作废，不会一直挂着）
+		if err := f.repo.CopyJob.Retry(wctx, j.ID, j.Attempt, copyDeliverWait, copyErrText(verr)); err != nil {
+			log.Errorf("studio: 转存任务 %d（子任务 %d）推迟失败: %v", j.ID, j.TaskPK, err)
+		}
+		return
+	case supersededUnpaid:
+		f.voidCopyJob(wctx, j, j.Attempt, nil) // 旧成品没付费：作废，无需告警
+		return
+	case supersededAmbiguous:
+		f.voidAmbiguous(wctx, j, j.Attempt)
+		return
+	}
+	superseded := verdict == supersededPaid
 	if t == nil {
 		t = f.orphanTask(j) // 子任务行硬删除：用本行字段兜底入库（见文件头不变量）
 	}
-	if !jobLive(t, j) {
+	if !superseded && !jobLive(t, j) {
 		if alreadySwapped(t) {
 			if ok, err := f.repo.CopyJob.Finish(wctx, j.ID, j.Attempt, model.CopyDone, ""); err == nil && ok {
 				copyJobs.Inc("done")
@@ -350,7 +511,7 @@ func (f *flow) runCopyJob(ctx context.Context, j *model.CopyJob) {
 	if !stillMine() {
 		return
 	}
-	// 复制可能耗时几秒：入库前再看一眼子任务（期间被重新生成的不入库；被删除的照常入库）
+	// 复制可能耗时几秒：入库前再看一眼子任务（期间被重新生成的按「成品已换」处理；被删除的照常入库）
 	if t, err = f.repo.Task.GetByID(wctx, j.TaskPK); err != nil {
 		retry(err)
 		return
@@ -359,8 +520,50 @@ func (f *flow) runCopyJob(ctx context.Context, j *model.CopyJob) {
 	if orphan {
 		t = f.orphanTask(j)
 	}
+	// supersededLib 成品已换、旧成品付过费：入素材库（带标记）即完成，不换地址、不补蒙版
+	supersededLib := func(t *model.Task) {
+		b, err := f.repo.Batch.GetByID(wctx, t.BatchID, 0)
+		if err != nil {
+			retry(fmt.Errorf("读批次失败: %w", err))
+			return
+		}
+		if b == nil {
+			b = &model.Batch{ID: t.BatchID, UserID: j.UserID}
+		}
+		if err := f.saveSupersededAsset(wctx, t, b, j, lib.URL); err != nil {
+			retry(fmt.Errorf("旧成品入素材库失败: %w", err))
+			return
+		}
+		if !stillMine() {
+			return
+		}
+		if finish(model.CopyDone, "", "done") {
+			log.Infow(fmt.Sprintf("studio: 子任务 %d 成品已换，付过费的旧成品已入素材库（不顶替当前成品） (check=%s)", j.TaskPK, copySupersededCheck),
+				logx.Field("task_id", j.TaskID), logx.Field("user_id", j.UserID), logx.Field("src_rid", j.SrcRid))
+		}
+	}
+	// recheck 子任务已不以本行引用为成功成品：重新判定成品已换（旧成品付过费 → 入库；没付费 / 无从判断 → 作废；未定 → 重试）
+	recheck := func(t *model.Task) {
+		v, verr := f.supersedeOf(wctx, j, t)
+		switch v {
+		case supersededPaid:
+			supersededLib(t)
+		case supersededPending:
+			retry(verr)
+		case supersededUnpaid:
+			f.voidCopyJob(wctx, j, attempt, nil)
+		case supersededAmbiguous:
+			f.voidAmbiguous(wctx, j, attempt)
+		default:
+			f.voidCopyJob(wctx, j, attempt, t)
+		}
+	}
+	if superseded && !orphan {
+		recheck(t) // 认领前已判定成品已换：复制完再确认一次（结论只会从未定变成已定）
+		return
+	}
 	if !jobLive(t, j) {
-		f.voidCopyJob(wctx, j, attempt, t)
+		recheck(t)
 		return
 	}
 	var b *model.Batch
@@ -390,7 +593,18 @@ func (f *flow) runCopyJob(ctx context.Context, j *model.CopyJob) {
 		return
 	}
 	if !swapped {
-		f.voidCopyJob(wctx, j, attempt, t)
+		// 入库之后、换地址之前子任务变了（如被重新生成）：刚按当前成品写的资产行若属付过费的旧成品，由 saveSupersededAsset
+		// 补上标记，不顶替新成品
+		cur, err := f.repo.Task.GetByID(wctx, j.TaskPK)
+		if err != nil {
+			retry(err)
+			return
+		}
+		if cur == nil {
+			finish(model.CopyDone, "", "done") // 子任务行刚被硬删除：已入素材库即完成（同孤儿行）
+			return
+		}
+		recheck(cur)
 		return
 	}
 	if finish(model.CopyDone, "", "done") {

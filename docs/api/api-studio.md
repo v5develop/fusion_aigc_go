@@ -593,7 +593,7 @@ Idempotency-Key: <UUID>
 - **谁是免费档**：从未收到过付费来源点数批次的用户（`afv_points_batch` 中没有 `source ∈ {RECHARGE, UNION_RECHARGE}` 且未删除的行），且后台的分层开关 `user_tier.enabled`、图片展示水印开关 `watermark.display_enabled`（`afv_system_config`，没配时默认开）都开着。只看「有没有付过」，不看余额；赠送、后台调整、退款回补都不算付费。实现：`pkg/usertier`（与 Java `UserTierService` + `WatermarkPolicy` 逐条一致）。
 - **交付**：studio 开关 `FreeWatermark.Enabled` 开、`FreeWatermark.Process` 合法时，免费档用户的成品**不转存公有桶**：原件留在私有桶（网关产物 `media_purpose=intermediate`，媒体服务 `work` 类 rid），`afv_studio_task.result_url` 与素材库 `afv_asset.result_url / cover_url` 写水印视图引用 `mrw://{rid}.{ext}`。付费用户、开关关闭时与原来一样（公有桶长期地址）。
 - **读取**：批次详情 / 历史 / 单个任务 / 重试 / 取消 / 校色 / 后台详情的 `result_url`、`batch.cover_url` 遇到 `mrw://` 一律签成带 `x-oss-process=<处理串>` 的签名地址：处理参数在签名内，去掉或改动即 403，拿不到干净原图。签名失败或未配处理串 → 空串（绝不下发干净地址或 `mrw://` 原文）。下载用同一个地址（带水印）。素材库（assetlib / Java）读到 `mrw://` 同样签水印地址。
-- **蒙版**：成品服装蒙版在原图上识别（服务端用短期干净签名交给网关，不落库、不下发），`mask_url` 照常是公开地址。`POST /masks` 的 `image_url` 传水印地址时按地址路径（不含查询串）命中同一缓存；若私有桶域名不在本服务存储 / `InputURLPrefixes` 白名单内会被拒（1003），需运维把私有桶域名加进 `STUDIO_INPUT_URL_PREFIXES`。
+- **蒙版**：成品服装蒙版在原图上识别（服务端用短期干净签名交给网关，不落库、不下发），`mask_url` 照常是公开地址。`POST /masks` 识别免费档 / 交付中成品时请**带 `task_id`**（见 5.8 区域蒙版「图片来源」，2026-11-11 只增）：服务端按该子任务的归属直接取原件识别，与成品自动蒙版共用缓存（按 `mr://{rid}`）。只传 `image_url`（水印 / 私有签名地址）的老前端仍可用：服务端先查本实例签发记录，没有再在该用户最近的私有成品里逐个比对（最多 100 张），找不到按来源不合法拒收（1003）。
 - **付费后**：studio-rpc 每 `FreeWatermark.PromoteMinutes`（默认 10 分钟）扫描一次 `result_url LIKE 'mrw://%'` 且用户已付过钱的子任务，把私有原件复制到公有素材库桶，先改素材库行、再按旧值 CAS 改子任务的 `result_rid / result_url`；任务中心随 `updated_at` 同步。之后该用户的历史成品与素材库都是无水印原图。私有原件不删除（与 Java 不同，Java 转存后会删）。
 - **配置**（`deploy/etc/studio-rpc.yaml` `FreeWatermark`）：`Enabled`（默认 false，= Java `FREE_WATERMARK_ENABLED`）、`Process`（= Java `FREE_WATERMARK_OSS_PROCESS` / 启动日志 `check=free_watermark.process` 的值，assetlib 与 canvas 的 `FreeWatermark.Process` 也必须相同，由同一个 `FREE_WATERMARK_OSS_PROCESS` 一次写入三处）、`SignedTTLSeconds`（600）、`UserTierDefault` / `DisplayWatermarkDefault`（true，DB 没配开关时的默认）、`PromoteMinutes`（10，≤0 关闭）、`CleanupEnabled`（默认 false）/ `RetentionDays`（90）/ `CleanupMinutes`（60）为未付费原件到期清理。服务器上由 `deploy.env` 的 `FREE_WATERMARK_ENABLED` / `FREE_WATERMARK_OSS_PROCESS` 经 mkconf 写入。
 
@@ -609,7 +609,7 @@ Idempotency-Key: <UUID>
   1. `library_status=pending` 时照常展示 / 下载 `result_url`；「存为素材库版本」（5.7）等依赖 `asset_id` 的按钮置灰或显示「入库中」，**继续按原节奏轮询批次**（批次到终态后也可以对这张图再轮询几次 `GET /tasks/:task_id`），直到 `library_status` 变空且 `asset_id > 0`。
   2. `library_status=failed` 时隐藏依赖 `asset_id` 的入口（或提示「未能存入素材库」），其余照常。
   3. 不认识的值按空处理；老版本前端不看这个字段也不会出错（`asset_id=0` 本来就不能调用 5.7）。
-  4. `pending` 期间 `result_url` 是私有桶签名地址：拿它当下一次生成的输入照常可用（服务端按签名反查归属，与免费档一致）；调 `POST /masks` 的限制与 4.5 相同。
+  4. `pending` 期间 `result_url` 是私有桶签名地址：拿它当下一次生成的输入照常可用（服务端按签名反查归属，与免费档一致）；调 `POST /masks` 请带 `task_id`（同 4.5）。
   5. **只增（2026-11-11）**：`library_status=failed` 时，在这张图上显示「重新存入素材库」按钮，调用 5.2.3 重新转存；其它取值不要显示这个按钮。
 - **转存完成前删除批次**（2026-11-11 修订，接口不变）：付费成品**照常进素材库**，与同步转存时代一致——删除批次只把批次 / 子任务软删，后台转存继续：复制、写素材库（`source_task_id` = 子任务号，素材库列表不看来源任务是否存在，删了批次照样能看到）、子任务成品换成公有地址（已删的行用户看不到）；只是不再补服装蒙版。只有成品没付费或已不是它时才作废：交付失败 / 退款、已取消、成品已被换掉（重新生成在转存完成前会被拒——「这张图正在存入素材库，请几秒后再试」——所以正常走不到；万一走到，旧成品不入库并打运营告警 `check=studio.library_copy_superseded`）。子任务行被硬删除（只有人工改库会这样）时按转存 outbox 行自己记的用户 / 子任务号 / 产物兜底入库。点数结算不受影响。
 - **开关**：`deploy/etc/studio-rpc.yaml` `Library.AsyncCopy`（默认 true）；关掉或 `Go_V1.0.30` 还没执行（落 outbox 失败）时自动退回同步转存，行为与原来一致，上线顺序无要求。
@@ -959,6 +959,9 @@ POST /api/v1/studio/masks
 | `image_url` | 必填。本服务存储签发或素材库域名的 http(s) 地址（如任务 `result_url`、素材库图片）；第三方地址拒收（1003） |
 | `target` | 必填。`garment` 服装 / `product` 商品主体 / `person` 人物 / `background` 背景（主体之外，= 主体蒙版取反） |
 | `parts` | 选填，仅 `garment`（多选）：`tops` 上衣 / `coat` 外套 / `pants` 下装 / `skirt` 裙装 / `shoes` 鞋 / `bag` 包 / `hat` 帽；不传 / 空 = 全部服装。其它值或非服装区域带 `parts` 返回 `1003` |
+| `task_id` | 选填（只增，2026-11-11）。studio 子任务号（批次详情 / 单个任务里的 `task_id`）：识别**该子任务的成品**。成品是私有签名地址（免费档水印、`library_status=pending/failed`）时**必须带它**才能精确识别；带了可不传 `image_url`，传了须是同一张图（同一对象，签名 / 水印参数不论），否则 `1003`「图片地址与任务的成品不一致」。不是本人的 / 已删除 / 还没有成品 → `1003` |
+| `canvas_request_id` | 选填（只增，2026-11-11）。画布执行的 `request_id`（`GET /api/v1/canvas/runs/:id` 的 id）：识别该执行（须是本人的、已成功的图片类执行）的一个图片候选。与 `task_id` 至多一个；带了可不传 `image_url`（传了忽略，以服务端记录的候选为准） |
+| `candidate_index` | 选填，只配合 `canvas_request_id`：候选下标（0 起）；不传 = 该执行当前选中的候选（`selected_index`）。越界 / 视频 / 反推执行 → `1003`；执行还没成功 → `4002`；不是本人的 / 已删除 → `4001` |
 
 ```json
 {"code": 0, "data": {"mask_url": "https://cdn.example.com/…/mask.png", "target": "garment", "cached": false,
@@ -966,6 +969,7 @@ POST /api/v1/studio/masks
   "available_parts": ["tops", "coat", "pants", "skirt", "shoes", "bag", "hat"]}}
 ```
 
+- **图片来源**（只增，2026-11-11）：私有签名地址（10 分钟现签、免费档水印、画布 / studio 转存素材库前的成品）请用 `task_id` 或 `canvas_request_id`（+ `candidate_index`）指明来源，服务端按归属直接取原件识别（原件不下发），缓存按稳定引用，签名变了 / 水印视图与原件都命中同一份；`image_url` 仍按原口径（本服务存储 / 素材库域名白名单）。只传私有签名地址的老请求按兜底口径处理（本实例签发记录 → 该用户最近 100 张私有成品逐个比对），比对不到返回 `1003`，所以新前端务必带来源字段。三种组合：`{image_url}`（老）/ `{task_id[, image_url]}` / `{canvas_request_id[, candidate_index][, image_url]}`；`task_id` 与 `canvas_request_id` 同时给 → `1003`；都不给且没有 `image_url` → `1002`。
 - **部位**：带 `parts` 时 `mask_url` = 这些部位的合并蒙版，`parts` = 逐件蒙版（固定顺序，图里没有的部位缺省；全都没有 → `4001`）；不带为空数组。
   `available_parts` = 该区域支持的部位（只有 `garment` 有，其它区域空数组）；**旧版服务端没有这个字段**，前端据此显示 / 隐藏部位选择。
 - **缓存**：按（去掉查询串的地址, `target`, 部位组合）缓存，多部位识别出的逐件蒙版也按单部位落缓存（之后单选某件立即返回）；同一张图同一区域只识别一次，之后立即返回 `cached: true`；签名参数不同不影响命中。子任务的 `mask_url` 与本接口共用缓存。

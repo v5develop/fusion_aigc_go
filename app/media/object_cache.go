@@ -52,8 +52,9 @@ type objEntry struct {
 // cachedFacts 写穿透条目上已知的事实：sha256 与 probe 得到的媒体元数据，都是对条目文件这份字节算出来的。
 // 只在 storeFile（probeMeta）落桶时登记；字体等不经 probe 的写入不登记，读取方照常 probe。
 type cachedFacts struct {
-	sum  string
-	meta MediaMeta
+	sum   string
+	crc64 string // OSS 口径的 CRC64（落桶时与 sha256 同时算出；没有为空）
+	meta  MediaMeta
 }
 
 // objectCacheDiskShare 对象缓存最多占用磁盘可用空间的比例（百分比）。与输入缓存的 30% 合计不超过一半。

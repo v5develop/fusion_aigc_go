@@ -89,6 +89,12 @@ func (s *CanvasServer) RetryLibraryCopy(ctx context.Context, in *canvas.RunIdReq
 	return l.RetryLibraryCopy(in)
 }
 
+// 只增（2026-11-11）：成功 run 某个图片候选的来源（仅本人、未删除）：私有引用（mr:// / mrw://，转存素材库前 / 失败 / 免费档）给 rid，
+func (s *CanvasServer) CandidateSource(ctx context.Context, in *canvas.CandidateSourceReq) (*canvas.CandidateSourceResp, error) {
+	l := logic.NewCandidateSourceLogic(ctx, s.svcCtx)
+	return l.CandidateSource(in)
+}
+
 // ---- 目录 ----
 func (s *CanvasServer) Catalog(ctx context.Context, in *canvas.CatalogReq) (*canvas.CatalogResp, error) {
 	l := logic.NewCatalogLogic(ctx, s.svcCtx)

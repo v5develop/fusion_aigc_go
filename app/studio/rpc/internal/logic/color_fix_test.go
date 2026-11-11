@@ -142,7 +142,7 @@ func TestAttachAssetIDs(t *testing.T) {
 		{TaskId: "tyo_2", Status: int32(model.TaskFailed)},
 	}}
 	d2 := &studio.BatchDetail{Tasks: []*studio.TaskInfo{{TaskId: "tyo_3", Status: int32(model.TaskSucceeded)}}}
-	mock.ExpectQuery(regexp.QuoteMeta("WHERE (a.source_task_id IN ('tyo_1', 'tyo_3')) AND (a.user_id = 7) AND (a.deleted = 0) AND ((a.status IS NULL OR a.status <> 0)) GROUP BY a.source_task_id")).
+	mock.ExpectQuery(regexp.QuoteMeta("WHERE (a.source_task_id IN ('tyo_1', 'tyo_3')) AND (a.user_id = 7) AND (a.deleted = 0) AND ((a.status IS NULL OR a.status <> 0)) AND (JSON_EXTRACT(a.properties, '$.supersededSrcRid') IS NULL) GROUP BY a.source_task_id")).
 		WillReturnRows(sqlmock.NewRows([]string{"source_task_id", "id"}).AddRow("tyo_1", 501))
 	attachAssetIDsToDetails(context.Background(), r, 7, d1, d2)
 	if d1.Tasks[0].AssetId != 501 || d1.Tasks[1].AssetId != 0 || d2.Tasks[0].AssetId != 0 {

@@ -80,7 +80,7 @@ func (s *Server) copyResource(w http.ResponseWriter, r *http.Request) {
 		var res MediaResult
 		if facts != nil {
 			// 命中写穿透条目：这份字节落桶时已 probe 过、hash 过（版本一致即字节一致），直接沿用，不再 probe 与 hash
-			res, err = s.storeMeta(withKnownDigest(ctx, local, facts.sum, facts.meta.Size), req.Purpose, local, facts.meta, true)
+			res, err = s.storeMeta(withKnownDigestCRC(ctx, local, facts.sum, facts.crc64, facts.meta.Size), req.Purpose, local, facts.meta, true)
 		} else {
 			res, err = s.storeFile(ctx, req.Purpose, local)
 		}

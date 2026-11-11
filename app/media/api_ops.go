@@ -223,16 +223,18 @@ func (s *Server) storeWithMeta(ctx context.Context, purpose, path string, meta M
 func (s *Server) storeMeta(ctx context.Context, purpose, path string, meta MediaMeta, probed bool) (MediaResult, error) {
 	hashStart := time.Now()
 	// 字节上传读请求体时已算过摘要（withKnownDigest）则直接用；其余调用方在这里整读一次
-	sum, size, err := hashFileKnown(ctx, path)
+	d, err := digestFileKnown(ctx, path)
 	logStage(ctx, "hash", hashStart)
 	if err != nil {
 		return MediaResult{}, err
 	}
+	sum, size := d.sum, d.size
 	// 摘要交给下面的 Put：存储层不再为了大小与 sha256 把文件再整读一遍
-	ctx = withKnownDigest(ctx, path, sum, size)
+	ctx = withKnownDigestCRC(ctx, path, sum, d.crc64, size)
 	if probed {
-		// probe 过的字节：事实一并写进对象元数据，之后 resources/copy 可以服务端复制而不读字节（copy_server.go）
-		ctx = s.withStoreFacts(ctx, path, sum, size, meta)
+		// probe 过的字节：事实（含 CRC64，把事实绑定到字节）一并写进对象元数据，
+		// 之后 resources/copy 可以服务端复制而不读字节（copy_server.go）
+		ctx = s.withStoreFacts(ctx, path, sum, d.crc64, size, meta)
 	}
 	class, store := classFor(purpose), storeFor(purpose)
 	// rid 由幂等键派生；没有幂等键（如抽帧）时由内容摘要派生，同内容同类别得到同一个 rid
@@ -260,7 +262,7 @@ func (s *Server) storeMeta(ctx context.Context, purpose, path string, meta Media
 	// meta 来自 probe 时连同 sha256 一起登记，同机复制命中时不再 probe、不再 hash
 	var facts *cachedFacts
 	if probed {
-		facts = &cachedFacts{sum: sum, meta: meta}
+		facts = &cachedFacts{sum: sum, crc64: d.crc64, meta: meta}
 	}
 	s.objCache.insertFacts(rid, store, objPath, obj.Version, path, facts)
 	obj.RID, obj.Class = rid, class

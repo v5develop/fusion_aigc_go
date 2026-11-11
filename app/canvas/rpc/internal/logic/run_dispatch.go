@@ -947,9 +947,14 @@ func (c *core) dispatch(ctx context.Context, run *model.NodeRun, sp *runSpec, be
 			return xerr.New(code, msg)
 		}
 		failed := c.failRun(ctx, run, model.RunQueued, ecode, msg, true)
-		// 已拿到的调用一律取消：抢到失败（已退款）时是孤儿；没抢到说明 run 已被取消 / 强制失败 / 超时（钱已由那条路径处理），
-		// 这批调用同样没人要了（并发提交时可能有排在出错那张之后已建好的）
-		c.cancelCalls(ctx, run.ID, acquired, "提交失败")
+		if failed {
+			// 抢到失败（已退款）：已拿到的调用都是孤儿，一律取消
+			c.cancelCalls(ctx, run.ID, acquired, "提交失败")
+		} else {
+			// 没抢到：run 已被别处推进——取消 / 强制失败 / 超时（钱已由那条路径处理），或提交太久、行租约过期后被别的实例
+			// 接手并以同一幂等键重提拿回了同一批调用、正在跟踪。只取消 run 行没记录的（见 cancelUnrecordedCalls）
+			c.cancelUnrecordedCalls(ctx, run.ID, acquired, "提交失败")
+		}
 		if failed {
 			if run.Backend == model.BackendGateway && (run.Attempt > 0 || submitMaybeCreated(err)) {
 				// 此前（或这次超时的）提交可能已在 gateway 建了调用但 backend_ref 没写上：按幂等键取回并取消
@@ -982,7 +987,8 @@ func (c *core) dispatch(ctx context.Context, run *model.NodeRun, sp *runSpec, be
 		// 提交期间 run 已被取消 / 强制失败 / 超时：刚拿到的上游调用成了孤儿，取消掉
 		switch run.Backend {
 		case model.BackendGateway:
-			c.cancelCalls(ctx, run.ID, acquired, "提交期间已结束")
+			// 同一批调用可能已被接手本 run 的别的实例（同幂等键）记进 backend_ref 在跟踪：只取消没记录的
+			c.cancelUnrecordedCalls(ctx, run.ID, acquired, "提交期间已结束")
 		case model.BackendStudio:
 			c.cancelStudio(ctx, run, ref, "提交期间已结束")
 		case model.BackendJava:

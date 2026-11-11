@@ -1124,9 +1124,12 @@ type StudioMaskPart struct {
 }
 
 type StudioMaskReq struct {
-	ImageUrl string   `json:"image_url"`                                        // 本服务存储签发 / 素材库域名的 http(s) 地址（如任务 result_url）；第三方地址拒收
-	Target   string   `json:"target,options=garment|product|person|background"` // garment 服装 / product 商品主体 / person 人物 / background 背景（主体之外）
-	Parts    []string `json:"parts,optional"`                                   // 仅 garment：只要这些部位（多选）tops 上衣 / coat 外套 / pants 下装 / skirt 裙装 / shoes 鞋 / bag 包 / hat 帽；不传 / 空=全部服装
+	ImageUrl        string   `json:"image_url,optional"`                               // 本服务存储签发 / 素材库域名的 http(s) 地址（如任务 result_url）；第三方地址拒收。带 task_id / canvas_request_id 时可不传（传了须是同一张图）
+	Target          string   `json:"target,options=garment|product|person|background"` // garment 服装 / product 商品主体 / person 人物 / background 背景（主体之外）
+	Parts           []string `json:"parts,optional"`                                   // 仅 garment：只要这些部位（多选）tops 上衣 / coat 外套 / pants 下装 / skirt 裙装 / shoes 鞋 / bag 包 / hat 帽；不传 / 空=全部服装
+	TaskId          string   `json:"task_id,optional"`                                 // studio 子任务号（批次详情 tasks[].task_id）：识别该子任务的成品
+	CanvasRequestId string   `json:"canvas_request_id,optional"`                       // 画布执行的 request_id（GET /api/v1/canvas/runs/:id 的 id）：识别该执行的图片候选
+	CandidateIndex  *int32   `json:"candidate_index,optional"`                         // 配合 canvas_request_id：候选下标（0 起）；不传 = 该执行当前选中的候选
 }
 
 type StudioMaskResp struct {

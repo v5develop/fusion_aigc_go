@@ -136,8 +136,9 @@ func (f *flow) userRegenerate(ctx context.Context, t *model.Task, b *model.Batch
 	if t.Attempt >= regenMaxAttempts {
 		return xerr.New(xerr.Conflict, "这张图已重新生成多次，请调整素材后重新提交")
 	}
-	// 付费成品还在后台入素材库（mr://，library_copy.go）：等它入完再重做。否则重做时记下的 regen_asset_floor 可能早于
-	// 随后才写入的旧成品资产行，新成品交付时会被当成「已入库」而漏写素材库。
+	// 付费成品还在后台入素材库（mr://，library_copy.go）：等它入完再重做，旧成品照常换成公开地址、作为当前成品入库。
+	// 万一竞态漏过这道关（旧成品在重做之后才转存完），旧成品带 supersededSrcRid 标记入素材库、新成品按地址查重，
+	// 两张各入一次（见 library_copy.go「成品已换」）；这里拦住只是让常规路径不走那条兜底。
 	if t.Status == model.TaskSucceeded && isPendingRef(t.ResultURL.String) && f.repo != nil {
 		j, err := f.repo.CopyJob.GetPendingByTask(ctx, t.ID)
 		if err != nil && !isMissingTable(err) {
@@ -216,6 +217,20 @@ func (f *flow) regenMeta(ctx context.Context, t *model.Task, b *model.Batch) (js
 		m[metaRegenAssetFloor] = ids[t.TaskID.String]
 	}
 	return json.Marshal(m)
+}
+
+// regenFloorSet prompt_meta 里是否有 regen_asset_floor 键（= 从成功重新生成过；值可能为 0：重做时旧成品还没入素材库）。
+// 有这个键的子任务入库按成品地址查重（见 saveAssetErr）。
+func regenFloorSet(t *model.Task) bool {
+	if len(t.PromptMeta) == 0 {
+		return false
+	}
+	var m map[string]json.RawMessage
+	if json.Unmarshal(t.PromptMeta, &m) != nil {
+		return false
+	}
+	_, ok := m[metaRegenAssetFloor]
+	return ok
 }
 
 // metaRegenAssetFloor 见 regenMeta。

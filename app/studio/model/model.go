@@ -272,4 +272,6 @@ type CopyJob struct {
 	CreatedAt  time.Time      `bun:"created_at,notnull,default:current_timestamp(3)"`
 	UpdatedAt  time.Time      `bun:"updated_at,notnull,default:current_timestamp(3)"`
 	FinishedAt sql.NullTime   `bun:"finished_at"`
+	// BillingRequestID 落行时写入 billing_request_id（Go_V1.0.31）；不随模型读写（列可能还不存在），读用 CopyJobRepo.BillingRequestID。
+	BillingRequestID string `bun:"-"`
 }

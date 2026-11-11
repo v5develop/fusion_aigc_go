@@ -297,6 +297,9 @@ message SegmentMaskReq {
   string image_url = 2;                  // 必填：本存储签发 / 素材库域名的 http(s) 地址
   string target = 3;                     // garment 服装 / product 商品主体 / person 人物 / background 背景（主体之外）
   repeated string parts = 4;             // 仅 garment：细分部位 tops 上衣 / coat 外套 / pants 下装 / skirt 裙装 / shoes 鞋 / bag 包 / hat 帽；空=全部服装
+  // 只增（2026-11-11）：精确指明图片来源，私有签名地址不再靠反查（见 logic/mask_source.go）。三者至多一个；都不给按 image_url 判断。
+  string task_id = 5;                    // studio 子任务号：按该用户未删除子任务的成品（含 mr:// / mrw:// 私有成品）识别；带 image_url 时须与该成品一致
+  string source_rid = 6;                 // 仅内部：调用方（网关经 canvas-rpc CandidateSource）已确认归属的私有成品 rid（画布候选）；用户请求不得直传
 }
 
 // 一个部位的蒙版。

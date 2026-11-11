@@ -2,9 +2,12 @@ package repo
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 
 	"aigc-local-life/app/canvas/model"
 
+	"github.com/go-sql-driver/mysql"
 	"github.com/uptrace/bun"
 )
 
@@ -19,12 +22,49 @@ type CopyJobRepo struct{ db bun.IDB }
 
 // Enqueue 落一行待转存（同一 run 已有行时什么都不做：INSERT IGNORE 撞 uk_run）。delaySec 后才对扫描可见，
 // 留给本进程的即时转存（见 logic/library_copy.go 的 Kick），进程崩溃时由扫描接手。
-func (r *CopyJobRepo) Enqueue(ctx context.Context, runPK int64, taskID string, userID int64, delaySec int) error {
-	_, err := r.db.NewInsert().Model(&model.CopyJob{RunPK: runPK, TaskID: taskID, UserID: userID, Status: model.CopyPending}).
-		ExcludeColumn("id", "created_at", "updated_at", "finished_at", "last_error").
-		Value("next_at", "NOW(3) + INTERVAL ? SECOND", delaySec).
-		Ignore().Exec(ctx)
+//
+// snapshot 写进 src_snapshot（Go_V1.0.31）：入素材库所需的 run 字段，run 行被硬删除时据此兜底转存。列还不存在（迁移未执行）时
+// 去掉这一列重写一次——MySQL 的 1054 只回滚这一条语句、不影响所在事务，所以在置成功的事务里重试是安全的，行为退回改造前。
+func (r *CopyJobRepo) Enqueue(ctx context.Context, runPK int64, taskID string, userID int64, delaySec int, snapshot []byte) error {
+	insert := func(withSnapshot bool) error {
+		q := r.db.NewInsert().Model(&model.CopyJob{RunPK: runPK, TaskID: taskID, UserID: userID, Status: model.CopyPending}).
+			ExcludeColumn("id", "created_at", "updated_at", "finished_at", "last_error").
+			Value("next_at", "NOW(3) + INTERVAL ? SECOND", delaySec)
+		if withSnapshot {
+			q = q.Value("src_snapshot", "?", string(snapshot))
+		}
+		_, err := q.Ignore().Exec(ctx)
+		return err
+	}
+	withSnapshot := len(snapshot) > 0
+	err := insert(withSnapshot)
+	if err != nil && withSnapshot && IsUnknownColumn(err) {
+		err = insert(false)
+	}
 	return err
+}
+
+// SourceSnapshot 行的 src_snapshot（没有 / 列还不存在返回 nil, nil）。只在 run 行已不存在时读，常规路径不碰这一列，
+// 所以迁移未执行时扫描 / 认领照常工作。
+func (r *CopyJobRepo) SourceSnapshot(ctx context.Context, id int64) ([]byte, error) {
+	var v sql.NullString
+	err := r.db.NewSelect().Table(TableCopyJob).Column("src_snapshot").Where("id = ?", id).Limit(1).Scan(ctx, &v)
+	switch {
+	case errors.Is(err, sql.ErrNoRows), IsUnknownColumn(err):
+		return nil, nil
+	case err != nil:
+		return nil, err
+	}
+	if !v.Valid || v.String == "" {
+		return nil, nil
+	}
+	return []byte(v.String), nil
+}
+
+// IsUnknownColumn MySQL 1054（列不存在：新增列的迁移还没执行）。
+func IsUnknownColumn(err error) bool {
+	var me *mysql.MySQLError
+	return errors.As(err, &me) && me.Number == 1054
 }
 
 // GetByRun 按 run 主键取（没有返回 nil, nil）。

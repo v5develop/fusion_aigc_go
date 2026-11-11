@@ -28,6 +28,8 @@ import (
 // 请求一律用目标桶的密钥签名：源桶与目标桶同一个账号/密钥时天然可读；密钥不同时需要目标密钥对源桶有读权限，
 // 没有时 OSS 返回 403，调用方回退下载 + 上传，并在 copyDeniedTTL 内不再对这对桶尝试（省掉一次注定失败的往返）。
 // ACL：复制与 Put 一样不带 x-oss-object-acl，目标对象继承目标桶的读写权限（公有桶公开、私有桶私有）。
+// 校验：只复制事实里 CRC64 与 HEAD 的 x-oss-hash-crc64ecma 相等的源（见 copy_server.go 的 trustFacts）；复制完成后
+// 目标的 CRC64（复制响应头，没有则 HEAD 目标）必须等于源，否则按「这次做不了」回退原路径覆盖目标。
 
 const (
 	defaultCopyMultipartThreshold = int64(1) << 30   // 1 GiB：OSS CopyObject 单次复制的上限
@@ -165,6 +167,7 @@ func (o *OSSStore) ObjectFacts(ctx context.Context, store, path string) (objectH
 		ETag:         resp.Header.Get("ETag"),
 		ContentType:  resp.Header.Get("Content-Type"),
 		StorageClass: resp.Header.Get("x-oss-storage-class"),
+		CRC64:        ossCRC64Of(resp.Header),
 		UserMeta:     map[string]string{},
 	}
 	for k, vs := range resp.Header {
@@ -173,7 +176,7 @@ func (o *OSSStore) ObjectFacts(ctx context.Context, store, path string) (objectH
 			h.UserMeta[lk] = vs[0]
 		}
 	}
-	// 事实的验签与核对（字节数、内容类型、存储类型）在 Server.trustedFacts：签名密钥不在存储层
+	// 事实的验签与核对（字节数、内容类型、存储类型、CRC64）在 Server.trustedFacts：签名密钥不在存储层
 	return h, nil
 }
 
@@ -194,14 +197,21 @@ func (o *OSSStore) ServerCopy(ctx context.Context, srcStore, srcPath, dstStore, 
 		// 没有验过的事实就不复制：结果的 sha256 / 元数据无从给出
 		return StoredObject{}, "", refusedOnce("source_facts_missing", nil)
 	}
+	if src.CRC64 == "" || src.Facts.CRC64 != src.CRC64 {
+		// 存储层再守一道：事实没绑定到 HEAD 到的字节（trustFacts 已拦，这里防调用方绕过）就不复制
+		return StoredObject{}, "", refusedOnce("source_crc64_unverified", nil)
+	}
 	cs := copySrc{path: "/" + sb.Bucket + "/" + escapeObjectKey(srcPath), ifMatch: src.ETag}
 	mode := "single"
-	var etag string
+	var etag, dstCRC string
 	if src.Size > o.copier.threshold {
 		mode = "multipart"
-		etag, err = o.multipartCopy(ctx, db, dstPath, cs, src)
+		etag, dstCRC, err = o.multipartCopy(ctx, db, dstPath, cs, src)
 	} else {
-		etag, err = o.singleCopy(ctx, db, dstPath, cs)
+		etag, dstCRC, err = o.singleCopy(ctx, db, dstPath, cs)
+	}
+	if err == nil {
+		err = o.verifyCopiedCRC(ctx, dstStore, dstPath, src.CRC64, dstCRC)
 	}
 	if err != nil {
 		var refused *serverCopyRefused
@@ -218,6 +228,26 @@ func (o *OSSStore) ServerCopy(ctx context.Context, srcStore, srcPath, dstStore, 
 		}
 	}
 	return obj, mode, nil
+}
+
+// verifyCopiedCRC 复制结果的 CRC64 必须等于源（事实绑定的那一份字节）。响应里带了就直接比，没带再 HEAD 目标一次。
+// 不一致或目标给不出 CRC64：按「这次做不了」回退原路径（下载 + 上传会覆盖目标，结果仍正确），不记这对桶；
+// HEAD 本身失败（网络 / 5xx）按暂时故障返回，调用方重试（同键同路径，覆盖写）。
+func (o *OSSStore) verifyCopiedCRC(ctx context.Context, dstStore, dstPath, want, got string) error {
+	if got == "" {
+		h, err := o.ObjectFacts(ctx, dstStore, dstPath)
+		if err != nil {
+			return err
+		}
+		got = h.CRC64
+	}
+	if got == "" {
+		return refusedOnce("dest_crc64_missing", nil)
+	}
+	if got != want {
+		return refusedOnce("dest_crc64_mismatch", nil)
+	}
+	return nil
 }
 
 // escapeObjectKey x-oss-copy-source 里的对象键按段 URL 编码（我方的键只含安全字符，编码后不变）。
@@ -274,32 +304,34 @@ type ossCopyResult struct {
 	ETag string `xml:"ETag"`
 }
 
-// readCopyResponse 读 200 响应里的 ETag。注意 200 的响应体也可能是 <Error>（S3 兼容实现的长复制会这样），按失败处理。
-func readCopyResponse(step string, resp *http.Response) (string, error) {
+// readCopyResponse 读 200 响应里的 ETag 与 x-oss-hash-crc64ecma（没有为空）。
+// 注意 200 的响应体也可能是 <Error>（S3 兼容实现的长复制会这样），按失败处理。
+func readCopyResponse(step string, resp *http.Response) (string, string, error) {
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 	if resp.StatusCode != http.StatusOK {
-		return "", classifyCopyFailure(step, resp.StatusCode, body)
+		return "", "", classifyCopyFailure(step, resp.StatusCode, body)
 	}
 	if bytes.Contains(body, []byte("<Error>")) {
-		return "", classifyCopyFailure(step, http.StatusInternalServerError, body)
+		return "", "", classifyCopyFailure(step, http.StatusInternalServerError, body)
 	}
+	crc := ossCRC64Of(resp.Header)
 	var r ossCopyResult
 	if err := xml.Unmarshal(body, &r); err != nil || r.ETag == "" {
 		if et := resp.Header.Get("ETag"); et != "" {
-			return et, nil
+			return et, crc, nil
 		}
-		return "", fmt.Errorf("media: OSS %s 响应无法解析", step)
+		return "", "", fmt.Errorf("media: OSS %s 响应无法解析", step)
 	}
-	return r.ETag, nil
+	return r.ETag, crc, nil
 }
 
 // singleCopy 一次 CopyObject：元数据（内容类型、x-oss-meta-*）原样复制。
-func (o *OSSStore) singleCopy(ctx context.Context, db OSSBucket, dstPath string, cs copySrc) (string, error) {
+func (o *OSSStore) singleCopy(ctx context.Context, db OSSBucket, dstPath string, cs copySrc) (string, string, error) {
 	h := cs.headers()
 	h["x-oss-metadata-directive"] = "COPY"
 	resp, err := o.send(ctx, http.MethodPut, db, dstPath, "", "", h, nil, 0)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	defer resp.Body.Close()
 	return readCopyResponse("CopyObject", resp)
@@ -310,31 +342,32 @@ type ossInitiateResult struct {
 }
 
 // multipartCopy 分片复制：初始化（写内容类型与元数据）→ 并发按区间 UploadPartCopy → 完成；失败 Abort。
-func (o *OSSStore) multipartCopy(ctx context.Context, db OSSBucket, dstPath string, cs copySrc, src objectHead) (string, error) {
+// 返回完成响应里的 ETag 与 CRC64（OSS 对合成后的整个对象算，没有为空）。
+func (o *OSSStore) multipartCopy(ctx context.Context, db OSSBucket, dstPath string, cs copySrc, src objectHead) (string, string, error) {
 	meta := map[string]string{}
 	for k, v := range src.UserMeta {
 		meta[k] = v
 	}
 	resp, err := o.send(ctx, http.MethodPost, db, dstPath, "uploads", src.ContentType, meta, nil, 0)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return "", classifyCopyFailure("InitiateMultipartUpload", resp.StatusCode, body)
+		return "", "", classifyCopyFailure("InitiateMultipartUpload", resp.StatusCode, body)
 	}
 	var init ossInitiateResult
 	if err := xml.Unmarshal(body, &init); err != nil || init.UploadID == "" {
-		return "", errors.New("media: OSS InitiateMultipartUpload 响应无法解析")
+		return "", "", errors.New("media: OSS InitiateMultipartUpload 响应无法解析")
 	}
 	uploadID := init.UploadID
-	etag, err := o.copyParts(ctx, db, dstPath, cs, uploadID, src.Size)
+	etag, crc, err := o.copyParts(ctx, db, dstPath, cs, uploadID, src.Size)
 	if err != nil {
 		o.abortMultipart(ctx, db, dstPath, uploadID)
-		return "", err
+		return "", "", err
 	}
-	return etag, nil
+	return etag, crc, nil
 }
 
 type copiedPart struct {
@@ -342,7 +375,7 @@ type copiedPart struct {
 	etag string
 }
 
-func (o *OSSStore) copyParts(ctx context.Context, db OSSBucket, dstPath string, cs copySrc, uploadID string, size int64) (string, error) {
+func (o *OSSStore) copyParts(ctx context.Context, db OSSBucket, dstPath string, cs copySrc, uploadID string, size int64) (string, string, error) {
 	partSize := o.copier.partSize
 	count := int((size + partSize - 1) / partSize)
 	parts := make([]copiedPart, count)
@@ -374,14 +407,14 @@ func (o *OSSStore) copyParts(ctx context.Context, db OSSBucket, dstPath string, 
 	}
 	wg.Wait()
 	if firstErr != nil {
-		return "", firstErr
+		return "", "", firstErr
 	}
 	if err := ctx.Err(); err != nil {
-		return "", err
+		return "", "", err
 	}
 	for i, p := range parts {
 		if p.n != i+1 || p.etag == "" {
-			return "", fmt.Errorf("media: OSS UploadPartCopy 第 %d 片缺失", i+1)
+			return "", "", fmt.Errorf("media: OSS UploadPartCopy 第 %d 片缺失", i+1)
 		}
 	}
 	return o.completeMultipart(ctx, db, dstPath, uploadID, parts)
@@ -396,10 +429,11 @@ func (o *OSSStore) copyPart(ctx context.Context, db OSSBucket, dstPath string, c
 		return "", err
 	}
 	defer resp.Body.Close()
-	return readCopyResponse("UploadPartCopy", resp)
+	etag, _, err := readCopyResponse("UploadPartCopy", resp)
+	return etag, err
 }
 
-func (o *OSSStore) completeMultipart(ctx context.Context, db OSSBucket, dstPath, uploadID string, parts []copiedPart) (string, error) {
+func (o *OSSStore) completeMultipart(ctx context.Context, db OSSBucket, dstPath, uploadID string, parts []copiedPart) (string, string, error) {
 	sort.Slice(parts, func(i, j int) bool { return parts[i].n < parts[j].n })
 	var b strings.Builder
 	b.WriteString("<CompleteMultipartUpload>")
@@ -412,7 +446,7 @@ func (o *OSSStore) completeMultipart(ctx context.Context, db OSSBucket, dstPath,
 	body := []byte(b.String())
 	resp, err := o.send(ctx, http.MethodPost, db, dstPath, "uploadId="+uploadID, "", nil, bytes.NewReader(body), int64(len(body)))
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	defer resp.Body.Close()
 	return readCopyResponse("CompleteMultipartUpload", resp)

@@ -687,6 +687,12 @@ func (f *flow) saveAsset(ctx context.Context, t *model.Task, b *model.Batch, url
 
 // saveAssetErr 同 saveAsset，返回写入错误（后台转存据此重试）。url 只能是素材库公开地址或免费档 mrw://，不能是 mr://
 // （Java 侧多个 afv_asset 读口不解析 mr://，见 library_copy.go）。
+//
+// 查重：交付在置成功前入库，置成功失败下一轮重来时这里已有一行，不再写第二条（查询失败照写，资产比去重要紧）。
+//   - 没重新生成过的子任务：该任务已有任一资产行即视为已入库。
+//   - 重新生成过的（prompt_meta 有 regen_asset_floor 键，见 regenMeta）：同一任务先后有多张成品，按**成品地址**查重——
+//     同一张成品重做时地址不变（交付中续做沿用落库的 result_url；后台转存的复制幂等键固定），别的成品行（旧成品、哪怕在
+//     重新生成之后才补入素材库）不会被误当成「这一张已入库」。只比「id > floor」时，旧成品晚于 floor 入库就会让新成品漏写。
 func (f *flow) saveAssetErr(ctx context.Context, t *model.Task, b *model.Batch, url string) error {
 	cfg := f.cfg.Asset
 	if !cfg.Enabled || f.asset == nil {
@@ -695,27 +701,42 @@ func (f *flow) saveAssetErr(ctx context.Context, t *model.Task, b *model.Batch, 
 	if isPendingRef(url) {
 		return errors.New("素材库不写私有引用 mr://")
 	}
-	// 查重：交付在置成功前入库，置成功失败下一轮重来时这里已有一行，不再写第二条（查询失败照写，资产比去重要紧）
-	if m, err := f.repo.Task.AssetIDs(ctx, b.UserID, []string{t.TaskID.String}); err != nil {
+	if regenFloorSet(t) {
+		if id, err := f.repo.Task.AssetIDByURL(ctx, b.UserID, t.TaskID.String, url); err != nil {
+			logx.WithContext(ctx).Errorf("studio: 子任务 %d 入库前查重失败，照常写入: %v", t.ID, err)
+		} else if id > 0 {
+			return nil
+		}
+	} else if m, err := f.repo.Task.AssetIDs(ctx, b.UserID, []string{t.TaskID.String}); err != nil {
 		logx.WithContext(ctx).Errorf("studio: 子任务 %d 入库前查重失败，照常写入: %v", t.ID, err)
 	} else if id := m[t.TaskID.String]; id > 0 && id > regenAssetFloor(t) {
 		return nil
 	}
+	return f.asset(ctx, []asset.Asset{f.assetRow(t, b, url, nil)})
+}
+
+// assetRow 子任务成品的素材库行（每张一行，source_task_id = 子任务号，entry_code 按 kind 取三个 studio 入口码）。
+// extra 并进 properties（如成品已换的 supersededSrcRid 标记）。
+func (f *flow) assetRow(t *model.Task, b *model.Batch, url string, extra map[string]any) asset.Asset {
+	cfg := f.cfg.Asset
 	p, _ := parsePayload(b.Payload)
 	ar := ""
 	if p != nil {
 		ar = p.AspectRatio
 	}
-	props, _ := json.Marshal(map[string]any{
+	pm := map[string]any{
 		"batchId": b.ID, "kind": t.Kind, "modelIndex": t.ModelIndex, "shotIndex": t.ShotIndex,
 		"poseIndex": t.PoseIndex, "modelGroup": t.ModelGroup,
-	})
-	a := asset.Asset{
+	}
+	for k, v := range extra {
+		pm[k] = v
+	}
+	props, _ := json.Marshal(pm)
+	return asset.Asset{
 		UserID: b.UserID, SourceTaskID: t.TaskID.String, Type: orDefault(cfg.Type, "image"),
 		EntryCode: svc.EntryCode(f.cfg, t.Kind), Name: kindNames[t.Kind], CoverURL: url, ResultURL: url,
 		AspectRatio: ar, AIPrompt: PromptSummary(t), Properties: string(props),
 	}
-	return f.asset(ctx, []asset.Asset{a})
 }
 
 // ---------------------------------------------------------------- 提示词润色

@@ -20,11 +20,14 @@ package logic
 //   - 付费产物一定进素材库（产品口径：否则用户会对扣费有异议）：只要 run 是成功态（已交付、已结算确认），转存就做完——
 //     用户在转存完成前删了画布（画布软删不动 run）或 run 被标了 deleted，照常复制、换 run 引用（SwapRefs 本来就不看 deleted）、
 //     入素材库（素材行的用户 / 提示词 / 参数都取自 run 自己，不读画布）。作废只留给「run 不是成功态」（失败 / 取消 / 退款，
-//     没有付费成品）与「run 行已不存在」：outbox 行只存 run 主键 / task_id / user_id，不存产物 rid，硬删除（只有人工改库会这样）后
-//     无从复制，作废并打 ERROR check=canvas.library_copy_orphaned 交人工核对。run 的产物不会被改写（重跑是新的 run 行），没有「成品已换」。
+//     没有付费成品）。run 行被硬删除（只有人工改库会这样）时用 outbox 行自己的 src_snapshot（Go_V1.0.31，落行时存下的
+//     kind / 模型组 / 请求 / mr:// 候选与视频等入素材库所需字段）兜底：照常复制、入素材库（同 source_task_id 只写一次），没有 run 行
+//     可换引用；只有本列上线前落的旧行（src_snapshot 为 NULL）无从复制，仍作废并打 ERROR check=canvas.library_copy_orphaned。
+//     run 的产物不会被改写（重跑是新的 run 行），没有「成品已换」。
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -333,7 +336,12 @@ func (c *core) transitWithCopyJob(ctx context.Context, run *model.NodeRun, set m
 		if err != nil || !got {
 			return err
 		}
-		if err := tx.CopyJob.Enqueue(ctx, run.ID, run.TaskID.String, run.UserID, copyKickGrace); err != nil {
+		var cands json.RawMessage
+		if v, ok := set["candidates"].(string); ok {
+			cands = json.RawMessage(v)
+		}
+		video, _ := set["video_url"].(string)
+		if err := tx.CopyJob.Enqueue(ctx, run.ID, run.TaskID.String, run.UserID, copyKickGrace, copySnapshotOf(run, cands, video)); err != nil {
 			return fmt.Errorf("%w: %w", errCopyEnqueue, err)
 		}
 		ok = true
@@ -343,6 +351,60 @@ func (c *core) transitWithCopyJob(ctx context.Context, run *model.NodeRun, set m
 		return false, err
 	}
 	return ok, nil
+}
+
+// copySnapshot afv_canvas_copy_job.src_snapshot（Go_V1.0.31）：入素材库所需的 run 字段（assetList / copyRefs 读的那些），
+// run 行被硬删除时据此兜底转存、入素材库。candidates / video_url 是置成功时写进 run 的 mr:// 引用。
+type copySnapshot struct {
+	Kind       model.RunKind   `json:"kind"`
+	ModelGroup string          `json:"model_group,omitempty"`
+	RunID      string          `json:"run_id,omitempty"`
+	CanvasID   string          `json:"canvas_id,omitempty"`
+	NodeID     string          `json:"node_id,omitempty"`
+	Request    json.RawMessage `json:"request,omitempty"`
+	Candidates json.RawMessage `json:"candidates,omitempty"`
+	VideoURL   string          `json:"video_url,omitempty"`
+}
+
+// copySnapshotOf 落 outbox 时存下的快照（序列化失败返回 nil：本行退回旧行为，不挡置成功）。
+func copySnapshotOf(run *model.NodeRun, cands json.RawMessage, videoURL string) []byte {
+	snap := copySnapshot{Kind: run.Kind, ModelGroup: run.ModelGroup, RunID: run.RunID, CanvasID: run.CanvasID, NodeID: run.NodeID,
+		Request: validJSON(run.Request), Candidates: validJSON(cands), VideoURL: videoURL}
+	b, err := json.Marshal(snap)
+	if err != nil {
+		return nil
+	}
+	return b
+}
+
+func validJSON(raw json.RawMessage) json.RawMessage {
+	if len(raw) == 0 || !json.Valid(raw) {
+		return nil
+	}
+	return raw
+}
+
+// orphanRun run 行已不存在时按快照拼一个只够转存 + 入素材库的 run（成功态；主键 / task_id / 用户取自 outbox 行）。
+// 快照为空 / 解析失败 / 没有待转存也没有可入库的产物时返回 nil（旧行为：作废）。
+func orphanRun(j *model.CopyJob, raw []byte) *model.NodeRun {
+	if len(raw) == 0 {
+		return nil
+	}
+	var snap copySnapshot
+	if err := json.Unmarshal(raw, &snap); err != nil || !snap.Kind.Valid() {
+		return nil
+	}
+	r := &model.NodeRun{ID: j.RunPK, UserID: j.UserID, Status: model.RunSucceeded, Kind: snap.Kind, Backend: model.BackendOf(snap.Kind),
+		ModelGroup: snap.ModelGroup, RunID: snap.RunID, CanvasID: snap.CanvasID, NodeID: snap.NodeID,
+		Request: snap.Request, Candidates: snap.Candidates, Deleted: 1}
+	r.TaskID.String, r.TaskID.Valid = j.TaskID, j.TaskID != ""
+	if snap.VideoURL != "" {
+		r.VideoURL.String, r.VideoURL.Valid = snap.VideoURL, true
+	}
+	if len(r.CandidateList()) == 0 && snap.VideoURL == "" {
+		return nil
+	}
+	return r
 }
 
 // kickCopy 交给本进程的转存池立即执行（没有池时等扫描接手）。
@@ -429,12 +491,23 @@ func (c *core) runCopyJob(ctx context.Context, j *model.CopyJob) {
 		retry(fmt.Errorf("run 状态 %d 还未结束", run.Status))
 		return
 	}
-	if run == nil {
-		// outbox 行不存产物 rid，run 行没了就无从复制（只有人工改库会走到）
-		finish(model.CopyVoid, "run 行已不存在，无产物可转存", "void")
-		log.Errorw(fmt.Sprintf("canvas: run %d 行已不存在，付费产物无从转存素材库，需人工核对 (check=%s)", j.RunPK, copyOrphanedCheck),
+	orphan := run == nil
+	if orphan {
+		// run 行被硬删除（只有人工改库会走到）：按 outbox 行自己的快照兜底转存、入素材库
+		raw, serr := c.s.Repo.CopyJob.SourceSnapshot(ctx, j.ID)
+		if serr != nil {
+			retry(fmt.Errorf("读转存快照失败: %w", serr))
+			return
+		}
+		if run = orphanRun(j, raw); run == nil {
+			// 旧行（Go_V1.0.31 之前落的）没有快照，无从复制
+			finish(model.CopyVoid, "run 行已不存在，无产物可转存", "void")
+			log.Errorw(fmt.Sprintf("canvas: run %d 行已不存在且转存行没有产物快照，付费产物无从转存素材库，需人工核对 (check=%s)", j.RunPK, copyOrphanedCheck),
+				logx.Field("task_id", j.TaskID), logx.Field("user_id", j.UserID))
+			return
+		}
+		log.Infow(fmt.Sprintf("canvas: run %d 行已不存在，按转存行快照转存并入素材库 (check=%s)", j.RunPK, copyOrphanedCheck),
 			logx.Field("task_id", j.TaskID), logx.Field("user_id", j.UserID))
-		return
 	}
 	// 不看 run.Deleted / 画布是否已删：用户删除不影响付费产物入素材库
 	if run.Status != model.RunSucceeded {
@@ -475,14 +548,16 @@ func (c *core) runCopyJob(ctx context.Context, j *model.CopyJob) {
 		if !stillMine() {
 			return
 		}
-		ok, err := c.s.Repo.Run.SwapRefs(wctx, run.ID, repo.MarshalCandidates(nc), nv)
-		if err != nil {
-			retry(err)
-			return
-		}
-		if !ok {
-			finish(model.CopyVoid, "run 已不是成功态", "void")
-			return
+		if !orphan { // 没有 run 行可换引用：入了素材库即完成
+			ok, err := c.s.Repo.Run.SwapRefs(wctx, run.ID, repo.MarshalCandidates(nc), nv)
+			if err != nil {
+				retry(err)
+				return
+			}
+			if !ok {
+				finish(model.CopyVoid, "run 已不是成功态", "void")
+				return
+			}
 		}
 		cands, video = nc, nv
 	}

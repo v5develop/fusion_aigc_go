@@ -311,3 +311,132 @@ func TestCopyForgedFactsFallBackToRealBytes(t *testing.T) {
 		t.Fatalf("应回退读字节: copies=%d gets=%d logs=%s", f.fake.copies, f.fake.gets, logs.String())
 	}
 }
+
+// 落桶（storeMeta）写出的事实带 CRC64，与 OSS 对这份字节算的一致；CRC64 相符时走服务端复制。
+func TestCopyServerSideFactsBoundByCRC64(t *testing.T) {
+	f := newCopyServerFixture(t, nil)
+	src := f.sourceWithFacts(t, "video-bytes", testFactsMeta)
+	_, srcPath, err := f.srv.objectPath(context.Background(), src.Object.RID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	facts := openFacts(f.srv.id, f.fake.obj("priv/" + srcPath).meta[ossFactsHeader])
+	if facts == nil || facts.CRC64 != crcOf([]byte("video-bytes")) {
+		t.Fatalf("落桶事实应带 CRC64: %+v", facts)
+	}
+	res, _ := f.copy(t, src.Object.RID, "asset_library", "k-crc-ok")
+	if f.fake.copies != 1 || f.fake.gets != 0 || res.Object.Sha256 != src.Object.Sha256 {
+		t.Fatalf("CRC64 相符应服务端复制: copies=%d gets=%d", f.fake.copies, f.fake.gets)
+	}
+}
+
+// 源字节被换成等长、同类型的另一份而事实原样留着（真签名、字节数与类型都对）：CRC64 不符，
+// 绝不服务端复制，回退原路径读真实字节。
+func TestCopyCRC64MismatchFallsBackToSlowPath(t *testing.T) {
+	f := newCopyServerFixture(t, nil)
+	logs := captureLog(t)
+	src := f.sourceWithFacts(t, "video-bytes", testFactsMeta)
+	_, srcPath, err := f.srv.objectPath(context.Background(), src.Object.RID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.fake.mu.Lock()
+	f.fake.objs["priv/"+srcPath].data = []byte("VIDEO-BYTES")
+	f.fake.mu.Unlock()
+	resp := postCopy(t, f.ts.URL, src.Object.RID, "asset_library", "k-crc-bad")
+	resp.Body.Close()
+	if f.fake.copies != 0 || !strings.Contains(logs.String(), "check=media.copy_fallback reason=source_crc64_mismatch") {
+		t.Fatalf("CRC64 不符不能服务端复制: copies=%d logs=%s", f.fake.copies, logs.String())
+	}
+	// 回退路径真的去读了字节（版本变了，本机缓存不命中，从存储下载）
+	if f.fake.gets != 1 {
+		t.Fatalf("应回退下载真实字节: gets=%d", f.fake.gets)
+	}
+	// 目标桶里不能出现带旧事实的对象
+	f.fake.mu.Lock()
+	defer f.fake.mu.Unlock()
+	for k, o := range f.fake.objs {
+		if strings.HasPrefix(k, "asset/v1/") && o.meta[ossFactsHeader] == f.fake.objs["priv/"+srcPath].meta[ossFactsHeader] {
+			t.Fatalf("目标对象带了源的旧事实: %s", k)
+		}
+	}
+}
+
+// 事实没有 CRC64（绑定上线前写入）或存储 HEAD 不给 CRC64：回退原路径，不按没绑定的事实复制。
+func TestCopyFallbackWithoutCRC64(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		mut    func(f *copyServerFixture, srcPath string, facts *storedFacts)
+		reason string
+	}{
+		{name: "旧事实无 CRC64", reason: "source_facts_no_crc64", mut: func(f *copyServerFixture, srcPath string, facts *storedFacts) {
+			old := *facts
+			old.CRC64 = ""
+			f.fake.mu.Lock()
+			f.fake.objs["priv/"+srcPath].meta = map[string]string{ossFactsHeader: sealFacts(f.srv.id, old)}
+			f.fake.mu.Unlock()
+		}},
+		{name: "HEAD 无 CRC64", reason: "source_crc64_missing", mut: func(f *copyServerFixture, _ string, _ *storedFacts) {
+			f.fake.mu.Lock()
+			f.fake.noCRC = true
+			f.fake.mu.Unlock()
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			requireFFmpeg(t)
+			f := newCopyServerFixture(t, nil)
+			logs := captureLog(t)
+			src, err := f.srv.storeFile(context.Background(), "intermediate", writePNG(t))
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, srcPath, err := f.srv.objectPath(context.Background(), src.Object.RID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			facts := openFacts(f.srv.id, f.fake.obj("priv/" + srcPath).meta[ossFactsHeader])
+			if facts == nil {
+				t.Fatal("源应带事实")
+			}
+			tc.mut(f, srcPath, facts)
+			putsBefore := f.fake.puts
+			// 回退路径：读字节（本机缓存或下载）、上传，结果与源一致
+			res, _ := f.copy(t, src.Object.RID, "asset_library", "k-nocrc")
+			if f.fake.copies != 0 || !strings.Contains(logs.String(), "reason="+tc.reason) {
+				t.Fatalf("应回退: copies=%d logs=%s", f.fake.copies, logs.String())
+			}
+			if f.fake.puts != putsBefore+1 || res.Object.Sha256 != src.Object.Sha256 || !stages(res.Timings)["put"] {
+				t.Fatalf("回退应上传字节: puts=%d %+v", f.fake.puts-putsBefore, res.Object)
+			}
+		})
+	}
+}
+
+// 复制后目标 CRC64 与源不符：回退原路径覆盖目标，结果仍正确。
+func TestCopyDestCRC64MismatchFallsBack(t *testing.T) {
+	requireFFmpeg(t)
+	f := newCopyServerFixture(t, nil)
+	logs := captureLog(t)
+	png := writePNG(t)
+	pngBytes, err := os.ReadFile(png)
+	if err != nil {
+		t.Fatal(err)
+	}
+	src, err := f.srv.storeFile(context.Background(), "intermediate", png)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.fake.badCopyCRC = true
+	putsBefore := f.fake.puts
+	res, _ := f.copy(t, src.Object.RID, "asset_library", "k-dst-bad")
+	if f.fake.copies != 1 || f.fake.puts != putsBefore+1 || !strings.Contains(logs.String(), "reason=dest_crc64_mismatch") {
+		t.Fatalf("应回退覆盖目标: copies=%d puts=%d logs=%s", f.fake.copies, f.fake.puts-putsBefore, logs.String())
+	}
+	if res.Object.Sha256 != src.Object.Sha256 || res.Object.Width != 16 {
+		t.Fatalf("结果 = %+v", res.Object)
+	}
+	dst := f.fake.obj("asset/" + strings.TrimPrefix(res.Url.Value, "https://cdn.example.com/"))
+	if dst == nil || string(dst.data) != string(pngBytes) {
+		t.Fatalf("目标对象 = %+v", dst)
+	}
+}

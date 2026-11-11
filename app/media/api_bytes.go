@@ -59,12 +59,13 @@ func (s *Server) uploadBytes(w http.ResponseWriter, r *http.Request) {
 
 	path := workFile(dir, "upload.bin")
 	var digest [32]byte
+	var crc string
 	var size int64
 	// 读请求体是 I/O，占输入名额，不占计算名额
 	readStart := time.Now()
 	err = s.svc.withIO(jobCtx, func() error {
 		var err error
-		digest, size, err = copyWithDigest(path, r.Body)
+		digest, crc, size, err = copyWithDigest(path, r.Body)
 		return err
 	})
 	logStage(ctx, "read_body", readStart)
@@ -99,8 +100,8 @@ func (s *Server) uploadBytes(w http.ResponseWriter, r *http.Request) {
 	defer settleIdem(ctx, w, s.idem, hold, &succeeded)
 
 	jobCtx = withIdemKey(jobCtx, key)
-	// 摘要在读请求体时已经算过：交给落桶（storeWithMeta 与存储的 Put）复用，这个文件不再整读重算
-	jobCtx = withKnownDigest(jobCtx, path, hex.EncodeToString(digest[:]), size)
+	// 摘要（含 CRC64）在读请求体时已经算过：交给落桶（storeWithMeta 与存储的 Put）复用，这个文件不再整读重算
+	jobCtx = withKnownDigestCRC(jobCtx, path, hex.EncodeToString(digest[:]), crc, size)
 	ingestStart := time.Now()
 	out, err := s.ingestLocal(jobCtx, purpose, path)
 	logStage(ctx, "ingest_local", ingestStart)
@@ -151,23 +152,24 @@ func bytesDeadline(r *http.Request, ceiling time.Duration) time.Duration {
 	return d
 }
 
-// copyWithDigest 把请求体流式写入 path，同时算 sha256 与字节数（不把整个请求体放进内存）。
-func copyWithDigest(path string, body io.Reader) ([32]byte, int64, error) {
+// copyWithDigest 把请求体流式写入 path，同时算 sha256、CRC64（OSS 口径，见 digestFile）与字节数（不把整个请求体放进内存）。
+func copyWithDigest(path string, body io.Reader) ([32]byte, string, int64, error) {
 	var sum [32]byte
 	f, err := os.Create(path)
 	if err != nil {
-		return sum, 0, err
+		return sum, "", 0, err
 	}
 	h := sha256.New()
-	n, copyErr := io.Copy(io.MultiWriter(f, h), body)
+	c := newCRC64()
+	n, copyErr := io.Copy(io.MultiWriter(f, h, c), body)
 	closeErr := f.Close()
 	if copyErr != nil {
 		_ = os.Remove(path)
-		return sum, n, copyErr
+		return sum, "", n, copyErr
 	}
 	if closeErr != nil {
-		return sum, n, closeErr
+		return sum, "", n, closeErr
 	}
 	copy(sum[:], h.Sum(nil))
-	return sum, n, nil
+	return sum, localCRC64(c), n, nil
 }
