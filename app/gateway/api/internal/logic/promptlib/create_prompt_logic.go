@@ -31,7 +31,7 @@ func NewCreatePromptLogic(ctx context.Context, svcCtx *svc.ServiceContext) *Crea
 
 func (l *CreatePromptLogic) CreatePrompt(req *types.PromptLibUpsertReq) (resp *types.PromptLibItem, err error) {
 	out, err := l.svcCtx.CanvasRpc.CreatePrompt(l.ctx, &canvas_client.UpsertPromptReq{UserId: ctxdata.UserID(l.ctx), Title: req.Title,
-		Prompt: req.Prompt, Models: req.Models, Tags: req.Tags})
+		Prompt: req.Prompt, Models: req.Models, Tags: req.Tags, Group: req.Group})
 	if err != nil {
 		return nil, err
 	}

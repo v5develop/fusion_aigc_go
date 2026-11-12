@@ -31,7 +31,7 @@ func NewUpdatePromptLogic(ctx context.Context, svcCtx *svc.ServiceContext) *Upda
 
 func (l *UpdatePromptLogic) UpdatePrompt(req *types.PromptLibUpdateReq) (resp *types.PromptLibItem, err error) {
 	out, err := l.svcCtx.CanvasRpc.UpdatePrompt(l.ctx, &canvas_client.UpsertPromptReq{UserId: ctxdata.UserID(l.ctx), Id: req.Id, Title: req.Title,
-		Prompt: req.Prompt, Models: req.Models, Tags: req.Tags})
+		Prompt: req.Prompt, Models: req.Models, Tags: req.Tags, Group: req.Group})
 	if err != nil {
 		return nil, err
 	}

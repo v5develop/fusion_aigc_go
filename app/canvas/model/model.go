@@ -290,7 +290,35 @@ const (
 	VerticalGeneral   = "general"
 	VerticalMine      = "mine"
 	GroupFavorite     = "favorite" // 用户自己的提示词固定 mine / favorite
+	GroupMine         = "mine"
 )
+
+// PromptGroupOrder 二级分类的固定展示顺序与中文名（与原型一致；未登记的 key 排在末尾，名称回退为 key）。
+var PromptGroupOrder = []struct{ Key, Label string }{
+	{"model", "模特 / 人像"}, {"scene", "场景"}, {"product", "商品图 / 主图"}, {"detail", "详情页"},
+	{"apparel", "服装"}, {"photo", "摄影 / 光线"}, {"composition", "构图 / 镜头"}, {"style", "风格 / 艺术"},
+	{"material", "材质 / 质感"}, {"text", "文字 / 排版"}, {GroupMine, "我的"}, {GroupFavorite, "我的收藏"},
+}
+
+// PromptGroupLabel 二级分类中文名；未登记返回 key 本身。
+func PromptGroupLabel(key string) string {
+	for _, g := range PromptGroupOrder {
+		if g.Key == key {
+			return g.Label
+		}
+	}
+	return key
+}
+
+// PromptGroupRank 展示顺序，未登记的排在最后。
+func PromptGroupRank(key string) int {
+	for i, g := range PromptGroupOrder {
+		if g.Key == key {
+			return i
+		}
+	}
+	return len(PromptGroupOrder)
+}
 
 // Official 是否官方条目。
 func (p *PromptItem) Official() bool { return !p.UserID.Valid }

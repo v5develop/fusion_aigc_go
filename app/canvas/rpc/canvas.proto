@@ -373,6 +373,7 @@ message PromptItem {
   int64 user_id = 12;
   int64 created_at = 13;
   int64 updated_at = 14;
+  string group_label = 15;       // 二级分类中文名
 }
 
 message ListPromptsReq {
@@ -385,9 +386,26 @@ message ListPromptsReq {
   int32 page_size = 7;
 }
 
+message PromptGroup {
+  string vertical = 1;
+  string key = 2;
+  string label = 3;
+  int64 count = 4;
+}
+
+message PromptCounts {
+  int64 ecommerce = 1;
+  int64 general = 2;
+  int64 mine = 3;
+  int64 official_total = 4;
+  int64 mine_total = 5;
+}
+
 message ListPromptsResp {
   repeated PromptItem list = 1;
   int64 total = 2;
+  repeated PromptGroup groups = 3;   // 各一级分类下的二级分类（有序，带中文名与条数）
+  PromptCounts counts = 4;           // 当前用户可见的各域总数（不受筛选影响）
 }
 
 message UpsertPromptReq {
@@ -397,6 +415,7 @@ message UpsertPromptReq {
   string prompt = 4;
   repeated string models = 5;
   repeated string tags = 6;
+  string group = 7;              // 我的提示词二级分类：mine / favorite；空=新建默认 favorite、更新保持不变
 }
 
 message PromptIdReq {

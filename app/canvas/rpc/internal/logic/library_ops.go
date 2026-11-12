@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"unicode/utf8"
 
@@ -188,7 +189,7 @@ func (c *core) DeleteTemplate(ctx context.Context, in *canvas.TemplateIdReq) (*c
 
 func toPrompt(p *model.PromptItem) *canvas.PromptItem {
 	out := &canvas.PromptItem{
-		Id: p.ID, Title: p.Title, Prompt: p.Prompt, Vertical: p.Vertical, Group: p.GroupKey, Source: p.Source,
+		Id: p.ID, Title: p.Title, Prompt: p.Prompt, Vertical: p.Vertical, Group: p.GroupKey, GroupLabel: model.PromptGroupLabel(p.GroupKey), Source: p.Source,
 		Owner: "official", Enabled: p.Enabled == 1, Sort: p.Sort, UserId: p.UserID.Int64,
 		CreatedAt: ms(p.CreatedAt), UpdatedAt: ms(p.UpdatedAt), Models: []string{}, Tags: []string{},
 	}
@@ -276,7 +277,58 @@ func (c *core) ListPrompts(ctx context.Context, in *canvas.ListPromptsReq) (*can
 	for _, p := range list {
 		out.List = append(out.List, toPrompt(p))
 	}
+	gc, err := c.s.Repo.Prompt.GroupCounts(ctx, in.UserId)
+	if err != nil {
+		return nil, err
+	}
+	out.Groups, out.Counts = buildPromptGroups(gc)
 	return out, nil
+}
+
+// buildPromptGroups 由 (vertical, group_key) 条数得到有序分组列表与各域总数。
+// 官方域（ecommerce / general）只统计官方条目，mine 域只含本人条目，与 ListVisible 的口径一致。
+func buildPromptGroups(gc []repo.GroupCount) ([]*canvas.PromptGroup, *canvas.PromptCounts) {
+	counts := &canvas.PromptCounts{}
+	groups := make([]*canvas.PromptGroup, 0, len(gc))
+	for _, g := range gc {
+		switch g.Vertical {
+		case model.VerticalEcommerce:
+			counts.Ecommerce += g.N
+		case model.VerticalGeneral:
+			counts.General += g.N
+		case model.VerticalMine:
+			counts.Mine += g.N
+		}
+		if g.GroupKey == "" {
+			continue
+		}
+		groups = append(groups, &canvas.PromptGroup{Vertical: g.Vertical, Key: g.GroupKey, Label: model.PromptGroupLabel(g.GroupKey), Count: g.N})
+	}
+	counts.OfficialTotal = counts.Ecommerce + counts.General
+	counts.MineTotal = counts.Mine
+	sort.SliceStable(groups, func(i, j int) bool {
+		a, b := groups[i], groups[j]
+		if a.Vertical != b.Vertical {
+			return a.Vertical < b.Vertical
+		}
+		ra, rb := model.PromptGroupRank(a.Key), model.PromptGroupRank(b.Key)
+		if ra != rb {
+			return ra < rb
+		}
+		return a.Key < b.Key
+	})
+	return groups, counts
+}
+
+// checkUserGroup 我的提示词的二级分类只允许 mine / favorite；空返回 def。
+func checkUserGroup(g, def string) (string, error) {
+	switch g = strings.TrimSpace(g); g {
+	case "":
+		return def, nil
+	case model.GroupMine, model.GroupFavorite:
+		return g, nil
+	}
+	return "", xerr.Param("分类只支持 mine / favorite")
 }
 
 func (c *core) CreatePrompt(ctx context.Context, in *canvas.UpsertPromptReq) (*canvas.PromptItem, error) {
@@ -284,6 +336,10 @@ func (c *core) CreatePrompt(ctx context.Context, in *canvas.UpsertPromptReq) (*c
 		return nil, err
 	}
 	mb, tb, err := c.checkPrompt(in.Title, in.Prompt, in.Models, in.Tags)
+	if err != nil {
+		return nil, err
+	}
+	group, err := checkUserGroup(in.Group, model.GroupFavorite)
 	if err != nil {
 		return nil, err
 	}
@@ -296,7 +352,7 @@ func (c *core) CreatePrompt(ctx context.Context, in *canvas.UpsertPromptReq) (*c
 	}
 	p := &model.PromptItem{
 		UserID: sql.NullInt64{Int64: in.UserId, Valid: true}, Title: strings.TrimSpace(in.Title), Prompt: in.Prompt,
-		Vertical: model.VerticalMine, GroupKey: model.GroupFavorite, Models: mb, Tags: tb, Source: "我的", Enabled: 1,
+		Vertical: model.VerticalMine, GroupKey: group, Models: mb, Tags: tb, Source: "我的", Enabled: 1,
 	}
 	if err := c.s.Repo.Prompt.Insert(ctx, p); err != nil {
 		return nil, err
@@ -334,7 +390,11 @@ func (c *core) UpdatePrompt(ctx context.Context, in *canvas.UpsertPromptReq) (*c
 	if err != nil {
 		return nil, err
 	}
-	p.Title, p.Prompt, p.Models, p.Tags = strings.TrimSpace(in.Title), in.Prompt, mb, tb
+	group, err := checkUserGroup(in.Group, p.GroupKey)
+	if err != nil {
+		return nil, err
+	}
+	p.Title, p.Prompt, p.Models, p.Tags, p.GroupKey = strings.TrimSpace(in.Title), in.Prompt, mb, tb, group
 	ok, err := c.s.Repo.Prompt.UpdateContent(ctx, p, in.UserId)
 	if err != nil {
 		return nil, err

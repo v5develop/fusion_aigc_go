@@ -35,7 +35,14 @@ func (l *ListPromptsLogic) ListPrompts(req *types.PromptLibListReq) (resp *types
 	if err != nil {
 		return nil, err
 	}
-	resp = &types.PromptLibListResp{Total: out.Total, Items: make([]types.PromptLibItem, 0, len(out.List))}
+	resp = &types.PromptLibListResp{Total: out.Total, Items: make([]types.PromptLibItem, 0, len(out.List)),
+		Groups: make([]types.PromptLibGroup, 0, len(out.Groups))}
+	for _, g := range out.Groups {
+		resp.Groups = append(resp.Groups, types.PromptLibGroup{Vertical: g.Vertical, Key: g.Key, Label: g.Label, Count: g.Count})
+	}
+	if c := out.Counts; c != nil {
+		resp.Counts = types.PromptLibCounts{Ecommerce: c.Ecommerce, General: c.General, Mine: c.Mine, OfficialTotal: c.OfficialTotal, MineTotal: c.MineTotal}
+	}
 	for _, p := range out.List {
 		resp.Items = append(resp.Items, toItem(p))
 	}

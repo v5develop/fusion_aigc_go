@@ -1,6 +1,7 @@
 package logic
 
 import (
+	"aigc-local-life/app/canvas/model"
 	"context"
 	"regexp"
 	"strings"
@@ -158,9 +159,18 @@ func TestListPromptsVisibility(t *testing.T) {
 		mock.ExpectQuery("^SELECT `p`.* " + regexp.QuoteMeta("FROM `afv_prompt_library_item` AS `p` "+tc.where+" ORDER BY (p.user_id IS NULL) DESC")).WillReturnRows(tc.rows)
 		mock.ExpectQuery("^SELECT count\\(\\*\\) " + regexp.QuoteMeta("FROM `afv_prompt_library_item` AS `p` "+tc.where) + "$").
 			WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(2))
+		mock.ExpectQuery("^SELECT p.vertical AS vertical, p.group_key AS group_key, COUNT\\(\\*\\) AS n FROM `afv_prompt_library_item` AS `p` WHERE .*GROUP BY p.vertical, p.group_key").
+			WillReturnRows(sqlmock.NewRows([]string{"vertical", "group_key", "n"}).
+				AddRow("ecommerce", "scene", 3).AddRow("ecommerce", "model", 5).AddRow("general", "style", 2).AddRow("mine", "favorite", 4))
 		resp, err := c.ListPrompts(context.Background(), tc.in)
 		if err != nil {
 			t.Fatalf("case %d: %v", i, err)
+		}
+		if got := resp.Counts; got.Ecommerce != 8 || got.General != 2 || got.Mine != 4 || got.OfficialTotal != 10 || got.MineTotal != 4 {
+			t.Fatalf("case %d counts: %+v", i, got)
+		}
+		if g := resp.Groups; len(g) != 4 || g[0].Key != "model" || g[0].Label != "模特 / 人像" || g[1].Key != "scene" || g[2].Vertical != "general" || g[3].Label != "我的收藏" {
+			t.Fatalf("case %d groups: %+v", i, g)
 		}
 		if i == 0 && (resp.Total != 2 || resp.List[0].Owner != "official" || resp.List[1].Owner != "mine" || resp.List[0].Tags[0] != "a") {
 			t.Fatalf("%+v", resp)
@@ -253,5 +263,29 @@ func TestCancelFinishedRun(t *testing.T) {
 	_, err = c.GetRun(context.Background(), &canvas.RunIdReq{UserId: 7, Id: 5})
 	if code, _, _ := xerr.Parse(err); code != xerr.NotFound {
 		t.Fatalf("别人的 run 4001: %v", err)
+	}
+}
+
+func TestPromptGroupLabelsAndUserGroup(t *testing.T) {
+	want := map[string]string{"model": "模特 / 人像", "scene": "场景", "product": "商品图 / 主图", "detail": "详情页", "apparel": "服装",
+		"photo": "摄影 / 光线", "composition": "构图 / 镜头", "style": "风格 / 艺术", "material": "材质 / 质感", "text": "文字 / 排版",
+		"mine": "我的", "favorite": "我的收藏", "zzz": "zzz"}
+	for k, v := range want {
+		if got := model.PromptGroupLabel(k); got != v {
+			t.Fatalf("%s: %q", k, got)
+		}
+	}
+	if g, err := checkUserGroup("", "favorite"); err != nil || g != "favorite" {
+		t.Fatalf("%q %v", g, err)
+	}
+	if g, err := checkUserGroup(" mine ", "favorite"); err != nil || g != "mine" {
+		t.Fatalf("%q %v", g, err)
+	}
+	if _, err := checkUserGroup("scene", "favorite"); err == nil {
+		t.Fatal("用户提示词只允许 mine / favorite")
+	}
+	c, _ := mockCore(t)
+	if _, err := c.CreatePrompt(context.Background(), &canvas.UpsertPromptReq{UserId: 7, Title: "t", Prompt: "p", Group: "scene"}); err == nil {
+		t.Fatal("create 应拒绝非法分类")
 	}
 }

@@ -910,17 +910,18 @@ type PresignUploadResp struct {
 }
 
 type PromptLibItem struct {
-	Id        int64    `json:"id"`
-	Title     string   `json:"title"`
-	Prompt    string   `json:"prompt"`
-	Vertical  string   `json:"vertical"` // ecommerce / general / mine
-	Group     string   `json:"group"`    // 二级分类英文 key
-	Models    []string `json:"models"`   // 通用 / GPT / Banana / Seedream
-	Tags      []string `json:"tags"`
-	Source    string   `json:"source"`
-	Owner     string   `json:"owner"` // official / mine
-	CreatedAt int64    `json:"created_at"`
-	UpdatedAt int64    `json:"updated_at"`
+	Id         int64    `json:"id"`
+	Title      string   `json:"title"`
+	Prompt     string   `json:"prompt"`
+	Vertical   string   `json:"vertical"`    // ecommerce / general / mine
+	Group      string   `json:"group"`       // 二级分类英文 key
+	GroupLabel string   `json:"group_label"` // 二级分类中文名
+	Models     []string `json:"models"`      // 通用 / GPT / Banana / Seedream
+	Tags       []string `json:"tags"`
+	Source     string   `json:"source"`
+	Owner      string   `json:"owner"` // official / mine
+	CreatedAt  int64    `json:"created_at"`
+	UpdatedAt  int64    `json:"updated_at"`
 }
 
 type PromptLibListReq struct {
@@ -932,9 +933,26 @@ type PromptLibListReq struct {
 	PageSize int32  `form:"page_size,optional,default=20"`
 }
 
+type PromptLibGroup struct {
+	Vertical string `json:"vertical"`
+	Key      string `json:"key"`
+	Label    string `json:"label"` // 中文名
+	Count    int64  `json:"count"`
+}
+
+type PromptLibCounts struct {
+	Ecommerce     int64 `json:"ecommerce"`
+	General       int64 `json:"general"`
+	Mine          int64 `json:"mine"`
+	OfficialTotal int64 `json:"official_total"`
+	MineTotal     int64 `json:"mine_total"`
+}
+
 type PromptLibListResp struct {
-	Items []PromptLibItem `json:"items"`
-	Total int64           `json:"total"`
+	Items  []PromptLibItem  `json:"items"`
+	Total  int64            `json:"total"`
+	Groups []PromptLibGroup `json:"groups"` // 各一级分类下的二级分类（有序，带中文名与条数，不受筛选影响）
+	Counts PromptLibCounts  `json:"counts"` // 当前用户可见的各域总数
 }
 
 type PromptLibUpdateReq struct {
@@ -951,7 +969,7 @@ type PromptLibUpsertReq struct {
 	Prompt string   `json:"prompt"`          // ≤3000 字
 	Models []string `json:"models,optional"` // ≤10，缺省 ["通用"]
 	Tags   []string `json:"tags,optional"`   // ≤10
-	Group  string   `json:"group,optional"`  // 忽略：我的提示词固定 mine / favorite
+	Group  string   `json:"group,optional"`  // 我的提示词分类：mine / favorite；缺省 favorite
 }
 
 type PublicDigitalHuman struct {

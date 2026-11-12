@@ -55,6 +55,26 @@ func (r *PromptRepo) ListVisible(ctx context.Context, f PromptFilter) ([]*model.
 	return list, int64(n), err
 }
 
+// GroupCount 一级分类下某二级分类的条数。
+type GroupCount struct {
+	Vertical string `bun:"vertical"`
+	GroupKey string `bun:"group_key"`
+	N        int64  `bun:"n"`
+}
+
+// GroupCounts 用户可见范围内（官方启用 + 本人）按 vertical、group_key 的条数，不受筛选影响。
+func (r *PromptRepo) GroupCounts(ctx context.Context, userID int64) ([]GroupCount, error) {
+	var out []GroupCount
+	err := r.db.NewSelect().Model((*model.PromptItem)(nil)).
+		ColumnExpr("p.vertical AS vertical, p.group_key AS group_key, COUNT(*) AS n").
+		Where("p.deleted = 0").
+		WhereGroup(" AND ", func(q *bun.SelectQuery) *bun.SelectQuery {
+			return q.Where("p.user_id IS NULL AND p.enabled = 1").WhereOr("p.user_id = ?", userID)
+		}).
+		GroupExpr("p.vertical, p.group_key").Scan(ctx, &out)
+	return out, err
+}
+
 // Get 按 id 取（未删除）。
 func (r *PromptRepo) Get(ctx context.Context, id int64) (*model.PromptItem, error) {
 	p := new(model.PromptItem)
