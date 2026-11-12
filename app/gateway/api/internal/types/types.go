@@ -1020,6 +1020,29 @@ type ShopProfileListResp struct {
 	Total int64         `json:"total"`
 }
 
+type StudioAutoColorFixPiece struct {
+	Key    string               `json:"key"`    // 单品码，与校色参考图的 key 同
+	Params StudioColorFixParams `json:"params"` // 五参数（整数，已夹到取值范围）：作为该单品图层的初值
+	Score  float64              `json:"score"`  // 0–100，越高越接近参考色；< 60 建议提示「仅供参考」
+}
+
+type StudioAutoColorFixReq struct {
+	TaskId string   `json:"task_id"`         // studio 商拍换装子任务号：本人、未删除、成功
+	Pieces []string `json:"pieces,optional"` // 只解这些单品（top / bottom / dress / outer / shoes / accessory / bra / panties）；空=批次里的全部单品
+}
+
+type StudioAutoColorFixResp struct {
+	TaskId  string                      `json:"task_id"`
+	Pieces  []StudioAutoColorFixPiece   `json:"pieces"`
+	Skipped []StudioAutoColorFixSkipped `json:"skipped"` // 没解的单品（不影响其它单品）；没有为空数组
+	Version string                      `json:"version"` // 求解端版本（排障用）
+}
+
+type StudioAutoColorFixSkipped struct {
+	Key    string `json:"key"`
+	Reason string `json:"reason"` // no_reference 没有参考图 / no_mask 没识别到该单品区域 / mask_unavailable 识别暂不可用 / unsolved 求解端没给这件的结果
+}
+
 type StudioBatch struct {
 	Id               int64    `json:"id"`
 	Kind             string   `json:"kind"`    // tryon / pose / imagegen
@@ -1167,9 +1190,10 @@ type StudioModelsReq struct {
 }
 
 type StudioModelsResp struct {
-	Kind        string                  `json:"kind"`
-	Items       []StudioModelCapability `json:"items"`
-	BillingMode string                  `json:"billing_mode"` // with_price 时有：on / shadow / off
+	Kind         string                  `json:"kind"`
+	Items        []StudioModelCapability `json:"items"`
+	BillingMode  string                  `json:"billing_mode"`  // with_price 时有：on / shadow / off
+	ColorfixAuto bool                    `json:"colorfix_auto"` // 只增（2026-11-12）：参考图自动校色已开启；false 时前端隐藏「自动校色」
 }
 
 type StudioPoseMapping struct {

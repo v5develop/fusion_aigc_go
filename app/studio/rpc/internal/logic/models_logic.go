@@ -50,7 +50,7 @@ func (l *ModelsLogic) Models(in *studio.ModelsReq) (*studio.ModelsResp, error) {
 	c := l.svcCtx.Config
 	groups := c.ModelGroupMap()
 	items := modelCapabilities(kind, groups, studioCatalog.get(l.ctx, l.svcCtx.Gateway))
-	out := &studio.ModelsResp{Kind: kind, Items: items}
+	out := &studio.ModelsResp{Kind: kind, Items: items, ColorfixAuto: l.svcCtx.ColorFixSolver.Enabled()}
 	if in.WithPrice {
 		var q quoter
 		if l.svcCtx.Billing != nil {

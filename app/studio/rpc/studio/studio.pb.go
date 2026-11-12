@@ -1628,7 +1628,8 @@ type ModelsResp struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Kind          string                 `protobuf:"bytes,1,opt,name=kind,proto3" json:"kind,omitempty"`
 	Items         []*ModelCapability     `protobuf:"bytes,2,rep,name=items,proto3" json:"items,omitempty"`
-	BillingMode   string                 `protobuf:"bytes,3,opt,name=billing_mode,json=billingMode,proto3" json:"billing_mode,omitempty"` // with_price 时有：on / shadow / off
+	BillingMode   string                 `protobuf:"bytes,3,opt,name=billing_mode,json=billingMode,proto3" json:"billing_mode,omitempty"`     // with_price 时有：on / shadow / off
+	ColorfixAuto  bool                   `protobuf:"varint,4,opt,name=colorfix_auto,json=colorfixAuto,proto3" json:"colorfix_auto,omitempty"` // 只增：参考图自动校色已开启（ColorFixSolver.Endpoint 已配置）；前端据此显示 / 隐藏「自动校色」
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1682,6 +1683,13 @@ func (x *ModelsResp) GetBillingMode() string {
 		return x.BillingMode
 	}
 	return ""
+}
+
+func (x *ModelsResp) GetColorfixAuto() bool {
+	if x != nil {
+		return x.ColorfixAuto
+	}
+	return false
 }
 
 type GetBatchReq struct {
@@ -2071,6 +2079,249 @@ func (x *SegmentMaskReq) GetSourceRid() string {
 	return ""
 }
 
+// 自动校色请求：只认子任务号，成品 / 参考图 / 蒙版全由服务端按归属解析，不收客户端地址。
+type AutoColorFixReq struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	TaskId        string                 `protobuf:"bytes,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"` // studio 商拍换装子任务号：本人、未删除、成功
+	Pieces        []string               `protobuf:"bytes,3,rep,name=pieces,proto3" json:"pieces,omitempty"`               // 选填：只解这些单品（top / bottom / dress / outer / shoes / accessory / bra / panties）；空 = 批次里的全部单品
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AutoColorFixReq) Reset() {
+	*x = AutoColorFixReq{}
+	mi := &file_studio_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AutoColorFixReq) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AutoColorFixReq) ProtoMessage() {}
+
+func (x *AutoColorFixReq) ProtoReflect() protoreflect.Message {
+	mi := &file_studio_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AutoColorFixReq.ProtoReflect.Descriptor instead.
+func (*AutoColorFixReq) Descriptor() ([]byte, []int) {
+	return file_studio_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *AutoColorFixReq) GetUserId() int64 {
+	if x != nil {
+		return x.UserId
+	}
+	return 0
+}
+
+func (x *AutoColorFixReq) GetTaskId() string {
+	if x != nil {
+		return x.TaskId
+	}
+	return ""
+}
+
+func (x *AutoColorFixReq) GetPieces() []string {
+	if x != nil {
+		return x.Pieces
+	}
+	return nil
+}
+
+// 一件单品的解算结果。
+type AutoColorFixPiece struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Key           string                 `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`       // 单品码，与前端校色参考图的 key 同
+	Params        *ColorFixParams        `protobuf:"bytes,2,opt,name=params,proto3" json:"params,omitempty"` // 五参数，已夹到 UpdateTaskColorFix 的取值范围内（整数）
+	Score         float64                `protobuf:"fixed64,3,opt,name=score,proto3" json:"score,omitempty"` // 0–100，越高越接近参考色；< 60 前端提示仅供参考
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AutoColorFixPiece) Reset() {
+	*x = AutoColorFixPiece{}
+	mi := &file_studio_proto_msgTypes[26]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AutoColorFixPiece) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AutoColorFixPiece) ProtoMessage() {}
+
+func (x *AutoColorFixPiece) ProtoReflect() protoreflect.Message {
+	mi := &file_studio_proto_msgTypes[26]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AutoColorFixPiece.ProtoReflect.Descriptor instead.
+func (*AutoColorFixPiece) Descriptor() ([]byte, []int) {
+	return file_studio_proto_rawDescGZIP(), []int{26}
+}
+
+func (x *AutoColorFixPiece) GetKey() string {
+	if x != nil {
+		return x.Key
+	}
+	return ""
+}
+
+func (x *AutoColorFixPiece) GetParams() *ColorFixParams {
+	if x != nil {
+		return x.Params
+	}
+	return nil
+}
+
+func (x *AutoColorFixPiece) GetScore() float64 {
+	if x != nil {
+		return x.Score
+	}
+	return 0
+}
+
+// 没解的单品及原因（不影响其它单品）。
+type AutoColorFixSkipped struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Key           string                 `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
+	Reason        string                 `protobuf:"bytes,2,opt,name=reason,proto3" json:"reason,omitempty"` // no_reference 没有参考图 / no_mask 没识别到该单品区域 / mask_unavailable 识别服务暂不可用 / unsolved 求解端没给这件的结果
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AutoColorFixSkipped) Reset() {
+	*x = AutoColorFixSkipped{}
+	mi := &file_studio_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AutoColorFixSkipped) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AutoColorFixSkipped) ProtoMessage() {}
+
+func (x *AutoColorFixSkipped) ProtoReflect() protoreflect.Message {
+	mi := &file_studio_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AutoColorFixSkipped.ProtoReflect.Descriptor instead.
+func (*AutoColorFixSkipped) Descriptor() ([]byte, []int) {
+	return file_studio_proto_rawDescGZIP(), []int{27}
+}
+
+func (x *AutoColorFixSkipped) GetKey() string {
+	if x != nil {
+		return x.Key
+	}
+	return ""
+}
+
+func (x *AutoColorFixSkipped) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+type AutoColorFixResp struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TaskId        string                 `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	Pieces        []*AutoColorFixPiece   `protobuf:"bytes,2,rep,name=pieces,proto3" json:"pieces,omitempty"`
+	Skipped       []*AutoColorFixSkipped `protobuf:"bytes,3,rep,name=skipped,proto3" json:"skipped,omitempty"`
+	Version       string                 `protobuf:"bytes,4,opt,name=version,proto3" json:"version,omitempty"` // 求解端版本（日志 / 排障用）
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AutoColorFixResp) Reset() {
+	*x = AutoColorFixResp{}
+	mi := &file_studio_proto_msgTypes[28]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AutoColorFixResp) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AutoColorFixResp) ProtoMessage() {}
+
+func (x *AutoColorFixResp) ProtoReflect() protoreflect.Message {
+	mi := &file_studio_proto_msgTypes[28]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AutoColorFixResp.ProtoReflect.Descriptor instead.
+func (*AutoColorFixResp) Descriptor() ([]byte, []int) {
+	return file_studio_proto_rawDescGZIP(), []int{28}
+}
+
+func (x *AutoColorFixResp) GetTaskId() string {
+	if x != nil {
+		return x.TaskId
+	}
+	return ""
+}
+
+func (x *AutoColorFixResp) GetPieces() []*AutoColorFixPiece {
+	if x != nil {
+		return x.Pieces
+	}
+	return nil
+}
+
+func (x *AutoColorFixResp) GetSkipped() []*AutoColorFixSkipped {
+	if x != nil {
+		return x.Skipped
+	}
+	return nil
+}
+
+func (x *AutoColorFixResp) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
+}
+
 // 一个部位的蒙版。
 type MaskPart struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -2082,7 +2333,7 @@ type MaskPart struct {
 
 func (x *MaskPart) Reset() {
 	*x = MaskPart{}
-	mi := &file_studio_proto_msgTypes[25]
+	mi := &file_studio_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2094,7 +2345,7 @@ func (x *MaskPart) String() string {
 func (*MaskPart) ProtoMessage() {}
 
 func (x *MaskPart) ProtoReflect() protoreflect.Message {
-	mi := &file_studio_proto_msgTypes[25]
+	mi := &file_studio_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2107,7 +2358,7 @@ func (x *MaskPart) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MaskPart.ProtoReflect.Descriptor instead.
 func (*MaskPart) Descriptor() ([]byte, []int) {
-	return file_studio_proto_rawDescGZIP(), []int{25}
+	return file_studio_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *MaskPart) GetPart() string {
@@ -2137,7 +2388,7 @@ type SegmentMaskResp struct {
 
 func (x *SegmentMaskResp) Reset() {
 	*x = SegmentMaskResp{}
-	mi := &file_studio_proto_msgTypes[26]
+	mi := &file_studio_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2149,7 +2400,7 @@ func (x *SegmentMaskResp) String() string {
 func (*SegmentMaskResp) ProtoMessage() {}
 
 func (x *SegmentMaskResp) ProtoReflect() protoreflect.Message {
-	mi := &file_studio_proto_msgTypes[26]
+	mi := &file_studio_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2162,7 +2413,7 @@ func (x *SegmentMaskResp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SegmentMaskResp.ProtoReflect.Descriptor instead.
 func (*SegmentMaskResp) Descriptor() ([]byte, []int) {
-	return file_studio_proto_rawDescGZIP(), []int{26}
+	return file_studio_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *SegmentMaskResp) GetMaskUrl() string {
@@ -2215,7 +2466,7 @@ type DetectDetailsReq struct {
 
 func (x *DetectDetailsReq) Reset() {
 	*x = DetectDetailsReq{}
-	mi := &file_studio_proto_msgTypes[27]
+	mi := &file_studio_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2227,7 +2478,7 @@ func (x *DetectDetailsReq) String() string {
 func (*DetectDetailsReq) ProtoMessage() {}
 
 func (x *DetectDetailsReq) ProtoReflect() protoreflect.Message {
-	mi := &file_studio_proto_msgTypes[27]
+	mi := &file_studio_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2240,7 +2491,7 @@ func (x *DetectDetailsReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DetectDetailsReq.ProtoReflect.Descriptor instead.
 func (*DetectDetailsReq) Descriptor() ([]byte, []int) {
-	return file_studio_proto_rawDescGZIP(), []int{27}
+	return file_studio_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *DetectDetailsReq) GetUserId() int64 {
@@ -2296,7 +2547,7 @@ type DetailPlan struct {
 
 func (x *DetailPlan) Reset() {
 	*x = DetailPlan{}
-	mi := &file_studio_proto_msgTypes[28]
+	mi := &file_studio_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2308,7 +2559,7 @@ func (x *DetailPlan) String() string {
 func (*DetailPlan) ProtoMessage() {}
 
 func (x *DetailPlan) ProtoReflect() protoreflect.Message {
-	mi := &file_studio_proto_msgTypes[28]
+	mi := &file_studio_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2321,7 +2572,7 @@ func (x *DetailPlan) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DetailPlan.ProtoReflect.Descriptor instead.
 func (*DetailPlan) Descriptor() ([]byte, []int) {
-	return file_studio_proto_rawDescGZIP(), []int{28}
+	return file_studio_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *DetailPlan) GetGarmentIndex() int32 {
@@ -2356,7 +2607,7 @@ type DetectDetailsResp struct {
 
 func (x *DetectDetailsResp) Reset() {
 	*x = DetectDetailsResp{}
-	mi := &file_studio_proto_msgTypes[29]
+	mi := &file_studio_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2368,7 +2619,7 @@ func (x *DetectDetailsResp) String() string {
 func (*DetectDetailsResp) ProtoMessage() {}
 
 func (x *DetectDetailsResp) ProtoReflect() protoreflect.Message {
-	mi := &file_studio_proto_msgTypes[29]
+	mi := &file_studio_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2381,7 +2632,7 @@ func (x *DetectDetailsResp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DetectDetailsResp.ProtoReflect.Descriptor instead.
 func (*DetectDetailsResp) Descriptor() ([]byte, []int) {
-	return file_studio_proto_rawDescGZIP(), []int{29}
+	return file_studio_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *DetectDetailsResp) GetPlans() []*DetailPlan {
@@ -2416,7 +2667,7 @@ type RegenerateTaskReq struct {
 
 func (x *RegenerateTaskReq) Reset() {
 	*x = RegenerateTaskReq{}
-	mi := &file_studio_proto_msgTypes[30]
+	mi := &file_studio_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2428,7 +2679,7 @@ func (x *RegenerateTaskReq) String() string {
 func (*RegenerateTaskReq) ProtoMessage() {}
 
 func (x *RegenerateTaskReq) ProtoReflect() protoreflect.Message {
-	mi := &file_studio_proto_msgTypes[30]
+	mi := &file_studio_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2441,7 +2692,7 @@ func (x *RegenerateTaskReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegenerateTaskReq.ProtoReflect.Descriptor instead.
 func (*RegenerateTaskReq) Descriptor() ([]byte, []int) {
-	return file_studio_proto_rawDescGZIP(), []int{30}
+	return file_studio_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *RegenerateTaskReq) GetTaskId() string {
@@ -2475,7 +2726,7 @@ type BatchUserReq struct {
 
 func (x *BatchUserReq) Reset() {
 	*x = BatchUserReq{}
-	mi := &file_studio_proto_msgTypes[31]
+	mi := &file_studio_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2487,7 +2738,7 @@ func (x *BatchUserReq) String() string {
 func (*BatchUserReq) ProtoMessage() {}
 
 func (x *BatchUserReq) ProtoReflect() protoreflect.Message {
-	mi := &file_studio_proto_msgTypes[31]
+	mi := &file_studio_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2500,7 +2751,7 @@ func (x *BatchUserReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BatchUserReq.ProtoReflect.Descriptor instead.
 func (*BatchUserReq) Descriptor() ([]byte, []int) {
-	return file_studio_proto_rawDescGZIP(), []int{31}
+	return file_studio_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *BatchUserReq) GetBatchId() int64 {
@@ -2540,7 +2791,7 @@ type BatchInfo struct {
 
 func (x *BatchInfo) Reset() {
 	*x = BatchInfo{}
-	mi := &file_studio_proto_msgTypes[32]
+	mi := &file_studio_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2552,7 +2803,7 @@ func (x *BatchInfo) String() string {
 func (*BatchInfo) ProtoMessage() {}
 
 func (x *BatchInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_studio_proto_msgTypes[32]
+	mi := &file_studio_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2565,7 +2816,7 @@ func (x *BatchInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BatchInfo.ProtoReflect.Descriptor instead.
 func (*BatchInfo) Descriptor() ([]byte, []int) {
-	return file_studio_proto_rawDescGZIP(), []int{32}
+	return file_studio_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *BatchInfo) GetId() int64 {
@@ -2701,7 +2952,7 @@ type TaskInfo struct {
 
 func (x *TaskInfo) Reset() {
 	*x = TaskInfo{}
-	mi := &file_studio_proto_msgTypes[33]
+	mi := &file_studio_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2713,7 +2964,7 @@ func (x *TaskInfo) String() string {
 func (*TaskInfo) ProtoMessage() {}
 
 func (x *TaskInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_studio_proto_msgTypes[33]
+	mi := &file_studio_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2726,7 +2977,7 @@ func (x *TaskInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TaskInfo.ProtoReflect.Descriptor instead.
 func (*TaskInfo) Descriptor() ([]byte, []int) {
-	return file_studio_proto_rawDescGZIP(), []int{33}
+	return file_studio_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *TaskInfo) GetId() int64 {
@@ -2921,7 +3172,7 @@ type BatchDetail struct {
 
 func (x *BatchDetail) Reset() {
 	*x = BatchDetail{}
-	mi := &file_studio_proto_msgTypes[34]
+	mi := &file_studio_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2933,7 +3184,7 @@ func (x *BatchDetail) String() string {
 func (*BatchDetail) ProtoMessage() {}
 
 func (x *BatchDetail) ProtoReflect() protoreflect.Message {
-	mi := &file_studio_proto_msgTypes[34]
+	mi := &file_studio_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2946,7 +3197,7 @@ func (x *BatchDetail) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BatchDetail.ProtoReflect.Descriptor instead.
 func (*BatchDetail) Descriptor() ([]byte, []int) {
-	return file_studio_proto_rawDescGZIP(), []int{34}
+	return file_studio_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *BatchDetail) GetBatch() *BatchInfo {
@@ -2975,7 +3226,7 @@ type ListHistoryReq struct {
 
 func (x *ListHistoryReq) Reset() {
 	*x = ListHistoryReq{}
-	mi := &file_studio_proto_msgTypes[35]
+	mi := &file_studio_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2987,7 +3238,7 @@ func (x *ListHistoryReq) String() string {
 func (*ListHistoryReq) ProtoMessage() {}
 
 func (x *ListHistoryReq) ProtoReflect() protoreflect.Message {
-	mi := &file_studio_proto_msgTypes[35]
+	mi := &file_studio_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3000,7 +3251,7 @@ func (x *ListHistoryReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListHistoryReq.ProtoReflect.Descriptor instead.
 func (*ListHistoryReq) Descriptor() ([]byte, []int) {
-	return file_studio_proto_rawDescGZIP(), []int{35}
+	return file_studio_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *ListHistoryReq) GetUserId() int64 {
@@ -3041,7 +3292,7 @@ type ListHistoryResp struct {
 
 func (x *ListHistoryResp) Reset() {
 	*x = ListHistoryResp{}
-	mi := &file_studio_proto_msgTypes[36]
+	mi := &file_studio_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3053,7 +3304,7 @@ func (x *ListHistoryResp) String() string {
 func (*ListHistoryResp) ProtoMessage() {}
 
 func (x *ListHistoryResp) ProtoReflect() protoreflect.Message {
-	mi := &file_studio_proto_msgTypes[36]
+	mi := &file_studio_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3066,7 +3317,7 @@ func (x *ListHistoryResp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListHistoryResp.ProtoReflect.Descriptor instead.
 func (*ListHistoryResp) Descriptor() ([]byte, []int) {
-	return file_studio_proto_rawDescGZIP(), []int{36}
+	return file_studio_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *ListHistoryResp) GetItems() []*BatchDetail {
@@ -3093,7 +3344,7 @@ type CancelBatchResp struct {
 
 func (x *CancelBatchResp) Reset() {
 	*x = CancelBatchResp{}
-	mi := &file_studio_proto_msgTypes[37]
+	mi := &file_studio_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3105,7 +3356,7 @@ func (x *CancelBatchResp) String() string {
 func (*CancelBatchResp) ProtoMessage() {}
 
 func (x *CancelBatchResp) ProtoReflect() protoreflect.Message {
-	mi := &file_studio_proto_msgTypes[37]
+	mi := &file_studio_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3118,7 +3369,7 @@ func (x *CancelBatchResp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CancelBatchResp.ProtoReflect.Descriptor instead.
 func (*CancelBatchResp) Descriptor() ([]byte, []int) {
-	return file_studio_proto_rawDescGZIP(), []int{37}
+	return file_studio_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *CancelBatchResp) GetBatch() *BatchInfo {
@@ -3146,7 +3397,7 @@ type DateRange struct {
 
 func (x *DateRange) Reset() {
 	*x = DateRange{}
-	mi := &file_studio_proto_msgTypes[38]
+	mi := &file_studio_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3158,7 +3409,7 @@ func (x *DateRange) String() string {
 func (*DateRange) ProtoMessage() {}
 
 func (x *DateRange) ProtoReflect() protoreflect.Message {
-	mi := &file_studio_proto_msgTypes[38]
+	mi := &file_studio_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3171,7 +3422,7 @@ func (x *DateRange) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DateRange.ProtoReflect.Descriptor instead.
 func (*DateRange) Descriptor() ([]byte, []int) {
-	return file_studio_proto_rawDescGZIP(), []int{38}
+	return file_studio_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *DateRange) GetStart() int64 {
@@ -3202,7 +3453,7 @@ type AdminListBatchesReq struct {
 
 func (x *AdminListBatchesReq) Reset() {
 	*x = AdminListBatchesReq{}
-	mi := &file_studio_proto_msgTypes[39]
+	mi := &file_studio_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3214,7 +3465,7 @@ func (x *AdminListBatchesReq) String() string {
 func (*AdminListBatchesReq) ProtoMessage() {}
 
 func (x *AdminListBatchesReq) ProtoReflect() protoreflect.Message {
-	mi := &file_studio_proto_msgTypes[39]
+	mi := &file_studio_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3227,7 +3478,7 @@ func (x *AdminListBatchesReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AdminListBatchesReq.ProtoReflect.Descriptor instead.
 func (*AdminListBatchesReq) Descriptor() ([]byte, []int) {
-	return file_studio_proto_rawDescGZIP(), []int{39}
+	return file_studio_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *AdminListBatchesReq) GetPage() int64 {
@@ -3285,7 +3536,7 @@ type AdminBatch struct {
 
 func (x *AdminBatch) Reset() {
 	*x = AdminBatch{}
-	mi := &file_studio_proto_msgTypes[40]
+	mi := &file_studio_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3297,7 +3548,7 @@ func (x *AdminBatch) String() string {
 func (*AdminBatch) ProtoMessage() {}
 
 func (x *AdminBatch) ProtoReflect() protoreflect.Message {
-	mi := &file_studio_proto_msgTypes[40]
+	mi := &file_studio_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3310,7 +3561,7 @@ func (x *AdminBatch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AdminBatch.ProtoReflect.Descriptor instead.
 func (*AdminBatch) Descriptor() ([]byte, []int) {
-	return file_studio_proto_rawDescGZIP(), []int{40}
+	return file_studio_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *AdminBatch) GetBatch() *BatchInfo {
@@ -3358,7 +3609,7 @@ type AdminListBatchesResp struct {
 
 func (x *AdminListBatchesResp) Reset() {
 	*x = AdminListBatchesResp{}
-	mi := &file_studio_proto_msgTypes[41]
+	mi := &file_studio_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3370,7 +3621,7 @@ func (x *AdminListBatchesResp) String() string {
 func (*AdminListBatchesResp) ProtoMessage() {}
 
 func (x *AdminListBatchesResp) ProtoReflect() protoreflect.Message {
-	mi := &file_studio_proto_msgTypes[41]
+	mi := &file_studio_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3383,7 +3634,7 @@ func (x *AdminListBatchesResp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AdminListBatchesResp.ProtoReflect.Descriptor instead.
 func (*AdminListBatchesResp) Descriptor() ([]byte, []int) {
-	return file_studio_proto_rawDescGZIP(), []int{41}
+	return file_studio_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *AdminListBatchesResp) GetList() []*AdminBatch {
@@ -3409,7 +3660,7 @@ type AdminGetBatchReq struct {
 
 func (x *AdminGetBatchReq) Reset() {
 	*x = AdminGetBatchReq{}
-	mi := &file_studio_proto_msgTypes[42]
+	mi := &file_studio_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3421,7 +3672,7 @@ func (x *AdminGetBatchReq) String() string {
 func (*AdminGetBatchReq) ProtoMessage() {}
 
 func (x *AdminGetBatchReq) ProtoReflect() protoreflect.Message {
-	mi := &file_studio_proto_msgTypes[42]
+	mi := &file_studio_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3434,7 +3685,7 @@ func (x *AdminGetBatchReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AdminGetBatchReq.ProtoReflect.Descriptor instead.
 func (*AdminGetBatchReq) Descriptor() ([]byte, []int) {
-	return file_studio_proto_rawDescGZIP(), []int{42}
+	return file_studio_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *AdminGetBatchReq) GetBatchId() int64 {
@@ -3465,7 +3716,7 @@ type AdminTask struct {
 
 func (x *AdminTask) Reset() {
 	*x = AdminTask{}
-	mi := &file_studio_proto_msgTypes[43]
+	mi := &file_studio_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3477,7 +3728,7 @@ func (x *AdminTask) String() string {
 func (*AdminTask) ProtoMessage() {}
 
 func (x *AdminTask) ProtoReflect() protoreflect.Message {
-	mi := &file_studio_proto_msgTypes[43]
+	mi := &file_studio_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3490,7 +3741,7 @@ func (x *AdminTask) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AdminTask.ProtoReflect.Descriptor instead.
 func (*AdminTask) Descriptor() ([]byte, []int) {
-	return file_studio_proto_rawDescGZIP(), []int{43}
+	return file_studio_proto_rawDescGZIP(), []int{47}
 }
 
 func (x *AdminTask) GetTask() *TaskInfo {
@@ -3592,7 +3843,7 @@ type AdminBatchDetail struct {
 
 func (x *AdminBatchDetail) Reset() {
 	*x = AdminBatchDetail{}
-	mi := &file_studio_proto_msgTypes[44]
+	mi := &file_studio_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3604,7 +3855,7 @@ func (x *AdminBatchDetail) String() string {
 func (*AdminBatchDetail) ProtoMessage() {}
 
 func (x *AdminBatchDetail) ProtoReflect() protoreflect.Message {
-	mi := &file_studio_proto_msgTypes[44]
+	mi := &file_studio_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3617,7 +3868,7 @@ func (x *AdminBatchDetail) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AdminBatchDetail.ProtoReflect.Descriptor instead.
 func (*AdminBatchDetail) Descriptor() ([]byte, []int) {
-	return file_studio_proto_rawDescGZIP(), []int{44}
+	return file_studio_proto_rawDescGZIP(), []int{48}
 }
 
 func (x *AdminBatchDetail) GetBatch() *AdminBatch {
@@ -3681,7 +3932,7 @@ type AdminTaskReq struct {
 
 func (x *AdminTaskReq) Reset() {
 	*x = AdminTaskReq{}
-	mi := &file_studio_proto_msgTypes[45]
+	mi := &file_studio_proto_msgTypes[49]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3693,7 +3944,7 @@ func (x *AdminTaskReq) String() string {
 func (*AdminTaskReq) ProtoMessage() {}
 
 func (x *AdminTaskReq) ProtoReflect() protoreflect.Message {
-	mi := &file_studio_proto_msgTypes[45]
+	mi := &file_studio_proto_msgTypes[49]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3706,7 +3957,7 @@ func (x *AdminTaskReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AdminTaskReq.ProtoReflect.Descriptor instead.
 func (*AdminTaskReq) Descriptor() ([]byte, []int) {
-	return file_studio_proto_rawDescGZIP(), []int{45}
+	return file_studio_proto_rawDescGZIP(), []int{49}
 }
 
 func (x *AdminTaskReq) GetId() int64 {
@@ -3744,7 +3995,7 @@ type DependencyStatus struct {
 
 func (x *DependencyStatus) Reset() {
 	*x = DependencyStatus{}
-	mi := &file_studio_proto_msgTypes[46]
+	mi := &file_studio_proto_msgTypes[50]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3756,7 +4007,7 @@ func (x *DependencyStatus) String() string {
 func (*DependencyStatus) ProtoMessage() {}
 
 func (x *DependencyStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_studio_proto_msgTypes[46]
+	mi := &file_studio_proto_msgTypes[50]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3769,7 +4020,7 @@ func (x *DependencyStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DependencyStatus.ProtoReflect.Descriptor instead.
 func (*DependencyStatus) Descriptor() ([]byte, []int) {
-	return file_studio_proto_rawDescGZIP(), []int{46}
+	return file_studio_proto_rawDescGZIP(), []int{50}
 }
 
 func (x *DependencyStatus) GetName() string {
@@ -3825,7 +4076,7 @@ type SidecarStatusResp struct {
 
 func (x *SidecarStatusResp) Reset() {
 	*x = SidecarStatusResp{}
-	mi := &file_studio_proto_msgTypes[47]
+	mi := &file_studio_proto_msgTypes[51]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3837,7 +4088,7 @@ func (x *SidecarStatusResp) String() string {
 func (*SidecarStatusResp) ProtoMessage() {}
 
 func (x *SidecarStatusResp) ProtoReflect() protoreflect.Message {
-	mi := &file_studio_proto_msgTypes[47]
+	mi := &file_studio_proto_msgTypes[51]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3850,7 +4101,7 @@ func (x *SidecarStatusResp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SidecarStatusResp.ProtoReflect.Descriptor instead.
 func (*SidecarStatusResp) Descriptor() ([]byte, []int) {
-	return file_studio_proto_rawDescGZIP(), []int{47}
+	return file_studio_proto_rawDescGZIP(), []int{51}
 }
 
 func (x *SidecarStatusResp) GetDeps() []*DependencyStatus {
@@ -3884,7 +4135,7 @@ type AdminCostSummaryReq struct {
 
 func (x *AdminCostSummaryReq) Reset() {
 	*x = AdminCostSummaryReq{}
-	mi := &file_studio_proto_msgTypes[48]
+	mi := &file_studio_proto_msgTypes[52]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3896,7 +4147,7 @@ func (x *AdminCostSummaryReq) String() string {
 func (*AdminCostSummaryReq) ProtoMessage() {}
 
 func (x *AdminCostSummaryReq) ProtoReflect() protoreflect.Message {
-	mi := &file_studio_proto_msgTypes[48]
+	mi := &file_studio_proto_msgTypes[52]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3909,7 +4160,7 @@ func (x *AdminCostSummaryReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AdminCostSummaryReq.ProtoReflect.Descriptor instead.
 func (*AdminCostSummaryReq) Descriptor() ([]byte, []int) {
-	return file_studio_proto_rawDescGZIP(), []int{48}
+	return file_studio_proto_rawDescGZIP(), []int{52}
 }
 
 func (x *AdminCostSummaryReq) GetDateRange() *DateRange {
@@ -3940,7 +4191,7 @@ type CostRow struct {
 
 func (x *CostRow) Reset() {
 	*x = CostRow{}
-	mi := &file_studio_proto_msgTypes[49]
+	mi := &file_studio_proto_msgTypes[53]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3952,7 +4203,7 @@ func (x *CostRow) String() string {
 func (*CostRow) ProtoMessage() {}
 
 func (x *CostRow) ProtoReflect() protoreflect.Message {
-	mi := &file_studio_proto_msgTypes[49]
+	mi := &file_studio_proto_msgTypes[53]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3965,7 +4216,7 @@ func (x *CostRow) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CostRow.ProtoReflect.Descriptor instead.
 func (*CostRow) Descriptor() ([]byte, []int) {
-	return file_studio_proto_rawDescGZIP(), []int{49}
+	return file_studio_proto_rawDescGZIP(), []int{53}
 }
 
 func (x *CostRow) GetKey() string {
@@ -4020,7 +4271,7 @@ type AdminCostSummaryResp struct {
 
 func (x *AdminCostSummaryResp) Reset() {
 	*x = AdminCostSummaryResp{}
-	mi := &file_studio_proto_msgTypes[50]
+	mi := &file_studio_proto_msgTypes[54]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4032,7 +4283,7 @@ func (x *AdminCostSummaryResp) String() string {
 func (*AdminCostSummaryResp) ProtoMessage() {}
 
 func (x *AdminCostSummaryResp) ProtoReflect() protoreflect.Message {
-	mi := &file_studio_proto_msgTypes[50]
+	mi := &file_studio_proto_msgTypes[54]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4045,7 +4296,7 @@ func (x *AdminCostSummaryResp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AdminCostSummaryResp.ProtoReflect.Descriptor instead.
 func (*AdminCostSummaryResp) Descriptor() ([]byte, []int) {
-	return file_studio_proto_rawDescGZIP(), []int{50}
+	return file_studio_proto_rawDescGZIP(), []int{54}
 }
 
 func (x *AdminCostSummaryResp) GetRows() []*CostRow {
@@ -4252,12 +4503,13 @@ const file_studio_proto_rawDesc = "" +
 	"\x0emax_ref_images\x18\b \x01(\x05R\fmaxRefImages\x12\x14\n" +
 	"\x05notes\x18\t \x03(\tR\x05notes\x124\n" +
 	"\x06prices\x18\n" +
-	" \x03(\v2\x1c.studio.ModelResolutionPriceR\x06prices\"r\n" +
+	" \x03(\v2\x1c.studio.ModelResolutionPriceR\x06prices\"\x97\x01\n" +
 	"\n" +
 	"ModelsResp\x12\x12\n" +
 	"\x04kind\x18\x01 \x01(\tR\x04kind\x12-\n" +
 	"\x05items\x18\x02 \x03(\v2\x17.studio.ModelCapabilityR\x05items\x12!\n" +
-	"\fbilling_mode\x18\x03 \x01(\tR\vbillingMode\"\\\n" +
+	"\fbilling_mode\x18\x03 \x01(\tR\vbillingMode\x12#\n" +
+	"\rcolorfix_auto\x18\x04 \x01(\bR\fcolorfixAuto\"\\\n" +
 	"\vGetBatchReq\x12\x19\n" +
 	"\bbatch_id\x18\x01 \x01(\x03R\abatchId\x12\x17\n" +
 	"\auser_id\x18\x02 \x01(\x03R\x06userId\x12\x19\n" +
@@ -4290,7 +4542,23 @@ const file_studio_proto_rawDesc = "" +
 	"\x05parts\x18\x04 \x03(\tR\x05parts\x12\x17\n" +
 	"\atask_id\x18\x05 \x01(\tR\x06taskId\x12\x1d\n" +
 	"\n" +
-	"source_rid\x18\x06 \x01(\tR\tsourceRid\"9\n" +
+	"source_rid\x18\x06 \x01(\tR\tsourceRid\"[\n" +
+	"\x0fAutoColorFixReq\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x17\n" +
+	"\atask_id\x18\x02 \x01(\tR\x06taskId\x12\x16\n" +
+	"\x06pieces\x18\x03 \x03(\tR\x06pieces\"k\n" +
+	"\x11AutoColorFixPiece\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12.\n" +
+	"\x06params\x18\x02 \x01(\v2\x16.studio.ColorFixParamsR\x06params\x12\x14\n" +
+	"\x05score\x18\x03 \x01(\x01R\x05score\"?\n" +
+	"\x13AutoColorFixSkipped\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x16\n" +
+	"\x06reason\x18\x02 \x01(\tR\x06reason\"\xaf\x01\n" +
+	"\x10AutoColorFixResp\x12\x17\n" +
+	"\atask_id\x18\x01 \x01(\tR\x06taskId\x121\n" +
+	"\x06pieces\x18\x02 \x03(\v2\x19.studio.AutoColorFixPieceR\x06pieces\x125\n" +
+	"\askipped\x18\x03 \x03(\v2\x1b.studio.AutoColorFixSkippedR\askipped\x12\x18\n" +
+	"\aversion\x18\x04 \x01(\tR\aversion\"9\n" +
 	"\bMaskPart\x12\x12\n" +
 	"\x04part\x18\x01 \x01(\tR\x04part\x12\x19\n" +
 	"\bmask_url\x18\x02 \x01(\tR\amaskUrl\"\xad\x01\n" +
@@ -4479,7 +4747,7 @@ const file_studio_proto_rawDesc = "" +
 	"\x06points\x18\x06 \x01(\x03R\x06points\"b\n" +
 	"\x14AdminCostSummaryResp\x12#\n" +
 	"\x04rows\x18\x01 \x03(\v2\x0f.studio.CostRowR\x04rows\x12%\n" +
-	"\x05total\x18\x02 \x01(\v2\x0f.studio.CostRowR\x05total2\x87\v\n" +
+	"\x05total\x18\x02 \x01(\v2\x0f.studio.CostRowR\x05total2\xca\v\n" +
 	"\x06Studio\x129\n" +
 	"\vSubmitTryon\x12\x16.studio.SubmitTryonReq\x1a\x12.studio.SubmitResp\x127\n" +
 	"\n" +
@@ -4496,7 +4764,8 @@ const file_studio_proto_rawDesc = "" +
 	"\tRetryTask\x12\x14.studio.RetryTaskReq\x1a\x13.studio.BatchDetail\x12E\n" +
 	"\x12UpdateTaskColorFix\x12\x1d.studio.UpdateTaskColorFixReq\x1a\x10.studio.TaskInfo\x128\n" +
 	"\x10RetryLibraryCopy\x12\x12.studio.GetTaskReq\x1a\x10.studio.TaskInfo\x12>\n" +
-	"\vSegmentMask\x12\x16.studio.SegmentMaskReq\x1a\x17.studio.SegmentMaskResp\x12D\n" +
+	"\vSegmentMask\x12\x16.studio.SegmentMaskReq\x1a\x17.studio.SegmentMaskResp\x12A\n" +
+	"\fAutoColorFix\x12\x17.studio.AutoColorFixReq\x1a\x18.studio.AutoColorFixResp\x12D\n" +
 	"\rDetectDetails\x12\x18.studio.DetectDetailsReq\x1a\x19.studio.DetectDetailsResp\x12@\n" +
 	"\x0eRegenerateTask\x12\x19.studio.RegenerateTaskReq\x1a\x13.studio.BatchDetail\x12M\n" +
 	"\x10AdminListBatches\x12\x1b.studio.AdminListBatchesReq\x1a\x1c.studio.AdminListBatchesResp\x12C\n" +
@@ -4519,7 +4788,7 @@ func file_studio_proto_rawDescGZIP() []byte {
 	return file_studio_proto_rawDescData
 }
 
-var file_studio_proto_msgTypes = make([]protoimpl.MessageInfo, 54)
+var file_studio_proto_msgTypes = make([]protoimpl.MessageInfo, 58)
 var file_studio_proto_goTypes = []any{
 	(*Empty)(nil),                 // 0: studio.Empty
 	(*GarmentImage)(nil),          // 1: studio.GarmentImage
@@ -4546,42 +4815,46 @@ var file_studio_proto_goTypes = []any{
 	(*ColorFixParams)(nil),        // 22: studio.ColorFixParams
 	(*UpdateTaskColorFixReq)(nil), // 23: studio.UpdateTaskColorFixReq
 	(*SegmentMaskReq)(nil),        // 24: studio.SegmentMaskReq
-	(*MaskPart)(nil),              // 25: studio.MaskPart
-	(*SegmentMaskResp)(nil),       // 26: studio.SegmentMaskResp
-	(*DetectDetailsReq)(nil),      // 27: studio.DetectDetailsReq
-	(*DetailPlan)(nil),            // 28: studio.DetailPlan
-	(*DetectDetailsResp)(nil),     // 29: studio.DetectDetailsResp
-	(*RegenerateTaskReq)(nil),     // 30: studio.RegenerateTaskReq
-	(*BatchUserReq)(nil),          // 31: studio.BatchUserReq
-	(*BatchInfo)(nil),             // 32: studio.BatchInfo
-	(*TaskInfo)(nil),              // 33: studio.TaskInfo
-	(*BatchDetail)(nil),           // 34: studio.BatchDetail
-	(*ListHistoryReq)(nil),        // 35: studio.ListHistoryReq
-	(*ListHistoryResp)(nil),       // 36: studio.ListHistoryResp
-	(*CancelBatchResp)(nil),       // 37: studio.CancelBatchResp
-	(*DateRange)(nil),             // 38: studio.DateRange
-	(*AdminListBatchesReq)(nil),   // 39: studio.AdminListBatchesReq
-	(*AdminBatch)(nil),            // 40: studio.AdminBatch
-	(*AdminListBatchesResp)(nil),  // 41: studio.AdminListBatchesResp
-	(*AdminGetBatchReq)(nil),      // 42: studio.AdminGetBatchReq
-	(*AdminTask)(nil),             // 43: studio.AdminTask
-	(*AdminBatchDetail)(nil),      // 44: studio.AdminBatchDetail
-	(*AdminTaskReq)(nil),          // 45: studio.AdminTaskReq
-	(*DependencyStatus)(nil),      // 46: studio.DependencyStatus
-	(*SidecarStatusResp)(nil),     // 47: studio.SidecarStatusResp
-	(*AdminCostSummaryReq)(nil),   // 48: studio.AdminCostSummaryReq
-	(*CostRow)(nil),               // 49: studio.CostRow
-	(*AdminCostSummaryResp)(nil),  // 50: studio.AdminCostSummaryResp
-	nil,                           // 51: studio.SubmitTryonReq.LengthsEntry
-	nil,                           // 52: studio.SubmitTryonReq.SleevesEntry
-	nil,                           // 53: studio.SubmitPoseReq.PosePromptsEntry
+	(*AutoColorFixReq)(nil),       // 25: studio.AutoColorFixReq
+	(*AutoColorFixPiece)(nil),     // 26: studio.AutoColorFixPiece
+	(*AutoColorFixSkipped)(nil),   // 27: studio.AutoColorFixSkipped
+	(*AutoColorFixResp)(nil),      // 28: studio.AutoColorFixResp
+	(*MaskPart)(nil),              // 29: studio.MaskPart
+	(*SegmentMaskResp)(nil),       // 30: studio.SegmentMaskResp
+	(*DetectDetailsReq)(nil),      // 31: studio.DetectDetailsReq
+	(*DetailPlan)(nil),            // 32: studio.DetailPlan
+	(*DetectDetailsResp)(nil),     // 33: studio.DetectDetailsResp
+	(*RegenerateTaskReq)(nil),     // 34: studio.RegenerateTaskReq
+	(*BatchUserReq)(nil),          // 35: studio.BatchUserReq
+	(*BatchInfo)(nil),             // 36: studio.BatchInfo
+	(*TaskInfo)(nil),              // 37: studio.TaskInfo
+	(*BatchDetail)(nil),           // 38: studio.BatchDetail
+	(*ListHistoryReq)(nil),        // 39: studio.ListHistoryReq
+	(*ListHistoryResp)(nil),       // 40: studio.ListHistoryResp
+	(*CancelBatchResp)(nil),       // 41: studio.CancelBatchResp
+	(*DateRange)(nil),             // 42: studio.DateRange
+	(*AdminListBatchesReq)(nil),   // 43: studio.AdminListBatchesReq
+	(*AdminBatch)(nil),            // 44: studio.AdminBatch
+	(*AdminListBatchesResp)(nil),  // 45: studio.AdminListBatchesResp
+	(*AdminGetBatchReq)(nil),      // 46: studio.AdminGetBatchReq
+	(*AdminTask)(nil),             // 47: studio.AdminTask
+	(*AdminBatchDetail)(nil),      // 48: studio.AdminBatchDetail
+	(*AdminTaskReq)(nil),          // 49: studio.AdminTaskReq
+	(*DependencyStatus)(nil),      // 50: studio.DependencyStatus
+	(*SidecarStatusResp)(nil),     // 51: studio.SidecarStatusResp
+	(*AdminCostSummaryReq)(nil),   // 52: studio.AdminCostSummaryReq
+	(*CostRow)(nil),               // 53: studio.CostRow
+	(*AdminCostSummaryResp)(nil),  // 54: studio.AdminCostSummaryResp
+	nil,                           // 55: studio.SubmitTryonReq.LengthsEntry
+	nil,                           // 56: studio.SubmitTryonReq.SleevesEntry
+	nil,                           // 57: studio.SubmitPoseReq.PosePromptsEntry
 }
 var file_studio_proto_depIdxs = []int32{
 	1,  // 0: studio.SubmitTryonReq.garment_images:type_name -> studio.GarmentImage
-	51, // 1: studio.SubmitTryonReq.lengths:type_name -> studio.SubmitTryonReq.LengthsEntry
-	52, // 2: studio.SubmitTryonReq.sleeves:type_name -> studio.SubmitTryonReq.SleevesEntry
+	55, // 1: studio.SubmitTryonReq.lengths:type_name -> studio.SubmitTryonReq.LengthsEntry
+	56, // 2: studio.SubmitTryonReq.sleeves:type_name -> studio.SubmitTryonReq.SleevesEntry
 	3,  // 3: studio.SubmitTryonReq.detail_crops:type_name -> studio.DetailCrop
-	53, // 4: studio.SubmitPoseReq.pose_prompts:type_name -> studio.SubmitPoseReq.PosePromptsEntry
+	57, // 4: studio.SubmitPoseReq.pose_prompts:type_name -> studio.SubmitPoseReq.PosePromptsEntry
 	5,  // 5: studio.SubmitPoseReq.mappings:type_name -> studio.PoseMapping
 	7,  // 6: studio.PosePreviewImage.people:type_name -> studio.PosePreviewPerson
 	8,  // 7: studio.PosePreviewItem.pose:type_name -> studio.PosePreviewImage
@@ -4590,77 +4863,82 @@ var file_studio_proto_depIdxs = []int32{
 	16, // 10: studio.ModelCapability.prices:type_name -> studio.ModelResolutionPrice
 	17, // 11: studio.ModelsResp.items:type_name -> studio.ModelCapability
 	22, // 12: studio.UpdateTaskColorFixReq.params:type_name -> studio.ColorFixParams
-	25, // 13: studio.SegmentMaskResp.parts:type_name -> studio.MaskPart
-	1,  // 14: studio.DetectDetailsReq.garment_images:type_name -> studio.GarmentImage
-	3,  // 15: studio.DetailPlan.crops:type_name -> studio.DetailCrop
-	28, // 16: studio.DetectDetailsResp.plans:type_name -> studio.DetailPlan
-	22, // 17: studio.TaskInfo.color_fix_params:type_name -> studio.ColorFixParams
-	25, // 18: studio.TaskInfo.mask_parts:type_name -> studio.MaskPart
-	32, // 19: studio.BatchDetail.batch:type_name -> studio.BatchInfo
-	33, // 20: studio.BatchDetail.tasks:type_name -> studio.TaskInfo
-	34, // 21: studio.ListHistoryResp.items:type_name -> studio.BatchDetail
-	32, // 22: studio.CancelBatchResp.batch:type_name -> studio.BatchInfo
-	38, // 23: studio.AdminListBatchesReq.date_range:type_name -> studio.DateRange
-	32, // 24: studio.AdminBatch.batch:type_name -> studio.BatchInfo
-	40, // 25: studio.AdminListBatchesResp.list:type_name -> studio.AdminBatch
-	33, // 26: studio.AdminTask.task:type_name -> studio.TaskInfo
-	40, // 27: studio.AdminBatchDetail.batch:type_name -> studio.AdminBatch
-	43, // 28: studio.AdminBatchDetail.tasks:type_name -> studio.AdminTask
-	46, // 29: studio.SidecarStatusResp.deps:type_name -> studio.DependencyStatus
-	38, // 30: studio.AdminCostSummaryReq.date_range:type_name -> studio.DateRange
-	49, // 31: studio.AdminCostSummaryResp.rows:type_name -> studio.CostRow
-	49, // 32: studio.AdminCostSummaryResp.total:type_name -> studio.CostRow
-	2,  // 33: studio.Studio.SubmitTryon:input_type -> studio.SubmitTryonReq
-	4,  // 34: studio.Studio.SubmitPose:input_type -> studio.SubmitPoseReq
-	11, // 35: studio.Studio.SubmitImageGen:input_type -> studio.SubmitImageGenReq
-	6,  // 36: studio.Studio.PreviewPose:input_type -> studio.PreviewPoseReq
-	13, // 37: studio.Studio.Quote:input_type -> studio.QuoteReq
-	15, // 38: studio.Studio.Models:input_type -> studio.ModelsReq
-	19, // 39: studio.Studio.GetBatch:input_type -> studio.GetBatchReq
-	20, // 40: studio.Studio.GetTask:input_type -> studio.GetTaskReq
-	35, // 41: studio.Studio.ListHistory:input_type -> studio.ListHistoryReq
-	31, // 42: studio.Studio.CancelBatch:input_type -> studio.BatchUserReq
-	31, // 43: studio.Studio.DeleteBatch:input_type -> studio.BatchUserReq
-	21, // 44: studio.Studio.RetryTask:input_type -> studio.RetryTaskReq
-	23, // 45: studio.Studio.UpdateTaskColorFix:input_type -> studio.UpdateTaskColorFixReq
-	20, // 46: studio.Studio.RetryLibraryCopy:input_type -> studio.GetTaskReq
-	24, // 47: studio.Studio.SegmentMask:input_type -> studio.SegmentMaskReq
-	27, // 48: studio.Studio.DetectDetails:input_type -> studio.DetectDetailsReq
-	30, // 49: studio.Studio.RegenerateTask:input_type -> studio.RegenerateTaskReq
-	39, // 50: studio.Studio.AdminListBatches:input_type -> studio.AdminListBatchesReq
-	42, // 51: studio.Studio.AdminGetBatch:input_type -> studio.AdminGetBatchReq
-	45, // 52: studio.Studio.AdminRetryTask:input_type -> studio.AdminTaskReq
-	45, // 53: studio.Studio.AdminForceFail:input_type -> studio.AdminTaskReq
-	0,  // 54: studio.Studio.AdminSidecarStatus:input_type -> studio.Empty
-	48, // 55: studio.Studio.AdminCostSummary:input_type -> studio.AdminCostSummaryReq
-	12, // 56: studio.Studio.SubmitTryon:output_type -> studio.SubmitResp
-	12, // 57: studio.Studio.SubmitPose:output_type -> studio.SubmitResp
-	12, // 58: studio.Studio.SubmitImageGen:output_type -> studio.SubmitResp
-	10, // 59: studio.Studio.PreviewPose:output_type -> studio.PreviewPoseResp
-	14, // 60: studio.Studio.Quote:output_type -> studio.QuoteResp
-	18, // 61: studio.Studio.Models:output_type -> studio.ModelsResp
-	34, // 62: studio.Studio.GetBatch:output_type -> studio.BatchDetail
-	33, // 63: studio.Studio.GetTask:output_type -> studio.TaskInfo
-	36, // 64: studio.Studio.ListHistory:output_type -> studio.ListHistoryResp
-	37, // 65: studio.Studio.CancelBatch:output_type -> studio.CancelBatchResp
-	0,  // 66: studio.Studio.DeleteBatch:output_type -> studio.Empty
-	34, // 67: studio.Studio.RetryTask:output_type -> studio.BatchDetail
-	33, // 68: studio.Studio.UpdateTaskColorFix:output_type -> studio.TaskInfo
-	33, // 69: studio.Studio.RetryLibraryCopy:output_type -> studio.TaskInfo
-	26, // 70: studio.Studio.SegmentMask:output_type -> studio.SegmentMaskResp
-	29, // 71: studio.Studio.DetectDetails:output_type -> studio.DetectDetailsResp
-	34, // 72: studio.Studio.RegenerateTask:output_type -> studio.BatchDetail
-	41, // 73: studio.Studio.AdminListBatches:output_type -> studio.AdminListBatchesResp
-	44, // 74: studio.Studio.AdminGetBatch:output_type -> studio.AdminBatchDetail
-	0,  // 75: studio.Studio.AdminRetryTask:output_type -> studio.Empty
-	0,  // 76: studio.Studio.AdminForceFail:output_type -> studio.Empty
-	47, // 77: studio.Studio.AdminSidecarStatus:output_type -> studio.SidecarStatusResp
-	50, // 78: studio.Studio.AdminCostSummary:output_type -> studio.AdminCostSummaryResp
-	56, // [56:79] is the sub-list for method output_type
-	33, // [33:56] is the sub-list for method input_type
-	33, // [33:33] is the sub-list for extension type_name
-	33, // [33:33] is the sub-list for extension extendee
-	0,  // [0:33] is the sub-list for field type_name
+	22, // 13: studio.AutoColorFixPiece.params:type_name -> studio.ColorFixParams
+	26, // 14: studio.AutoColorFixResp.pieces:type_name -> studio.AutoColorFixPiece
+	27, // 15: studio.AutoColorFixResp.skipped:type_name -> studio.AutoColorFixSkipped
+	29, // 16: studio.SegmentMaskResp.parts:type_name -> studio.MaskPart
+	1,  // 17: studio.DetectDetailsReq.garment_images:type_name -> studio.GarmentImage
+	3,  // 18: studio.DetailPlan.crops:type_name -> studio.DetailCrop
+	32, // 19: studio.DetectDetailsResp.plans:type_name -> studio.DetailPlan
+	22, // 20: studio.TaskInfo.color_fix_params:type_name -> studio.ColorFixParams
+	29, // 21: studio.TaskInfo.mask_parts:type_name -> studio.MaskPart
+	36, // 22: studio.BatchDetail.batch:type_name -> studio.BatchInfo
+	37, // 23: studio.BatchDetail.tasks:type_name -> studio.TaskInfo
+	38, // 24: studio.ListHistoryResp.items:type_name -> studio.BatchDetail
+	36, // 25: studio.CancelBatchResp.batch:type_name -> studio.BatchInfo
+	42, // 26: studio.AdminListBatchesReq.date_range:type_name -> studio.DateRange
+	36, // 27: studio.AdminBatch.batch:type_name -> studio.BatchInfo
+	44, // 28: studio.AdminListBatchesResp.list:type_name -> studio.AdminBatch
+	37, // 29: studio.AdminTask.task:type_name -> studio.TaskInfo
+	44, // 30: studio.AdminBatchDetail.batch:type_name -> studio.AdminBatch
+	47, // 31: studio.AdminBatchDetail.tasks:type_name -> studio.AdminTask
+	50, // 32: studio.SidecarStatusResp.deps:type_name -> studio.DependencyStatus
+	42, // 33: studio.AdminCostSummaryReq.date_range:type_name -> studio.DateRange
+	53, // 34: studio.AdminCostSummaryResp.rows:type_name -> studio.CostRow
+	53, // 35: studio.AdminCostSummaryResp.total:type_name -> studio.CostRow
+	2,  // 36: studio.Studio.SubmitTryon:input_type -> studio.SubmitTryonReq
+	4,  // 37: studio.Studio.SubmitPose:input_type -> studio.SubmitPoseReq
+	11, // 38: studio.Studio.SubmitImageGen:input_type -> studio.SubmitImageGenReq
+	6,  // 39: studio.Studio.PreviewPose:input_type -> studio.PreviewPoseReq
+	13, // 40: studio.Studio.Quote:input_type -> studio.QuoteReq
+	15, // 41: studio.Studio.Models:input_type -> studio.ModelsReq
+	19, // 42: studio.Studio.GetBatch:input_type -> studio.GetBatchReq
+	20, // 43: studio.Studio.GetTask:input_type -> studio.GetTaskReq
+	39, // 44: studio.Studio.ListHistory:input_type -> studio.ListHistoryReq
+	35, // 45: studio.Studio.CancelBatch:input_type -> studio.BatchUserReq
+	35, // 46: studio.Studio.DeleteBatch:input_type -> studio.BatchUserReq
+	21, // 47: studio.Studio.RetryTask:input_type -> studio.RetryTaskReq
+	23, // 48: studio.Studio.UpdateTaskColorFix:input_type -> studio.UpdateTaskColorFixReq
+	20, // 49: studio.Studio.RetryLibraryCopy:input_type -> studio.GetTaskReq
+	24, // 50: studio.Studio.SegmentMask:input_type -> studio.SegmentMaskReq
+	25, // 51: studio.Studio.AutoColorFix:input_type -> studio.AutoColorFixReq
+	31, // 52: studio.Studio.DetectDetails:input_type -> studio.DetectDetailsReq
+	34, // 53: studio.Studio.RegenerateTask:input_type -> studio.RegenerateTaskReq
+	43, // 54: studio.Studio.AdminListBatches:input_type -> studio.AdminListBatchesReq
+	46, // 55: studio.Studio.AdminGetBatch:input_type -> studio.AdminGetBatchReq
+	49, // 56: studio.Studio.AdminRetryTask:input_type -> studio.AdminTaskReq
+	49, // 57: studio.Studio.AdminForceFail:input_type -> studio.AdminTaskReq
+	0,  // 58: studio.Studio.AdminSidecarStatus:input_type -> studio.Empty
+	52, // 59: studio.Studio.AdminCostSummary:input_type -> studio.AdminCostSummaryReq
+	12, // 60: studio.Studio.SubmitTryon:output_type -> studio.SubmitResp
+	12, // 61: studio.Studio.SubmitPose:output_type -> studio.SubmitResp
+	12, // 62: studio.Studio.SubmitImageGen:output_type -> studio.SubmitResp
+	10, // 63: studio.Studio.PreviewPose:output_type -> studio.PreviewPoseResp
+	14, // 64: studio.Studio.Quote:output_type -> studio.QuoteResp
+	18, // 65: studio.Studio.Models:output_type -> studio.ModelsResp
+	38, // 66: studio.Studio.GetBatch:output_type -> studio.BatchDetail
+	37, // 67: studio.Studio.GetTask:output_type -> studio.TaskInfo
+	40, // 68: studio.Studio.ListHistory:output_type -> studio.ListHistoryResp
+	41, // 69: studio.Studio.CancelBatch:output_type -> studio.CancelBatchResp
+	0,  // 70: studio.Studio.DeleteBatch:output_type -> studio.Empty
+	38, // 71: studio.Studio.RetryTask:output_type -> studio.BatchDetail
+	37, // 72: studio.Studio.UpdateTaskColorFix:output_type -> studio.TaskInfo
+	37, // 73: studio.Studio.RetryLibraryCopy:output_type -> studio.TaskInfo
+	30, // 74: studio.Studio.SegmentMask:output_type -> studio.SegmentMaskResp
+	28, // 75: studio.Studio.AutoColorFix:output_type -> studio.AutoColorFixResp
+	33, // 76: studio.Studio.DetectDetails:output_type -> studio.DetectDetailsResp
+	38, // 77: studio.Studio.RegenerateTask:output_type -> studio.BatchDetail
+	45, // 78: studio.Studio.AdminListBatches:output_type -> studio.AdminListBatchesResp
+	48, // 79: studio.Studio.AdminGetBatch:output_type -> studio.AdminBatchDetail
+	0,  // 80: studio.Studio.AdminRetryTask:output_type -> studio.Empty
+	0,  // 81: studio.Studio.AdminForceFail:output_type -> studio.Empty
+	51, // 82: studio.Studio.AdminSidecarStatus:output_type -> studio.SidecarStatusResp
+	54, // 83: studio.Studio.AdminCostSummary:output_type -> studio.AdminCostSummaryResp
+	60, // [60:84] is the sub-list for method output_type
+	36, // [36:60] is the sub-list for method input_type
+	36, // [36:36] is the sub-list for extension type_name
+	36, // [36:36] is the sub-list for extension extendee
+	0,  // [0:36] is the sub-list for field type_name
 }
 
 func init() { file_studio_proto_init() }
@@ -4675,7 +4953,7 @@ func file_studio_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_studio_proto_rawDesc), len(file_studio_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   54,
+			NumMessages:   58,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -22,3 +22,19 @@ func (c *Config) EnsureMaskTimeout() {
 	}
 	c.MethodTimeouts = append(c.MethodTimeouts, zrpc.MethodTimeoutConf{FullMethod: SegmentMaskMethod, Timeout: SegmentMaskTimeout})
 }
+
+// AutoColorFixMethod / AutoColorFixTimeout 自动校色要先拿蒙版（未命中缓存时一次分割，最长约 120s）再等一次求解（HTTP 超时默认 40s）。
+const (
+	AutoColorFixMethod  = "/studio.Studio/AutoColorFix"
+	AutoColorFixTimeout = 200 * time.Second
+)
+
+// EnsureColorFixTimeout 给 AutoColorFix 补默认的服务端超时（已配置的不动）。
+func (c *Config) EnsureColorFixTimeout() {
+	for _, m := range c.MethodTimeouts {
+		if m.FullMethod == AutoColorFixMethod {
+			return
+		}
+	}
+	c.MethodTimeouts = append(c.MethodTimeouts, zrpc.MethodTimeoutConf{FullMethod: AutoColorFixMethod, Timeout: AutoColorFixTimeout})
+}

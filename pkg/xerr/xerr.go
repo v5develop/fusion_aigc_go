@@ -54,6 +54,18 @@ const (
 	ReasonMaskSourceNotReady = "MASK_SOURCE_NOT_READY" // 来源画布执行还没有成功的图片（4002）
 )
 
+// 参考图驱动的自动校色（POST /api/v1/studio/colorfix/auto）的细分 reason（add-only，码不变）：前端按 reason 分支，不看 msg。
+const (
+	ReasonColorFixAutoDisabled    = "COLORFIX_AUTO_DISABLED"       // 7003：求解服务没配置，功能关闭（前端隐藏按钮）
+	ReasonColorFixAutoNoReference = "COLORFIX_AUTO_NO_REFERENCE"   // 1003：该任务不是商拍换装 / 批次里没有可用的服装参考图
+	ReasonColorFixAutoNotReady    = "COLORFIX_AUTO_TASK_NOT_READY" // 4002：任务还没成功
+	ReasonColorFixAutoNoPiece     = "COLORFIX_AUTO_NO_PIECE"       // 4001：没有任何一件单品能解（没识别到区域 / 蒙版不可用）
+	ReasonColorFixAutoTooFrequent = "COLORFIX_AUTO_TOO_FREQUENT"   // 4002：按用户限频
+	ReasonColorFixAutoBusy        = "COLORFIX_AUTO_BUSY"           // 6001：求解服务忙（可重试）
+	ReasonColorFixAutoTimeout     = "COLORFIX_AUTO_TIMEOUT"        // 6001：求解超时（可重试）
+	ReasonColorFixAutoUnavailable = "COLORFIX_AUTO_UNAVAILABLE"    // 6001：求解服务不可用（连不上 / 鉴权 / 5xx）
+)
+
 // Reason 返回码对应的 Java ErrorCode 常量名；没有对应的返回空串。
 func Reason(code int) string { return reasons[code] }
 

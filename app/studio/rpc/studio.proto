@@ -45,6 +45,9 @@ service Studio {
   // 区域蒙版（局部校色，免费）：image_url 的 garment / product / person / background 区域 → 白色+软 alpha PNG（素材库桶公开地址）。
   // 按（去查询串的地址, 区域）缓存，重复请求直接返回；地址须为本存储签发或素材库域名。没识别到 → 4001「没识别到对应区域」
   rpc SegmentMask(SegmentMaskReq) returns (SegmentMaskResp);
+  // 参考图驱动的自动校色（只增，2026-11-12；不落库，用户点「应用」才走 UpdateTaskColorFix）：按子任务（本人、成功的商拍换装）
+  // 取成品、各单品的服装参考图与逐件蒙版，交给 colorfix-solver 求五个滑杆初值。Endpoint 没配 → 7003 · COLORFIX_AUTO_DISABLED
+  rpc AutoColorFix(AutoColorFixReq) returns (AutoColorFixResp);
   // 商拍「AI 找细节」（免费、不建任务）：对服装图跑 sidecar crop-plan，回每张图的细节框（归一化 [x,y,w,h]）与部位名，
   // 前端按框在原图上显示裁切缩略图，用户删减 / 重新裁切后把选中的框原样带回 SubmitTryon.detail_crops。
   // 限流同姿态配对预览：每用户同一时间一个、全进程共享读图名额
@@ -262,6 +265,7 @@ message ModelsResp {
   string kind = 1;
   repeated ModelCapability items = 2;
   string billing_mode = 3;               // with_price 时有：on / shadow / off
+  bool colorfix_auto = 4;                // 只增：参考图自动校色已开启（ColorFixSolver.Endpoint 已配置）；前端据此显示 / 隐藏「自动校色」
 }
 
 // ---------------- 查询 ----------------
@@ -306,6 +310,33 @@ message SegmentMaskReq {
   // 只增（2026-11-11）：精确指明图片来源，私有签名地址不再靠反查（见 logic/mask_source.go）。三者至多一个；都不给按 image_url 判断。
   string task_id = 5;                    // studio 子任务号：按该用户未删除子任务的成品（含 mr:// / mrw:// 私有成品）识别；带 image_url 时须与该成品一致
   string source_rid = 6;                 // 仅内部：调用方（网关经 canvas-rpc CandidateSource）已确认归属的私有成品 rid（画布候选）；用户请求不得直传
+}
+
+// 自动校色请求：只认子任务号，成品 / 参考图 / 蒙版全由服务端按归属解析，不收客户端地址。
+message AutoColorFixReq {
+  int64 user_id = 1;
+  string task_id = 2;                    // studio 商拍换装子任务号：本人、未删除、成功
+  repeated string pieces = 3;            // 选填：只解这些单品（top / bottom / dress / outer / shoes / accessory / bra / panties）；空 = 批次里的全部单品
+}
+
+// 一件单品的解算结果。
+message AutoColorFixPiece {
+  string key = 1;                        // 单品码，与前端校色参考图的 key 同
+  ColorFixParams params = 2;             // 五参数，已夹到 UpdateTaskColorFix 的取值范围内（整数）
+  double score = 3;                      // 0–100，越高越接近参考色；< 60 前端提示仅供参考
+}
+
+// 没解的单品及原因（不影响其它单品）。
+message AutoColorFixSkipped {
+  string key = 1;
+  string reason = 2;                     // no_reference 没有参考图 / no_mask 没识别到该单品区域 / mask_unavailable 识别服务暂不可用 / unsolved 求解端没给这件的结果
+}
+
+message AutoColorFixResp {
+  string task_id = 1;
+  repeated AutoColorFixPiece pieces = 2;
+  repeated AutoColorFixSkipped skipped = 3;
+  string version = 4;                    // 求解端版本（日志 / 排障用）
 }
 
 // 一个部位的蒙版。

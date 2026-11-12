@@ -23,6 +23,10 @@ type (
 	AdminListBatchesResp  = studio.AdminListBatchesResp
 	AdminTask             = studio.AdminTask
 	AdminTaskReq          = studio.AdminTaskReq
+	AutoColorFixPiece     = studio.AutoColorFixPiece
+	AutoColorFixReq       = studio.AutoColorFixReq
+	AutoColorFixResp      = studio.AutoColorFixResp
+	AutoColorFixSkipped   = studio.AutoColorFixSkipped
 	BatchDetail           = studio.BatchDetail
 	BatchInfo             = studio.BatchInfo
 	BatchUserReq          = studio.BatchUserReq
@@ -97,6 +101,8 @@ type (
 		RetryLibraryCopy(ctx context.Context, in *GetTaskReq, opts ...grpc.CallOption) (*TaskInfo, error)
 		// 区域蒙版（局部校色，免费）：image_url 的 garment / product / person / background 区域 → 白色+软 alpha PNG（素材库桶公开地址）。
 		SegmentMask(ctx context.Context, in *SegmentMaskReq, opts ...grpc.CallOption) (*SegmentMaskResp, error)
+		// 参考图驱动的自动校色（只增，2026-11-12；不落库，用户点「应用」才走 UpdateTaskColorFix）：按子任务（本人、成功的商拍换装）
+		AutoColorFix(ctx context.Context, in *AutoColorFixReq, opts ...grpc.CallOption) (*AutoColorFixResp, error)
 		// 商拍「AI 找细节」（免费、不建任务）：对服装图跑 sidecar crop-plan，回每张图的细节框（归一化 [x,y,w,h]）与部位名，
 		DetectDetails(ctx context.Context, in *DetectDetailsReq, opts ...grpc.CallOption) (*DetectDetailsResp, error)
 		// 编辑提示词后重新生成单张（仅姿态复刻）：用用户改过的提示词重跑该子任务的生图一步（失败 / 成功的都可以），
@@ -214,6 +220,12 @@ func (m *defaultStudio) RetryLibraryCopy(ctx context.Context, in *GetTaskReq, op
 func (m *defaultStudio) SegmentMask(ctx context.Context, in *SegmentMaskReq, opts ...grpc.CallOption) (*SegmentMaskResp, error) {
 	client := studio.NewStudioClient(m.cli.Conn())
 	return client.SegmentMask(ctx, in, opts...)
+}
+
+// 参考图驱动的自动校色（只增，2026-11-12；不落库，用户点「应用」才走 UpdateTaskColorFix）：按子任务（本人、成功的商拍换装）
+func (m *defaultStudio) AutoColorFix(ctx context.Context, in *AutoColorFixReq, opts ...grpc.CallOption) (*AutoColorFixResp, error) {
+	client := studio.NewStudioClient(m.cli.Conn())
+	return client.AutoColorFix(ctx, in, opts...)
 }
 
 // 商拍「AI 找细节」（免费、不建任务）：对服装图跑 sidecar crop-plan，回每张图的细节框（归一化 [x,y,w,h]）与部位名，

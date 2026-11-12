@@ -1173,6 +1173,26 @@ type (
 		Brightness int32 `json:"brightness"`
 		Contrast   int32 `json:"contrast"`
 	}
+	// 参考图驱动的自动校色（只增，2026-11-12）：只认子任务号，成品 / 参考图 / 蒙版由服务端按归属解析；结果不落库，用户点「应用」才走 PATCH /tasks/:task_id/color-fix
+	StudioAutoColorFixReq {
+		TaskId string   `json:"task_id"`          // studio 商拍换装子任务号：本人、未删除、成功
+		Pieces []string `json:"pieces,optional"`  // 只解这些单品（top / bottom / dress / outer / shoes / accessory / bra / panties）；空=批次里的全部单品
+	}
+	StudioAutoColorFixPiece {
+		Key    string               `json:"key"`    // 单品码，与校色参考图的 key 同
+		Params StudioColorFixParams `json:"params"` // 五参数（整数，已夹到取值范围）：作为该单品图层的初值
+		Score  float64              `json:"score"`  // 0–100，越高越接近参考色；< 60 建议提示「仅供参考」
+	}
+	StudioAutoColorFixSkipped {
+		Key    string `json:"key"`
+		Reason string `json:"reason"` // no_reference 没有参考图 / no_mask 没识别到该单品区域 / mask_unavailable 识别暂不可用 / unsolved 求解端没给这件的结果
+	}
+	StudioAutoColorFixResp {
+		TaskId  string                      `json:"task_id"`
+		Pieces  []StudioAutoColorFixPiece   `json:"pieces"`
+		Skipped []StudioAutoColorFixSkipped `json:"skipped"` // 没解的单品（不影响其它单品）；没有为空数组
+		Version string                      `json:"version"` // 求解端版本（排障用）
+	}
 	// 区域蒙版（局部校色）：target 区域内不透明、区域外透明的「白色 + 软 alpha」PNG，与原图同尺寸
 	StudioMaskReq {
 		ImageUrl string   `json:"image_url,optional"` // 本服务存储签发 / 素材库域名的 http(s) 地址（如任务 result_url）；第三方地址拒收。带 task_id / canvas_request_id 时可不传（传了须是同一张图）
@@ -1245,6 +1265,7 @@ type (
 		Kind        string                  `json:"kind"`
 		Items       []StudioModelCapability `json:"items"`
 		BillingMode string                  `json:"billing_mode"` // with_price 时有：on / shadow / off
+		ColorfixAuto bool                   `json:"colorfix_auto"` // 只增（2026-11-12）：参考图自动校色已开启；false 时前端隐藏「自动校色」
 	}
 )
 
@@ -1342,6 +1363,10 @@ service gateway-api {
 	@doc "区域蒙版（局部校色，免费）：识别图片的服装 / 商品 / 人物 / 背景区域，返回白色+软 alpha 的 PNG 蒙版；按（去查询串的地址, 区域）缓存，重复请求立即返回。按用户限频（超出 4002「识别太频繁，请稍后再试」）；没识别到 4001「没识别到对应区域」；识别服务不可用 6001"
 	@handler segmentMask
 	post /masks (StudioMaskReq) returns (StudioMaskResp)
+
+	@doc "参考图驱动的自动校色（免费，只增 2026-11-12）：按商拍换装子任务（本人、成功）取成品、各单品的服装参考图与逐件蒙版，交给求解服务返回每件单品的五个校色滑杆值（作为该单品图层的初值，不落库，用户点「应用」才保存）；按用户限频（超出 4002 · COLORFIX_AUTO_TOO_FREQUENT）；功能没开 7003 · COLORFIX_AUTO_DISABLED；服务忙 / 超时 6001 · COLORFIX_AUTO_BUSY / COLORFIX_AUTO_TIMEOUT（可重试）"
+	@handler autoColorFix
+	post /colorfix/auto (StudioAutoColorFixReq) returns (StudioAutoColorFixResp)
 }
 
 // ---------------- assetlib：资产库增强（/api/v1/asset-library，nginx 单独转发到本网关）----------------

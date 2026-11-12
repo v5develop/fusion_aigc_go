@@ -65,6 +65,10 @@ type Config struct {
 		// 超出回 4002「识别太频繁，请稍后再试」；计数同上。<= 0 表示该窗口不限。
 		DetailsPerMinute int `json:",default=6"`
 		DetailsPerDay    int `json:",default=200"`
+		// ColorFixAutoPerMinute / ColorFixAutoPerDay 参考图自动校色（POST /studio/colorfix/auto，免费、每次都要调求解服务，未命中蒙版缓存时还要一次分割）
+		// 每用户每分钟 / 每天上限，超出回 4002 · COLORFIX_AUTO_TOO_FREQUENT；计数同上。<= 0 表示该窗口不限。
+		ColorFixAutoPerMinute int `json:",default=6"`
+		ColorFixAutoPerDay    int `json:",default=200"`
 	}
 	Upload struct {
 		// MaxImageBytes 仅网关代传（开发用）时生效；直传的大小与类型由前端控制

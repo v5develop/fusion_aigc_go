@@ -73,6 +73,14 @@ AiGateway:
 Rewrite:
   ModelGroup: llm.deepseek-flash          # 无参考图（DeepSeek Flash：官方 tier 0、百炼 tier 1）
   VisionModelGroup: vlm.qwen-3.8-flash    # 有参考图（llm.* 不收图）
+# 参考图驱动的自动校色求解服务（tools/colorfix-solver，Python，只返回五个滑杆值）。Endpoint 留空 = 功能关闭
+# （POST /api/v1/studio/colorfix/auto 回 7003 · COLORFIX_AUTO_DISABLED，前端隐藏「自动校色」）。
+# 服务器上由 deploy.env 的 COLORFIX_SOLVER_URL / COLORFIX_SOLVER_TOKEN 写入；求解端要能下载成品 / 参考图 / 蒙版（见 deploy/docker/README.md）
+ColorFixSolver:
+  Endpoint: ""
+  Token: ""
+  TimeoutSeconds: 40    # 单次求解 HTTP 总超时（求解端自己的 deadline 是 20s）
+  MaxConcurrent: 4      # 本进程同时在途的求解数；满了立刻回 6001 · COLORFIX_AUTO_BUSY
 # 反推 sidecar（Python，只监听内网）。服务器上由 deploy.env 的 REVERSE_SIDECAR_URL 覆盖
 Reverse:
   BaseURL: http://127.0.0.1:8090

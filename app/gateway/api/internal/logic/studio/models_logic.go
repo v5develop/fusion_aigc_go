@@ -35,7 +35,7 @@ func (l *ModelsLogic) Models(req *types.StudioModelsReq) (resp *types.StudioMode
 	if err != nil {
 		return nil, err
 	}
-	resp = &types.StudioModelsResp{Kind: out.Kind, BillingMode: out.BillingMode, Items: make([]types.StudioModelCapability, 0, len(out.Items))}
+	resp = &types.StudioModelsResp{Kind: out.Kind, BillingMode: out.BillingMode, ColorfixAuto: out.ColorfixAuto, Items: make([]types.StudioModelCapability, 0, len(out.Items))}
 	for _, it := range out.Items {
 		c := types.StudioModelCapability{
 			Code: it.Code, Label: it.Label, Available: it.Available, // model_group 是内部模型组码，不下发给用户

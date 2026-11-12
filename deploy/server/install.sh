@@ -133,6 +133,8 @@ load_env() {
   # REVERSE_BASE_URL 是 REVERSE_SIDECAR_URL 的别名（两个都写时以 REVERSE_SIDECAR_URL 为准）
   REVERSE_SIDECAR_URL=${REVERSE_SIDECAR_URL:-${REVERSE_BASE_URL:-}}
   STUDIO_INPUT_URL_PREFIXES=${STUDIO_INPUT_URL_PREFIXES:-}
+  # 参考图驱动的自动校色求解服务（tools/colorfix-solver）：COLORFIX_SOLVER_URL 留空 = 功能关闭（前端隐藏「自动校色」）
+  COLORFIX_SOLVER_URL=${COLORFIX_SOLVER_URL:-}; COLORFIX_SOLVER_TOKEN=${COLORFIX_SOLVER_TOKEN:-}
   # canvas（画布）：Java 主项目内网地址（放大 / 扩图 / 重绘走 creaft v1 兼容工具，透传用户 Bearer）。留空 = 三个 Java 工具返回「暂未开放」
   CANVAS_JAVA_BASE_URL=${CANVAS_JAVA_BASE_URL:-}
   MEDIA_NACOS_ADDR=${MEDIA_NACOS_ADDR:-127.0.0.1:8848}
@@ -367,7 +369,7 @@ gen_conf() {
     -media-nacos-user "$MEDIA_NACOS_USERNAME" -media-nacos-pass "$MEDIA_NACOS_PASSWORD" \
     -media-base-url "$MEDIA_SVC_BASE_URL" \
     -ai-gateway-url "$AI_GATEWAY_URL" -ai-gateway-key-id "$AI_GATEWAY_KEY_ID" -ai-gateway-secret "$AI_GATEWAY_SECRET" \
-    -reverse-url "$REVERSE_SIDECAR_URL" -studio-input-url-prefixes "$STUDIO_INPUT_URL_PREFIXES" \
+    -reverse-url "$REVERSE_SIDECAR_URL" -colorfix-solver-url "$COLORFIX_SOLVER_URL" -colorfix-solver-token "$COLORFIX_SOLVER_TOKEN" -studio-input-url-prefixes "$STUDIO_INPUT_URL_PREFIXES" \
     -free-watermark-enabled "${FREE_WATERMARK_ENABLED:-}" -free-watermark-process "${FREE_WATERMARK_OSS_PROCESS:-}" \
     -canvas-java-base-url "$CANVAS_JAVA_BASE_URL" \
     -session-redis "$SESSION_REDIS_ADDR" -session-redis-pass "$SESSION_REDIS_PASS" \

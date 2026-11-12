@@ -763,6 +763,12 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 			[]rest.Middleware{serverCtx.Auth},
 			[]rest.Route{
 				{
+					// 参考图驱动的自动校色（免费，只增 2026-11-12）：按商拍换装子任务（本人、成功）取成品、各单品的服装参考图与逐件蒙版，交给求解服务返回每件单品的五个校色滑杆值（作为该单品图层的初值，不落库，用户点「应用」才保存）；按用户限频（超出 4002 · COLORFIX_AUTO_TOO_FREQUENT）；功能没开 7003 · COLORFIX_AUTO_DISABLED；服务忙 / 超时 6001 · COLORFIX_AUTO_BUSY / COLORFIX_AUTO_TIMEOUT（可重试）
+					Method:  http.MethodPost,
+					Path:    "/colorfix/auto",
+					Handler: studio.AutoColorFixHandler(serverCtx),
+				},
+				{
 					// 区域蒙版（局部校色，免费）：识别图片的服装 / 商品 / 人物 / 背景区域，返回白色+软 alpha 的 PNG 蒙版；按（去查询串的地址, 区域）缓存，重复请求立即返回。按用户限频（超出 4002「识别太频繁，请稍后再试」）；没识别到 4001「没识别到对应区域」；识别服务不可用 6001
 					Method:  http.MethodPost,
 					Path:    "/masks",

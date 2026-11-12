@@ -34,6 +34,7 @@ const (
 	Studio_UpdateTaskColorFix_FullMethodName = "/studio.Studio/UpdateTaskColorFix"
 	Studio_RetryLibraryCopy_FullMethodName   = "/studio.Studio/RetryLibraryCopy"
 	Studio_SegmentMask_FullMethodName        = "/studio.Studio/SegmentMask"
+	Studio_AutoColorFix_FullMethodName       = "/studio.Studio/AutoColorFix"
 	Studio_DetectDetails_FullMethodName      = "/studio.Studio/DetectDetails"
 	Studio_RegenerateTask_FullMethodName     = "/studio.Studio/RegenerateTask"
 	Studio_AdminListBatches_FullMethodName   = "/studio.Studio/AdminListBatches"
@@ -90,6 +91,9 @@ type StudioClient interface {
 	// 区域蒙版（局部校色，免费）：image_url 的 garment / product / person / background 区域 → 白色+软 alpha PNG（素材库桶公开地址）。
 	// 按（去查询串的地址, 区域）缓存，重复请求直接返回；地址须为本存储签发或素材库域名。没识别到 → 4001「没识别到对应区域」
 	SegmentMask(ctx context.Context, in *SegmentMaskReq, opts ...grpc.CallOption) (*SegmentMaskResp, error)
+	// 参考图驱动的自动校色（只增，2026-11-12；不落库，用户点「应用」才走 UpdateTaskColorFix）：按子任务（本人、成功的商拍换装）
+	// 取成品、各单品的服装参考图与逐件蒙版，交给 colorfix-solver 求五个滑杆初值。Endpoint 没配 → 7003 · COLORFIX_AUTO_DISABLED
+	AutoColorFix(ctx context.Context, in *AutoColorFixReq, opts ...grpc.CallOption) (*AutoColorFixResp, error)
 	// 商拍「AI 找细节」（免费、不建任务）：对服装图跑 sidecar crop-plan，回每张图的细节框（归一化 [x,y,w,h]）与部位名，
 	// 前端按框在原图上显示裁切缩略图，用户删减 / 重新裁切后把选中的框原样带回 SubmitTryon.detail_crops。
 	// 限流同姿态配对预览：每用户同一时间一个、全进程共享读图名额
@@ -269,6 +273,16 @@ func (c *studioClient) SegmentMask(ctx context.Context, in *SegmentMaskReq, opts
 	return out, nil
 }
 
+func (c *studioClient) AutoColorFix(ctx context.Context, in *AutoColorFixReq, opts ...grpc.CallOption) (*AutoColorFixResp, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AutoColorFixResp)
+	err := c.cc.Invoke(ctx, Studio_AutoColorFix_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *studioClient) DetectDetails(ctx context.Context, in *DetectDetailsReq, opts ...grpc.CallOption) (*DetectDetailsResp, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(DetectDetailsResp)
@@ -395,6 +409,9 @@ type StudioServer interface {
 	// 区域蒙版（局部校色，免费）：image_url 的 garment / product / person / background 区域 → 白色+软 alpha PNG（素材库桶公开地址）。
 	// 按（去查询串的地址, 区域）缓存，重复请求直接返回；地址须为本存储签发或素材库域名。没识别到 → 4001「没识别到对应区域」
 	SegmentMask(context.Context, *SegmentMaskReq) (*SegmentMaskResp, error)
+	// 参考图驱动的自动校色（只增，2026-11-12；不落库，用户点「应用」才走 UpdateTaskColorFix）：按子任务（本人、成功的商拍换装）
+	// 取成品、各单品的服装参考图与逐件蒙版，交给 colorfix-solver 求五个滑杆初值。Endpoint 没配 → 7003 · COLORFIX_AUTO_DISABLED
+	AutoColorFix(context.Context, *AutoColorFixReq) (*AutoColorFixResp, error)
 	// 商拍「AI 找细节」（免费、不建任务）：对服装图跑 sidecar crop-plan，回每张图的细节框（归一化 [x,y,w,h]）与部位名，
 	// 前端按框在原图上显示裁切缩略图，用户删减 / 重新裁切后把选中的框原样带回 SubmitTryon.detail_crops。
 	// 限流同姿态配对预览：每用户同一时间一个、全进程共享读图名额
@@ -468,6 +485,9 @@ func (UnimplementedStudioServer) RetryLibraryCopy(context.Context, *GetTaskReq) 
 }
 func (UnimplementedStudioServer) SegmentMask(context.Context, *SegmentMaskReq) (*SegmentMaskResp, error) {
 	return nil, status.Error(codes.Unimplemented, "method SegmentMask not implemented")
+}
+func (UnimplementedStudioServer) AutoColorFix(context.Context, *AutoColorFixReq) (*AutoColorFixResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method AutoColorFix not implemented")
 }
 func (UnimplementedStudioServer) DetectDetails(context.Context, *DetectDetailsReq) (*DetectDetailsResp, error) {
 	return nil, status.Error(codes.Unimplemented, "method DetectDetails not implemented")
@@ -784,6 +804,24 @@ func _Studio_SegmentMask_Handler(srv interface{}, ctx context.Context, dec func(
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Studio_AutoColorFix_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AutoColorFixReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(StudioServer).AutoColorFix(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Studio_AutoColorFix_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(StudioServer).AutoColorFix(ctx, req.(*AutoColorFixReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Studio_DetectDetails_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(DetectDetailsReq)
 	if err := dec(in); err != nil {
@@ -994,6 +1032,10 @@ var Studio_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SegmentMask",
 			Handler:    _Studio_SegmentMask_Handler,
+		},
+		{
+			MethodName: "AutoColorFix",
+			Handler:    _Studio_AutoColorFix_Handler,
 		},
 		{
 			MethodName: "DetectDetails",

@@ -155,6 +155,40 @@ services:
         limits:
           memory: 512m
 
+  # 自动校色求解服务（tools/colorfix-solver，Python，只给 studio-rpc 用）：按参考图求五个校色滑杆值，只返回参数、不出图。
+  # 可选服务（profiles: colorfix）：.env 里配好 COLORFIX_SOLVER_TOKEN（>= 16 位，也是 studio-rpc 调它用的 token）后用
+  # `docker compose --profile colorfix up -d colorfix-solver` 启动，并把 COLORFIX_SOLVER_URL 填 http://127.0.0.1:${COLORFIX_PORT:-18095}。
+  # host 网络下只绑 127.0.0.1、不映射端口、不经 nginx。求解端自己下载成品 / 参考图 / 蒙版：COLORFIX_FETCH_ALLOW_HOSTS 填 OSS / CDN 域名
+  # （逗号分隔，成品私有桶、素材库公有桶、本服务存储的域名都要在内），生产不要开 ALLOW_PRIVATE_FETCH。
+  # 镜像：docker build -t aigc-colorfix-solver:<版本> tools/colorfix-solver（COLORFIX_IMAGE 填它）。
+  colorfix-solver:
+    image: ${COLORFIX_IMAGE:-aigc-colorfix-solver:latest}
+    profiles: ["colorfix"]
+    network_mode: host
+    restart: unless-stopped
+    init: true
+    read_only: true
+    environment:
+      TZ: Asia/Shanghai
+      HOST: 127.0.0.1
+      PORT: ${COLORFIX_PORT:-18095}
+      COLORFIX_TOKEN: ${COLORFIX_SOLVER_TOKEN:-}   # 空则求解端拒绝启动（profile 开启前必填）
+      COLORFIX_FETCH_ALLOW_HOSTS: ${COLORFIX_FETCH_ALLOW_HOSTS:-}
+      COLORFIX_ALLOW_PRIVATE_FETCH: ${COLORFIX_ALLOW_PRIVATE_FETCH:-}
+      COLORFIX_MAX_CONCURRENT: ${COLORFIX_MAX_CONCURRENT:-4}
+    healthcheck:
+      <<: *rpc-health
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:${COLORFIX_PORT:-18095}/healthz', timeout=2).status==200 else 1)"]
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+
   # 网关与后台：未带令牌的请求返回 401 属正常，健康检查只要求进程能应答（1xx–4xx）
   gateway-api:
     <<: *svc

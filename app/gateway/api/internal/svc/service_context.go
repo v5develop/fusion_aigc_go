@@ -45,6 +45,8 @@ type ServiceContext struct {
 	PosePreviewQuota *userquota.Limiter
 	// MaskQuota 区域蒙版的按用户配额（Config.Studio.Mask*，计数在会话 Redis）
 	MaskQuota *userquota.Limiter
+	// ColorFixAutoQuota 参考图自动校色的按用户配额（Config.Studio.ColorFixAuto*，计数在会话 Redis）
+	ColorFixAutoQuota *userquota.Limiter
 	// DetailsQuota 商拍「AI 找细节」的按用户配额（Config.Studio.Details*，计数在会话 Redis）
 	DetailsQuota *userquota.Limiter
 }
@@ -63,22 +65,23 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		logx.Info("gateway: 未配置会话 Redis，姿态配对预览配额退回进程内计数（多实例各算各的，仅开发）")
 	}
 	return &ServiceContext{
-		Config:           c,
-		Auth:             middleware.NewAuthMiddleware(c.Auth.Mode, c.Auth.Jwt, sess).Handle,
-		CopywritingRpc:   copywriting.NewCopywriting(zrpc.MustNewClient(c.CopywritingRpc)),
-		DigitalHumanRpc:  digitalhuman.NewDigitalHuman(zrpc.MustNewClient(c.DigitalHumanRpc)),
-		NoteRpc:          note.NewNote(zrpc.MustNewClient(c.NoteRpc)),
-		ImageGenRpc:      imagegen.NewImageGen(zrpc.MustNewClient(c.ImageGenRpc)),
-		StudioRpc:        studio.NewStudio(zrpc.MustNewClient(c.StudioRpc)),
-		AssetLibRpc:      assetlib.NewAssetlib(zrpc.MustNewClient(c.AssetLibRpc)),
-		CanvasRpc:        canvas.NewCanvas(zrpc.MustNewClient(c.CanvasRpc)),
-		CanvasBearer:     middleware.NewCanvasBearerMiddleware().Handle,
-		Storage:          storage.New(c.Storage, conn),
-		Union:            unionauth.New(c.Union),
-		AppUser:          appuser.New(conn).WithRegistrar(fusionRegistrar{fusion.New(c.Fusion)}),
-		Session:          sess,
-		PosePreviewQuota: userquota.New("studio:pose_preview", c.Studio.PosePreviewPerMinute, c.Studio.PosePreviewPerDay, quotaRedis),
-		MaskQuota:        userquota.New("studio:mask", c.Studio.MaskPerMinute, c.Studio.MaskPerDay, quotaRedis),
-		DetailsQuota:     userquota.New("studio:details", c.Studio.DetailsPerMinute, c.Studio.DetailsPerDay, quotaRedis),
+		Config:            c,
+		Auth:              middleware.NewAuthMiddleware(c.Auth.Mode, c.Auth.Jwt, sess).Handle,
+		CopywritingRpc:    copywriting.NewCopywriting(zrpc.MustNewClient(c.CopywritingRpc)),
+		DigitalHumanRpc:   digitalhuman.NewDigitalHuman(zrpc.MustNewClient(c.DigitalHumanRpc)),
+		NoteRpc:           note.NewNote(zrpc.MustNewClient(c.NoteRpc)),
+		ImageGenRpc:       imagegen.NewImageGen(zrpc.MustNewClient(c.ImageGenRpc)),
+		StudioRpc:         studio.NewStudio(zrpc.MustNewClient(c.StudioRpc)),
+		AssetLibRpc:       assetlib.NewAssetlib(zrpc.MustNewClient(c.AssetLibRpc)),
+		CanvasRpc:         canvas.NewCanvas(zrpc.MustNewClient(c.CanvasRpc)),
+		CanvasBearer:      middleware.NewCanvasBearerMiddleware().Handle,
+		Storage:           storage.New(c.Storage, conn),
+		Union:             unionauth.New(c.Union),
+		AppUser:           appuser.New(conn).WithRegistrar(fusionRegistrar{fusion.New(c.Fusion)}),
+		Session:           sess,
+		PosePreviewQuota:  userquota.New("studio:pose_preview", c.Studio.PosePreviewPerMinute, c.Studio.PosePreviewPerDay, quotaRedis),
+		MaskQuota:         userquota.New("studio:mask", c.Studio.MaskPerMinute, c.Studio.MaskPerDay, quotaRedis),
+		ColorFixAutoQuota: userquota.New("studio:colorfix_auto", c.Studio.ColorFixAutoPerMinute, c.Studio.ColorFixAutoPerDay, quotaRedis),
+		DetailsQuota:      userquota.New("studio:details", c.Studio.DetailsPerMinute, c.Studio.DetailsPerDay, quotaRedis),
 	}
 }

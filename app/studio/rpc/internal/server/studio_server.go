@@ -113,6 +113,12 @@ func (s *StudioServer) SegmentMask(ctx context.Context, in *studio.SegmentMaskRe
 	return l.SegmentMask(in)
 }
 
+// 参考图驱动的自动校色（只增，2026-11-12；不落库，用户点「应用」才走 UpdateTaskColorFix）：按子任务（本人、成功的商拍换装）
+func (s *StudioServer) AutoColorFix(ctx context.Context, in *studio.AutoColorFixReq) (*studio.AutoColorFixResp, error) {
+	l := logic.NewAutoColorFixLogic(ctx, s.svcCtx)
+	return l.AutoColorFix(in)
+}
+
 // 商拍「AI 找细节」（免费、不建任务）：对服装图跑 sidecar crop-plan，回每张图的细节框（归一化 [x,y,w,h]）与部位名，
 func (s *StudioServer) DetectDetails(ctx context.Context, in *studio.DetectDetailsReq) (*studio.DetectDetailsResp, error) {
 	l := logic.NewDetectDetailsLogic(ctx, s.svcCtx)

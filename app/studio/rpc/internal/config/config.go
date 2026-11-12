@@ -7,6 +7,7 @@ import (
 
 	"aigc-local-life/pkg/asset"
 	"aigc-local-life/pkg/billing"
+	"aigc-local-life/pkg/colorfixsolver"
 	"aigc-local-life/pkg/modelgroup"
 	"aigc-local-life/pkg/storage"
 
@@ -123,6 +124,10 @@ type Config struct {
 		// 生效值夹到 [1, Concurrency-1]（Concurrency=1 时为 1，与编排共用）
 		PreviewConcurrency int `json:",default=2,range=[1:6]"`
 	}
+	// ColorFixSolver 参考图驱动的自动校色求解服务（tools/colorfix-solver，Python，只返回五个滑杆值）。Endpoint 为空 = 功能关闭，
+	// POST /api/v1/studio/colorfix/auto 回 7003 · COLORFIX_AUTO_DISABLED。求解端自己下载成品 / 参考图 / 蒙版，
+	// 它的 COLORFIX_FETCH_ALLOW_HOSTS 要放行 OSS 域名（或集群内开 COLORFIX_ALLOW_PRIVATE_FETCH）。
+	ColorFixSolver colorfixsolver.Conf `json:",optional"`
 	// Media 共享媒体服务：下载、压缩（conform ≤1600px）、裁图、组图、resources/copy 转存。
 	// 配了 NacosServerAddr 订阅实例，BaseURL 只作回退；都留空则切图不可用（商拍提交返回「暂未开放」）。
 	Media struct {

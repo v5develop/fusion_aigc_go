@@ -68,6 +68,8 @@ Studio:                 # 工作室接口的网关侧限制
   MaskPerDay: 500           # 每用户每天上限；计数同上
   DetailsPerMinute: 6       # 商拍「AI 找细节」（POST /api/v1/studio/tryon/details）每用户每分钟上限（超出 4002；<=0 不限）
   DetailsPerDay: 200        # 每用户每天上限；计数同上
+  ColorFixAutoPerMinute: 6  # 参考图自动校色（POST /api/v1/studio/colorfix/auto）每用户每分钟上限（超出 4002 · COLORFIX_AUTO_TOO_FREQUENT；<=0 不限）
+  ColorFixAutoPerDay: 200   # 每用户每天上限；计数同上
 AssetLibRpc:            # 资产库增强（/api/v1/asset-library）
   Etcd: {Hosts: [127.0.0.1:2379], Key: assetlib.rpc}
   Timeout: 10000

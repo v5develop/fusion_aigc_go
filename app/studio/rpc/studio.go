@@ -26,9 +26,10 @@ func main() {
 
 	var c config.Config
 	conf.MustLoad(*configFile, &c)
-	c.EnsureMethodTimeouts() // 姿态配对预览要读多张图，单独放宽服务端超时
-	c.EnsureMaskTimeout()    // 区域蒙版要等一次分割调用，同上
-	c.EnsureDetailsTimeout() // AI 找细节要下载服装图 + 一次 crop-plan，同上
+	c.EnsureMethodTimeouts()  // 姿态配对预览要读多张图，单独放宽服务端超时
+	c.EnsureMaskTimeout()     // 区域蒙版要等一次分割调用，同上
+	c.EnsureColorFixTimeout() // 自动校色要先拿蒙版再等一次求解，同上
+	c.EnsureDetailsTimeout()  // AI 找细节要下载服装图 + 一次 crop-plan，同上
 	// 轮询器每几秒查一次库，普通 SQL 日志会刷屏；慢查询日志保留
 	sqlx.DisableStmtLog()
 	ctx := svc.NewServiceContext(c)

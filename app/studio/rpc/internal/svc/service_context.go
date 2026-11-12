@@ -14,6 +14,7 @@ import (
 	"aigc-local-life/pkg/auditdb"
 	"aigc-local-life/pkg/billing"
 	"aigc-local-life/pkg/bundb"
+	"aigc-local-life/pkg/colorfixsolver"
 	"aigc-local-life/pkg/mediasvc"
 	"aigc-local-life/pkg/moderation"
 	"aigc-local-life/pkg/reverse"
@@ -54,6 +55,8 @@ type ServiceContext struct {
 	Audit *auditdb.Queries
 	// Tier 免费 / 付费分层（与 Java UserTierService 同一判据，读共享库 afv_points_batch / afv_system_config）
 	Tier *usertier.Resolver
+	// ColorFixSolver 自动校色求解服务客户端（Config.ColorFixSolver.Endpoint 为空 = nil = 功能关闭）
+	ColorFixSolver *colorfixsolver.Client
 	// KickCopy 把子任务的待转存 outbox 行立即交给本进程的转存池（Poller 启动时挂上；nil、池未就绪或名额满时等扫描接手）。
 	// 用户「重新存入素材库」重置 outbox 后调用。
 	KickCopy func(taskPK int64)
@@ -71,20 +74,21 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		logx.Must(err)
 	}
 	sc := &ServiceContext{
-		Reverse:      newReverse(c),
-		PreviewSlots: make(chan struct{}, c.PreviewSidecarSlots()),
-		Audit:        audit,
-		DB:           db,
-		Repo:         repo.New(db),
-		Gateway:      newGateway(c),
-		Config:       c,
-		Conn:         conn,
-		Billing:      billing.New(c.Billing, conn),
-		Asset:        asset.NewWriter(conn),
-		Storage:      storage.New(c.Storage, conn),
-		Moderation:   moderation.New(c.Moderation.Mode, blockWords(conn)),
-		TaskCenter:   taskcenter.New(conn, 10*time.Minute, TaskSources(c)...),
-		MediaSvc:     newMediaSvc(c),
+		Reverse:        newReverse(c),
+		PreviewSlots:   make(chan struct{}, c.PreviewSidecarSlots()),
+		Audit:          audit,
+		DB:             db,
+		Repo:           repo.New(db),
+		Gateway:        newGateway(c),
+		Config:         c,
+		Conn:           conn,
+		Billing:        billing.New(c.Billing, conn),
+		Asset:          asset.NewWriter(conn),
+		Storage:        storage.New(c.Storage, conn),
+		Moderation:     moderation.New(c.Moderation.Mode, blockWords(conn)),
+		TaskCenter:     taskcenter.New(conn, 10*time.Minute, TaskSources(c)...),
+		MediaSvc:       newMediaSvc(c),
+		ColorFixSolver: colorfixsolver.New(c.ColorFixSolver),
 		Tier: usertier.New(conn, usertier.Defaults{
 			UserTierEnabled: c.FreeWatermark.UserTierDefault, DisplayWatermarkEnabled: c.FreeWatermark.DisplayWatermarkDefault,
 		}),

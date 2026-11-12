@@ -1014,11 +1014,69 @@ POST /api/v1/studio/masks
 
 服务端日志带 `check=mask_input_rejected_{no_region|unsupported|unknown}` 与命中的判据 `rule`。子任务自动补蒙版时，格式 / 尺寸不支持与没识别到一样不退回整体服装蒙版；认不出的按服务不可用处理（会退回整体）。
 
+### 5.9 参考图驱动的自动校色（只增，2026-11-12）
+
+商拍换装成品按**批次里的服装参考图**自动求一组校色滑杆值：服务端取成品原件、每件单品的参考图与逐件蒙版，交给求解服务（`tools/colorfix-solver`，只返回参数、不出图，不经 ai-gateway），把结果回给前端。
+前端把每件单品的五个值当作**该单品校色图层的初值**灌进现有分层校色（用户可继续手调），成品仍走现有的精算导出。**服务端不落库**：用户点「应用 / 保存」才走 5.7 的 `PATCH /tasks/:task_id/color-fix`。免费，不扣点数。
+
+```
+POST /api/v1/studio/colorfix/auto
+```
+
+```json
+{"task_id": "tyo1a2b3…", "pieces": ["top", "bottom"]}
+```
+
+| 字段 | 说明 |
+|---|---|
+| `task_id` | 必填。studio 商拍换装子任务号：本人、未删除、状态成功。**只认任务号**：成品（私有成品按 rid 现签干净原件）、参考图（取批次提交快照里的 `garment_images`）、蒙版（子任务已存的逐件 `mask_parts` 优先，没有再走区域蒙版缓存 / 一次分割）全部由服务端解析，不收客户端传的任何图片地址 |
+| `pieces` | 选填。只解这些单品（`top` / `bottom` / `dress` / `outer` / `shoes` / `accessory` / `bra` / `panties`，也认中文名）；空 = 批次里的全部单品。不认识的单品 / `整套` → `1003` |
+
+**参考图怎么选**：按 `garment_images[].role` 归到单品（上衣 / 下装 / 连衣裙 …），同一单品多张时取**正面**，其次平铺 / 未标角度，最后其它角度；某单品没有自己的图时退回 `整套` 图（与前端校色浮卡 `tryonReferences` 同口径）。单品 ↔ 部位同 5.8（`top`/`bra`→`tops`、`bottom`/`panties`→`pants`、`dress`→`skirt`、`outer`→`coat`、`shoes`→`shoes`、`accessory`→`bag`+`hat`）。
+
+```json
+{"code": 0, "data": {"task_id": "tyo1a2b3…", "version": "colorfix-solver/0.1.0",
+  "pieces": [{"key": "top", "score": 92.4, "params": {"hue": -9, "saturation": 2, "value": 0, "brightness": -7, "contrast": 3}}],
+  "skipped": [{"key": "bottom", "reason": "no_mask"}]}}
+```
+
+| 字段 | 说明 |
+|---|---|
+| `pieces[].key` | 单品码，与前端校色参考图的 `key` 同 |
+| `pieces[].params` | 五参数，**整数且已夹到 5.7 的取值范围**（`hue` ±30、`saturation` −60..70、`value` ±40、`brightness` ±80、`contrast` ±50），可直接交给 `PATCH color-fix`。线上键名同 5.7（`saturation` / `value` / `brightness`；前端引擎里叫 `sat` / `light` / `bright`）。`value` 与 `brightness` 相乘作用，是同一个自由度，别按语义解读拆分 |
+| `pieces[].score` | 0–100，越高越接近参考色；**< 60 前端应提示「自动结果仅供参考，可手动微调」** |
+| `skipped[]` | 没解的单品（不影响其它单品；没有为空数组）：`no_reference` 没有可用的服装参考图 / `no_mask` 成品里没识别到该单品 / `mask_unavailable` 区域识别暂不可用（可重试）/ `unsolved` 求解端没给这件的有效结果 |
+| `version` | 求解端版本（排障用） |
+
+**开关**：`GET /api/v1/studio/models` 响应新增 `colorfix_auto`（bool）：求解服务已配置（studio 的 `ColorFixSolver.Endpoint` 非空）才为 `true`；`false` 时前端隐藏「自动校色」按钮。旧后端没有这个字段，前端按「没有 = 未知」处理，点击后遇到 `COLORFIX_AUTO_DISABLED` 再隐藏。
+
+**限频**：按用户，每分钟 6 次、每天 200 次（gateway-api `Studio.ColorFixAutoPerMinute / ColorFixAutoPerDay`；<= 0 不限），超出 `4002 · COLORFIX_AUTO_TOO_FREQUENT`。功能没开 / 参数或来源不合法 / 任务未成功这些没有真正调求解的失败会退回额度。
+
+**超时**：未命中蒙版缓存要先做一次分割（最长约 120 秒）再等求解（HTTP 超时默认 40 秒），网关路由超时 250 秒；前端请自行加 loading。
+
+| 情况 | 返回 |
+|---|---|
+| 缺 `task_id` / 缺用户 | `1002` |
+| 单品名不认识 | `1003` |
+| 任务不是商拍换装 / 批次里没有可用的服装参考图（含请求的单品不在批次里、参考图地址不再属于本服务存储） | `1003` · reason `COLORFIX_AUTO_NO_REFERENCE` |
+| 任务不存在、不是自己的、已删除、没有成品 | `4001` · reason `RESOURCE_NOT_FOUND` |
+| 任务还没成功 | `4002` · reason `COLORFIX_AUTO_TASK_NOT_READY` |
+| 一件单品都解不出（没识别到区域 / 蒙版不可用 / 求解端 422 / 全部无有效结果） | `4001` · reason `COLORFIX_AUTO_NO_PIECE`（重试结果一样，提示手动校色） |
+| 超出限频 | `4002` · reason `COLORFIX_AUTO_TOO_FREQUENT` |
+| 功能没开（求解服务未配置） | `7003` · reason `COLORFIX_AUTO_DISABLED`（隐藏按钮） |
+| 求解服务忙（求解端 429 / 本进程求解并发满） | `6001` · reason `COLORFIX_AUTO_BUSY`（**可重试**） |
+| 求解超时（求解端 504 / 本地超时） | `6001` · reason `COLORFIX_AUTO_TIMEOUT`（**可重试**） |
+| 求解服务不可用（连不上 / 鉴权失败 / 下载失败 / 5xx）、区域识别服务不可用 | `6001` · reason `COLORFIX_AUTO_UNAVAILABLE` |
+
+前端请按信封 `reason` 分支，不要按 `msg`。服务端日志带 `check=colorfix_auto_{enabled|task_owned|reference_owned|mask|solve|result|quota}`；`check=colorfix_auto_solve` 同时打出 `kind`（busy / timeout / unusable / unavailable）、求解端 HTTP 状态与错误码（401 = token 不一致，403 = 抓取域名没放行，502 = 求解端下载失败）。求解端原文不下发。
+
+**部署前提**：求解服务自己下载成品 / 参考图 / 蒙版，所以它的 `COLORFIX_FETCH_ALLOW_HOSTS` 必须放行 OSS / CDN 域名（成品私有桶的签名地址、素材库公有桶、服装参考图所在存储），或在内网部署时开 `COLORFIX_ALLOW_PRIVATE_FETCH=1`；token 与 studio 的 `ColorFixSolver.Token` 一致。步骤见 `deploy/docker/README.md`「自动校色」。
+
 ---
 
 ## 6. 模型、分辨率、比例
 
-> **按模型取可选项**：`GET /api/v1/studio/models?kind=tryon|pose|imagegen[&with_price=true]` 返回每个模型档（`通用` / `GPT` / `GPT25` / `Banana` / `Seedream`；提交时旧档名 `GPT25Dev` 仍按 `GPT25` 受理，输出只用 `GPT25`）的展示名 `label`、实际可选的 `resolutions` / `aspect_ratios`、是否支持「自动」比例 `auto_aspect`、本 kind 的参考图上限 `max_ref_images`、限制说明 `notes`、gateway 目录里是否可用 `available`；`with_price=true` 时附每档分辨率的单张点数 `prices[]`（与 quote 同一计费入口；新增可选字段 `prices[].settle_mode`，`ACTUAL_COST` 时 `unit_points` 是单张最多扣多少，见第 7 章）。
+> **按模型取可选项**：`GET /api/v1/studio/models?kind=tryon|pose|imagegen[&with_price=true]` 返回每个模型档（`通用` / `GPT` / `GPT25` / `Banana` / `Seedream`；提交时旧档名 `GPT25Dev` 仍按 `GPT25` 受理，输出只用 `GPT25`）的展示名 `label`、实际可选的 `resolutions` / `aspect_ratios`、是否支持「自动」比例 `auto_aspect`、本 kind 的参考图上限 `max_ref_images`、限制说明 `notes`、gateway 目录里是否可用 `available`；响应顶层另有 `colorfix_auto`（bool，只增 2026-11-12：参考图自动校色是否已开启，见 5.9）；`with_price=true` 时附每档分辨率的单张点数 `prices[]`（与 quote 同一计费入口；新增可选字段 `prices[].settle_mode`，`ACTUAL_COST` 时 `unit_points` 是单张最多扣多少，见第 7 章）。
 > 可选项与提交时的参数归一同源（Seedream 5.5 无 `4:5` / `5:4`、旧 Seedream 无 4K、GPT Image 2.6 参考图上限按 kind 收紧），再与 gateway 目录 `feature_limits` 求交；目录拉不到时只按组规则。前端据此收窄选项、换模型时把不支持的值落到第一个可选项；下文的表是兜底口径。
 
 ### 6.1 模型四档 `model`

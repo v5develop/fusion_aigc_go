@@ -11899,6 +11899,156 @@
         }
       }
     },
+    "/api/v1/studio/colorfix/auto": {
+      "post": {
+        "security": [
+          {
+            "auth": []
+          }
+        ],
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "商拍换装 / 姿态复刻 / 图片生成"
+        ],
+        "summary": "参考图驱动的自动校色（免费，只增 2026-11-12）：按商拍换装子任务（本人、成功）取成品、各单品的服装参考图与逐件蒙版，交给求解服务返回每件单品的五个校色滑杆值（作为该单品图层的初值，不落库，用户点「应用」才保存）；按用户限频（超出 4002 · COLORFIX_AUTO_TOO_FREQUENT）；功能没开 7003 · COLORFIX_AUTO_DISABLED；服务忙 / 超时 6001 · COLORFIX_AUTO_BUSY / COLORFIX_AUTO_TIMEOUT（可重试）",
+        "operationId": "studioAutoColorFix",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "required": [
+                "task_id"
+              ],
+              "properties": {
+                "pieces": {
+                  "description": "只解这些单品（top / bottom / dress / outer / shoes / accessory / bra / panties）；空=批次里的全部单品",
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "task_id": {
+                  "description": "studio 商拍换装子任务号：本人、未删除、成功",
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
+                  "type": "integer",
+                  "example": 0
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "pieces": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "key",
+                          "params",
+                          "score"
+                        ],
+                        "properties": {
+                          "key": {
+                            "description": "单品码，与校色参考图的 key 同",
+                            "type": "string"
+                          },
+                          "params": {
+                            "description": "五参数（整数，已夹到取值范围）：作为该单品图层的初值",
+                            "type": "object",
+                            "required": [
+                              "hue",
+                              "saturation",
+                              "value",
+                              "brightness",
+                              "contrast"
+                            ],
+                            "properties": {
+                              "brightness": {
+                                "type": "integer"
+                              },
+                              "contrast": {
+                                "type": "integer"
+                              },
+                              "hue": {
+                                "type": "integer"
+                              },
+                              "saturation": {
+                                "type": "integer"
+                              },
+                              "value": {
+                                "type": "integer"
+                              }
+                            }
+                          },
+                          "score": {
+                            "description": "0–100，越高越接近参考色；\u003c 60 建议提示「仅供参考」",
+                            "type": "number"
+                          }
+                        }
+                      }
+                    },
+                    "skipped": {
+                      "description": "没解的单品（不影响其它单品）；没有为空数组",
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "key",
+                          "reason"
+                        ],
+                        "properties": {
+                          "key": {
+                            "type": "string"
+                          },
+                          "reason": {
+                            "description": "no_reference 没有参考图 / no_mask 没识别到该单品区域 / mask_unavailable 识别暂不可用 / unsolved 求解端没给这件的结果",
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "task_id": {
+                      "type": "string"
+                    },
+                    "version": {
+                      "description": "求解端版本（排障用）",
+                      "type": "string"
+                    }
+                  }
+                },
+                "msg": {
+                  "description": "business message",
+                  "type": "string",
+                  "example": "ok"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/studio/history": {
       "get": {
         "security": [
@@ -12648,6 +12798,10 @@
                     "billing_mode": {
                       "description": "with_price 时有：on / shadow / off",
                       "type": "string"
+                    },
+                    "colorfix_auto": {
+                      "description": "只增（2026-11-12）：参考图自动校色已开启；false 时前端隐藏「自动校色」",
+                      "type": "boolean"
                     },
                     "items": {
                       "type": "array",
@@ -15051,7 +15205,7 @@
       "in": "header"
     }
   },
-  "x-date": "2026-11-12 09:12:34",
+  "x-date": "2026-11-12 09:33:50",
   "x-description": "This is a goctl generated swagger file.",
   "x-github": "https://github.com/zeromicro/go-zero",
   "x-go-zero-doc": "https://go-zero.dev/",

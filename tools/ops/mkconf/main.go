@@ -78,6 +78,8 @@ func main() {
 	aiGatewayKeyID := flag.String("ai-gateway-key-id", "", "ai-gateway 调用方 key_id（如 fusion-go-v1），留空保留开发配置")
 	aiGatewaySecret := flag.String("ai-gateway-secret", "", "ai-gateway 调用方 HMAC 密钥（只写进 studio 配置）")
 	reverseURL := flag.String("reverse-url", "", "反推 sidecar 地址（studio 的 Reverse.BaseURL），留空保留开发配置的 127.0.0.1:8090")
+	colorfixURL := flag.String("colorfix-solver-url", "", "自动校色求解服务地址（studio 的 ColorFixSolver.Endpoint）；留空 = 功能关闭")
+	colorfixToken := flag.String("colorfix-solver-token", "", "求解服务 Bearer token（须与求解服务 COLORFIX_TOKEN 一致，只写进 studio 配置）")
 	studioInputPrefixes := flag.String("studio-input-url-prefixes", "", "studio / assetlib 额外允许的输入图地址前缀（逗号分隔，如素材库公有桶域名 https://cdn.example.com/），写进 InputURLPrefixes；留空不改")
 	freeWatermarkEnabled := flag.String("free-watermark-enabled", "", "studio 免费档读时参数水印开关 true / false（= Java FREE_WATERMARK_ENABLED），写进 studio FreeWatermark.Enabled；留空不改")
 	freeWatermarkProcess := flag.String("free-watermark-process", "", "免费水印 OSS 处理串（= Java FREE_WATERMARK_OSS_PROCESS / 启动日志 check=free_watermark.process），写进 studio / assetlib / canvas 的 FreeWatermark.Process；留空不改")
@@ -125,7 +127,7 @@ func main() {
 			fusionURL:      *fusionURL, fusionKey: *fusionKey, fusionSecret: *fusionSecret, fusionKeyVer: *fusionKeyVer, billingMode: *billingMode, swagger: *swagger, taskIDPrefix: *taskIDPrefix,
 			listenHost: *listenHost, accessHours: *accessHours, refreshDays: *refreshDays, sessionMax: *sessionMax,
 			mediaToken: *mediaToken, mediaNacosAddr: *mediaNacosAddr, mediaNacosUser: *mediaNacosUser, mediaNacosPass: *mediaNacosPass, mediaBaseURL: *mediaBaseURL,
-			aiGatewayURL: *aiGatewayURL, aiGatewayKeyID: *aiGatewayKeyID, aiGatewaySecret: *aiGatewaySecret, reverseURL: *reverseURL,
+			aiGatewayURL: *aiGatewayURL, aiGatewayKeyID: *aiGatewayKeyID, aiGatewaySecret: *aiGatewaySecret, reverseURL: *reverseURL, colorfixURL: strings.TrimSpace(*colorfixURL), colorfixToken: *colorfixToken,
 			studioInputPrefixes: splitList(*studioInputPrefixes), canvasJavaURL: *canvasJavaURL,
 			freeWatermarkEnabled: strings.TrimSpace(*freeWatermarkEnabled), freeWatermarkProcess: strings.TrimSpace(*freeWatermarkProcess)}
 		if err := e.apply(root); err != nil {
@@ -194,6 +196,9 @@ type editor struct {
 	aiGatewayKeyID   string
 	aiGatewaySecret  string
 	reverseURL       string
+	// colorfixURL / colorfixToken studio 的 ColorFixSolver（空 = 关闭，清空模板里的值）
+	colorfixURL   string
+	colorfixToken string
 	// studioInputPrefixes studio InputURLPrefixes（空 = 不改模板）
 	studioInputPrefixes []string
 	// canvasJavaURL canvas 的 Java.BaseURL（空 = 清空，Java 工具返回「暂未开放」）
@@ -323,6 +328,11 @@ func (e editor) apply(root *yaml.Node) error {
 		}
 		if r := get(root, "Reverse"); r != nil && e.reverseURL != "" {
 			set(r, "BaseURL", scalar(e.reverseURL))
+		}
+		// 自动校色求解服务：地址与 token 始终写入，没配就清空（功能关闭，不留开发配置里的值）
+		if c := get(root, "ColorFixSolver"); c != nil {
+			set(c, "Endpoint", quoted(e.colorfixURL))
+			set(c, "Token", quoted(e.colorfixToken))
 		}
 		if len(e.studioInputPrefixes) > 0 {
 			seq := &yaml.Node{Kind: yaml.SequenceNode}
