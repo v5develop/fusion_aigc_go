@@ -1,0 +1,9 @@
+tests
+parity
+__pycache__
+*.pyc
+.pytest_cache
+.venv
+README.md
+requirements-dev.txt
+pytest.ini
