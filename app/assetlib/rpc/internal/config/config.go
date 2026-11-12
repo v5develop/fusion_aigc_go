@@ -42,15 +42,18 @@ type Config struct {
 	FreeWatermark struct {
 		Process string `json:",optional"`
 	} `json:",optional"`
+	// FromURLEntryCode 「存为资产」写入 afv_asset.entry_code 的值；留空 = 不归任何创作入口（落「未分类」兜底，与素材库聚合分类口径一致）。
+	FromURLEntryCode string `json:",optional"`
 	// Limits 服务端校验上限（与前端一致，改了要同步 docs/api/api-asset-library.md）
 	Limits struct {
-		TitleLen         int `json:",default=100"`  // 标题字数（afv_asset.name 是 varchar(128)）
-		TagNameLen       int `json:",default=20"`   // 标签名字数
-		TagsPerUser      int `json:",default=200"`  // 每用户标签数
-		TagsPerAsset     int `json:",default=10"`   // 每资产标签数
-		VersionsPerAsset int `json:",default=100"`  // 每资产版本数
-		MetadataLen      int `json:",default=50"`   // metadata 每个字段字数
-		PromptLen        int `json:",default=5000"` // 版本提示词字数
-		BatchAssets      int `json:",default=100"`  // 批量打标签一次最多资产数
+		TitleLen         int   `json:",default=100"`      // 标题字数（afv_asset.name 是 varchar(128)）
+		TagNameLen       int   `json:",default=20"`       // 标签名字数
+		TagsPerUser      int   `json:",default=200"`      // 每用户标签数
+		TagsPerAsset     int   `json:",default=10"`       // 每资产标签数
+		VersionsPerAsset int   `json:",default=100"`      // 每资产版本数
+		MetadataLen      int   `json:",default=50"`       // metadata 每个字段字数
+		PromptLen        int   `json:",default=5000"`     // 版本提示词字数
+		BatchAssets      int   `json:",default=100"`      // 批量打标签一次最多资产数
+		FromURLBytes     int64 `json:",default=10485760"` // 「存为资产」单张图片字节上限（10MB，PRD 口径）
 	}
 }

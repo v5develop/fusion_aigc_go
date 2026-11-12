@@ -1487,6 +1487,18 @@ type (
 		Params   string `json:"params,optional"` // JSON 文本
 		ImageRid string `json:"image_rid,optional"`
 	}
+	AssetLibFromUrlReq {
+		Url      string   `json:"url"` // 必须是本人上传的图片地址，或本人资产库里已有的图片地址；别人的 / 外链 / mr:// 私有引用拒收
+		Title    string   `json:"title,optional"` // 1-100 字；缺省「画布图片」
+		Source   string   `json:"source,optional,options=|canvas"` // 目前只有 canvas
+		CanvasId string   `json:"canvas_id,optional"` // 来源画布，写入溯源 workflow_id
+		NodeId   string   `json:"node_id,optional"` // 来源节点，写入溯源 node_id
+		Tags     []string `json:"tags,optional"` // 标签名，≤10 个，字典里没有的自动建
+	}
+	AssetLibFromUrlResp {
+		Asset    AssetLibAsset `json:"asset"` // 新建的 / 已存在的资产（image 是素材库公开地址）
+		Existing bool          `json:"existing"` // true = 已在资产库里（重复点击 / 已入库），没有新建
+	}
 	AssetLibRelationReq {
 		Id             int64  `path:"id"`
 		RelatedAssetId int64  `json:"related_asset_id"`
@@ -1571,6 +1583,10 @@ service gateway-api {
 	@doc "追加版本（版本号自增），并设为当前版本"
 	@handler addVersion
 	post /assets/:id/versions (AssetLibAddVersionReq) returns (AssetLibVersion)
+
+	@doc "把自己的一张图存为资产（画布「存为资产」）：地址必须是本人上传的图或本人资产库里已有的图，落素材库公有桶，按内容哈希幂等（重复点击返回已有资产 existing=true）"
+	@handler createFromUrl
+	post /assets/from-url (AssetLibFromUrlReq) returns (AssetLibFromUrlResp)
 
 	@doc "建立资产关系"
 	@handler addRelation

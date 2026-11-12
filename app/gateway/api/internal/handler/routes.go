@@ -67,6 +67,12 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 					Handler: assetlib.RemoveRelationHandler(serverCtx),
 				},
 				{
+					// 把自己的一张图存为资产（画布「存为资产」）：地址必须是本人上传的图或本人资产库里已有的图，落素材库公有桶，按内容哈希幂等（重复点击返回已有资产 existing=true）
+					Method:  http.MethodPost,
+					Path:    "/assets/from-url",
+					Handler: assetlib.CreateFromUrlHandler(serverCtx),
+				},
+				{
 					// 追加版本（版本号自增），并设为当前版本
 					Method:  http.MethodPost,
 					Path:    "/assets/:id/versions",

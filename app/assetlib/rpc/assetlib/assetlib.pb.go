@@ -1605,6 +1605,150 @@ func (x *DeleteResp) GetDeletedIds() []int64 {
 	return nil
 }
 
+type CreateFromUrlReq struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	Url           string                 `protobuf:"bytes,2,opt,name=url,proto3" json:"url,omitempty"`                           // 必须是本人上传的图片地址，或本人素材库里已有的图片地址
+	Title         string                 `protobuf:"bytes,3,opt,name=title,proto3" json:"title,omitempty"`                       // 空 = 「画布图片」
+	Source        string                 `protobuf:"bytes,4,opt,name=source,proto3" json:"source,omitempty"`                     // 空 / canvas
+	CanvasId      string                 `protobuf:"bytes,5,opt,name=canvas_id,json=canvasId,proto3" json:"canvas_id,omitempty"` // 来源画布（写入溯源 workflow_id）
+	NodeId        string                 `protobuf:"bytes,6,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`       // 来源节点（写入溯源 node_id）
+	Tags          []string               `protobuf:"bytes,7,rep,name=tags,proto3" json:"tags,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateFromUrlReq) Reset() {
+	*x = CreateFromUrlReq{}
+	mi := &file_assetlib_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateFromUrlReq) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateFromUrlReq) ProtoMessage() {}
+
+func (x *CreateFromUrlReq) ProtoReflect() protoreflect.Message {
+	mi := &file_assetlib_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateFromUrlReq.ProtoReflect.Descriptor instead.
+func (*CreateFromUrlReq) Descriptor() ([]byte, []int) {
+	return file_assetlib_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *CreateFromUrlReq) GetUserId() int64 {
+	if x != nil {
+		return x.UserId
+	}
+	return 0
+}
+
+func (x *CreateFromUrlReq) GetUrl() string {
+	if x != nil {
+		return x.Url
+	}
+	return ""
+}
+
+func (x *CreateFromUrlReq) GetTitle() string {
+	if x != nil {
+		return x.Title
+	}
+	return ""
+}
+
+func (x *CreateFromUrlReq) GetSource() string {
+	if x != nil {
+		return x.Source
+	}
+	return ""
+}
+
+func (x *CreateFromUrlReq) GetCanvasId() string {
+	if x != nil {
+		return x.CanvasId
+	}
+	return ""
+}
+
+func (x *CreateFromUrlReq) GetNodeId() string {
+	if x != nil {
+		return x.NodeId
+	}
+	return ""
+}
+
+func (x *CreateFromUrlReq) GetTags() []string {
+	if x != nil {
+		return x.Tags
+	}
+	return nil
+}
+
+type CreateFromUrlResp struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Asset         *Asset                 `protobuf:"bytes,1,opt,name=asset,proto3" json:"asset,omitempty"`
+	Existing      bool                   `protobuf:"varint,2,opt,name=existing,proto3" json:"existing,omitempty"` // true = 已在资产库里（重复点击 / 已入库），没有新建
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateFromUrlResp) Reset() {
+	*x = CreateFromUrlResp{}
+	mi := &file_assetlib_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateFromUrlResp) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateFromUrlResp) ProtoMessage() {}
+
+func (x *CreateFromUrlResp) ProtoReflect() protoreflect.Message {
+	mi := &file_assetlib_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateFromUrlResp.ProtoReflect.Descriptor instead.
+func (*CreateFromUrlResp) Descriptor() ([]byte, []int) {
+	return file_assetlib_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *CreateFromUrlResp) GetAsset() *Asset {
+	if x != nil {
+		return x.Asset
+	}
+	return nil
+}
+
+func (x *CreateFromUrlResp) GetExisting() bool {
+	if x != nil {
+		return x.Existing
+	}
+	return false
+}
+
 type Tag struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -1617,7 +1761,7 @@ type Tag struct {
 
 func (x *Tag) Reset() {
 	*x = Tag{}
-	mi := &file_assetlib_proto_msgTypes[21]
+	mi := &file_assetlib_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1629,7 +1773,7 @@ func (x *Tag) String() string {
 func (*Tag) ProtoMessage() {}
 
 func (x *Tag) ProtoReflect() protoreflect.Message {
-	mi := &file_assetlib_proto_msgTypes[21]
+	mi := &file_assetlib_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1642,7 +1786,7 @@ func (x *Tag) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Tag.ProtoReflect.Descriptor instead.
 func (*Tag) Descriptor() ([]byte, []int) {
-	return file_assetlib_proto_rawDescGZIP(), []int{21}
+	return file_assetlib_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *Tag) GetId() int64 {
@@ -1683,7 +1827,7 @@ type ListTagsResp struct {
 
 func (x *ListTagsResp) Reset() {
 	*x = ListTagsResp{}
-	mi := &file_assetlib_proto_msgTypes[22]
+	mi := &file_assetlib_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1695,7 +1839,7 @@ func (x *ListTagsResp) String() string {
 func (*ListTagsResp) ProtoMessage() {}
 
 func (x *ListTagsResp) ProtoReflect() protoreflect.Message {
-	mi := &file_assetlib_proto_msgTypes[22]
+	mi := &file_assetlib_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1708,7 +1852,7 @@ func (x *ListTagsResp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListTagsResp.ProtoReflect.Descriptor instead.
 func (*ListTagsResp) Descriptor() ([]byte, []int) {
-	return file_assetlib_proto_rawDescGZIP(), []int{22}
+	return file_assetlib_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *ListTagsResp) GetItems() []*Tag {
@@ -1735,7 +1879,7 @@ type CreateTagReq struct {
 
 func (x *CreateTagReq) Reset() {
 	*x = CreateTagReq{}
-	mi := &file_assetlib_proto_msgTypes[23]
+	mi := &file_assetlib_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1747,7 +1891,7 @@ func (x *CreateTagReq) String() string {
 func (*CreateTagReq) ProtoMessage() {}
 
 func (x *CreateTagReq) ProtoReflect() protoreflect.Message {
-	mi := &file_assetlib_proto_msgTypes[23]
+	mi := &file_assetlib_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1760,7 +1904,7 @@ func (x *CreateTagReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateTagReq.ProtoReflect.Descriptor instead.
 func (*CreateTagReq) Descriptor() ([]byte, []int) {
-	return file_assetlib_proto_rawDescGZIP(), []int{23}
+	return file_assetlib_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *CreateTagReq) GetUserId() int64 {
@@ -1787,7 +1931,7 @@ type TagIdReq struct {
 
 func (x *TagIdReq) Reset() {
 	*x = TagIdReq{}
-	mi := &file_assetlib_proto_msgTypes[24]
+	mi := &file_assetlib_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1799,7 +1943,7 @@ func (x *TagIdReq) String() string {
 func (*TagIdReq) ProtoMessage() {}
 
 func (x *TagIdReq) ProtoReflect() protoreflect.Message {
-	mi := &file_assetlib_proto_msgTypes[24]
+	mi := &file_assetlib_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1812,7 +1956,7 @@ func (x *TagIdReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TagIdReq.ProtoReflect.Descriptor instead.
 func (*TagIdReq) Descriptor() ([]byte, []int) {
-	return file_assetlib_proto_rawDescGZIP(), []int{24}
+	return file_assetlib_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *TagIdReq) GetUserId() int64 {
@@ -1840,7 +1984,7 @@ type RenameTagReq struct {
 
 func (x *RenameTagReq) Reset() {
 	*x = RenameTagReq{}
-	mi := &file_assetlib_proto_msgTypes[25]
+	mi := &file_assetlib_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1852,7 +1996,7 @@ func (x *RenameTagReq) String() string {
 func (*RenameTagReq) ProtoMessage() {}
 
 func (x *RenameTagReq) ProtoReflect() protoreflect.Message {
-	mi := &file_assetlib_proto_msgTypes[25]
+	mi := &file_assetlib_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1865,7 +2009,7 @@ func (x *RenameTagReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RenameTagReq.ProtoReflect.Descriptor instead.
 func (*RenameTagReq) Descriptor() ([]byte, []int) {
-	return file_assetlib_proto_rawDescGZIP(), []int{25}
+	return file_assetlib_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *RenameTagReq) GetUserId() int64 {
@@ -1900,7 +2044,7 @@ type BatchTagReq struct {
 
 func (x *BatchTagReq) Reset() {
 	*x = BatchTagReq{}
-	mi := &file_assetlib_proto_msgTypes[26]
+	mi := &file_assetlib_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1912,7 +2056,7 @@ func (x *BatchTagReq) String() string {
 func (*BatchTagReq) ProtoMessage() {}
 
 func (x *BatchTagReq) ProtoReflect() protoreflect.Message {
-	mi := &file_assetlib_proto_msgTypes[26]
+	mi := &file_assetlib_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1925,7 +2069,7 @@ func (x *BatchTagReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BatchTagReq.ProtoReflect.Descriptor instead.
 func (*BatchTagReq) Descriptor() ([]byte, []int) {
-	return file_assetlib_proto_rawDescGZIP(), []int{26}
+	return file_assetlib_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *BatchTagReq) GetUserId() int64 {
@@ -1958,7 +2102,7 @@ type BatchTagResp struct {
 
 func (x *BatchTagResp) Reset() {
 	*x = BatchTagResp{}
-	mi := &file_assetlib_proto_msgTypes[27]
+	mi := &file_assetlib_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1970,7 +2114,7 @@ func (x *BatchTagResp) String() string {
 func (*BatchTagResp) ProtoMessage() {}
 
 func (x *BatchTagResp) ProtoReflect() protoreflect.Message {
-	mi := &file_assetlib_proto_msgTypes[27]
+	mi := &file_assetlib_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1983,7 +2127,7 @@ func (x *BatchTagResp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BatchTagResp.ProtoReflect.Descriptor instead.
 func (*BatchTagResp) Descriptor() ([]byte, []int) {
-	return file_assetlib_proto_rawDescGZIP(), []int{27}
+	return file_assetlib_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *BatchTagResp) GetAdded() int64 {
@@ -2005,7 +2149,7 @@ type AdminListTagsReq struct {
 
 func (x *AdminListTagsReq) Reset() {
 	*x = AdminListTagsReq{}
-	mi := &file_assetlib_proto_msgTypes[28]
+	mi := &file_assetlib_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2017,7 +2161,7 @@ func (x *AdminListTagsReq) String() string {
 func (*AdminListTagsReq) ProtoMessage() {}
 
 func (x *AdminListTagsReq) ProtoReflect() protoreflect.Message {
-	mi := &file_assetlib_proto_msgTypes[28]
+	mi := &file_assetlib_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2030,7 +2174,7 @@ func (x *AdminListTagsReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AdminListTagsReq.ProtoReflect.Descriptor instead.
 func (*AdminListTagsReq) Descriptor() ([]byte, []int) {
-	return file_assetlib_proto_rawDescGZIP(), []int{28}
+	return file_assetlib_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *AdminListTagsReq) GetPage() int64 {
@@ -2074,7 +2218,7 @@ type AdminTag struct {
 
 func (x *AdminTag) Reset() {
 	*x = AdminTag{}
-	mi := &file_assetlib_proto_msgTypes[29]
+	mi := &file_assetlib_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2086,7 +2230,7 @@ func (x *AdminTag) String() string {
 func (*AdminTag) ProtoMessage() {}
 
 func (x *AdminTag) ProtoReflect() protoreflect.Message {
-	mi := &file_assetlib_proto_msgTypes[29]
+	mi := &file_assetlib_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2099,7 +2243,7 @@ func (x *AdminTag) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AdminTag.ProtoReflect.Descriptor instead.
 func (*AdminTag) Descriptor() ([]byte, []int) {
-	return file_assetlib_proto_rawDescGZIP(), []int{29}
+	return file_assetlib_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *AdminTag) GetId() int64 {
@@ -2147,7 +2291,7 @@ type AdminListTagsResp struct {
 
 func (x *AdminListTagsResp) Reset() {
 	*x = AdminListTagsResp{}
-	mi := &file_assetlib_proto_msgTypes[30]
+	mi := &file_assetlib_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2159,7 +2303,7 @@ func (x *AdminListTagsResp) String() string {
 func (*AdminListTagsResp) ProtoMessage() {}
 
 func (x *AdminListTagsResp) ProtoReflect() protoreflect.Message {
-	mi := &file_assetlib_proto_msgTypes[30]
+	mi := &file_assetlib_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2172,7 +2316,7 @@ func (x *AdminListTagsResp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AdminListTagsResp.ProtoReflect.Descriptor instead.
 func (*AdminListTagsResp) Descriptor() ([]byte, []int) {
-	return file_assetlib_proto_rawDescGZIP(), []int{30}
+	return file_assetlib_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *AdminListTagsResp) GetItems() []*AdminTag {
@@ -2199,7 +2343,7 @@ type AdminKindStatsReq struct {
 
 func (x *AdminKindStatsReq) Reset() {
 	*x = AdminKindStatsReq{}
-	mi := &file_assetlib_proto_msgTypes[31]
+	mi := &file_assetlib_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2211,7 +2355,7 @@ func (x *AdminKindStatsReq) String() string {
 func (*AdminKindStatsReq) ProtoMessage() {}
 
 func (x *AdminKindStatsReq) ProtoReflect() protoreflect.Message {
-	mi := &file_assetlib_proto_msgTypes[31]
+	mi := &file_assetlib_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2224,7 +2368,7 @@ func (x *AdminKindStatsReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AdminKindStatsReq.ProtoReflect.Descriptor instead.
 func (*AdminKindStatsReq) Descriptor() ([]byte, []int) {
-	return file_assetlib_proto_rawDescGZIP(), []int{31}
+	return file_assetlib_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *AdminKindStatsReq) GetUserId() int64 {
@@ -2252,7 +2396,7 @@ type KindStat struct {
 
 func (x *KindStat) Reset() {
 	*x = KindStat{}
-	mi := &file_assetlib_proto_msgTypes[32]
+	mi := &file_assetlib_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2264,7 +2408,7 @@ func (x *KindStat) String() string {
 func (*KindStat) ProtoMessage() {}
 
 func (x *KindStat) ProtoReflect() protoreflect.Message {
-	mi := &file_assetlib_proto_msgTypes[32]
+	mi := &file_assetlib_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2277,7 +2421,7 @@ func (x *KindStat) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use KindStat.ProtoReflect.Descriptor instead.
 func (*KindStat) Descriptor() ([]byte, []int) {
-	return file_assetlib_proto_rawDescGZIP(), []int{32}
+	return file_assetlib_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *KindStat) GetKind() string {
@@ -2312,7 +2456,7 @@ type AdminKindStatsResp struct {
 
 func (x *AdminKindStatsResp) Reset() {
 	*x = AdminKindStatsResp{}
-	mi := &file_assetlib_proto_msgTypes[33]
+	mi := &file_assetlib_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2324,7 +2468,7 @@ func (x *AdminKindStatsResp) String() string {
 func (*AdminKindStatsResp) ProtoMessage() {}
 
 func (x *AdminKindStatsResp) ProtoReflect() protoreflect.Message {
-	mi := &file_assetlib_proto_msgTypes[33]
+	mi := &file_assetlib_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2337,7 +2481,7 @@ func (x *AdminKindStatsResp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AdminKindStatsResp.ProtoReflect.Descriptor instead.
 func (*AdminKindStatsResp) Descriptor() ([]byte, []int) {
-	return file_assetlib_proto_rawDescGZIP(), []int{33}
+	return file_assetlib_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *AdminKindStatsResp) GetRows() []*KindStat {
@@ -2512,7 +2656,18 @@ const file_assetlib_proto_rawDesc = "" +
 	"\x10official_skipped\x18\x02 \x01(\x03R\x0fofficialSkipped\x12\x18\n" +
 	"\amissing\x18\x03 \x01(\x03R\amissing\x12\x1f\n" +
 	"\vdeleted_ids\x18\x04 \x03(\x03R\n" +
-	"deletedIds\"i\n" +
+	"deletedIds\"\xb5\x01\n" +
+	"\x10CreateFromUrlReq\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x10\n" +
+	"\x03url\x18\x02 \x01(\tR\x03url\x12\x14\n" +
+	"\x05title\x18\x03 \x01(\tR\x05title\x12\x16\n" +
+	"\x06source\x18\x04 \x01(\tR\x06source\x12\x1b\n" +
+	"\tcanvas_id\x18\x05 \x01(\tR\bcanvasId\x12\x17\n" +
+	"\anode_id\x18\x06 \x01(\tR\x06nodeId\x12\x12\n" +
+	"\x04tags\x18\a \x03(\tR\x04tags\"V\n" +
+	"\x11CreateFromUrlResp\x12%\n" +
+	"\x05asset\x18\x01 \x01(\v2\x0f.assetlib.AssetR\x05asset\x12\x1a\n" +
+	"\bexisting\x18\x02 \x01(\bR\bexisting\"i\n" +
 	"\x03Tag\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1f\n" +
@@ -2565,7 +2720,7 @@ const file_assetlib_proto_rawDesc = "" +
 	"\x12AdminKindStatsResp\x12&\n" +
 	"\x04rows\x18\x01 \x03(\v2\x12.assetlib.KindStatR\x04rows\x12(\n" +
 	"\x05kinds\x18\x02 \x03(\v2\x12.assetlib.CategoryR\x05kinds\x12,\n" +
-	"\asources\x18\x03 \x03(\v2\x12.assetlib.CategoryR\asources2\xd9\x06\n" +
+	"\asources\x18\x03 \x03(\v2\x12.assetlib.CategoryR\asources2\xa3\a\n" +
 	"\bAssetlib\x12-\n" +
 	"\x04List\x12\x11.assetlib.ListReq\x1a\x12.assetlib.ListResp\x12?\n" +
 	"\n" +
@@ -2582,6 +2737,7 @@ const file_assetlib_proto_rawDesc = "" +
 	"\tRenameTag\x12\x16.assetlib.RenameTagReq\x1a\r.assetlib.Tag\x129\n" +
 	"\bBatchTag\x12\x15.assetlib.BatchTagReq\x1a\x16.assetlib.BatchTagResp\x123\n" +
 	"\x06Delete\x12\x13.assetlib.DeleteReq\x1a\x14.assetlib.DeleteResp\x12H\n" +
+	"\rCreateFromUrl\x12\x1a.assetlib.CreateFromUrlReq\x1a\x1b.assetlib.CreateFromUrlResp\x12H\n" +
 	"\rAdminListTags\x12\x1a.assetlib.AdminListTagsReq\x1a\x1b.assetlib.AdminListTagsResp\x12K\n" +
 	"\x0eAdminKindStats\x12\x1b.assetlib.AdminKindStatsReq\x1a\x1c.assetlib.AdminKindStatsRespB\fZ\n" +
 	"./assetlibb\x06proto3"
@@ -2598,7 +2754,7 @@ func file_assetlib_proto_rawDescGZIP() []byte {
 	return file_assetlib_proto_rawDescData
 }
 
-var file_assetlib_proto_msgTypes = make([]protoimpl.MessageInfo, 34)
+var file_assetlib_proto_msgTypes = make([]protoimpl.MessageInfo, 36)
 var file_assetlib_proto_goTypes = []any{
 	(*Empty)(nil),              // 0: assetlib.Empty
 	(*UserReq)(nil),            // 1: assetlib.UserReq
@@ -2621,19 +2777,21 @@ var file_assetlib_proto_goTypes = []any{
 	(*RelationReq)(nil),        // 18: assetlib.RelationReq
 	(*DeleteReq)(nil),          // 19: assetlib.DeleteReq
 	(*DeleteResp)(nil),         // 20: assetlib.DeleteResp
-	(*Tag)(nil),                // 21: assetlib.Tag
-	(*ListTagsResp)(nil),       // 22: assetlib.ListTagsResp
-	(*CreateTagReq)(nil),       // 23: assetlib.CreateTagReq
-	(*TagIdReq)(nil),           // 24: assetlib.TagIdReq
-	(*RenameTagReq)(nil),       // 25: assetlib.RenameTagReq
-	(*BatchTagReq)(nil),        // 26: assetlib.BatchTagReq
-	(*BatchTagResp)(nil),       // 27: assetlib.BatchTagResp
-	(*AdminListTagsReq)(nil),   // 28: assetlib.AdminListTagsReq
-	(*AdminTag)(nil),           // 29: assetlib.AdminTag
-	(*AdminListTagsResp)(nil),  // 30: assetlib.AdminListTagsResp
-	(*AdminKindStatsReq)(nil),  // 31: assetlib.AdminKindStatsReq
-	(*KindStat)(nil),           // 32: assetlib.KindStat
-	(*AdminKindStatsResp)(nil), // 33: assetlib.AdminKindStatsResp
+	(*CreateFromUrlReq)(nil),   // 21: assetlib.CreateFromUrlReq
+	(*CreateFromUrlResp)(nil),  // 22: assetlib.CreateFromUrlResp
+	(*Tag)(nil),                // 23: assetlib.Tag
+	(*ListTagsResp)(nil),       // 24: assetlib.ListTagsResp
+	(*CreateTagReq)(nil),       // 25: assetlib.CreateTagReq
+	(*TagIdReq)(nil),           // 26: assetlib.TagIdReq
+	(*RenameTagReq)(nil),       // 27: assetlib.RenameTagReq
+	(*BatchTagReq)(nil),        // 28: assetlib.BatchTagReq
+	(*BatchTagResp)(nil),       // 29: assetlib.BatchTagResp
+	(*AdminListTagsReq)(nil),   // 30: assetlib.AdminListTagsReq
+	(*AdminTag)(nil),           // 31: assetlib.AdminTag
+	(*AdminListTagsResp)(nil),  // 32: assetlib.AdminListTagsResp
+	(*AdminKindStatsReq)(nil),  // 33: assetlib.AdminKindStatsReq
+	(*KindStat)(nil),           // 34: assetlib.KindStat
+	(*AdminKindStatsResp)(nil), // 35: assetlib.AdminKindStatsResp
 }
 var file_assetlib_proto_depIdxs = []int32{
 	2,  // 0: assetlib.Asset.metadata:type_name -> assetlib.Metadata
@@ -2649,46 +2807,49 @@ var file_assetlib_proto_depIdxs = []int32{
 	13, // 10: assetlib.GetResp.generated_results:type_name -> assetlib.AssetPage
 	15, // 11: assetlib.UpdateReq.tags:type_name -> assetlib.TagNames
 	2,  // 12: assetlib.UpdateReq.metadata:type_name -> assetlib.Metadata
-	21, // 13: assetlib.ListTagsResp.items:type_name -> assetlib.Tag
-	29, // 14: assetlib.AdminListTagsResp.items:type_name -> assetlib.AdminTag
-	32, // 15: assetlib.AdminKindStatsResp.rows:type_name -> assetlib.KindStat
-	9,  // 16: assetlib.AdminKindStatsResp.kinds:type_name -> assetlib.Category
-	9,  // 17: assetlib.AdminKindStatsResp.sources:type_name -> assetlib.Category
-	6,  // 18: assetlib.Assetlib.List:input_type -> assetlib.ListReq
-	8,  // 19: assetlib.Assetlib.Categories:input_type -> assetlib.CategoriesReq
-	11, // 20: assetlib.Assetlib.Get:input_type -> assetlib.GetReq
-	16, // 21: assetlib.Assetlib.Update:input_type -> assetlib.UpdateReq
-	17, // 22: assetlib.Assetlib.AddVersion:input_type -> assetlib.AddVersionReq
-	18, // 23: assetlib.Assetlib.AddRelation:input_type -> assetlib.RelationReq
-	18, // 24: assetlib.Assetlib.RemoveRelation:input_type -> assetlib.RelationReq
-	1,  // 25: assetlib.Assetlib.ListTags:input_type -> assetlib.UserReq
-	23, // 26: assetlib.Assetlib.CreateTag:input_type -> assetlib.CreateTagReq
-	24, // 27: assetlib.Assetlib.DeleteTag:input_type -> assetlib.TagIdReq
-	25, // 28: assetlib.Assetlib.RenameTag:input_type -> assetlib.RenameTagReq
-	26, // 29: assetlib.Assetlib.BatchTag:input_type -> assetlib.BatchTagReq
-	19, // 30: assetlib.Assetlib.Delete:input_type -> assetlib.DeleteReq
-	28, // 31: assetlib.Assetlib.AdminListTags:input_type -> assetlib.AdminListTagsReq
-	31, // 32: assetlib.Assetlib.AdminKindStats:input_type -> assetlib.AdminKindStatsReq
-	7,  // 33: assetlib.Assetlib.List:output_type -> assetlib.ListResp
-	10, // 34: assetlib.Assetlib.Categories:output_type -> assetlib.CategoriesResp
-	14, // 35: assetlib.Assetlib.Get:output_type -> assetlib.GetResp
-	5,  // 36: assetlib.Assetlib.Update:output_type -> assetlib.Asset
-	4,  // 37: assetlib.Assetlib.AddVersion:output_type -> assetlib.Version
-	0,  // 38: assetlib.Assetlib.AddRelation:output_type -> assetlib.Empty
-	0,  // 39: assetlib.Assetlib.RemoveRelation:output_type -> assetlib.Empty
-	22, // 40: assetlib.Assetlib.ListTags:output_type -> assetlib.ListTagsResp
-	21, // 41: assetlib.Assetlib.CreateTag:output_type -> assetlib.Tag
-	0,  // 42: assetlib.Assetlib.DeleteTag:output_type -> assetlib.Empty
-	21, // 43: assetlib.Assetlib.RenameTag:output_type -> assetlib.Tag
-	27, // 44: assetlib.Assetlib.BatchTag:output_type -> assetlib.BatchTagResp
-	20, // 45: assetlib.Assetlib.Delete:output_type -> assetlib.DeleteResp
-	30, // 46: assetlib.Assetlib.AdminListTags:output_type -> assetlib.AdminListTagsResp
-	33, // 47: assetlib.Assetlib.AdminKindStats:output_type -> assetlib.AdminKindStatsResp
-	33, // [33:48] is the sub-list for method output_type
-	18, // [18:33] is the sub-list for method input_type
-	18, // [18:18] is the sub-list for extension type_name
-	18, // [18:18] is the sub-list for extension extendee
-	0,  // [0:18] is the sub-list for field type_name
+	5,  // 13: assetlib.CreateFromUrlResp.asset:type_name -> assetlib.Asset
+	23, // 14: assetlib.ListTagsResp.items:type_name -> assetlib.Tag
+	31, // 15: assetlib.AdminListTagsResp.items:type_name -> assetlib.AdminTag
+	34, // 16: assetlib.AdminKindStatsResp.rows:type_name -> assetlib.KindStat
+	9,  // 17: assetlib.AdminKindStatsResp.kinds:type_name -> assetlib.Category
+	9,  // 18: assetlib.AdminKindStatsResp.sources:type_name -> assetlib.Category
+	6,  // 19: assetlib.Assetlib.List:input_type -> assetlib.ListReq
+	8,  // 20: assetlib.Assetlib.Categories:input_type -> assetlib.CategoriesReq
+	11, // 21: assetlib.Assetlib.Get:input_type -> assetlib.GetReq
+	16, // 22: assetlib.Assetlib.Update:input_type -> assetlib.UpdateReq
+	17, // 23: assetlib.Assetlib.AddVersion:input_type -> assetlib.AddVersionReq
+	18, // 24: assetlib.Assetlib.AddRelation:input_type -> assetlib.RelationReq
+	18, // 25: assetlib.Assetlib.RemoveRelation:input_type -> assetlib.RelationReq
+	1,  // 26: assetlib.Assetlib.ListTags:input_type -> assetlib.UserReq
+	25, // 27: assetlib.Assetlib.CreateTag:input_type -> assetlib.CreateTagReq
+	26, // 28: assetlib.Assetlib.DeleteTag:input_type -> assetlib.TagIdReq
+	27, // 29: assetlib.Assetlib.RenameTag:input_type -> assetlib.RenameTagReq
+	28, // 30: assetlib.Assetlib.BatchTag:input_type -> assetlib.BatchTagReq
+	19, // 31: assetlib.Assetlib.Delete:input_type -> assetlib.DeleteReq
+	21, // 32: assetlib.Assetlib.CreateFromUrl:input_type -> assetlib.CreateFromUrlReq
+	30, // 33: assetlib.Assetlib.AdminListTags:input_type -> assetlib.AdminListTagsReq
+	33, // 34: assetlib.Assetlib.AdminKindStats:input_type -> assetlib.AdminKindStatsReq
+	7,  // 35: assetlib.Assetlib.List:output_type -> assetlib.ListResp
+	10, // 36: assetlib.Assetlib.Categories:output_type -> assetlib.CategoriesResp
+	14, // 37: assetlib.Assetlib.Get:output_type -> assetlib.GetResp
+	5,  // 38: assetlib.Assetlib.Update:output_type -> assetlib.Asset
+	4,  // 39: assetlib.Assetlib.AddVersion:output_type -> assetlib.Version
+	0,  // 40: assetlib.Assetlib.AddRelation:output_type -> assetlib.Empty
+	0,  // 41: assetlib.Assetlib.RemoveRelation:output_type -> assetlib.Empty
+	24, // 42: assetlib.Assetlib.ListTags:output_type -> assetlib.ListTagsResp
+	23, // 43: assetlib.Assetlib.CreateTag:output_type -> assetlib.Tag
+	0,  // 44: assetlib.Assetlib.DeleteTag:output_type -> assetlib.Empty
+	23, // 45: assetlib.Assetlib.RenameTag:output_type -> assetlib.Tag
+	29, // 46: assetlib.Assetlib.BatchTag:output_type -> assetlib.BatchTagResp
+	20, // 47: assetlib.Assetlib.Delete:output_type -> assetlib.DeleteResp
+	22, // 48: assetlib.Assetlib.CreateFromUrl:output_type -> assetlib.CreateFromUrlResp
+	32, // 49: assetlib.Assetlib.AdminListTags:output_type -> assetlib.AdminListTagsResp
+	35, // 50: assetlib.Assetlib.AdminKindStats:output_type -> assetlib.AdminKindStatsResp
+	35, // [35:51] is the sub-list for method output_type
+	19, // [19:35] is the sub-list for method input_type
+	19, // [19:19] is the sub-list for extension type_name
+	19, // [19:19] is the sub-list for extension extendee
+	0,  // [0:19] is the sub-list for field type_name
 }
 
 func init() { file_assetlib_proto_init() }
@@ -2703,7 +2864,7 @@ func file_assetlib_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_assetlib_proto_rawDesc), len(file_assetlib_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   34,
+			NumMessages:   36,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

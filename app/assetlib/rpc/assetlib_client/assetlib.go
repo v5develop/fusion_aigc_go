@@ -27,6 +27,8 @@ type (
 	CategoriesReq      = assetlib.CategoriesReq
 	CategoriesResp     = assetlib.CategoriesResp
 	Category           = assetlib.Category
+	CreateFromUrlReq   = assetlib.CreateFromUrlReq
+	CreateFromUrlResp  = assetlib.CreateFromUrlResp
 	CreateTagReq       = assetlib.CreateTagReq
 	DeleteReq          = assetlib.DeleteReq
 	DeleteResp         = assetlib.DeleteResp
@@ -71,6 +73,8 @@ type (
 		BatchTag(ctx context.Context, in *BatchTagReq, opts ...grpc.CallOption) (*BatchTagResp, error)
 		// 删除资产（逻辑删除 afv_asset.deleted=1，并解除本人标签关联）：只删本人的上传 / 生成资产，官方素材不删；
 		Delete(ctx context.Context, in *DeleteReq, opts ...grpc.CallOption) (*DeleteResp, error)
+		// 把用户自己的一张图存为资产（画布「存为资产」）：校验归属 → 媒体服务落素材库公有桶 → 按内容哈希幂等入库
+		CreateFromUrl(ctx context.Context, in *CreateFromUrlReq, opts ...grpc.CallOption) (*CreateFromUrlResp, error)
 		// ---- 运营后台 ----
 		AdminListTags(ctx context.Context, in *AdminListTagsReq, opts ...grpc.CallOption) (*AdminListTagsResp, error)
 		// 按 kind × 来源计数（全量用户，或指定 user_id）
@@ -159,6 +163,12 @@ func (m *defaultAssetlib) BatchTag(ctx context.Context, in *BatchTagReq, opts ..
 func (m *defaultAssetlib) Delete(ctx context.Context, in *DeleteReq, opts ...grpc.CallOption) (*DeleteResp, error) {
 	client := assetlib.NewAssetlibClient(m.cli.Conn())
 	return client.Delete(ctx, in, opts...)
+}
+
+// 把用户自己的一张图存为资产（画布「存为资产」）：校验归属 → 媒体服务落素材库公有桶 → 按内容哈希幂等入库
+func (m *defaultAssetlib) CreateFromUrl(ctx context.Context, in *CreateFromUrlReq, opts ...grpc.CallOption) (*CreateFromUrlResp, error) {
+	client := assetlib.NewAssetlibClient(m.cli.Conn())
+	return client.CreateFromUrl(ctx, in, opts...)
 }
 
 // ---- 运营后台 ----

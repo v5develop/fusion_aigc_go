@@ -32,6 +32,8 @@ service Assetlib {
   // 删除资产（逻辑删除 afv_asset.deleted=1，并解除本人标签关联）：只删本人的上传 / 生成资产，官方素材不删；
   // 不删存储对象、不动任务结果与版本 / 关系旁表（列表与详情只认未删除资产）。
   rpc Delete(DeleteReq) returns (DeleteResp);
+  // 把用户自己的一张图存为资产（画布「存为资产」）：校验归属 → 媒体服务落素材库公有桶 → 按内容哈希幂等入库
+  rpc CreateFromUrl(CreateFromUrlReq) returns (CreateFromUrlResp);
 
   // ---- 运营后台 ----
   rpc AdminListTags(AdminListTagsReq) returns (AdminListTagsResp);
@@ -208,6 +210,21 @@ message DeleteResp {
   int64 official_skipped = 2;  // 官方素材，未删除
   int64 missing = 3;           // 不存在 / 不属于本人 / 已删除
   repeated int64 deleted_ids = 4;
+}
+
+message CreateFromUrlReq {
+  int64 user_id = 1;
+  string url = 2;       // 必须是本人上传的图片地址，或本人素材库里已有的图片地址
+  string title = 3;     // 空 = 「画布图片」
+  string source = 4;    // 空 / canvas
+  string canvas_id = 5; // 来源画布（写入溯源 workflow_id）
+  string node_id = 6;   // 来源节点（写入溯源 node_id）
+  repeated string tags = 7;
+}
+
+message CreateFromUrlResp {
+  Asset asset = 1;
+  bool existing = 2;    // true = 已在资产库里（重复点击 / 已入库），没有新建
 }
 
 // ---------------- 标签 ----------------

@@ -638,6 +638,293 @@
         }
       }
     },
+    "/api/v1/asset-library/assets/from-url": {
+      "post": {
+        "security": [
+          {
+            "auth": []
+          }
+        ],
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "资产库增强"
+        ],
+        "summary": "把自己的一张图存为资产（画布「存为资产」）：地址必须是本人上传的图或本人资产库里已有的图，落素材库公有桶，按内容哈希幂等（重复点击返回已有资产 existing=true）",
+        "operationId": "assetlibCreateFromUrl",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "required": [
+                "url"
+              ],
+              "properties": {
+                "canvas_id": {
+                  "description": "来源画布，写入溯源 workflow_id",
+                  "type": "string"
+                },
+                "node_id": {
+                  "description": "来源节点，写入溯源 node_id",
+                  "type": "string"
+                },
+                "source": {
+                  "description": "目前只有 canvas",
+                  "type": "string",
+                  "enum": [
+                    "canvas"
+                  ]
+                },
+                "tags": {
+                  "description": "标签名，≤10 个，字典里没有的自动建",
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "title": {
+                  "description": "1-100 字；缺省「画布图片」",
+                  "type": "string"
+                },
+                "url": {
+                  "description": "必须是本人上传的图片地址，或本人资产库里已有的图片地址；别人的 / 外链 / mr:// 私有引用拒收",
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "description": "0-成功\u003cbr\u003e1000-服务异常，稍后重试\u003cbr\u003e1001-参数错误，直接展示 msg\u003cbr\u003e1002-未登录\u003cbr\u003e1003-不存在或不属于当前用户\u003cbr\u003e1005-状态冲突\u003cbr\u003e1006-暂未开放 / 形象未生成完成\u003cbr\u003e1007-未同意《AIGC功能使用约定》\u003cbr\u003e1008-点数不足（计费未接）",
+                  "type": "integer",
+                  "example": 0
+                },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "asset": {
+                      "description": "新建的 / 已存在的资产（image 是素材库公开地址）",
+                      "type": "object",
+                      "required": [
+                        "id",
+                        "kind",
+                        "title",
+                        "prompt",
+                        "image",
+                        "media",
+                        "video_url",
+                        "source",
+                        "tags",
+                        "created_at",
+                        "favorite",
+                        "license",
+                        "metadata",
+                        "provenance",
+                        "versions",
+                        "current_version_id",
+                        "related_ids",
+                        "entry_code",
+                        "width",
+                        "height"
+                      ],
+                      "properties": {
+                        "created_at": {
+                          "type": "integer"
+                        },
+                        "current_version_id": {
+                          "description": "0=原图",
+                          "type": "integer"
+                        },
+                        "entry_code": {
+                          "type": "string"
+                        },
+                        "favorite": {
+                          "type": "boolean"
+                        },
+                        "height": {
+                          "type": "integer"
+                        },
+                        "id": {
+                          "type": "integer"
+                        },
+                        "image": {
+                          "description": "当前版本图 \u003e 原图（视频为封面）",
+                          "type": "string"
+                        },
+                        "kind": {
+                          "description": "model / scene / makeup / hair / accessory；空=未分类",
+                          "type": "string"
+                        },
+                        "license": {
+                          "description": "cleared / internal / unknown；空=未设置",
+                          "type": "string"
+                        },
+                        "media": {
+                          "description": "image / video",
+                          "type": "string"
+                        },
+                        "metadata": {
+                          "type": "object",
+                          "properties": {
+                            "color": {
+                              "description": "色彩",
+                              "type": "string"
+                            },
+                            "industry": {
+                              "description": "行业；PATCH 时缺省 = 空",
+                              "type": "string"
+                            },
+                            "shot": {
+                              "description": "镜头",
+                              "type": "string"
+                            },
+                            "style": {
+                              "description": "风格",
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "prompt": {
+                          "type": "string"
+                        },
+                        "provenance": {
+                          "type": "object",
+                          "required": [
+                            "run_id",
+                            "workflow_id",
+                            "node_id",
+                            "operator",
+                            "model",
+                            "params",
+                            "created_at"
+                          ],
+                          "properties": {
+                            "created_at": {
+                              "type": "integer"
+                            },
+                            "model": {
+                              "type": "string"
+                            },
+                            "node_id": {
+                              "type": "string"
+                            },
+                            "operator": {
+                              "type": "string"
+                            },
+                            "params": {
+                              "description": "JSON 文本；空=没有",
+                              "type": "string"
+                            },
+                            "run_id": {
+                              "type": "string"
+                            },
+                            "workflow_id": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "related_ids": {
+                          "description": "仅详情带",
+                          "type": "array",
+                          "items": {
+                            "type": "integer"
+                          }
+                        },
+                        "source": {
+                          "description": "upload / generated / official",
+                          "type": "string"
+                        },
+                        "tags": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "title": {
+                          "type": "string"
+                        },
+                        "versions": {
+                          "description": "仅详情带",
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "required": [
+                              "id",
+                              "version_no",
+                              "image",
+                              "prompt",
+                              "model",
+                              "params",
+                              "created_at"
+                            ],
+                            "properties": {
+                              "created_at": {
+                                "type": "integer"
+                              },
+                              "id": {
+                                "type": "integer"
+                              },
+                              "image": {
+                                "type": "string"
+                              },
+                              "model": {
+                                "type": "string"
+                              },
+                              "params": {
+                                "description": "JSON 文本",
+                                "type": "string"
+                              },
+                              "prompt": {
+                                "type": "string"
+                              },
+                              "version_no": {
+                                "description": "同资产从 1 起",
+                                "type": "integer"
+                              }
+                            }
+                          }
+                        },
+                        "video_url": {
+                          "type": "string"
+                        },
+                        "width": {
+                          "type": "integer"
+                        }
+                      }
+                    },
+                    "existing": {
+                      "description": "true = 已在资产库里（重复点击 / 已入库），没有新建",
+                      "type": "boolean"
+                    }
+                  }
+                },
+                "msg": {
+                  "description": "business message",
+                  "type": "string",
+                  "example": "ok"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/asset-library/assets/{id}": {
       "get": {
         "security": [
@@ -11010,6 +11297,62 @@
                 "data": {
                   "type": "object",
                   "properties": {
+                    "counts": {
+                      "description": "当前用户可见的各域总数",
+                      "type": "object",
+                      "required": [
+                        "ecommerce",
+                        "general",
+                        "mine",
+                        "official_total",
+                        "mine_total"
+                      ],
+                      "properties": {
+                        "ecommerce": {
+                          "type": "integer"
+                        },
+                        "general": {
+                          "type": "integer"
+                        },
+                        "mine": {
+                          "type": "integer"
+                        },
+                        "mine_total": {
+                          "type": "integer"
+                        },
+                        "official_total": {
+                          "type": "integer"
+                        }
+                      }
+                    },
+                    "groups": {
+                      "description": "各一级分类下的二级分类（有序，带中文名与条数，不受筛选影响）",
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "vertical",
+                          "key",
+                          "label",
+                          "count"
+                        ],
+                        "properties": {
+                          "count": {
+                            "type": "integer"
+                          },
+                          "key": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "description": "中文名",
+                            "type": "string"
+                          },
+                          "vertical": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
                     "items": {
                       "type": "array",
                       "items": {
@@ -11020,6 +11363,7 @@
                           "prompt",
                           "vertical",
                           "group",
+                          "group_label",
                           "models",
                           "tags",
                           "source",
@@ -11033,6 +11377,10 @@
                           },
                           "group": {
                             "description": "二级分类英文 key",
+                            "type": "string"
+                          },
+                          "group_label": {
+                            "description": "二级分类中文名",
                             "type": "string"
                           },
                           "id": {
@@ -11122,7 +11470,7 @@
               ],
               "properties": {
                 "group": {
-                  "description": "忽略：我的提示词固定 mine / favorite",
+                  "description": "我的提示词分类：mine / favorite；缺省 favorite",
                   "type": "string"
                 },
                 "models": {
@@ -11170,6 +11518,10 @@
                     },
                     "group": {
                       "description": "二级分类英文 key",
+                      "type": "string"
+                    },
+                    "group_label": {
+                      "description": "二级分类中文名",
                       "type": "string"
                     },
                     "id": {
@@ -11261,6 +11613,7 @@
               ],
               "properties": {
                 "group": {
+                  "description": "mine / favorite；缺省保持不变",
                   "type": "string"
                 },
                 "models": {
@@ -11304,6 +11657,10 @@
                     },
                     "group": {
                       "description": "二级分类英文 key",
+                      "type": "string"
+                    },
+                    "group_label": {
+                      "description": "二级分类中文名",
                       "type": "string"
                     },
                     "id": {
@@ -15205,7 +15562,7 @@
       "in": "header"
     }
   },
-  "x-date": "2026-11-12 09:33:50",
+  "x-date": "2026-11-12 15:20:45",
   "x-description": "This is a goctl generated swagger file.",
   "x-github": "https://github.com/zeromicro/go-zero",
   "x-go-zero-doc": "https://go-zero.dev/",

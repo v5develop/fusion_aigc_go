@@ -44,6 +44,20 @@ type AssetLibAddVersionReq struct {
 	ImageRid string `json:"image_rid,optional"`
 }
 
+type AssetLibFromUrlReq struct {
+	Url      string   `json:"url"`                             // 必须是本人上传的图片地址，或本人资产库里已有的图片地址；别人的 / 外链 / mr:// 私有引用拒收
+	Title    string   `json:"title,optional"`                  // 1-100 字；缺省「画布图片」
+	Source   string   `json:"source,optional,options=|canvas"` // 目前只有 canvas
+	CanvasId string   `json:"canvas_id,optional"`              // 来源画布，写入溯源 workflow_id
+	NodeId   string   `json:"node_id,optional"`                // 来源节点，写入溯源 node_id
+	Tags     []string `json:"tags,optional"`                   // 标签名，≤10 个，字典里没有的自动建
+}
+
+type AssetLibFromUrlResp struct {
+	Asset    AssetLibAsset `json:"asset"`    // 新建的 / 已存在的资产（image 是素材库公开地址）
+	Existing bool          `json:"existing"` // true = 已在资产库里（重复点击 / 已入库），没有新建
+}
+
 type AssetLibAsset struct {
 	Id               int64              `json:"id"`
 	Kind             string             `json:"kind"` // model / scene / makeup / hair / accessory；空=未分类

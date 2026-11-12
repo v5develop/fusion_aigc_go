@@ -32,6 +32,7 @@ const (
 	Assetlib_RenameTag_FullMethodName      = "/assetlib.Assetlib/RenameTag"
 	Assetlib_BatchTag_FullMethodName       = "/assetlib.Assetlib/BatchTag"
 	Assetlib_Delete_FullMethodName         = "/assetlib.Assetlib/Delete"
+	Assetlib_CreateFromUrl_FullMethodName  = "/assetlib.Assetlib/CreateFromUrl"
 	Assetlib_AdminListTags_FullMethodName  = "/assetlib.Assetlib/AdminListTags"
 	Assetlib_AdminKindStats_FullMethodName = "/assetlib.Assetlib/AdminKindStats"
 )
@@ -69,6 +70,8 @@ type AssetlibClient interface {
 	// 删除资产（逻辑删除 afv_asset.deleted=1，并解除本人标签关联）：只删本人的上传 / 生成资产，官方素材不删；
 	// 不删存储对象、不动任务结果与版本 / 关系旁表（列表与详情只认未删除资产）。
 	Delete(ctx context.Context, in *DeleteReq, opts ...grpc.CallOption) (*DeleteResp, error)
+	// 把用户自己的一张图存为资产（画布「存为资产」）：校验归属 → 媒体服务落素材库公有桶 → 按内容哈希幂等入库
+	CreateFromUrl(ctx context.Context, in *CreateFromUrlReq, opts ...grpc.CallOption) (*CreateFromUrlResp, error)
 	// ---- 运营后台 ----
 	AdminListTags(ctx context.Context, in *AdminListTagsReq, opts ...grpc.CallOption) (*AdminListTagsResp, error)
 	// 按 kind × 来源计数（全量用户，或指定 user_id）
@@ -213,6 +216,16 @@ func (c *assetlibClient) Delete(ctx context.Context, in *DeleteReq, opts ...grpc
 	return out, nil
 }
 
+func (c *assetlibClient) CreateFromUrl(ctx context.Context, in *CreateFromUrlReq, opts ...grpc.CallOption) (*CreateFromUrlResp, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateFromUrlResp)
+	err := c.cc.Invoke(ctx, Assetlib_CreateFromUrl_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *assetlibClient) AdminListTags(ctx context.Context, in *AdminListTagsReq, opts ...grpc.CallOption) (*AdminListTagsResp, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(AdminListTagsResp)
@@ -266,6 +279,8 @@ type AssetlibServer interface {
 	// 删除资产（逻辑删除 afv_asset.deleted=1，并解除本人标签关联）：只删本人的上传 / 生成资产，官方素材不删；
 	// 不删存储对象、不动任务结果与版本 / 关系旁表（列表与详情只认未删除资产）。
 	Delete(context.Context, *DeleteReq) (*DeleteResp, error)
+	// 把用户自己的一张图存为资产（画布「存为资产」）：校验归属 → 媒体服务落素材库公有桶 → 按内容哈希幂等入库
+	CreateFromUrl(context.Context, *CreateFromUrlReq) (*CreateFromUrlResp, error)
 	// ---- 运营后台 ----
 	AdminListTags(context.Context, *AdminListTagsReq) (*AdminListTagsResp, error)
 	// 按 kind × 来源计数（全量用户，或指定 user_id）
@@ -318,6 +333,9 @@ func (UnimplementedAssetlibServer) BatchTag(context.Context, *BatchTagReq) (*Bat
 }
 func (UnimplementedAssetlibServer) Delete(context.Context, *DeleteReq) (*DeleteResp, error) {
 	return nil, status.Error(codes.Unimplemented, "method Delete not implemented")
+}
+func (UnimplementedAssetlibServer) CreateFromUrl(context.Context, *CreateFromUrlReq) (*CreateFromUrlResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateFromUrl not implemented")
 }
 func (UnimplementedAssetlibServer) AdminListTags(context.Context, *AdminListTagsReq) (*AdminListTagsResp, error) {
 	return nil, status.Error(codes.Unimplemented, "method AdminListTags not implemented")
@@ -580,6 +598,24 @@ func _Assetlib_Delete_Handler(srv interface{}, ctx context.Context, dec func(int
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Assetlib_CreateFromUrl_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateFromUrlReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AssetlibServer).CreateFromUrl(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Assetlib_CreateFromUrl_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AssetlibServer).CreateFromUrl(ctx, req.(*CreateFromUrlReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Assetlib_AdminListTags_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(AdminListTagsReq)
 	if err := dec(in); err != nil {
@@ -674,6 +710,10 @@ var Assetlib_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Delete",
 			Handler:    _Assetlib_Delete_Handler,
+		},
+		{
+			MethodName: "CreateFromUrl",
+			Handler:    _Assetlib_CreateFromUrl_Handler,
 		},
 		{
 			MethodName: "AdminListTags",

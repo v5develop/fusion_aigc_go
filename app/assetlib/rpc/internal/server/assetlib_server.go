@@ -96,6 +96,12 @@ func (s *AssetlibServer) Delete(ctx context.Context, in *assetlib.DeleteReq) (*a
 	return l.Delete(in)
 }
 
+// 把用户自己的一张图存为资产（画布「存为资产」）：校验归属 → 媒体服务落素材库公有桶 → 按内容哈希幂等入库
+func (s *AssetlibServer) CreateFromUrl(ctx context.Context, in *assetlib.CreateFromUrlReq) (*assetlib.CreateFromUrlResp, error) {
+	l := logic.NewCreateFromUrlLogic(ctx, s.svcCtx)
+	return l.CreateFromUrl(in)
+}
+
 // ---- 运营后台 ----
 func (s *AssetlibServer) AdminListTags(ctx context.Context, in *assetlib.AdminListTagsReq) (*assetlib.AdminListTagsResp, error) {
 	l := logic.NewAdminListTagsLogic(ctx, s.svcCtx)

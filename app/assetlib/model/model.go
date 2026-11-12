@@ -127,8 +127,8 @@ func SourceOf(t sql.NullInt64) string {
 
 // JavaAsset afv_asset 的**只读**映射（列以 Java 迁移 V1.0.1 / 59 / 90 / 93 / 179 / 181 为准）。
 //
-// 只读：本模块不 INSERT / DELETE 这张表，也不用 bun 的 Update(Model) 改它；
-// 唯一的写入是 repo.AssetRepo.Rename 对 name 列的一条受控 UPDATE（pkg/asset 没有改名方法）。
+// 只读为主：不用 bun 的 Update(Model) 改它；受控写入只有 repo.AssetRepo.Rename（name 列）、SoftDelete（deleted 列）
+// 与 repo.AssetRepo.InsertUpload（「存为资产」新增一行用户上传，见 repo/upload.go）。
 // 未映射的 Java 列：project_id、description、properties、tags（Java 自己的标签 JSON，本模块不读写）、
 // integration_delivery_id、integration_access_policy、update_time。
 type JavaAsset struct {
