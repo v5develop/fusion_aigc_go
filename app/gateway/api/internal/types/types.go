@@ -1021,19 +1021,21 @@ type ShopProfileListResp struct {
 }
 
 type StudioBatch struct {
-	Id              int64    `json:"id"`
-	Kind            string   `json:"kind"`    // tryon / pose / imagegen
-	Status          int32    `json:"status"`  // 0-排队 1-切图中 2-反推中 3-生图中 4-全部成功 5-全部失败 6-部分成功 7-已取消
-	Payload         string   `json:"payload"` // 提交时的全量字段（JSON 文本），用于回填表单
-	TaskTotal       int32    `json:"task_total"`
-	TaskDone        int32    `json:"task_done"`
-	TaskFailed      int32    `json:"task_failed"`
-	EstimatedPoints int64    `json:"estimated_points"`
-	ErrorReason     string   `json:"error_reason"`
-	CoverUrl        string   `json:"cover_url"`
-	CreatedAt       int64    `json:"created_at"` // unix 毫秒
-	UpdatedAt       int64    `json:"updated_at"`
-	Warnings        []string `json:"warnings"` // 读图 / 参考图提示（各任务 warnings 去重合并，中文、不含供应商信息）；没有为 []
+	Id               int64    `json:"id"`
+	Kind             string   `json:"kind"`    // tryon / pose / imagegen
+	Status           int32    `json:"status"`  // 0-排队 1-切图中 2-反推中 3-生图中 4-全部成功 5-全部失败 6-部分成功 7-已取消
+	Payload          string   `json:"payload"` // 提交时的全量字段（JSON 文本），用于回填表单
+	TaskTotal        int32    `json:"task_total"`
+	TaskDone         int32    `json:"task_done"`
+	TaskFailed       int32    `json:"task_failed"`
+	EstimatedPoints  int64    `json:"estimated_points"`
+	ErrorReason      string   `json:"error_reason"`
+	CoverUrl         string   `json:"cover_url"`
+	CreatedAt        int64    `json:"created_at"` // unix 毫秒
+	UpdatedAt        int64    `json:"updated_at"`
+	Warnings         []string `json:"warnings"` // 读图 / 参考图提示（各任务 warnings 去重合并，中文、不含供应商信息）；没有为 []
+	ModelViews       []string `json:"model_views"`
+	GarmentImageUrls []string `json:"garment_image_urls"`
 }
 
 type StudioBatchDetail struct {
@@ -1211,10 +1213,11 @@ type StudioPosePreviewResp struct {
 }
 
 type StudioPoseQuoteReq struct {
-	PoseImageUrls []string `json:"pose_image_urls,optional"` // 只用张数：任务数 = 姿势图数
-	Model         string   `json:"model,optional"`
-	Resolution    string   `json:"resolution,optional"`
-	AspectRatio   string   `json:"aspect_ratio,optional"` // 空=按人物图自动
+	PoseImageUrls    []string `json:"pose_image_urls,optional"` // 只用张数：任务数 = 姿势图数
+	Model            string   `json:"model,optional"`
+	Resolution       string   `json:"resolution,optional"`
+	AspectRatio      string   `json:"aspect_ratio,optional"` // 空=按人物图自动
+	GarmentImageUrls []string `json:"garment_image_urls,optional"`
 }
 
 type StudioPoseSubmitReq struct {
@@ -1230,6 +1233,7 @@ type StudioPoseSubmitReq struct {
 	SourcePersonCount int32               `json:"source_person_count,optional"`
 	Mappings          []StudioPoseMapping `json:"mappings,optional"`  // 每张姿势图一条；不传的按默认配对（左→左、右→右）
 	ColorFix          bool                `json:"color_fix,optional"` // 「默认校色」开关，同商拍
+	GarmentImageUrls  []string            `json:"garment_image_urls,optional"`
 }
 
 type StudioQuoteResp struct {
@@ -1326,6 +1330,7 @@ type StudioTryonSubmitReq struct {
 	FineRead          bool                 `json:"fine_read,optional"`       // 「精细读图」：反推读图走精细模式（更慢、设计细节更多）；不另收费
 	DetailCrops       []StudioDetailCrop   `json:"detail_crops,optional"`
 	DetailCropsManual bool                 `json:"detail_crops_manual,optional"`
+	ModelViews        []string             `json:"model_views,optional"`
 }
 
 type UpdateNoteReq struct {

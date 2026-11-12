@@ -14,7 +14,7 @@ const OrderLinePrefix = "图序："
 // ImageOrderLine 图序声明（F2）：
 //
 //	tryon    图序：图1 是模特，图2–图N 是服装参考图（主图在前，局部细节在后）。
-//	pose     图序：图1 是原图，图2 是姿势参考图。
+//	pose     图序：图1 是原图，图2 是姿势参考图。（带服装参考图 n>2：…，图3–图N 是服装参考图。）
 //	imagegen 图序：图1–图N 是参考图。（无参考图返回空串）
 func ImageOrderLine(kind string, n int) string {
 	switch kind {
@@ -27,6 +27,12 @@ func ImageOrderLine(kind string, n int) string {
 		}
 		return fmt.Sprintf("%s图1 是模特，图2–图%d 是服装参考图（主图在前，局部细节在后）。", OrderLinePrefix, n)
 	case KindPose:
+		switch {
+		case n == 3:
+			return OrderLinePrefix + "图1 是原图，图2 是姿势参考图，图3 是服装参考图。"
+		case n > 3:
+			return fmt.Sprintf("%s图1 是原图，图2 是姿势参考图，图3–图%d 是服装参考图。", OrderLinePrefix, n)
+		}
 		return OrderLinePrefix + "图1 是原图，图2 是姿势参考图。"
 	case KindImageGen:
 		switch {
@@ -84,7 +90,12 @@ func (s TryonSpec) setMode() string {
 func AnalyzeImages(list []Image) []reverse.AnalyzeImage {
 	out := make([]reverse.AnalyzeImage, 0, len(list))
 	for _, im := range list {
-		ai := reverse.AnalyzeImage{Role: im.Role, Data: im.Data}
+		ai := reverse.AnalyzeImage{Role: im.Role, Data: im.Data, Key: im.Key}
+		// 服装图 / 细节图带上面（front / back / side；其余角度不传，sidecar 不写角度）：提示词写「整件服装（上衣·正面）」、
+		// 并按 model_view 过滤。模特图没有角度
+		if im.Kind != ImageModel {
+			ai.Angle = analyzeAngle(im.Angle)
+		}
 		switch im.Kind {
 		case ImageDetail:
 			ai.Role, ai.Label = RoleDetail, im.Label
@@ -98,6 +109,15 @@ func AnalyzeImages(list []Image) []reverse.AnalyzeImage {
 		out = append(out, ai)
 	}
 	return out
+}
+
+// analyzeAngle 传给 sidecar 的 angle：只有 front / back / side 有意义，其余（detail / flat / unknown）不传。
+func analyzeAngle(a string) string {
+	switch a {
+	case ViewFront, ViewBack, ViewSide:
+		return a
+	}
+	return ""
 }
 
 // BuildTryonAnalyzeReq 单个模特的 analyze 请求：category 按 items 推断，deep=true（精细读图另带 fine=true）；
@@ -172,6 +192,12 @@ func TryonPromptVersion(group string, batchID int64, percent int) (version, targ
 // WithPromptVersion 给反推请求打上提示词版本（空串 = 不传，sidecar 走稳定版）。
 func WithPromptVersion(req reverse.AnalyzeReq, version, target string) reverse.AnalyzeReq {
 	req.PromptVersion, req.TargetModel = version, target
+	return req
+}
+
+// WithModelView 给反推请求打上模特图的面（front / back / side；空串 = 不传，sidecar 不按面过滤）。
+func WithModelView(req reverse.AnalyzeReq, view string) reverse.AnalyzeReq {
+	req.ModelView = view
 	return req
 }
 

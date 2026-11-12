@@ -27,7 +27,8 @@ type Media interface {
 // Reverse 反推 sidecar；*reverse.Client 满足。
 type Reverse interface {
 	Status(ctx context.Context) (*reverse.Status, error)
-	PoseSource(ctx context.Context, imageDataURL string) (*reverse.PoseSource, error)
+	// garments 可选（≤6 张 data URL）：单人原图同时读服装参考图，见 reverse.Client.PoseSource
+	PoseSource(ctx context.Context, imageDataURL string, garments ...string) (*reverse.PoseSource, error)
 	// mapping 多人配对（nil = sidecar 默认配对），见 reverse.PosePromptReq.Mapping
 	PosePrompt(ctx context.Context, source *reverse.PoseSource, poseDataURL, notes string, mapping []int) (*reverse.PosePrompt, error)
 	Analyze(ctx context.Context, req reverse.AnalyzeReq) (*reverse.AnalyzeResp, error)

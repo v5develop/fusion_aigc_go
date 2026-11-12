@@ -34,6 +34,10 @@
   2026-11-10 本仓另加「精细读图」fine=true（analyze / analyze-batch，验收 F7 / T2）：强制 deep、读图提示词末尾追加一句
     逐块检查小细节、设计细节上限 +3；不带 fine 时与交付包逐字一致（见 _fine_read）。
   提示词模板、清洗函数、CATS、读图字段整理逻辑以交付包为准，未另改。
+  2026-11-10.13.merged：并入商拍反推 2026-11-10.13（完整版 41 区块、model_view、image_order / image_manifest、include_crops、
+    user_prompt 合并、pose_mode、negative_prompt、材质槽 / 材质锁定、裤型 / 口袋 / 人体比例锁；Compact 已移除）、
+    姿态 2026-11-10.13（garments ≤6、garment_person、图1 原图 / 图2 姿势 / 图3+ 服装编号）、side 补丁（手工移植）。
+    未并入：HOST 默认值、静态页面、/api/billing*、PRISM_EMBED 上游转发、直连 DeepSeek / 生图适配器。详见同目录 MERGE-2026-11-10.13.md。
 
 模型调用经 ai-gateway（POST /v1/calls，模型组 REVERSE_MODEL_GROUP，默认 vlm.deepseek-flash），不再直连 DeepSeek；
 排障指定单一渠道用 REVERSE_ALLOWED_DEPLOYMENTS（逗号分隔 → constraints.allowed_deployments）；
@@ -51,7 +55,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-VERSION = "2026-11-10.merged"
+VERSION = "2026-11-10.13.merged"
 
 
 def load_dotenv():
@@ -119,7 +123,7 @@ ALLOWED_DEPLOYMENTS = [d.strip() for d in os.environ.get("REVERSE_ALLOWED_DEPLOY
 # 监听地址：默认只听本机；容器内用 REVERSE_BIND=0.0.0.0:8090
 BIND = os.environ.get("REVERSE_BIND", "127.0.0.1:8090")
 
-MAX_BODY = 24 * 1024 * 1024  # 最多 9 张压缩图，留足余量
+MAX_BODY = 32 * 1024 * 1024  # 原图 + 姿势图 + 最多 6 张服装参考图（反推最多 9 张压缩图）
 MAX_IMAGES = 9
 VISION_MAX_TOKENS = 6000
 VISION_TIMEOUT = 180
@@ -315,7 +319,7 @@ ITEM_LABELS = {
 }
 ITEM_LOCKS = {
     "top": "上衣长度、袖长、领口、下摆按参考图",
-    "bottom": "下装长度、腰头、裤型/裙型、裤脚/裙摆按参考图",
+    "bottom": "下装裤型、腰头高度、裆线、裤腿宽度、裤脚宽度、裤长、门襟与口袋逐项按参考图；不预设任何裤型名称，不沿用模特图裤型，不得出现参考图没有的外扩/喇叭/鱼尾",
     "dress": "连衣裙覆盖上下装，裙长、腰线、开衩按参考图，不能拆成两件",
     "outer": "外套肩线、衣长、袖长、廓形按参考图",
     "shoes": "鞋型、鞋头、鞋跟、鞋面、筒高按参考图",
@@ -324,6 +328,78 @@ ITEM_LOCKS = {
     "panties": "内裤覆盖腰胯，腰头、包覆、裤口按参考图",
 }
 ITEM_BASIS = {k: CATS[k]["basis"] for k in ITEM_LABELS if k in CATS}
+
+ANGLE_LABELS = {
+    "front": "正面", "back": "背面", "side": "侧面",
+    "left": "左侧", "right": "右侧",
+    "detail": "细节", "flat": "平铺", "lay": "平铺",
+    "front_detail": "正面细节", "back_detail": "背面细节",
+}
+
+
+def _angle_label(value):
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    return ANGLE_LABELS.get(text.lower(), text)
+
+
+def _flag(payload, key, default=True):
+    value = payload.get(key, default)
+    if isinstance(value, str):
+        return value.strip().lower() not in ("", "0", "false", "no", "off")
+    return bool(value)
+
+
+
+FRONT_WORDS = ("front", "正面", "前片", "左前", "右前", "前中", "前袋", "前门襟")
+BACK_WORDS = ("back", "背面", "后片", "左后", "右后", "后中", "后袋", "后领", "后腰", "后片")
+SIDE_WORDS = ("侧面", "侧片", "侧身", "侧背")
+MATERIAL_WORDS = ("面料", "纹理", "材质", "布料", "织纹")
+
+
+def _image_view(im):
+    angle = str(im.get("angle") or "").strip().lower()
+    text = (angle + " " + str(im.get("label") or "")).lower()
+    if angle == "side":
+        return "side"
+    if any(word in text for word in BACK_WORDS):
+        return "back"
+    if any(word in text for word in SIDE_WORDS):
+        return "side"
+    if any(word in text for word in FRONT_WORDS):
+        return "front"
+    return ""
+
+
+def _model_view(payload):
+    raw = str(payload.get("model_view") or payload.get("view") or "").strip().lower()
+    if raw in ("front", "正面", "前", "positive"):
+        return "front"
+    if raw in ("back", "背面", "后", "rear"):
+        return "back"
+    if raw in ("side", "侧面", "侧身", "侧背", "侧"):
+        return "side"
+    for im in payload.get("images") or []:
+        if isinstance(im, dict) and str(im.get("role") or "") == "人物模特":
+            view = _image_view(im)
+            if view:
+                return view
+    return ""
+
+
+def _is_material_crop(c):
+    label = str(c.get("label") or "")
+    return any(word in label for word in MATERIAL_WORDS)
+
+
+def _image_order(payload):
+    value = str(payload.get("image_order") or "").strip().lower()
+    if value in ("model_first", "model-first", "modelfirst"):
+        return "model_first"
+    if value in ("input", "as_is", "as-is", "original"):
+        return "input"
+    return "garment_first"
 
 
 def _item_keys(payload):
@@ -341,6 +417,8 @@ def _compose_frame(keys):
     if "shoes" in keys:
         return "全身（含鞋子）"
     if "dress" in keys:
+        return "全身"
+    if "bottom" in keys and ("top" in keys or "outer" in keys):
         return "全身"
     if "bottom" in keys:
         return "腰部至脚踝"
@@ -399,7 +477,7 @@ VISION_SYSTEM_PROMPT = """你是内衣/服装电商的商品图分析员。你�
 1. 只输出一个 JSON 对象，不要 Markdown，不要解释，不要代码块。
 2. 只写图中看得见的结构；看不清的肩带宽度、开衩、门襟、扣子、领型、后背育克、内衬等，一律写“以参考图为准”，不得凭品类常识补写或猜测。
 3. garment_match 只判断大品类：上装 / 下装 / 连衣裙 / 整套 Look / 文胸 / 内裤 / 两件套 / 多选组合（最多3件）。具体款式不等于品类不符：针织毛衣、衬衫、T恤、卫衣都属于上装；牛仔裤、半身裙都属于下装。整套 Look 至少要两件单品；多选组合要检查用户选中的 1–3 件单品是否都在服装参考图里，齐全写 true，缺件写 false 并在 garment_type 写缺什么。只有大类确实不符时才写 false。
-4. structure 写该品类的关键部件：文胸（杯型/肩带/侧比/钢圈/背扣/蕾丝）、内裤（腰头/包覆/侧边/裆部/包边）、上装（领口/门襟/袖型与袖口/下摆）、下装（腰头/裤型/裤脚）、连衣裙（领口/腰线/裙摆）。上装、下装、连衣裙、外套必须写清袖长（长袖/七分袖/短袖/无袖）和长度（及胯/及腰/及膝/及踝/及地）；看不出来就写“以参考图为准”，不要猜。领口必须如实单选（高领/半高领/圆领/挂脖/一字肩/方领/V领/翻领），不得混写；无袖不等于露肩。文胸的下围不要写成下摆，杯口不要写成领口，杯身不要写成衣身；内裤的裤口不要写成下摆。两件套分别读图：文胸部件只写文胸，内裤部件只写内裤，不得互相套用；看不见的侧比、背扣、五金不要编造装饰。只写看到的。两件套用“文胸：…”“内裤：…”前缀；整套 Look 和多选组合都要逐件加前缀（上装/上衣、下装、连衣裙、外套、鞋子、配饰、文胸、内裤），只写上传/选中的单品，不要编造没上传/没选的；多选组合还要按单品填写 item_lengths、item_sleeves、item_design_details。
+4. structure 写该品类的关键部件：文胸（杯型/肩带/侧比/钢圈/背扣/蕾丝）、内裤（腰头/包覆/侧边/裆部/包边）、上装（领口/门襟/袖型与袖口/下摆）、下装（腰头/裤型/裤脚）、连衣裙（领口/腰线/裙摆）。口袋必须写清前/后、左/右；袋口有绣线、明线或装饰时，写清颜色、断续还是连续、位置；看不清写“以参考图为准”。上装、下装、连衣裙、外套必须写清袖长（长袖/七分袖/短袖/无袖）和长度（及胯/及腰/及膝/及踝/及地）；看不出来就写“以参考图为准”，不要猜。领口必须如实单选（高领/半高领/圆领/挂脖/一字肩/方领/V领/翻领），不得混写；无袖不等于露肩。文胸的下围不要写成下摆，杯口不要写成领口，杯身不要写成衣身；内裤的裤口不要写成下摆。两件套分别读图：文胸部件只写文胸，内裤部件只写内裤，不得互相套用；看不见的侧比、背扣、五金不要编造装饰。只写看到的。两件套用“文胸：…”“内裤：…”前缀；整套 Look 和多选组合都要逐件加前缀（上装/上衣、下装、连衣裙、外套、鞋子、配饰、文胸、内裤），只写上传/选中的单品，不要编造没上传/没选的；多选组合还要按单品填写 item_lengths、item_sleeves、item_design_details。
 5. model_outfit 只写「人物模特」图里人物身上实际穿着的服装（品类、颜色、袖长、领口）。即使服装参考图里有人穿着衣服，那个人也不是本次模特，不能把她的衣服写进 model_outfit。没有人物模特图就留空。不写“必须移除”“需要替换”这类指令，不描述身体、肤色或敏感部位。
 6. garment_colors、material、pattern、structure 只能来自服装参考图（role 不是「人物模特」的图）；人物模特图里的衣服颜色、材质、结构不得写入这些字段。颜色用中文色名，最多 3 个主色。多选组合时 material 必须按单品前缀写，例如“上衣：棉质府绸；下装：涤纶；鞋子：皮革”，方便把皮革/材质归到具体单品。
 7. negatives 只写该品类最容易误生成的服装，0–4 条。
@@ -751,11 +829,17 @@ def _ensure_crop_plans(res, images, cat_key):
                   "garment_box": [0.0, 0.0, 1.0, 1.0], "crops": []}
                  for i, im in enumerate(images)]
     for p in plans:
-        if not p.get("crops"):
-            angle = str(p.get("angle") or "front")
-            if angle not in ("front", "back", "side", "detail", "flat"):
-                angle = "front"
-            p["crops"] = _fallback_crops(cat_key, angle)
+        angle = str(p.get("angle") or "front")
+        if angle not in ("front", "back", "side", "detail", "flat"):
+            angle = "front"
+        crops = p.get("crops") or []
+        labels = " ".join(str(c.get("label") or "") for c in crops)
+        if not any(word in labels for word in ("面料", "纹理", "材质", "布料")):
+            for c in _fallback_crops(cat_key, angle):
+                if any(word in str(c.get("label") or "") for word in ("面料", "纹理", "材质", "布料")):
+                    crops.append(c)
+                    break
+        p["crops"] = crops
     res["plans"] = plans
     return res
 
@@ -1110,6 +1194,23 @@ def user_prompt(payload):
         lines.append(f"面料：{payload['fabric']}")
     if payload.get("notes"):
         lines.append(f"补充说明：{payload['notes']}")
+    ui = payload.get("_user_intent") or {}
+    if ui:
+        lines.append("用户造型意图（只作意图参考，不作为服装款式事实）：")
+        if ui.get("garment"):
+            lines.append("- 服装与穿法：" + str(ui["garment"]))
+        if ui.get("text_items"):
+            lines.append("- 文字指定单品：" + "；".join(ui["text_items"]))
+        if ui.get("pose"):
+            lines.append("- 动作/姿态：" + str(ui["pose"]))
+        if ui.get("composition"):
+            lines.append("- 构图/画幅：" + str(ui["composition"]))
+        if ui.get("scene"):
+            lines.append("- 场景/背景：" + str(ui["scene"]))
+        if ui.get("camera"):
+            lines.append("- 镜头/画质：" + str(ui["camera"]))
+        if ui.get("identity"):
+            lines.append("- 人物外貌：" + str(ui["identity"]))
     if payload.get("category") == "set":
         mode = payload.get("set_mode") or "one"
         lines.append("上传方式：" + ("分别上传（文胸图 + 内裤图）" if mode == "two" else "一套合影（单张）"))
@@ -1401,10 +1502,290 @@ def _notes_covered(notes, text):
     return hits >= max(1, int(len(chunks) * 0.6))
 
 
+STYLING_HEADS = (
+    "主体", "五官", "脸型", "身型", "底妆", "眼妆", "眉妆", "修容", "唇妆", "发型",
+    "服装穿搭", "服装", "穿搭", "配饰", "鞋", "鞋子", "包", "首饰",
+    "动作", "姿态", "构图", "墙面", "地面", "环境整体", "场景", "背景",
+    "相机机身", "镜头", "光圈", "快门速度", "ISO 感光度", "ISO",
+    "对焦模式", "分辨率", "镜头畸变控制", "光源", "光比", "色温",
+    "整体风格", "画面风格", "画质质感",
+)
+STYLING_COMPOSITION_WORDS = (
+    "留白", "构图", "画面上方", "画面边缘", "地线", "位置", "不裁切", "全身",
+    "从头到脚", "居中", "占比", "画幅", "机位", "取景",
+)
+STYLING_IDENTITY_WORDS = (
+    "岁", "超模", "气质", "面容", "五官", "脸", "眼", "鼻", "唇", "肤",
+    "发", "身材", "身高", "妆", "模特",
+)
+STYLING_TEXT_ITEM_WORDS = (
+    "鞋", "靴", "乐福", "高跟", "运动鞋", "耳环", "项链", "手链", "戒指",
+    "包", "帽", "围巾", "腰带", "配饰", "首饰",
+)
+STYLING_NEG_RE = re.compile(r"negative\s*prompt\s*[:：]", re.I)
+
+
+
+def _notes_are_garment_intent(text):
+    text = str(text or "")
+    return any(word in text for word in (
+        "塞进", "塞入", "敞开", "挽", "下摆", "腰头", "裤型", "裤脚", "裙摆",
+        "版型", "长度", "袖长", "领口", "面料", "内搭", "外套", "腰线",
+        "口袋", "袋口", "绣", "绣线", "刺绣", "门襟", "纽扣", "五金",
+    ))
+
+def _looks_like_styling_prompt(text):
+    text = str(text or "")
+    if len(text) < 500:
+        return False
+    hits = sum(1 for head in STYLING_HEADS if head in text)
+    return hits >= 3
+
+
+def _is_text_item_line(line):
+    text = str(line or "")
+    if not any(word in text for word in STYLING_TEXT_ITEM_WORDS):
+        return False
+    if any(word in text for word in ("不得换", "不要", "保持原样", "未选中", "不得更换")):
+        return False
+    return True
+
+
+
+def _has_positive_clause(text, words, negations=("不要", "不得", "别", "不", "禁止")):
+    for clause in re.split(r"[；;。，,]", str(text or "")):
+        clause = clause.strip()
+        if not clause:
+            continue
+        if any(w in clause for w in words) and not any(n in clause for n in negations):
+            return True
+    return False
+
+def _cap_user_text(text, limit):
+    """按句读截断，避免用户长提示词把核心服装约束淹没。"""
+    text = str(text or "").strip("；;，, ")
+    if len(text) <= limit:
+        return text
+    cut = text[:limit]
+    pos = max(cut.rfind("；"), cut.rfind("。"), cut.rfind("，"))
+    if pos >= limit // 2:
+        cut = cut[:pos]
+    return cut.rstrip("；;，,。 ") + "。"
+
+
+def _split_styling_sections(text):
+    sections = {}
+    cur = "其他"
+    for raw in str(text or "").splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        low = line.lower()
+        if STYLING_NEG_RE.search(line):
+            pre, post = STYLING_NEG_RE.split(line, maxsplit=1)
+            if pre.strip():
+                if (any(word in pre.lower() for word in ("facial identity", "fiacial identity",
+                                                         "identity identical", "refierence image",
+                                                         "reference image"))
+                        or ("face" in pre.lower() and "skin" in pre.lower())):
+                    sections.setdefault("身份补充", []).append(pre.strip())
+                else:
+                    sections.setdefault(cur, []).append(pre.strip())
+            sections.setdefault("Negative Prompt", []).append(post.strip())
+            cur = "Negative Prompt"
+            continue
+        if (any(word in low for word in ("facial identity", "fiacial identity", "identity identical",
+                                         "refierence image", "reference image"))
+                or ("face" in low and "skin" in low)):
+            sections.setdefault("身份补充", []).append(line)
+            continue
+        m = re.match(r"^([一-龥A-Za-z][一-龥A-Za-z0-9 /·\-]{0,15})[：:]\s*(.*)$", line)
+        if m:
+            head = m.group(1).strip()
+            body = m.group(2).strip()
+            cur = head
+            sections.setdefault(cur, [])
+            if body:
+                sections[cur].append(body)
+        else:
+            sections.setdefault(cur, []).append(line)
+    return sections
+
+
+def parse_user_prompt(text):
+    """把用户的长造型提示词拆成固定维度，供最终提示词按优先级合并。"""
+    raw = str(text or "").strip()
+    if not raw:
+        return {}
+    sections = _split_styling_sections(raw)
+    buckets = {
+        "identity": [], "garment": [], "text_items": [], "pose": [],
+        "composition": [], "scene": [], "camera": [], "style": [],
+        "negative": [], "other": [],
+    }
+    for head, lines in sections.items():
+        lines = [str(x).strip() for x in lines if str(x).strip()]
+        if not lines:
+            continue
+        if head == "主体":
+            for clause in re.split(r"[，,；;。]", "；".join(lines)):
+                clause = clause.strip()
+                if not clause:
+                    continue
+                if any(word in clause for word in STYLING_COMPOSITION_WORDS):
+                    buckets["composition"].append(clause)
+                elif any(word in clause for word in STYLING_IDENTITY_WORDS):
+                    buckets["identity"].append(clause)
+                else:
+                    buckets["style"].append(clause)
+        elif head in ("服装穿搭", "服装", "穿搭"):
+            for line in lines:
+                if _is_text_item_line(line):
+                    buckets["text_items"].append(line)
+                else:
+                    buckets["garment"].append(line)
+        elif head in ("配饰", "鞋", "鞋子", "包", "首饰"):
+            buckets["text_items"].extend(lines)
+        elif head in ("五官", "脸型", "身型", "底妆", "眼妆", "眉妆", "修容", "唇妆", "发型"):
+            buckets["identity"].extend(lines)
+        elif head in ("动作", "姿态"):
+            buckets["pose"].extend(lines)
+        elif head == "构图":
+            buckets["composition"].extend(lines)
+        elif head in ("墙面", "地面", "环境整体", "场景", "背景", "光源", "光比", "色温"):
+            buckets["scene"].extend(lines)
+        elif head in ("整体风格", "画面风格"):
+            buckets["style"].extend(lines)
+        elif head in ("相机机身", "镜头", "光圈", "快门速度", "ISO 感光度", "ISO",
+                     "对焦模式", "分辨率", "镜头畸变控制", "画质质感", "作用"):
+            buckets["camera"].extend(lines)
+        elif head == "Negative Prompt":
+            buckets["negative"].extend(lines)
+        elif head == "身份补充":
+            buckets["identity"].extend(lines)
+        else:
+            buckets["style"].extend(lines)
+
+    def joined(key, sep="；"):
+        return sep.join(x for x in buckets[key] if str(x).strip())
+
+    garment = re.sub(r"换上图[一二三四五六七八九十0-9]+[、和与]?图?[一二三四五六七八九十0-9]*的服饰[，,]?",
+                     "", joined("garment"))
+    garment = _cap_user_text(garment.replace("图一图二", "上衣参考图与下装参考图").strip("；，, "), 220)
+    text_items = []
+    for item in buckets["text_items"]:
+        if item and item not in text_items:
+            text_items.append(item)
+    text_items = [_cap_user_text(x, 100) for x in text_items[:4]]
+    identity = _cap_user_text(joined("identity"), 300)
+    # 多个“动作”段时以最后一段为准，避免同一 prompt 里同时出现正面和背面动作
+    pose_lines = [x.strip() for x in buckets["pose"] if str(x).strip()]
+    pose = pose_lines[-1] if pose_lines else ""
+    if pose and len(pose) < 6 and len(pose_lines) >= 2:
+        pose = "；".join(pose_lines[-2:])
+    pose = _cap_user_text(pose, 120)
+    comp_parts = []
+    comp_seen = set()
+    for part in re.split(r"[；;]", joined("composition")):
+        part = part.strip()
+        if not part:
+            continue
+        key = next((k for k in ("全身", "头顶", "脚底", "居中", "留白") if k in part), part)
+        if key in comp_seen:
+            continue
+        comp_seen.add(key)
+        comp_parts.append(part)
+    composition = _cap_user_text("；".join(comp_parts), 220)
+    scene_parts = []
+    for part in re.split(r"[；;]", joined("scene")):
+        part = part.strip()
+        if part and part not in scene_parts:
+            scene_parts.append(part)
+    scene = _cap_user_text("；".join(scene_parts), 320)
+    # 镜头只保留最终有效的焦距/光圈/快门/ISO，丢掉重复的“作用”说明
+    camera_raw = joined("camera")
+    lens_matches = re.findall(r"(\d{2,3})\s*mm", camera_raw)
+    aperture_matches = re.findall(r"f/\d+(?:\.\d+)?", camera_raw, re.I)
+    shutter_matches = re.findall(r"1/\d+\s*s", camera_raw, re.I)
+    iso_matches = re.findall(r"ISO[^\d]{0,12}(\d{2,5})", camera_raw, re.I)
+    wb_matches = re.findall(r"(\d{4,5})\s*K", camera_raw, re.I)
+    camera_parts = []
+    if lens_matches:
+        camera_parts.append("镜头" + lens_matches[-1] + "mm")
+    if aperture_matches:
+        camera_parts.append(aperture_matches[-1])
+    if shutter_matches:
+        camera_parts.append(shutter_matches[-1])
+    if iso_matches:
+        camera_parts.append("ISO" + iso_matches[-1])
+    if wb_matches:
+        camera_parts.append("色温" + wb_matches[-1] + "K")
+    if "对焦" in camera_raw:
+        camera_parts.append("对焦锁定人物与服装主体")
+    camera = _cap_user_text("；".join(camera_parts) or camera_raw, 160)
+    negative = _cap_user_text(joined("negative"), 300)
+    # 风格只保留风格词，丢掉混进来的裤型/鞋配/动作/身份等互斥指令
+    style_parts = []
+    for part in re.split(r"[；;]", joined("style")):
+        part = part.strip()
+        if not part:
+            continue
+        if any(word in part for word in (
+                "直视镜头", "正面站立", "背面站立", "姿势", "动作", "裤型", "裤长",
+                "鞋", "配饰", "保持原样", "换成", "不要改变", "不得改变", "必须保持",
+                "镜头", "墙面", "地面", "背景", "构图", "服装", "身份", "模特图", "全部保留")):
+            continue
+        if part not in style_parts:
+            style_parts.append(part)
+    style = _cap_user_text("；".join(style_parts), 180)
+    all_text = "；".join([garment, identity, pose, composition, scene, camera, style, negative])
+    signals = {
+        "tuck": _has_positive_clause(garment, ("塞进", "塞入")),
+        "full_body": any(word in composition for word in ("全身", "从头到脚")) or "全身" in pose,
+        "change_shoes": any(("鞋" in x or "靴" in x) for x in text_items),
+        "change_accessory": any(word in "；".join(text_items) for word in
+                                ("耳环", "项链", "手链", "戒指", "配饰", "包", "帽", "围巾", "首饰")),
+        "has_identity": bool(identity),
+        "has_pose": bool(pose),
+        "has_scene": bool(scene),
+        "has_camera": bool(camera),
+        "has_text_items": bool(text_items),
+        "scene_override": bool(scene),
+    }
+    conflicts = []
+    if "直视镜头" in identity and ("背面" in pose or "背面" in composition):
+        conflicts.append("用户提示词同时要求“直视镜头”和“背面站立”，按动作段保留背面。")
+    if "35mm" in camera and "畸变" in camera:
+        conflicts.append("35mm 广角与“无畸变”同时出现，保留镜头参数但加人体比例锁。")
+    return {
+        "identity": identity,
+        "garment": garment,
+        "text_items": text_items,
+        "pose": pose,
+        "composition": composition,
+        "scene": scene,
+        "camera": camera,
+        "style": style,
+        "negative": negative,
+        "signals": signals,
+        "conflicts": conflicts,
+        "raw_chars": len(raw),
+        "raw": raw,
+    }
+
+
 # ---------------------------------------------------------------- 读图
 
-def _balance_crops(crops, limit):
-    """按单品标签前缀轮询取细节图，避免只剩第一件单品的裁切。"""
+def _crop_rank(c):
+    label = str(c.get("label") or "")
+    if any(word in label for word in ("袋", "口袋", "袋口", "绣", "绣线", "刺绣")):
+        return 0
+    if any(word in label for word in ("面料", "纹理", "图案")):
+        return 2
+    return 1
+
+
+def _take_balanced(crops, limit, sort_groups=False):
     groups, order = {}, []
     for c in crops:
         key = str(c.get("label") or "").split("·")[0]
@@ -1412,6 +1793,9 @@ def _balance_crops(crops, limit):
             groups[key] = []
             order.append(key)
         groups[key].append(c)
+    if sort_groups:
+        for key in groups:
+            groups[key].sort(key=_crop_rank)
     out = []
     round_no = 0
     while len(out) < limit and any(len(groups[k]) > round_no for k in order):
@@ -1439,6 +1823,30 @@ def _deep_read(payload):
     return bool((payload or {}).get("deep")) or _fine_read(payload)
 
 
+def _balance_crops(crops, limit):
+    """材质图优先占一个槽位；口袋/绣线优先；其余按单品标签前缀轮询。"""
+    if limit <= 0:
+        return []
+    materials = [c for c in crops if _is_material_crop(c)]
+    out = []
+    seen_material_groups = set()
+    for c in materials:
+        key = str(c.get("label") or "").split("·")[0] or "材质"
+        if key in seen_material_groups:
+            continue
+        seen_material_groups.add(key)
+        out.append(c)
+        if len(out) >= limit:
+            break
+    pockets = [c for c in crops if _crop_rank(c) == 0 and not _is_material_crop(c)]
+    out += _take_balanced(pockets, max(0, limit - len(out)))
+    if len(out) < limit:
+        used = {id(c) for c in out}
+        rest = [c for c in crops if id(c) not in used and not _is_material_crop(c)]
+        out += _take_balanced(rest, limit - len(out), sort_groups=True)
+    return out[:limit]
+
+
 def select_images(payload):
     """从上传图里挑最多 9 张：主图 + 细节 + 模特 1，去重。"""
     raw = payload.get("images") or []
@@ -1458,6 +1866,15 @@ def select_images(payload):
     if not mains and not crops and not models:
         mains = imgs[:2]
 
+    view = _model_view(payload)
+    if view:
+        filtered_mains = [im for im in mains if _image_view(im) == view]
+        filtered_crops = [im for im in crops if _image_view(im) == view]
+        if filtered_mains:
+            mains = filtered_mains
+        if filtered_crops:
+            crops = filtered_crops
+
     cat_key = payload.get("category") or "top"
     model_slots = 1 if models else 0
     if cat_key in ("look", "compose"):
@@ -1465,10 +1882,18 @@ def select_images(payload):
     else:
         # 同一件衣服可上传正面/背面/侧面；最多 4 张主图
         max_mains = min(4, len(mains)) if len(mains) > 1 else min(2, len(mains))
-    crop_limit = max(1, MAX_IMAGES - max_mains - model_slots)
-    picked_crops = _balance_crops(crops, crop_limit)
+    include_crops = _flag(payload, "include_crops", True)
+    crop_limit = max(1, MAX_IMAGES - max_mains - model_slots) if include_crops else 0
+    picked_crops = _balance_crops(crops, crop_limit) if crop_limit else []
 
-    picked = mains[:max_mains] + picked_crops + models[:1]
+    order = _image_order(payload)
+    if order == "model_first":
+        picked = models[:1] + mains[:max_mains] + picked_crops
+    elif order == "input":
+        chosen = {id(im) for im in models[:1] + mains[:max_mains] + picked_crops}
+        picked = [im for im in imgs if id(im) in chosen]
+    else:
+        picked = mains[:max_mains] + picked_crops + models[:1]
     out, seen = [], set()
     for im in picked:
         h = hashlib.sha1(im["data"].encode("utf-8", "ignore")).hexdigest()
@@ -1477,6 +1902,22 @@ def select_images(payload):
         seen.add(h)
         out.append(im)
     return out[:MAX_IMAGES]
+
+
+def image_manifest(picked):
+    """按实际读图顺序返回图片角色，供宿主拼接生成入参时对齐图序。"""
+    out = []
+    for i, im in enumerate(picked or [], 1):
+        out.append({
+            "index": i,
+            "ref": f"参考图{i}",
+            "role": str(im.get("role") or ""),
+            "label": str(im.get("label") or ""),
+            "angle": str(im.get("angle") or ""),
+            # 本仓扩展（只增）：原样回显宿主给图片的 key，宿主按它对号入座（sidecar 可能过滤 / 去重 / 重排）
+            "key": str(im.get("key") or ""),
+        })
+    return out
 
 
 def vision_content(payload, picked):
@@ -1525,6 +1966,32 @@ def vision_content(payload, picked):
     elif cat.get("compose"):
         mode = ("分别上传（按单品）" if (payload.get("set_mode") or "one") == "two" else "一套合影（单张）")
         lines.append("上传方式：" + mode)
+    ui = payload.get("_user_intent") or {}
+    has_model = any(str(im.get("role") or "") == "人物模特" for im in picked)
+    if ui:
+        lines.append("用户造型意图（只用于动作/构图/场景/文字单品；不得写入 garment_colors/material/pattern/structure）：")
+        if ui.get("garment"):
+            lines.append("- 服装与穿法：" + str(ui["garment"]))
+        if ui.get("text_items"):
+            lines.append("- 文字指定单品：" + "；".join(ui["text_items"]))
+        if ui.get("pose"):
+            lines.append("- 动作/姿态：" + str(ui["pose"]))
+        if ui.get("composition"):
+            lines.append("- 构图/画幅：" + str(ui["composition"]))
+        if ui.get("scene"):
+            lines.append("- 场景/背景：" + str(ui["scene"]))
+        if ui.get("camera"):
+            lines.append("- 镜头/画质：" + str(ui["camera"]))
+        if ui.get("style"):
+            lines.append("- 风格：" + str(ui["style"]))
+        if ui.get("identity") and not has_model:
+            lines.append("- 人物外貌（没有模特图时才使用）：" + str(ui["identity"]))
+        if has_model and ui.get("identity"):
+            lines.append("- 已提供人物模特图：用户对外貌/五官/妆容/发型的文字描述一律忽略，以模特图为准。")
+        if ui.get("conflicts"):
+            lines.append("- 用户提示词内部冲突（最终提示词已按动作优先处理）：" + "；".join(ui["conflicts"]))
+        lines.append("用户提示词与图片冲突时的优先级：服装结构/颜色/材质/图案以图片为准；穿法/动作/构图/文字单品按用户意图；人物身份以模特图为准。")
+
     lines.append("角色说明（非常重要）：")
     lines.append("- 标为「人物模特」的图是本次要换装的模特；model_outfit、pose、background、light 只能来自这张图。")
     lines.append("- 标为「上装/下装/连衣裙/文胸/内裤/鞋子/...」的图是服装参考图；即使图里有人穿着它，那个人也不是本次模特。garment_colors、material、pattern、structure 只能来自这些服装参考图，不能把参考图里人物的衣服写进 model_outfit，也不能从人物模特图取色。")
@@ -1933,7 +2400,7 @@ def vision_to_fields(v, payload):
     material_text = "；".join(parts)
 
     details = "；".join(structure) if match else ""
-    if notes and match:
+    if notes and match and not payload.get("_user_prompt_raw"):
         details = (details + "；用户补充（如与参考图冲突，以参考图为准）：" + notes) if details else notes
 
     # 动作沿用参考模特图；内衣/Look 仍用棚拍光，不沿用户外光
@@ -2003,6 +2470,8 @@ def _outfit_line(cat_key, cat, outfit):
 
 def _finalize_prompt(text, payload, cat_key, item_keys, cat):
     """统一 target/keep，去掉互斥禁止项、重复段和“其他单品保持”这类模糊句。"""
+    ui = payload.get("_user_intent") or {}
+    signals = ui.get("signals") or {}
     lines = text.splitlines()
     out = []
     seen = set()
@@ -2026,13 +2495,28 @@ def _finalize_prompt(text, payload, cat_key, item_keys, cat):
         return "\n".join(out)
     if cat_key == "compose" and len(item_keys) > 1:
         labels = "、".join(ITEM_LABELS[k] for k in item_keys)
-        keep = "未选中的服装、鞋、包、配饰、姿势、表情、背景、光线、机位保持原样"
         has = set(item_keys)
+        text_guard = ("除【文字指定单品】中明确要求更换的单品外，"
+                      if ui.get("text_items") else "")
+        if ui.get("text_items"):
+            keep_static = ["其他单品", "其他配饰", "表情", "机位"]
+        else:
+            keep_static = ["未选中的其他单品", "未选中的配饰", "表情", "机位"]
+        dynamic = []
+        if signals.get("has_pose"):
+            dynamic.append("姿势按【动作补充】执行")
+        else:
+            keep_static.append("姿势")
+        if signals.get("has_scene"):
+            dynamic.append("背景、光线按【场景补充】执行")
+        else:
+            keep_static.append("背景、光线")
         for i, line in enumerate(out):
             if line.startswith("【保持不变】"):
                 out[i] = (f"【保持不变】只替换{labels}；原有对应衣物由参考图单品替代，最终保持完整穿着状态，"
                           "不展示脱衣/换衣过程；"
-                          "未选中的其他单品、未选中的配饰、姿势、表情、背景、光线、机位保持原样。")
+                          f"{text_guard}{'、'.join(keep_static)}保持原样"
+                          + ("；" + "；".join(dynamic) if dynamic else "") + "。")
             if line.startswith("【原有服装】"):
                 out[i] = ""
             if line.startswith("【比例锚点】"):
@@ -2047,16 +2531,22 @@ def _finalize_prompt(text, payload, cat_key, item_keys, cat):
                 if "accessory" in has: parts.append("配饰品类/尺寸/位置")
                 out[i] = "【版型锁定】每件分别按各自参考图：" + "、".join(parts) + "；不得把一件的版型套到另一件。"
             if line.startswith("【局部替换】"):
-                out[i] = (f"【局部替换】只改{labels}；人物、脸、表情、姿势、双手、背景、光线、机位保持不变；"
-                          "不要重绘人物；除目标单品外，其他单品按【保持不变】处理。")
+                pose_clause = "姿势按【动作补充】执行" if signals.get("has_pose") else "姿势、双手保持不变"
+                bg_clause = "背景、光线按【场景补充】执行" if signals.get("has_scene") else "背景、光线保持不变"
+                out[i] = (f"【局部替换】只改{labels}；人物、脸、表情保持不变；"
+                          f"{pose_clause}；{bg_clause}；机位保持不变；不要重绘人物；除目标单品外，其他单品按【保持不变】处理。")
         layers = []
         if "outer" in has and ("top" in has or "dress" in has):
             inner = "连衣裙" if "dress" in has else "上衣"
             layers.append(f"外套在最外层，{inner}在内层；外套肩线不超过自然肩点，衣长/袖长/敞开程度、"
                           "领口/袖口/下摆的露出范围按参考图，不得改成更宽/更长/更短")
         if "top" in has and "bottom" in has:
-            layers.append("上衣与下装是两件独立单品；上衣下摆是否塞入裤腰、与下装腰头的覆盖关系严格按参考图，"
-                          "不得自行塞入或拉出，不得合并成连衣裙/衬衫裙")
+            if signals.get("tuck"):
+                layers.append("上衣下摆按【服装与穿法补充】全部塞入裤腰，不得露在裤腰外；"
+                              "不得合并成连衣裙/衬衫裙")
+            else:
+                layers.append("上衣与下装是两件独立单品；上衣下摆是否塞入裤腰、与下装腰头的覆盖关系严格按参考图，"
+                              "不得自行塞入或拉出，不得合并成连衣裙/衬衫裙")
         if "shoes" in has:
             shoe_edge = "裤脚/裙摆" if ("bottom" in has or "dress" in has) else "鞋口"
             layers.append(f"鞋穿在脚上；{shoe_edge}与鞋口的关系按参考图，不得把鞋与裤腿/裙摆合并")
@@ -2087,7 +2577,23 @@ def _finalize_prompt(text, payload, cat_key, item_keys, cat):
             removed = "原下装由内裤替代"
         else:
             removed = f"原{label}完全移除，由参考图{label}替代，不得保留或叠穿"
-        keep = "其他服装、鞋、包、配饰、姿势、表情、背景、光线、机位保持原样"
+        keep_terms = ["其他服装", "包"]
+        if not signals.get("change_shoes"):
+            keep_terms.insert(1, "鞋")
+        if not signals.get("change_accessory"):
+            keep_terms.append("配饰")
+        if not signals.get("has_pose"):
+            keep_terms.append("姿势")
+        if not signals.get("has_scene"):
+            keep_terms.extend(["背景", "光线"])
+        keep_terms.extend(["表情", "机位"])
+        text_guard = ("除【文字指定单品】中明确要求更换的单品外，"
+                      if ui.get("text_items") else "")
+        keep = text_guard + "、".join(keep_terms) + "保持原样"
+        if signals.get("has_pose"):
+            keep += "；姿势按【动作补充】执行"
+        if signals.get("has_scene"):
+            keep += "；背景、光线按【场景补充】执行"
         for i, line in enumerate(out):
             if line.startswith("【保持不变】"):
                 out[i] = f"【保持不变】只替换{label}；{removed}；{keep}。"
@@ -2104,8 +2610,61 @@ def build_prompt_old(payload, fields):
     if cat_key == "compose" and item_keys:
         cat = _compose_cat(item_keys)
     else:
-        cat = CATS.get(cat_key, CATS["top"])
+        cat = dict(CATS.get(cat_key, CATS["top"]))
+    ui = payload.get("_user_intent") or {}
+    signals = ui.get("signals") or {}
+    user_garment = str(ui.get("garment") or "").strip()
+    user_text_items = [str(x).strip() for x in (ui.get("text_items") or []) if str(x).strip()]
+    if "shoes" in item_keys:
+        user_text_items = [x for x in user_text_items if not any(w in x for w in ("鞋", "靴", "乐福"))]
+        signals = dict(signals); signals["change_shoes"] = False
+    if "accessory" in item_keys:
+        user_text_items = [x for x in user_text_items
+                           if not any(w in x for w in ("耳环", "项链", "手链", "戒指", "配饰", "包", "帽", "围巾", "首饰"))]
+        signals = dict(signals); signals["change_accessory"] = False
+    if not user_text_items:
+        signals = dict(signals); signals["has_text_items"] = False
+    ui = dict(ui); ui["text_items"] = user_text_items; ui["signals"] = signals
+    payload["_user_intent"] = ui
+    user_pose = str(ui.get("pose") or "").strip()
+    pose_mode = str(payload.get("pose_mode") or "reference").strip().lower()
+    if pose_mode not in ("reference", "user"):
+        pose_mode = "reference"
+    if pose_mode != "user":
+        user_pose = ""
+        signals = dict(signals)
+        signals["has_pose"] = False
+        ui = dict(ui)
+        ui["signals"] = signals
+        payload["_user_intent"] = ui
+    user_composition = str(ui.get("composition") or "").strip()
+    user_scene = str(ui.get("scene") or "").strip()
+    user_camera = str(ui.get("camera") or "").strip()
+    user_identity = str(ui.get("identity") or "").strip()
+    user_style = str(ui.get("style") or "").strip()
     selected_labels = [ITEM_LABELS[k] for k in item_keys]
+    if signals.get("full_body"):
+        cat["frame"] = "全身"
+    if cat_key == "compose":
+        keep_terms = ["服装", "包"]
+        if "shoes" not in item_keys and not signals.get("change_shoes"):
+            keep_terms.insert(1, "鞋子")
+        if "accessory" not in item_keys and not signals.get("change_accessory"):
+            keep_terms.append("配饰")
+        if not user_pose:
+            keep_terms.append("姿势")
+        if not user_scene:
+            keep_terms.extend(["背景", "光线"])
+        keep_terms.extend(["机位", "构图"])
+        cat["lock"] = (f"最终画面只替换{'、'.join(selected_labels)}；"
+                       f"未选中的{'、'.join(keep_terms)}保持与参考模特图一致。")
+        if user_text_items:
+            cat["lock"] += " 【文字指定单品】中明确要求更换的单品按其描述执行。"
+        if user_pose:
+            cat["boundary"] = cat["boundary"].replace(
+                "未选中的单品与姿势保持原样", "未选中的单品保持原样；姿势按【动作补充】执行")
+        if user_text_items:
+            cat["boundary"] += " 【文字指定单品】中明确要求更换的单品除外。"
     preserved_keys = [k for k in ITEM_LABELS if k not in item_keys]
     if "bra" in item_keys:
         preserved_keys = [k for k in preserved_keys if k != "top"]
@@ -2113,6 +2672,10 @@ def build_prompt_old(payload, fields):
         preserved_keys = [k for k in preserved_keys if k != "bottom"]
     if "dress" in item_keys:
         preserved_keys = [k for k in preserved_keys if k not in ("top", "bottom")]
+    if signals.get("change_shoes"):
+        preserved_keys = [k for k in preserved_keys if k != "shoes"]
+    if signals.get("change_accessory"):
+        preserved_keys = [k for k in preserved_keys if k != "accessory"]
     preserved_labels = [ITEM_LABELS[k] for k in preserved_keys]
     fabric = (payload.get("fabric") or "").strip()
     notes = (payload.get("notes") or "").strip()
@@ -2190,8 +2753,13 @@ def build_prompt_old(payload, fields):
         _first = re.split(r"[；;]", _mat)[0]
         leather_text = (fabric + " " + _first).lower()
     else:
+        # 补充说明可能描述鞋子/包等未选中的单品，不能把它们的皮革算到目标服装上
+        notes_leather = notes
+        if selected_labels and cat_key not in ("shoes", "accessory", "bra", "panties", "set"):
+            if not any(label in notes for label in selected_labels):
+                notes_leather = ""
         leather_text = (fabric + " " + (fields.get("material") or "") + " " +
-                        (fields.get("details") or "") + " " + notes).lower()
+                        (fields.get("details") or "") + " " + notes_leather).lower()
 
     def _tagged_leather(text):
         found = []
@@ -2210,6 +2778,18 @@ def build_prompt_old(payload, fields):
                 label = "上衣" if m.group(1) == "上装" else m.group(1)
                 out[label] = m.group(2).strip()
         return out
+    def _relevant_leather(*texts):
+        other_words = ("鞋", "靴", "包", "腰带", "帽子", "围巾", "首饰", "配饰", "文胸", "胸罩", "内裤")
+        for text in texts:
+            for chunk in re.split(r"[；;\n，,]", text or ""):
+                low = chunk.lower()
+                if not any(w in low for w in LEATHER_WORDS):
+                    continue
+                if (any(w in chunk for w in other_words)
+                        and not any(label in chunk for label in selected_labels)):
+                    continue
+                return True
+        return False
 
     leather_main_labels, leather_minor_labels = [], []
     leather_unattributed = False
@@ -2270,8 +2850,8 @@ def build_prompt_old(payload, fields):
                             leather_main_labels.append(label)
                     elif label not in leather_minor_labels:
                         leather_minor_labels.append(label)
-        if not (leather_main_labels or leather_minor_labels) and any(
-                w in leather_text for w in LEATHER_WORDS):
+        if not (leather_main_labels or leather_minor_labels) and _relevant_leather(
+                fabric, fields.get("material"), fields.get("details"), notes_leather):
             leather_unattributed = True
     else:
         if any(w in leather_text for w in LEATHER_WORDS):
@@ -2385,14 +2965,21 @@ def build_prompt_old(payload, fields):
         # 没有读图、也没有补充说明时，不让文字模型猜具体部件
         details = "按参考图核对还原全部部件，不做自行设计"
     styling = _trim(_sanitize(fields.get("styling"))) or "正面或微侧 3/4 自然站姿，镜头平视"
+    if user_pose:
+        styling = user_pose
     light_raw = _trim(_sanitize(fields.get("light")))
     background_raw = _trim(_sanitize(fields.get("background")))
     extras = _clean_list(fields.get("negatives"), 6)
     has_model = any(str(im.get("role")) == "人物模特" for im in imgs)
     ref_person = "参考模特图" if has_model else "参考图中的人物"
     if has_model:
-        hard_lock = (f"【硬约束】保持{ref_person}原有动作、站姿、身体朝向和手部位置；"
-                     "最终画面必须是完整穿着状态，不能脱衣、裸露或展示换衣过程。")
+        if user_pose:
+            hard_lock = (f"【硬约束】人物的脸型、发型、肤色、身体比例、体型和各部位形状/大小（包括臀部）"
+                         f"必须保持{ref_person}不变；动作按【动作补充】执行；"
+                         "最终画面必须是完整穿着状态，不能脱衣、裸露或展示换衣过程。")
+        else:
+            hard_lock = (f"【硬约束】保持{ref_person}原有动作、站姿、身体朝向和手部位置；"
+                         "最终画面必须是完整穿着状态，不能脱衣、裸露或展示换衣过程。")
     else:
         hard_lock = ("【硬约束】最终画面必须是完整穿着状态，不能脱衣、裸露或展示换衣过程；"
                      "人物姿势自然，双手自然下垂或按商品图常见站姿。")
@@ -2403,6 +2990,9 @@ def build_prompt_old(payload, fields):
             hard_lock += "产品必须完整穿在模特身上，不能出现未穿下装。"
         else:
             hard_lock += "产品必须完整穿在模特身上，不能出现未穿上衣/未穿下装。"
+    if "bottom" in item_keys and not cat["lingerie"]:
+        hard_lock += (" 本次下装裤型以参考图为唯一依据；模特图原有裤型（包括喇叭裤、紧身裤、阔腿裤）"
+                      "必须完全替换，不得保留轮廓。")
     if leather:
         if leather_main_labels:
             leather_lead = leather_subject
@@ -2497,10 +3087,26 @@ def build_prompt_old(payload, fields):
         if k in ("bra", "panties"):
             compose_lines.append("对应区域原有外层衣物可替换为内衣；其他部位/单品保持原样；最终必须是穿着状态，不能出现未穿、裸露或脱衣过程。")
 
+    if user_text_items:
+        for i, line in enumerate(compose_lines):
+            if line.startswith("【保持不变】"):
+                compose_lines[i] = line.replace("除上述单品外", "除上述单品及【文字指定单品】外")
+    if user_garment:
+        compose_lines.append("【服装与穿法补充】" + user_garment)
+    if user_text_items:
+        compose_lines.append("【文字指定单品】以下单品没有参考图，按文字描述穿在/佩戴在模特身上："
+                             + "；".join(user_text_items)
+                             + "。模特图已有同类单品时替换，没有则添加；其他未在【文字指定单品】中列出的单品保持。")
+    if signals.get("tuck"):
+        compose_lines.append("【穿法优先级】上衣下摆按【服装与穿法补充】全部塞入裤腰，不得露在裤腰外；"
+                             "此项优先于参考图的默认穿法。")
+
     ref_lines = []
+    angle_groups = {}
     for i, im in enumerate(imgs, 1):
         role = str(im.get("role") or "")
         label = str(im.get("label") or "")
+        angle = _angle_label(im.get("angle"))
         if role == "人物模特":
             desc = "模特图（只提供人物、姿势、场景、光线，不作为服装依据）"
         elif role == "局部细节":
@@ -2513,12 +3119,25 @@ def build_prompt_old(payload, fields):
         elif role in ("套装", "文胸内裤套装"):
             desc = "套装合影（文胸+内裤同框）"
         else:
-            desc = f"整件服装（{role or '服装'}）"
+            desc = f"整件服装（{role or '服装'}{'·' + angle if angle else ''}）"
+            if angle:
+                angle_groups.setdefault(role or "服装", []).append((i, angle))
         ref_lines.append(f"参考图{i}：{desc}")
     ref_map = ""
     if ref_lines:
         ref_map = ("【参考图】" + "；".join(ref_lines) +
                    "。生成时保持参考图顺序与此一致；局部细节只用于结构/纹理，模特图只用于人物/姿势/场景。")
+
+    angle_line = ""
+    angle_parts = [
+        f"{role}：" + "、".join(f"参考图{i}（{angle}）" for i, angle in pairs)
+        for role, pairs in angle_groups.items() if len(pairs) > 1
+    ]
+    if angle_parts:
+        angle_line = ("【多角度】" + "；".join(angle_parts) +
+                      "。同一角色的多张图是同一件单品的不同角度，不是多件；"
+                      "正面优先确认主结构、颜色和图案，背面补后领、育克、后背拼接、后腰、后片，"
+                      "侧面补侧缝、开衩、袖型和廓形；不要因为背面看不到就删掉正面已确认的部件。")
 
     main_roles = [str(im.get("role") or "") for im in imgs
                   if str(im.get("role") or "") not in ("局部细节", "人物模特")]
@@ -2619,6 +3238,7 @@ def build_prompt_old(payload, fields):
         "",
         *([ref_map, ""] if ref_map else []),
         *([multi_angle_line, ""] if multi_angle_line else []),
+        *([angle_line, ""] if angle_line else []),
         f"【品类锁定】{cat_lock}",
         "",
         *compose_lines,
@@ -2628,20 +3248,36 @@ def build_prompt_old(payload, fields):
         *([separation] if separation else []),
         *design_lines,
         f"【面料与颜色】{material}。",
+        "【材质锁定】面料质感、织纹、厚薄、光泽、弹性与垂坠必须按参考图中的材质图和服装主图；"
+        "针织竖条罗纹、牛仔斜纹与水洗、皮革粒面等逐项还原；"
+        "不得改成其他材质、塑料感、平面印花、过度磨皮或降噪抹平纹理。",
         *leather_lines,
         f"【穿着边界】{cat['boundary']}",
     ]
     if outfit_line:
         lines.append(outfit_line)
     lines.append(f"【禁止项】不要生成{forbid}。{extra_txt}{cat['tail']}")
-    no_scene = ("【禁止画面】不要出现未着装、未穿上衣、未穿下装、裸露、脱衣或换衣过程、"
-                "用手或道具遮挡身体、动作/站姿/身体朝向与参考图不一致、重新摆姿势。")
+    if user_pose and not cat["lingerie"]:
+        no_scene = ("【禁止画面】不要出现未着装、未穿上衣、未穿下装、裸露、脱衣或换衣过程、"
+                    "用手或道具遮挡身体；不要改变【动作补充】之外的动作；"
+                    "不得改变人体比例、体型或放大臀部。")
+    else:
+        no_scene = ("【禁止画面】不要出现未着装、未穿上衣、未穿下装、裸露、脱衣或换衣过程、"
+                    "用手或道具遮挡身体、动作/站姿/身体朝向与参考图不一致、重新摆姿势。")
     if cat_key == "look":
         no_scene += "不得把上装与下装合并成连衣裙/衬衫裙。"
     if not cat["lingerie"]:
-        no_scene += "不得加长或缩短裙摆/下摆、不得改变手的位置或包的拿法。"
+        if user_pose:
+            no_scene += "不得改变【动作补充】之外的手部位置或包的拿法。"
+        else:
+            no_scene += "不得加长或缩短裙摆/下摆、不得改变手的位置或包的拿法。"
     if cat.get("compose") or (cat_key == "set" and item_keys) or (len(item_keys) == 1 and item_keys[0] == cat_key):
-        no_scene += "不得改动未选中的单品、姿势、包或背景。"
+        keep_bits = ["未在【文字指定单品】中列出的单品" if user_text_items else "未选中的单品", "包"]
+        if not user_pose:
+            keep_bits.append("姿势")
+        if not user_scene:
+            keep_bits.append("背景")
+        no_scene += "不得改动" + "、".join(keep_bits) + "。"
     # no_scene 在后面的内衣取景覆盖之后再追加
     if leather:
         lines.append("【皮革排除】不要 PU 亮面、塑料反光、镜面高光、平面印花、热转印、"
@@ -2660,7 +3296,8 @@ def build_prompt_old(payload, fields):
             lines.append("【整套单品】本次参考图包含：" + "、".join(items) + "；必须全部出现在画面中，不能漏掉或替换。")
         else:
             lines.append("【整套单品】以参考图中实际出现的单品为准，逐件还原，不得漏掉或替换。")
-    if notes and not _notes_covered(notes, material + details):
+    if (notes and notes.strip() != str(payload.get("_user_prompt_raw") or "").strip()
+            and not _notes_covered(notes, material + details)):
         lines.append(f"【补充说明】{notes}")
 
     compliance = LINGERIE_COMPLIANCE if cat["lingerie"] else GENERAL_COMPLIANCE
@@ -2675,43 +3312,67 @@ def build_prompt_old(payload, fields):
     else:
         detail_text = "面料纹理、结构缝线与拼接走线清晰"
     ref_person = "参考模特图" if has_model else "参考图中的人物"
-    action_lock = (f"【动作锁定】模特的站姿、身体朝向、双手与手指的位置、头部角度、双脚站姿必须与{ref_person}一致；"
-                   "不要重新设计动作、不要转身、不要改变重心；镜头为平视商品图。")
+    if user_pose and not cat["lingerie"]:
+        action_lock = (f"【动作锁定】按【动作补充】执行：{user_pose}；"
+                       "除该动作外，人物的头身比、肩宽/腰宽/臀宽、腿长、躯干长和各部位形状/大小（包括臀部）"
+                       f"必须与{ref_person}一致；不要重新设计体型、改变重心或放大臀部。")
+    else:
+        action_lock = (f"【动作锁定】模特的站姿、身体朝向、双手与手指的位置、头部角度、双脚站姿必须与{ref_person}一致；"
+                       "不要重新设计动作、不要转身、不要改变重心；镜头为平视商品图。")
     if cat["lingerie"]:
         action_lock += "不要为了展示产品而改变动作、转身或脱衣。"
     elif "accessory" in item_keys:
         action_lock += "配饰/包的佩戴位置与拿法保持不变，配饰本身按参考图替换。"
-    else:
+    elif not user_pose:
         action_lock += "包的拿法与位置保持不变。"
-    replace_lock = ("【局部替换】只替换目标服装；人物的姿势、双手与手指、头部角度、双脚站姿、背景、光线、机位必须与"
-                    f"{ref_person}一致；不要重新构图、不要重绘人物；除目标服装外，其他单品/道具按【原有服装】处理。")
-    expression_lock = (f"【表情锁定】面部表情、眼神方向、眉形、嘴角与{ref_person}一致；"
-                       "不要改变表情、不要新增微笑/大笑/皱眉/闭眼，不要换脸或改五官。")
+    if user_pose and not cat["lingerie"]:
+        replace_lock = ("【局部替换】只替换目标服装；人物、脸、表情、背景、光线、机位保持不变；"
+                        "姿势按【动作补充】执行；不要重绘人物，不得改变人物比例、体型或身体各部位（包括臀部）；"
+                        "除目标服装外，其他单品/道具按【原有服装】处理。")
+        expression_lock = ("【表情锁定】如画面能看到面部，面部表情、眼神方向、眉形、嘴角与"
+                           f"{ref_person}一致；背面或侧背角度不强行转头、不换脸、不改五官。")
+    else:
+        replace_lock = ("【局部替换】只替换目标服装；人物的姿势、双手与手指、头部角度、双脚站姿、背景、光线、机位必须与"
+                        f"{ref_person}一致；不要重新构图、不要重绘人物；除目标服装外，其他单品/道具按【原有服装】处理。")
+        expression_lock = (f"【表情锁定】面部表情、眼神方向、眉形、嘴角与{ref_person}一致；"
+                           "不要改变表情、不要新增微笑/大笑/皱眉/闭眼，不要换脸或改五官。")
     silhouette_lock = ("【版型锁定】服装版型必须与参考图一致：肩线位置、袖笼与袖型、胸腰臀余量、下摆宽度与弧度、"
                        "腰头高度、裤型/裙型、裤脚/裙摆宽度；不得改紧身或宽松、不得缩短或加长、"
                        "不得改变轮廓与垂坠。")
 
-    consistency = (f"模特的脸型、发型、肤色、动作、站姿与身体朝向必须与{ref_person}一致；只更换服装，不改动人物本身。")
+    if user_pose and has_model and not cat["lingerie"]:
+        consistency = (f"模特的脸型、发型、肤色、身体比例、肩宽/腰宽/臀宽、腿长与{ref_person}一致；"
+                       "动作按【动作补充】执行；只更换服装和指定动作，不改变人物身份和身材。")
+    else:
+        consistency = (f"模特的脸型、发型、肤色、动作、站姿与身体朝向必须与{ref_person}一致；只更换服装，不改动人物本身。")
     if has_model:
-        light_line = (f"【光线与背景】{light_raw or '柔和均匀'}；背景沿用{ref_person}，"
-                      "不要改成纯色棚拍背景；画面干净无杂物，聚焦产品。")
-        background_line = (f"【背景锁定】参考模特图的背景：{background_raw or '以参考模特图为准'}；"
-                           "保持背景的墙体/地面/家具/道具/颜色/材质/景深/位置不变，"
-                           "不要换成纯色、白底或新的棚拍背景；只替换目标服装，不重绘背景。")
+        if user_scene:
+            light_line = ("【光线与背景】按【场景补充】执行；人物和服装不受影响，画面干净无杂物，聚焦产品。")
+            background_line = ("【背景锁定】按【场景补充】保持墙体/地面/道具/颜色/材质/景深/位置；"
+                               "只调整背景，不改变人物、服装和人体比例。")
+        else:
+            light_line = (f"【光线与背景】{light_raw or '柔和均匀'}；背景沿用{ref_person}，"
+                          "不要改成纯色棚拍背景；画面干净无杂物，聚焦产品。")
+            background_line = (f"【背景锁定】参考模特图的背景：{background_raw or '以参考模特图为准'}；"
+                               "保持背景的墙体/地面/家具/道具/颜色/材质/景深/位置不变，"
+                               "不要换成纯色、白底或新的棚拍背景；只替换目标服装，不重绘背景。")
     else:
         light_line = (f"【光线与背景】{light_raw or '柔和均匀的商业棚拍光，纯色或浅灰背景'}；"
                       "画面干净无杂物，聚焦产品。")
         background_line = ""
     if has_model:
-        model_line = (f"【模特与姿态】人物、脸型、发型与表情沿用{ref_person}，{styling}；"
-                      f"取景{cat.get('frame', '腰部以上')}，重点展示服装结构与面料。")
+        frame = "全身" if signals.get("full_body") else cat.get("frame", "腰部以上")
+        person_clause = (f"人物、脸型、发型沿用{ref_person}；表情如可见则沿用"
+                         if user_pose else f"人物、脸型、发型与表情沿用{ref_person}")
+        model_line = (f"【模特与姿态】{person_clause}，{styling}；"
+                      f"取景{frame}，重点展示服装结构与面料。")
     else:
         model_line = (f"【模特与姿态】成年女性模特，{styling}；表情平静自然；"
                       f"取景{cat.get('frame', '腰部以上')}，重点展示服装结构与面料。")
     if has_model:
         output_line = ("【输出】写实商业摄影质感，" + detail_text +
-                       "，颜色准确，不磨皮过度；画幅比例与参考模特图一致，主体位置与构图不变，"
-                       "适合电商主图与详情页。")
+                       "，颜色准确，不磨皮过度；输出画幅按本次入参，人物比例与参考模特图一致，"
+                       "画幅差异只体现在留白，主体位置与构图稳定，适合电商主图与详情页。")
     else:
         output_line = ("【输出】写实商业摄影质感，" + detail_text +
                        "，颜色准确，不磨皮过度；3:4 竖构图，主体居中，画面上方留白，"
@@ -2725,7 +3386,7 @@ def build_prompt_old(payload, fields):
                             "下摆必须落在参考图位置，不得盖住腰带/腰头，腰带和腰线保持可见。")
         elif cat_key == "bottom":
             silhouette_lock = ("【版型锁定】腰头高度、门襟、裤型或裙型、臀腿余量、裤口/裙摆宽度、长度必须与参考图一致；"
-                               "不得加长/缩短、改直筒/阔腿或改变裤口宽度，不涉及肩线或袖型。")
+                               "不得加长/缩短、不得改变裤腿外扩/收窄程度或裤口宽度，不涉及肩线或袖型。")
             proportion_line = re.sub(r"裙摆[/／]下摆[/／]裤脚", "裤脚/裙摆", proportion_line)
             proportion_line = re.sub(r"；?袖长：[^；。]*", "", proportion_line)
             outfit_line += " 原下装（包括原短裤/原长裤/原裙子）完全移除，由本次目标下装替代，不得保留或叠穿。"
@@ -2797,8 +3458,70 @@ def build_prompt_old(payload, fields):
         no_scene = ("【禁止画面】不要出现未穿文胸/内裤、脱衣或换衣过程、用手或道具遮挡、"
                     "动作/站姿与参考图不一致；不得改动鞋、包或背景。")
     lines.append(no_scene)
+    body_lock = ""
+    if has_model and not cat["lingerie"]:
+        body_lock = ("【人体比例锁定】模特的头身比、肩宽、腰宽、臀宽、腿长、躯干长、裆线位置、胸部与臀部大小"
+                     "必须与参考模特图完全一致；画幅变化只允许增加或减少留白，不得横向拉伸、纵向压缩、"
+                     "加宽臀部、缩短腿部或重新设计身材；各部位的形状、大小和比例保持原图不变；"
+                     + ("动作可按【动作补充】改变。" if user_pose else "动作、站姿保持参考模特图不变。"))
+    identity_line = ""
+    if has_model and not cat["lingerie"]:
+        identity_line = ("【模特身份与面部锁定】脸型、五官比例、眉眼鼻唇形状、肤色、发际线、发型、妆容、"
+                         "年龄感与种族特征必须与参考模特图完全一致；不得换脸、瘦脸、改眼型/鼻型/唇形、"
+                         "改年龄或改妆容。用户对人物外貌的文字描述不作为身份依据。")
+    pose_lock = ""
+    if has_model and not cat["lingerie"]:
+        if user_pose:
+            pose_lock = ("【姿态锁定】动作按【动作补充】执行；除该动作外，身体朝向、重心、双腿前后关系、"
+                         "双脚位置、肩膀高度、头部角度和双手位置不得再改；不得重新设计姿态。")
+        else:
+            pose_lock = ("【姿态锁定】模特的站姿、身体朝向、重心、双腿前后关系、双脚位置、肩膀高度、"
+                         "头部角度和双手位置必须与参考模特图完全一致；不得重新摆姿势、转身、改变重心或改手的位置。")
+    pants_lock = ""
+    if "bottom" in item_keys and not cat["lingerie"]:
+        pants_lock = ("【裤型锁定】下装裤型完全按参考图，不预设、不套用任何裤型名称；"
+                      "裤腿从大腿到裤脚的外扩/收窄程度、裤腿宽度、裤脚宽度、裤长必须逐段一致；"
+                      "参考图没有外扩就不能外扩，不得出现任何喇叭状、鱼尾状或额外外扩的轮廓；"
+                      "腰头高度、裆线位置、门襟、口袋和破洞位置不得改变；"
+                      "这是换裤型，不是换颜色：模特图原有的裤型、裤腿宽度和裤脚形状必须被参考图替代，"
+                      "不得沿用模特图原有裤型；不得加长、缩短或改高腰/低腰。")
+    pocket_lock = ""
+    pocket_text = " ".join([user_garment, notes, str(fields.get("details") or ""),
+                            " ".join(str(x) for x in design_details)])
+    if "bottom" in item_keys and not cat["lingerie"] and any(
+            word in pocket_text for word in ("口袋", "袋口", "绣", "绣线", "刺绣")):
+        stitch_color = "粉色" if "粉" in pocket_text else "参考图"
+        pocket_lock = ("【口袋与绣线锁定】前后口袋的形状、位置、大小、袋口走线必须按参考图中下装的口袋；"
+                       f"只有【服装与穿法补充】明确指出的口袋才有{stitch_color}断续绣线，其他口袋必须保持纯色、无绣线；"
+                       "该绣线由多段短横线组成，每段约 2–3mm、段间留白约 1–2mm，沿袋口上缘排列，"
+                       "颜色、长度、位置与参考图一致；"
+                       "不得省略、画成一条连续实线、改成其他颜色、改成印花或移到其他口袋。")
+    scene_line = ("【场景补充】" + user_scene) if user_scene else ""
+    comp_line = ""
+    if user_composition:
+        comp_line = ("【构图补充】" + user_composition +
+                     "；构图变化只允许调整留白和人物整体缩放，不得改变人体比例、臀宽或腿长。")
+    camera_chunks = [c.strip() for c in re.split(r"[；;]", user_camera)
+                     if c.strip() and not any(w in c for w in ("分辨率", "8K", "300DPI", "Negative Prompt"))]
+    camera_text = "；".join(camera_chunks)
+    if has_model:
+        camera_text = camera_text.replace("人眼对焦，对焦锁定模特面部 + 服装主体", "对焦锁定人物与服装主体")
+        camera_text = camera_text.replace("对焦锁定模特面部", "对焦锁定人物主体")
+    camera_line = ""
+    if camera_text:
+        camera_line = ("【镜头与画质】" + camera_text +
+                       "；镜头参数只影响质感，不得产生广角透视夸张，不得改变人体比例、臀宽或腿长。")
+    style_line = ("【风格】" + user_style) if user_style else ""
     lines += [
         "【画面人数】画面只出现一位模特，单人构图；不要拼图、不要分屏、不要重复模特、不要多人合影。",
+        *([body_lock] if body_lock else []),
+        *([identity_line] if identity_line else []),
+        *([pose_lock] if pose_lock else []),
+        *([pants_lock] if pants_lock else []),
+        *([pocket_lock] if pocket_lock else []),
+        *([scene_line] if scene_line else []),
+        *([comp_line] if comp_line else []),
+        *([f"【动作补充】{user_pose}"] if user_pose else []),
         model_line,
         action_lock,
         *([expression_lock] if expression_lock else []),
@@ -2807,6 +3530,8 @@ def build_prompt_old(payload, fields):
         f"【合规】{compliance}",
         light_line,
         *([background_line] if background_line else []),
+        *([camera_line] if camera_line else []),
+        *([style_line] if style_line else []),
         output_line,
         f"【一致性】{consistency}",
     ]
@@ -3194,6 +3919,53 @@ POSE_REF_SYSTEM_PROMPT = """你是人体姿势与神态分析员。用户会给�
 }"""
 
 POSE_MAX_PEOPLE = 4
+POSE_MAX_GARMENTS = 6
+POSE_GARMENT_SYSTEM_PROMPT = """你是电商服装结构分析员。用户会给你 1–6 张同一套服装的参考图，可能是正面、背面、侧面、细节、平铺或穿在模特身上的商品图。你只提取服装本身的结构事实，完全忽略模特身份、长相、身材、姿势、场景、背景、光线与画质。
+
+硬性要求：
+1. 只输出一个 JSON 对象，不要 Markdown，不要解释，不要代码块。键名必须严格使用下面给出的英文键名，所有字段值用简体中文。
+2. 第一张图是原图（穿着效果），用于确认这套服装由几件组成、分别是什么品类；后面的图才是服装参考图，用于补全细节。
+   逐件拆开：一套衣服有几件就输出几个对象（上衣、外套、下装、连衣裙、鞋、腰带、配饰等分别成条）。同一张图里有多件也要拆开；不要把整套写成一条。
+   只输出在后面的服装参考图中实际出现过的单品；只在原图出现、参考图没有拍到的单品不要写进 garments，原图本身已经会锁定。
+   特别注意：衬衫/T恤塞进半裙或裤腰、上下装颜色相同但腰线处有分界或腰带时，必须拆成「上衣 + 下装」，不要合并成连衣裙；只有真正连在一起、没有腰线分界的才是连衣裙。
+3. 只写图中看得见的服装事实。看不清的写“以参考图为准”，不要凭常识补写。每件都尽量写清：品类、颜色（主色与辅色）、材质/肌理、版型轮廓、长度、领型与领口、门襟与开合方式（拉链/纽扣/系带/套头/交叉）、袖型与袖口、腰头与腰带、下摆与开衩、接缝与结构线、五金（数量、形状、颜色、位置）、图案与方向、内里/衬里、穿法。
+4. 参考图可能包含正面、背面、侧面、细节不同视角。front / back / side 分别写该视角能确认的结构；没有该视角就写“未提供”。details 写领口、袖口、门襟、五金、走线、图案等特写细节。
+5. 不要描述模特的身体、脸、姿势、手怎么拿、背景与搭配；不要把参考图里的其它衣服或配饰算进来，除非它明显属于这套服装。
+6. slot 只能从「外套/上衣/下装/连衣裙/连体装/鞋/腰带/配饰/整套」里选；无法判断时写「服装」。
+7. confidence 写「高/中/低」；多张图互相矛盾时以最清晰、最正面的那张为准，并在 note 说明。
+8. 所有字段值用简体中文。
+
+输出 JSON（键名固定）：
+{
+  "garments": [
+    {
+      "slot": "上衣",
+      "name": "白色长袖衬衫",
+      "color": "主色、辅色与颜色分布",
+      "material": "面料、织纹、厚薄、光泽",
+      "silhouette": "版型轮廓",
+      "length": "衣长/裤长/裙长与落点",
+      "collar": "领型与领口开合",
+      "closure": "门襟、纽扣/拉链/系带的数量与位置",
+      "sleeve": "袖型、袖长",
+      "cuff": "袖口形状、开合、扣子",
+      "waist": "腰头、腰带、松紧、抽绳",
+      "hem": "下摆形状、开衩、褶裥",
+      "seams": "接缝、公主线、拼缝、明线",
+      "hardware": "五金数量、形状、颜色、位置",
+      "pattern": "图案、纹理、方向与分布",
+      "lining": "内里/衬里/里布",
+      "front": "正面可见结构与穿法",
+      "back": "背面可见结构；未提供写“未提供”",
+      "side": "侧面可见结构；未提供写“未提供”",
+      "details": "领口/袖口/门襟/五金/走线/图案特写细节",
+      "confidence": "高/中/低"
+    }
+  ],
+  "missing_views": "缺少的视角，例如“缺少背面与侧面”",
+  "note": ""
+}"""
+
 POSE_SOURCE_MAX_TOKENS = 6500
 POSE_REF_MAX_TOKENS = 6000
 POSE_TIMEOUT = 180
@@ -3487,6 +4259,32 @@ def _strip_prop_pose(text):
     return "，".join(parts)
 
 
+GARMENT_FIELDS = ("slot", "name", "color", "material", "silhouette", "length", "collar",
+                  "closure", "sleeve", "cuff", "waist", "hem", "seams", "hardware",
+                  "pattern", "lining", "front", "back", "side", "details", "confidence")
+
+
+def _norm_garments(raw):
+    items = raw
+    if isinstance(raw, dict):
+        items = raw.get("garments") or raw.get("items") or raw.get("clothing") or []
+    if not isinstance(items, list):
+        return []
+    out = []
+    for item in items[:8]:
+        if not isinstance(item, dict):
+            continue
+        one = {key: re.sub(r"参考图\s*(\d+)", r"服装参考图\1", _as_text(item.get(key)))
+               for key in GARMENT_FIELDS}
+        if not any(one.values()):
+            continue
+        one["slot"] = one["slot"] or "服装"
+        if one["confidence"] not in ("高", "中", "低"):
+            one["confidence"] = "中"
+        out.append(one)
+    return out
+
+
 def _norm_source_person_item(raw):
     raw = raw if isinstance(raw, dict) else {}
     person = raw.get("person")
@@ -3575,6 +4373,10 @@ def _norm_source(raw):
         "note": _clean_source_note(_pick(raw, "note", "备注", "说明")),
         "group": _pick(raw, "group", "group_desc", "arrangement", "站位", "整组关系", "队形"),
         "interaction": _pick(raw, "interaction", "互动", "身体接触", "动作互动"),
+        "garment_refs": _norm_garments(raw.get("garment_refs") or raw.get("garments") or []),
+        "garment_missing_views": _pick(raw, "garment_missing_views", "missing_views", "缺少视角"),
+        "garment_image_count": 0,
+        "garment_person": 0,
     }
 
     people = []
@@ -3615,6 +4417,15 @@ def _norm_source(raw):
         src["group"] = "；".join(parts)
     if not src["interaction"]:
         src["interaction"] = "无"
+    try:
+        src["garment_image_count"] = max(0, int(raw.get("garment_image_count") or 0))
+    except (TypeError, ValueError):
+        src["garment_image_count"] = 0
+    try:
+        gp = int(raw.get("garment_person") or 0)
+    except (TypeError, ValueError):
+        gp = 0
+    src["garment_person"] = min(max(gp, 0), max(0, len(people) - 1)) if people else 0
     src["people"] = people
     src["person_count"] = len(people)
     try:
@@ -3724,13 +4535,18 @@ def _image_url(value):
     return value
 
 
-def _pose_llm_json(system, text, image, max_tokens):
+def _pose_llm_json(system, text, image, max_tokens, labels=None):
+    """image 可为单张或列表（原图 + 服装参考图）；labels 与图一一对应，作为每张图前的文字标注。"""
     if not llm_configured():
         raise RuntimeError(NOT_CONFIGURED)
-    content = [
-        {"type": "text", "text": text},
-        {"type": "image_url", "image_url": {"url": _image_url(image), "detail": "high"}},
-    ]
+    images = image if isinstance(image, (list, tuple)) else [image]
+    if not images:
+        raise ValueError("缺少图片数据")
+    content = [{"type": "text", "text": text}]
+    for i, item in enumerate(images):
+        if labels and i < len(labels):
+            content.append({"type": "text", "text": labels[i]})
+        content.append({"type": "image_url", "image_url": {"url": _image_url(item), "detail": "high"}})
     messages = [
         {"role": "system", "content": system},
         {"role": "user", "content": content},
@@ -3782,7 +4598,26 @@ def _pose_people_repair_text(want):
             "按画面左→右排列，每人独立填写 person / outfit / accessories / pose 与全部动作字段。只输出 JSON。")
 
 
-def pose_source(image):
+def _analyze_garments(images, source_image=None, person_label=""):
+    labels = []
+    payload_images = []
+    if source_image:
+        payload_images.append(source_image)
+        labels.append("原图（穿着效果，用于确认件数与品类）")
+    payload_images += list(images)
+    labels += [f"服装参考图{i + 1}" for i in range(len(images))]
+    text = ("请先用原图确认这套服装由几件组成、分别是什么品类，再用后面的服装参考图补全正面/背面/侧面/细节，"
+            "逐件提取服装结构，只输出 JSON。忽略模特、人体、姿势、场景与背景。")
+    if person_label:
+        text += f"只分析原图中的{person_label}所穿的这套服装。"
+    raw, usage = _pose_llm_json(
+        POSE_GARMENT_SYSTEM_PROMPT, text, payload_images, 6000, labels)
+    if not raw:
+        raise RuntimeError("服装参考图分析结果为空")
+    return _norm_garments(raw), _pick(raw, "missing_views", "缺少视角"), usage
+
+
+def pose_source(image, garments=None, garment_person=0):
     started = time.time()
     raw, usage = _pose_llm_json(
         POSE_SOURCE_SYSTEM_PROMPT,
@@ -3804,12 +4639,39 @@ def pose_source(image):
         raise ValueError("暂不支持未成年人图片，请上传成年模特的原图")
     if not source["outfit"] and not source["face"]:
         raise RuntimeError("原图分析信息过少，请换一张更清晰的照片")
+    garment_meta = {}
+    if isinstance(garments, list) and garments:
+        images = [g for g in garments if isinstance(g, str) and g.startswith("data:image/")][:POSE_MAX_GARMENTS]
+        if not images:
+            raise ValueError("服装参考图无效，请重新上传")
+        gstarted = time.time()
+        try:
+            gp_label = ""
+            if source.get("person_count", 1) > 1:
+                gp_idx = min(max(int(garment_person or 0), 0), source["person_count"] - 1)
+                gp_label = f"画面第{gp_idx + 1}位人物（{source['people'][gp_idx].get('position') or ''}）"
+            refs, missing, gusage = _analyze_garments(images, image, gp_label)
+            source["garment_refs"] = refs
+            source["garment_image_count"] = len(images)
+            source["garment_missing_views"] = missing
+            try:
+                gp = int(garment_person or 0)
+            except (TypeError, ValueError):
+                gp = 0
+            source["garment_person"] = min(max(gp, 0), max(0, source.get("person_count", 1) - 1))
+            garment_meta = {"count": len(images), "elapsed_ms": int((time.time() - gstarted) * 1000),
+                            "refs": len(refs), "usage": gusage or {}}
+        except Exception as e:  # noqa: BLE001
+            source["garment_error"] = str(e)
+            garment_meta = {"count": len(images), "elapsed_ms": int((time.time() - gstarted) * 1000),
+                            "error": str(e)}
     return {
         "source": source,
         "meta": {
             "model": MODEL_GROUP,
             "elapsed_ms": int((time.time() - started) * 1000),
             "usage": usage or {},
+            "garment": garment_meta,
         },
     }
 
@@ -3850,6 +4712,8 @@ def pose_prompt(payload):
         "prompt": prompt,
         "pose": pose,
         "mapping": used_mapping,
+        "garment_refs": source.get("garment_refs") or [],
+        "garment_person": source.get("garment_person") or 0,
         "meta": {
             "model": MODEL_GROUP,
             "elapsed_ms": int((time.time() - started) * 1000),
@@ -3959,6 +4823,14 @@ def build_pose_prompt_short(source, pose, notes="", mapping=None):
     if any(w in pose_all for w in ("帽", "包", "栏杆", "杯")):
         lines.append("图2若扶帽檐/包带/栏杆而图1没有该物，手停在额侧/髋侧/身侧同高，不凭空添加物品。")
 
+    if s.get("garment_refs"):
+        names = "；".join(
+            f"{r.get('slot') or '服装'}{('（' + r['name'] + '）') if r.get('name') else ''}"
+            for r in s["garment_refs"])
+        n = int(s.get("garment_image_count") or len(s["garment_refs"]))
+        rng = "图3" if n == 1 else f"图3–图{n + 2}"
+        lines.append(f"另有 {n} 张服装参考图（{rng}）：{names}。只用于核对服装结构，不参考其中模特与背景。")
+
     if notes:
         lines.append("补充：" + str(notes).strip())
 
@@ -3973,6 +4845,43 @@ POSE_EXPR_STRONG = ("露齿", "大笑", "灿烂", "咧嘴", "笑开", "惊喜", 
 def _expr_strong(text):
     return any(w in str(text or "") for w in POSE_EXPR_STRONG)
 
+
+GARMENT_LABELS = (("name", "名称"), ("color", "颜色"), ("material", "材质"), ("silhouette", "版型"),
+                  ("length", "长度"), ("collar", "领口"), ("closure", "门襟"), ("sleeve", "袖型"),
+                  ("cuff", "袖口"), ("waist", "腰头"), ("hem", "下摆"), ("seams", "接缝"),
+                  ("hardware", "五金"), ("pattern", "图案"), ("lining", "内里"),
+                  ("front", "正面"), ("back", "背面"), ("side", "侧面"), ("details", "细节"))
+
+
+def _garment_ref_text(refs, person_label="", image_count=0):
+    refs = [r for r in (refs or []) if isinstance(r, dict)]
+    if not refs:
+        return ""
+    n = int(image_count or len(refs))
+    rng = "图3" if n == 1 else f"图3–图{n + 2}"
+    head = (f"【服装参考图】另有 {n} 张服装参考图（{rng}），只用于核对服装结构，"
+            "不参考其中的模特、人体、姿势、搭配、场景、背景与画质。")
+    if person_label:
+        head += f"这些参考图对应{person_label}，只约束该人物的服装。"
+    lines = [head]
+    for item in refs:
+        slot = item.get("slot") or "服装"
+        name = item.get("name") or ""
+        bits = []
+        for key, label in GARMENT_LABELS:
+            if key == "name":
+                continue
+            val = item.get(key) or ""
+            if val and val not in ("未提供", "以参考图为准"):
+                bits.append(f"{label}：{val}")
+        title = f"{slot}" + (f"（{name}）" if name else "")
+        lines.append(f"- {title}：" + "；".join(bits) + "。")
+    lines.append("图1看不到的背面、侧面、内里、五金与图案连续关系，以上述参考图为准；"
+                 "图1看得到且与参考图冲突时，以图1的穿着状态、长度与搭配为准。")
+    lines.append(f"如果本次生成提供了服装参考图（{rng}），把它们与图1、图2 一起作为服装结构参考；"
+                 "如果没有提供，就按上面列出的文字细节执行，不要凭空寻找额外参考图。"
+                 "服装参考图不是新人物、不是新场景，不要把参考图里的模特姿势、身体、背景或其它衣物带进画面。")
+    return "\n".join(lines)
 
 def _default_pose_mapping(src, n_ref):
     sp = src.get("people") or []
@@ -4221,6 +5130,7 @@ def build_pose_prompt_group(source, pose, notes="", mapping=None):
         "不得因为图2的服装或动作改变领口开合、拉开原本闭合的门襟或拉链、卷起袖子、脱掉外套、增减内搭或改变穿着层次；"
         "只允许因动作产生的自然褶皱、垂坠与遮挡变化；人物之间的服装不得互换、拼接或混用。图2人物的服装款式、颜色、领口开合一律不参考。",
         "",
+        *([ _garment_ref_text(s.get("garment_refs"), f"图1的{chr(65 + int(s.get('garment_person') or 0))}（{sp[min(int(s.get('garment_person') or 0), len(sp)-1)].get('position') or '位置以图1为准'}）", s.get("garment_image_count")) , ""] if s.get("garment_refs") else []),
         *pose_blocks,
         "",
         group_line,
@@ -4513,6 +5423,8 @@ def build_pose_prompt(source, pose, notes="", mapping=None):
         "【服装细节不可发明】领型与领口开合方式、门襟（拉链/纽扣/系带/交叉绑带）、袖型与袖口形状、接缝与结构线、罗纹与织纹方向、下摆与口袋、五金数量与位置，必须逐项与图1（原图）一致。手臂交叉、抬起或被遮挡时，袖子只随手臂自然弯折与堆叠，不得把收口袖改成喇叭袖、荷叶边、灯笼袖或系带袖；不得新增蝴蝶结、系带、褶边、口袋、腰带或任何装饰；不得把拉链改成系带、把套头改成开衫、把翻领改成系带领。图案与纹理的大小、密度、方向、位置不变，颜色与面料光泽不变。文字对服装的描述只用于提醒，与图1（原图）画面不一致时以图1画面为准；拿不准的细节保持图1的结构，不要自行设计。",
         "",
     ]
+    if s.get("garment_refs"):
+        lines += [_garment_ref_text(s["garment_refs"], image_count=s.get("garment_image_count")), ""]
     if s["props"]:
         lines += [f"【原图道具】图1（原图）中的道具：{s['props']}。道具属于图1，优先保留；不要为了持握或保留道具而改变动作、扭曲肢体或增减其他道具。新动作让道具无法自然保留时，把道具放在画面内不遮挡人物的原有位置（如桌面、地面、身侧），或让该道具不出现在画面中。", ""]
     scene_bits = "；".join(x for x in (s["scene"], s["background"]) if x)
@@ -4575,6 +5487,36 @@ def analyze(payload):
     if _fine_read(payload):
         meta["fine"] = True
 
+    notes_raw = str(payload.get("notes") or "").strip()
+    user_raw = str(payload.get("user_prompt") or "").strip()
+    if not user_raw and _looks_like_styling_prompt(notes_raw):
+        user_raw = notes_raw
+    if user_raw:
+        payload["_user_prompt_raw"] = user_raw
+        if not _looks_like_styling_prompt(user_raw) and _notes_are_garment_intent(user_raw):
+            ui = parse_user_prompt(user_raw) or {}
+            ui["garment"] = str(ui.get("garment") or user_raw)
+            ui["style"] = ""
+            sig = dict(ui.get("signals") or {})
+            sig["tuck"] = _has_positive_clause(user_raw, ("塞进", "塞入"))
+            ui["signals"] = sig
+            ui["raw_chars"] = len(user_raw)
+            payload["_user_intent"] = ui
+        else:
+            payload["_user_intent"] = parse_user_prompt(user_raw)
+        if notes_raw == user_raw:
+            payload["notes"] = ""
+    elif notes_raw and _notes_are_garment_intent(notes_raw):
+        ui = parse_user_prompt(notes_raw) or {}
+        ui["garment"] = str(ui.get("garment") or notes_raw)
+        sig = dict(ui.get("signals") or {})
+        sig["tuck"] = _has_positive_clause(notes_raw, ("塞进", "塞入"))
+        ui["signals"] = sig
+        ui["raw_chars"] = len(notes_raw)
+        payload["_user_prompt_raw"] = notes_raw
+        payload["_user_intent"] = ui
+        payload["notes"] = ""
+
     picked = select_images(payload)
     if picked:
         try:
@@ -4618,7 +5560,32 @@ def analyze(payload):
 
     payload["_picked"] = picked
     prompt = build_prompt(payload, fields)
-    return {"prompt": prompt, "meta": meta, "warning": warning}
+    meta["image_order"] = _image_order(payload)
+    meta["prompt_chars"] = len(prompt)
+    meta["prompt_mode"] = "full"
+    meta["model_view"] = _model_view(payload) or "auto"
+    meta["include_crops"] = _flag(payload, "include_crops", True)
+    ui = payload.get("_user_intent") or {}
+    meta["user_prompt_chars"] = int(ui.get("raw_chars") or 0)
+    meta["pose_mode"] = str(payload.get("pose_mode") or "reference")
+    conflicts = list(ui.get("conflicts") or [])
+    if meta["pose_mode"] != "user":
+        conflicts = [c.replace("按动作段保留背面", "当前锁模特图姿态，用户动作未采用") for c in conflicts]
+    meta["user_intent"] = {
+        **{k: bool(v) for k, v in (ui.get("signals") or {}).items()},
+        "conflicts": conflicts,
+    }
+    return {
+        "prompt": prompt,
+        "meta": meta,
+        "warning": warning,
+        "image_manifest": image_manifest(picked),
+        "negative_prompt": ui.get("negative") or "",
+        "user_intent": {
+            "signals": ui.get("signals") or {},
+            "conflicts": conflicts,
+        },
+    }
 
 
 def analyze_batch(payload):
@@ -4654,6 +5621,9 @@ def analyze_batch(payload):
                 "prompt": r.get("prompt") or "",
                 "meta": r.get("meta") or {},
                 "warning": r.get("warning") or "",
+                "image_manifest": r.get("image_manifest") or [],
+                "negative_prompt": r.get("negative_prompt") or "",
+                "user_intent": r.get("user_intent") or {},
             }
         except Exception as e:  # noqa: BLE001
             return {
@@ -4787,8 +5757,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json({"error": str(e)}, 422)
             started = time.time()
             try:
-                result = (pose_source(payload.get("image")) if path == "/api/pose/source"
-                          else pose_prompt(payload))
+                result = (pose_source(payload.get("image"), payload.get("garments"),
+                                      payload.get("garment_person"))
+                          if path == "/api/pose/source" else pose_prompt(payload))
             except ValueError as e:
                 return self.send_json({"error": str(e)}, 422)
             except aig.AigNetworkError as e:

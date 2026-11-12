@@ -39,6 +39,7 @@ func (l *SubmitPoseLogic) SubmitPose(req *types.StudioPoseSubmitReq) (resp *type
 		SourceImageUrl: req.SourceImageUrl, PoseImageUrls: req.PoseImageUrls, GlobalPrompt: req.GlobalPrompt,
 		PosePrompts: prompts, Model: req.Model, Resolution: req.Resolution, AspectRatio: req.AspectRatio,
 		SourcePersonCount: req.SourcePersonCount, Mappings: poseMappings(req.Mappings), ColorFix: req.ColorFix,
+		GarmentImageUrls: req.GarmentImageUrls,
 	})
 	if err != nil {
 		return nil, err

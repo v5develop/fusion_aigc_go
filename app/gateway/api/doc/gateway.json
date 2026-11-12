@@ -11462,7 +11462,9 @@
                         "cover_url",
                         "created_at",
                         "updated_at",
-                        "warnings"
+                        "warnings",
+                        "model_views",
+                        "garment_image_urls"
                       ],
                       "properties": {
                         "cover_url": {
@@ -11478,12 +11480,24 @@
                         "estimated_points": {
                           "type": "integer"
                         },
+                        "garment_image_urls": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
                         "id": {
                           "type": "integer"
                         },
                         "kind": {
                           "description": "tryon / pose / imagegen",
                           "type": "string"
+                        },
+                        "model_views": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
                         },
                         "payload": {
                           "description": "提交时的全量字段（JSON 文本），用于回填表单",
@@ -11803,7 +11817,9 @@
                         "cover_url",
                         "created_at",
                         "updated_at",
-                        "warnings"
+                        "warnings",
+                        "model_views",
+                        "garment_image_urls"
                       ],
                       "properties": {
                         "cover_url": {
@@ -11819,12 +11835,24 @@
                         "estimated_points": {
                           "type": "integer"
                         },
+                        "garment_image_urls": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
                         "id": {
                           "type": "integer"
                         },
                         "kind": {
                           "description": "tryon / pose / imagegen",
                           "type": "string"
+                        },
+                        "model_views": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
                         },
                         "payload": {
                           "description": "提交时的全量字段（JSON 文本），用于回填表单",
@@ -11956,7 +11984,9 @@
                               "cover_url",
                               "created_at",
                               "updated_at",
-                              "warnings"
+                              "warnings",
+                              "model_views",
+                              "garment_image_urls"
                             ],
                             "properties": {
                               "cover_url": {
@@ -11972,12 +12002,24 @@
                               "estimated_points": {
                                 "type": "integer"
                               },
+                              "garment_image_urls": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
                               "id": {
                                 "type": "integer"
                               },
                               "kind": {
                                 "description": "tryon / pose / imagegen",
                                 "type": "string"
+                              },
+                              "model_views": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
                               },
                               "payload": {
                                 "description": "提交时的全量字段（JSON 文本），用于回填表单",
@@ -12978,6 +13020,12 @@
                   "description": "空=按人物图自动",
                   "type": "string"
                 },
+                "garment_image_urls": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
                 "model": {
                   "type": "string"
                 },
@@ -13118,6 +13166,12 @@
                 "color_fix": {
                   "description": "「默认校色」开关，同商拍",
                   "type": "boolean"
+                },
+                "garment_image_urls": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
                 },
                 "global_prompt": {
                   "description": "全局补充说明，≤3000 字",
@@ -13911,7 +13965,9 @@
                         "cover_url",
                         "created_at",
                         "updated_at",
-                        "warnings"
+                        "warnings",
+                        "model_views",
+                        "garment_image_urls"
                       ],
                       "properties": {
                         "cover_url": {
@@ -13927,12 +13983,24 @@
                         "estimated_points": {
                           "type": "integer"
                         },
+                        "garment_image_urls": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
                         "id": {
                           "type": "integer"
                         },
                         "kind": {
                           "description": "tryon / pose / imagegen",
                           "type": "string"
+                        },
+                        "model_views": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
                         },
                         "payload": {
                           "description": "提交时的全量字段（JSON 文本），用于回填表单",
@@ -14200,7 +14268,9 @@
                         "cover_url",
                         "created_at",
                         "updated_at",
-                        "warnings"
+                        "warnings",
+                        "model_views",
+                        "garment_image_urls"
                       ],
                       "properties": {
                         "cover_url": {
@@ -14216,12 +14286,24 @@
                         "estimated_points": {
                           "type": "integer"
                         },
+                        "garment_image_urls": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
                         "id": {
                           "type": "integer"
                         },
                         "kind": {
                           "description": "tryon / pose / imagegen",
                           "type": "string"
+                        },
+                        "model_views": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
                         },
                         "payload": {
                           "description": "提交时的全量字段（JSON 文本），用于回填表单",
@@ -14874,6 +14956,12 @@
                     "type": "string"
                   }
                 },
+                "model_views": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
                 "prompt": {
                   "description": "补充说明，≤3000 字",
                   "type": "string"
@@ -14963,7 +15051,7 @@
       "in": "header"
     }
   },
-  "x-date": "2026-11-11 20:30:32",
+  "x-date": "2026-11-12 09:12:34",
   "x-description": "This is a goctl generated swagger file.",
   "x-github": "https://github.com/zeromicro/go-zero",
   "x-go-zero-doc": "https://go-zero.dev/",

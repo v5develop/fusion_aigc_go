@@ -15,6 +15,8 @@ import (
 	"aigc-local-life/pkg/modellabel"
 	"aigc-local-life/pkg/reverse"
 	"aigc-local-life/pkg/xerr"
+
+	"github.com/zeromicro/go-zero/core/logx"
 )
 
 // 服务端复查的上限（s1.1 验收 + 03 前端包 B 节）。前端也有同样的校验，这里是兜底，口径必须一致。
@@ -25,6 +27,7 @@ const (
 	MaxModels         = 9    // 模特 1–9
 	MaxCountPerModel  = 9    // 每位模特张数 1–9
 	MaxPoses          = 9    // 姿势 1–9
+	MaxPoseGarments   = 6    // 姿态复刻服装参考图最多 6 张（与反推 sidecar POSE_MAX_GARMENTS 一致）
 	MaxImageGenCount  = 9    // 图片生成张数 1–9
 	MaxImageGenRefs   = 9    // 图片生成参考图最多 9 张
 	MaxPromptLen      = 3000 // 提示词 / 补充说明（按字符）
@@ -197,6 +200,8 @@ type TryonInput struct {
 	CountPerModel int32
 	Warnings      []string // 分辨率按 model group 归一的告警
 	FineRead      bool     // 精细读图
+	// ModelViews 每位模特图的面（front / back / side，与 Models 同序同长）；没传为 nil（不筛）
+	ModelViews []string
 	// DetailCropsManual=true：编排按 DetailCrops 切图（可为空 = 不用细节图），不再自动找细节
 	DetailCrops       []pipeline.UserCrop
 	DetailCropsManual bool
@@ -353,6 +358,10 @@ func ValidateTryonCap(in *studio.SubmitTryonReq, groups map[string]string, catal
 	if err := checkURLs("模特图", in.ModelImageUrls); err != nil {
 		return nil, err
 	}
+	views, err := CheckModelViews(in.UserId, in.ModelViews, len(in.ModelImageUrls))
+	if err != nil {
+		return nil, err
+	}
 	if in.CountPerModel < 1 || in.CountPerModel > MaxCountPerModel {
 		return nil, xerr.Param(fmt.Sprintf("每位模特生成张数为 1–%d", MaxCountPerModel))
 	}
@@ -414,8 +423,41 @@ func ValidateTryonCap(in *studio.SubmitTryonReq, groups map[string]string, catal
 		Items: items, Garments: gs, Models: models, SetMode: setMode,
 		Lengths: filterByItems(in.Lengths, items), Sleeves: filterByItems(in.Sleeves, items),
 		Resolution: res, AspectRatio: ar, ModelName: name, ModelGroup: group, CountPerModel: in.CountPerModel, Warnings: warns,
-		FineRead: in.FineRead, DetailCrops: crops, DetailCropsManual: in.DetailCropsManual,
+		FineRead: in.FineRead, DetailCrops: crops, DetailCropsManual: in.DetailCropsManual, ModelViews: views,
 	}, nil
+}
+
+// CheckModelViews 每位模特图的面（model_views）：不传 / 空数组 = 老行为（返回 nil）；传了必须与模特图同长，且每项 ∈ front / back / side。
+// 拒收时日志写明命中的判据（check=tryon_model_views_*），方便从「为什么提交被拒」直接定位到哪一条规则。
+func CheckModelViews(userID int64, views []string, models int) ([]string, error) {
+	if len(views) == 0 {
+		return nil, nil
+	}
+	if len(views) != models {
+		logx.Infow("studio: 提交被拒 (check=tryon_model_views_length)", logx.Field("user_id", userID),
+			logx.Field("views", len(views)), logx.Field("models", models))
+		return nil, xerr.Param(fmt.Sprintf("模特视角数量（%d）必须与模特图数量（%d）一致", len(views), models))
+	}
+	out := make([]string, len(views))
+	for i, raw := range views {
+		v, ok := pipeline.NormalizeModelView(raw)
+		if !ok || v == "" {
+			logx.Infow("studio: 提交被拒 (check=tryon_model_views_value)", logx.Field("user_id", userID),
+				logx.Field("index", i), logx.Field("value", trimForLog(raw)))
+			return nil, xerr.Param(fmt.Sprintf("模特视角第 %d 项「%s」不合法，只支持 front / back / side", i+1, trimForLog(raw)))
+		}
+		out[i] = v
+	}
+	return out, nil
+}
+
+// trimForLog 用户输入进日志 / 报错前截断（防超长）。
+func trimForLog(s string) string {
+	r := []rune(strings.TrimSpace(s))
+	if len(r) > 16 {
+		return string(r[:16]) + "…"
+	}
+	return string(r)
 }
 
 // manualCropWarnings 用户自选细节框时的提交预警：服装图放不下照旧提示；细节框多于名额（参考图上限 − 服装图 − 模特 1）时说明会少用几张。
@@ -447,14 +489,22 @@ type PoseInput struct {
 	// SourcePersonCount / Mappings 多人配对（PreviewPose 确认后带回）；没传 mappings 时为 0 / nil
 	SourcePersonCount int
 	Mappings          []PoseMappingInput // 按 pose_index 升序
-	Resolution        string
-	AspectRatio       string
-	ModelName         string
-	ModelGroup        string
-	Warnings          []string
+	// Garments 服装参考图（≤6，已 trim；单人专用）；没传为 nil。生图输入顺序 图1 原图 / 图2 姿势 / 图3+ 服装
+	Garments    []string
+	Resolution  string
+	AspectRatio string
+	ModelName   string
+	ModelGroup  string
+	Warnings    []string
 }
 
 func ValidatePose(in *studio.SubmitPoseReq, groups map[string]string) (*PoseInput, error) {
+	return ValidatePoseCap(in, groups, nil)
+}
+
+// ValidatePoseCap 同 ValidatePose；catalogCap 同 ValidateTryonCap（gateway 目录的参考图上限，0 / nil = 用兜底表）。
+// 带服装参考图时：原图 + 姿势 + 服装图总数不得超过所选模型的参考图上限（pipeline.RefCap，含 GPT Image 2.6 的硬上限）。
+func ValidatePoseCap(in *studio.SubmitPoseReq, groups map[string]string, catalogCap func(group string) int) (*PoseInput, error) {
 	if err := checkUserRequest(in.UserId, in.RequestId); err != nil {
 		return nil, err
 	}
@@ -506,6 +556,10 @@ func ValidatePose(in *studio.SubmitPoseReq, groups map[string]string) (*PoseInpu
 	if err != nil {
 		return nil, err
 	}
+	garments, err := checkPoseGarments(in, group, catalogCap)
+	if err != nil {
+		return nil, err
+	}
 	srcCount := 0
 	if len(mappings) > 0 {
 		srcCount = int(in.SourcePersonCount)
@@ -516,9 +570,54 @@ func ValidatePose(in *studio.SubmitPoseReq, groups map[string]string) (*PoseInpu
 	}
 	return &PoseInput{
 		Source: strings.TrimSpace(in.SourceImageUrl), Poses: poses, PosePrompts: prompts,
-		SourcePersonCount: srcCount, Mappings: mappings,
+		SourcePersonCount: srcCount, Mappings: mappings, Garments: garments,
 		Resolution: res, AspectRatio: ar, ModelName: name, ModelGroup: group, Warnings: warns,
 	}, nil
+}
+
+// checkPoseGarments 姿态复刻的服装参考图：不传 = 老行为（nil）。判据（拒收日志里 check= 同名）：
+//   - pose_garments_count：≤6 张；
+//   - pose_garments_url：每张 http(s) 地址（归属 / 可取性在提交主流程 deps.submit 里与其它输入图同口径校验）；
+//   - pose_garments_multi_person：单人专用，带了多人配对（mappings / source_person_count ≥2）直接拒绝；
+//   - pose_garments_ref_cap：2（原图 + 姿势）+ 服装图 ≤ 所选模型的参考图上限。
+func checkPoseGarments(in *studio.SubmitPoseReq, group string, catalogCap func(group string) int) ([]string, error) {
+	n := len(in.GarmentImageUrls)
+	if n == 0 {
+		return nil, nil
+	}
+	reject := func(check, msg string, kv ...logx.LogField) error {
+		logx.Infow("studio: 提交被拒 (check="+check+")", append([]logx.LogField{logx.Field("user_id", in.UserId), logx.Field("garments", n)}, kv...)...)
+		return xerr.Param(msg)
+	}
+	if n > MaxPoseGarments {
+		return nil, reject("pose_garments_count", fmt.Sprintf("服装参考图最多 %d 张", MaxPoseGarments))
+	}
+	if err := checkURLs("服装参考图", in.GarmentImageUrls); err != nil {
+		logx.Infow("studio: 提交被拒 (check=pose_garments_url)", logx.Field("user_id", in.UserId), logx.Field("err", err.Error()))
+		return nil, err
+	}
+	if len(in.Mappings) > 0 || in.SourcePersonCount >= 2 {
+		return nil, reject("pose_garments_multi_person", "多人姿态暂不支持服装参考图",
+			logx.Field("mappings", len(in.Mappings)), logx.Field("source_person_count", in.SourcePersonCount))
+	}
+	catCap := 0
+	if catalogCap != nil {
+		catCap = catalogCap(group)
+	}
+	refCap := pipeline.RefCap(group, pipeline.KindPose, catCap)
+	if total := poseRefs + n; total > refCap {
+		msg := fmt.Sprintf("所选模型最多支持 %d 张参考图，原图和姿势图占 %d 张，服装参考图最多 %d 张（已选 %d 张），请减少服装参考图或换用其它模型",
+			refCap, poseRefs, max(0, refCap-poseRefs), n)
+		if refCap <= poseRefs {
+			msg = fmt.Sprintf("所选模型最多支持 %d 张参考图，不能再放服装参考图，请换用其它模型", refCap)
+		}
+		return nil, reject("pose_garments_ref_cap", msg, logx.Field("ref_cap", refCap), logx.Field("total", total), logx.Field("model_group", group))
+	}
+	out := make([]string, 0, n)
+	for _, u := range in.GarmentImageUrls {
+		out = append(out, strings.TrimSpace(u))
+	}
+	return out, nil
 }
 
 // PoseMappingInput 一张姿势图的配对（校验后）。JSON 键名与批次 payload / 前端提交一致。

@@ -534,3 +534,78 @@ func TestCancelledContextNotRetried(t *testing.T) {
 		t.Fatalf("retried after ctx done: %d", f.hit(PathStatus))
 	}
 }
+
+// 2026-11-10.13：姿态读图带服装参考图（只增）；不带时请求体与旧版逐字相同。
+func TestPoseSourceGarments(t *testing.T) {
+	f, srv := newFake(t, func(path string, body map[string]any) (int, any) {
+		return 200, map[string]any{
+			"source": map[string]any{"has_person": true, "person_count": 1, "garment_image_count": 2,
+				"garment_refs": []any{map[string]any{"slot": "上衣"}, map[string]any{"slot": "下装"}}},
+			"meta": map[string]any{"model": "x"},
+		}
+	})
+	c := newClient(srv.URL)
+	src, err := c.PoseSource(context.Background(), img, img, img)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if src.Source.GarmentImageCount != 2 || len(src.Source.GarmentRefs) != 2 || src.Source.GarmentError != "" {
+		t.Fatalf("garment 字段没解出来：%+v", src.Source)
+	}
+	b := f.body(PathPoseSource)[0]
+	gs, _ := b["garments"].([]any)
+	if len(gs) != 2 || b["garment_person"] != float64(0) {
+		t.Fatalf("garments 没发出去：%v", b)
+	}
+	if _, err := c.PoseSource(context.Background(), img); err != nil {
+		t.Fatal(err)
+	}
+	old := f.body(PathPoseSource)[1]
+	if len(old) != 1 || old["image"] != img {
+		t.Fatalf("不带服装图时请求体必须只有 image：%v", old)
+	}
+	// 张数 / 格式预检（不发请求）
+	if _, err := c.PoseSource(context.Background(), img, make([]string, MaxPoseGarments+1)...); !IsRejected(err) && err == nil {
+		t.Fatal("7 张应被预检拒绝")
+	}
+	if _, err := c.PoseSource(context.Background(), img, "https://x/g.jpg"); err == nil {
+		t.Fatal("非 data URL 的服装图应被拒绝")
+	}
+	if n := len(f.body(PathPoseSource)); n != 2 {
+		t.Fatalf("预检失败不该发请求：%d", n)
+	}
+}
+
+// analyze 响应的 image_manifest（含本仓扩展的 key 回显）与请求里的 angle / key / model_view。
+func TestAnalyzeManifestAndView(t *testing.T) {
+	f, srv := newFake(t, func(path string, body map[string]any) (int, any) {
+		return 200, map[string]any{"prompt": "p", "meta": map[string]any{"model_view": "side"}, "warning": "",
+			"image_manifest": []any{
+				map[string]any{"index": 1, "ref": "参考图1", "role": "上衣", "angle": "side", "key": "g-top-side-1"},
+				map[string]any{"index": 2, "ref": "参考图2", "role": "人物模特", "key": "m-1"},
+			}}
+	})
+	c := newClient(srv.URL)
+	resp, err := c.Analyze(context.Background(), AnalyzeReq{
+		Category: "top", ModelView: "side",
+		Images: []AnalyzeImage{{Role: "上衣", Angle: "side", Key: "g-top-side-1", Data: img}, {Role: RoleModel, Key: "m-1", Data: img}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.ImageManifest) != 2 || resp.ImageManifest[0].Key != "g-top-side-1" || resp.ImageManifest[1].Role != RoleModel {
+		t.Fatalf("manifest = %+v", resp.ImageManifest)
+	}
+	b := f.body(PathAnalyze)[0]
+	if b["model_view"] != "side" {
+		t.Fatalf("model_view 没发出去：%v", b)
+	}
+	ims, _ := b["images"].([]any)
+	first, _ := ims[0].(map[string]any)
+	if first["angle"] != "side" || first["key"] != "g-top-side-1" {
+		t.Fatalf("angle / key 没发出去：%v", first)
+	}
+	if _, has := ims[1].(map[string]any)["angle"]; has {
+		t.Fatal("模特图不带 angle")
+	}
+}

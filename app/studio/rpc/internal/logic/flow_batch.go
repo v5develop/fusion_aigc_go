@@ -38,14 +38,18 @@ type batchPayload struct {
 	Fabric        string            `json:"fabric"`
 	CountPerModel int               `json:"count_per_model"`
 	FineRead      bool              `json:"fine_read"`
+	// 每位模特图的面（front / back / side，与 model_image_urls 同序）；没传为 nil = 不筛服装图
+	ModelViews []string `json:"model_views"`
 	// 用户在「AI 找细节」里确认的细节框；DetailCropsManual=true 时编排只用它们（可为空），不再自动找细节
 	DetailCrops       []pipeline.UserCrop `json:"detail_crops"`
 	DetailCropsManual bool                `json:"detail_crops_manual"`
 	// 姿态
-	SourceImageURL string            `json:"source_image_url"`
-	PoseImageURLs  []string          `json:"pose_image_urls"`
-	GlobalPrompt   string            `json:"global_prompt"`
-	PosePrompts    map[string]string `json:"pose_prompts"`
+	SourceImageURL string   `json:"source_image_url"`
+	PoseImageURLs  []string `json:"pose_image_urls"`
+	// 姿态服装参考图（≤6，单人）：生图输入图 3+；没传为 nil
+	GarmentImageURLs []string          `json:"garment_image_urls"`
+	GlobalPrompt     string            `json:"global_prompt"`
+	PosePrompts      map[string]string `json:"pose_prompts"`
 	// 多人配对（PreviewPose 确认后提交；没传时为 0 / nil）
 	SourcePersonCount int                `json:"source_person_count"`
 	PoseMappings      []PoseMappingInput `json:"mappings"`
@@ -58,6 +62,14 @@ type batchPayload struct {
 	Model       string `json:"model"`
 	Resolution  string `json:"resolution"`
 	AspectRatio string `json:"aspect_ratio"`
+}
+
+// viewOf 第 i 位模特图的面；没传 model_views 或下标越界返回 ""（不筛）。
+func (p *batchPayload) viewOf(i int) string {
+	if i < 0 || i >= len(p.ModelViews) {
+		return ""
+	}
+	return p.ModelViews[i]
 }
 
 func parsePayload(raw json.RawMessage) (*batchPayload, error) {
@@ -483,10 +495,16 @@ func (r *batchRun) tryon(ctx context.Context) error {
 	if err := r.stage(ctx, model.BatchCropping); err != nil {
 		return err
 	}
+	// 每位模特的面 → 该面的组图结果：没传 model_views 时只有一组（视角 ""），与旧行为逐字一致
+	views := make([]string, len(ms))
+	for i := range ms {
+		views[i] = p.viewOf(i)
+	}
 	var (
-		plan    reverse.CropPlanResp
-		details []pipeline.Image
-		sel     pipeline.Selection
+		plan     reverse.CropPlanResp
+		details  []pipeline.Image
+		sels     = map[string]pipeline.Selection{}
+		viewWarn = map[string]string{} // 视角 → 该视角没有对应服装图时给用户的提示
 	)
 	err := r.plan(ctx,
 		step(pipeline.StepIngest, func(ctx context.Context) (pipeline.StepLog, error) {
@@ -581,14 +599,26 @@ func (r *batchRun) tryon(ctx context.Context) error {
 			return lg, nil
 		}),
 		step(pipeline.StepSelect, func(ctx context.Context) (pipeline.StepLog, error) {
-			sel = pipeline.SelectImages(cat, gs, details, &ms[0])
+			// 每个面各组一份（视角 → 筛过的主图 / 细节 → 组图）：反推读图与生图参考图都用这一份，提示词编号才与实际送图一致
+			for i, v := range views {
+				if _, done := sels[v]; done {
+					continue
+				}
+				first := ms[i]
+				sels[v] = pipeline.SelectImages(cat, pipeline.FilterByView(gs, v), pipeline.FilterByView(details, v), &first)
+				if v != "" && !hasView(gs, v) {
+					viewWarn[v] = fmt.Sprintf("所选的%s模特没有对应角度的服装图，已使用全部服装图", viewLabels[v])
+					logx.WithContext(ctx).Infof("studio: 批次 %d 模特视角 %s 没有对应角度的服装图，保留全部 (check=tryon_view_no_match)", r.b.ID, v)
+				}
+			}
+			sel := sels[views[0]]
 			// selected_images（后台批次详情「组图」）= **反推读图**选中的图（≤9，每个模特一组），不是生图输入：
 			// 生图参考图按各子任务模型的上限另行组装（GenerateRefs，≤14、可能多出 / 少掉若干张），
 			// 实际送生图的图序以 afv_studio_task.input_images（后台子任务「实际送生图的图序」）为准。
 			// 这里按模特在前的展示顺序写（GenerateOrder），sidecar 实际读图顺序是 主图 → 细节 → 模特。
 			out := make([]model.SelectedImages, 0, len(ms))
 			for i, m := range ms {
-				s := withModel(sel, m)
+				s := withModel(sels[views[i]], m)
 				imgs := make([]model.InputImage, 0, len(s.Images))
 				for _, im := range pipeline.GenerateOrder(s) {
 					imgs = append(imgs, inputImage(im, roleOf(im)))
@@ -610,7 +640,7 @@ func (r *batchRun) tryon(ctx context.Context) error {
 	prompts := map[string]*analyzeCache{} // 模特 sha1 → 反推结果（带当时用的提示词版本）
 	var pv, pt string                     // 本批的提示词版本（首次决定后落批次缓存，重放沿用）
 	err = r.plan(ctx, step(pipeline.StepAnalyze, func(ctx context.Context) (pipeline.StepLog, error) {
-		lg := pipeline.StepLog{Images: len(sel.Images)}
+		lg := pipeline.StepLog{Images: len(sels[views[0]].Images)}
 		var err error
 		if pv, pt, err = r.tryonPromptVersion(ctx); err != nil {
 			return lg, err
@@ -618,7 +648,7 @@ func (r *batchRun) tryon(ctx context.Context) error {
 		var todo []pipeline.Image
 		seen := map[string]bool{}
 		for _, m := range ms {
-			key := pipeline.AnalyzeKey(m.SHA1)
+			key := pipeline.AnalyzeViewKey(m.SHA1, views[m.Source])
 			if seen[key] {
 				continue
 			}
@@ -642,44 +672,57 @@ func (r *batchRun) tryon(ctx context.Context) error {
 		}
 		actx, cancel := context.WithTimeout(ctx, r.f.analyzeTimeout())
 		defer cancel()
-		breq := pipeline.BuildTryonAnalyzeBatchReq(spec, sel, todo, r.f.cfg.Reverse.Concurrency)
-		breq.AnalyzeReq = pipeline.WithPromptVersion(breq.AnalyzeReq, pv, pt)
-		resp, err := r.f.rev.AnalyzeBatch(actx, breq)
-		if err != nil {
-			return lg, err
-		}
-		byID := map[string]pipeline.Image{}
+		// 同一个面的模特一批（共用同一组服装图）；不同面的服装图不同，分开各发一次
+		var order []string
+		byView := map[string][]pipeline.Image{}
 		for _, m := range todo {
-			byID[m.Key] = m
-		}
-		done := map[string]bool{}
-		for _, res := range resp.Results {
-			m, ok := byID[res.ModelID]
-			if !ok {
-				continue
+			v := views[m.Source]
+			if _, ok := byView[v]; !ok {
+				order = append(order, v)
 			}
-			ar := &reverse.AnalyzeResp{Prompt: res.Prompt, Meta: res.Meta, Warning: res.Warning}
-			if res.Error != "" || strings.TrimSpace(res.Prompt) == "" { // 单个模特失败：单独重试一次
-				one, err := r.f.rev.Analyze(actx, pipeline.WithPromptVersion(pipeline.BuildTryonAnalyzeReq(spec, withModel(sel, m)), pv, pt))
-				if err != nil {
-					return lg, err
+			byView[v] = append(byView[v], m)
+		}
+		for _, v := range order {
+			group, selV := byView[v], sels[v]
+			breq := pipeline.BuildTryonAnalyzeBatchReq(spec, selV, group, r.f.cfg.Reverse.Concurrency)
+			breq.AnalyzeReq = pipeline.WithModelView(pipeline.WithPromptVersion(breq.AnalyzeReq, pv, pt), v)
+			resp, err := r.f.rev.AnalyzeBatch(actx, breq)
+			if err != nil {
+				return lg, err
+			}
+			byID := map[string]pipeline.Image{}
+			for _, m := range group {
+				byID[m.Key] = m
+			}
+			done := map[string]bool{}
+			for _, res := range resp.Results {
+				m, ok := byID[res.ModelID]
+				if !ok {
+					continue
 				}
-				ar = one
-				lg.Warnings = append(lg.Warnings, fmt.Sprintf("%s analyze-batch 失败，已单独重试", m.Key))
+				ar := &reverse.AnalyzeResp{Prompt: res.Prompt, Meta: res.Meta, Warning: res.Warning, ImageManifest: res.ImageManifest}
+				if res.Error != "" || strings.TrimSpace(res.Prompt) == "" { // 单个模特失败：单独重试一次
+					one, err := r.f.rev.Analyze(actx, pipeline.WithModelView(pipeline.WithPromptVersion(pipeline.BuildTryonAnalyzeReq(spec, withModel(selV, m)), pv, pt), v))
+					if err != nil {
+						return lg, err
+					}
+					ar = one
+					lg.Warnings = append(lg.Warnings, fmt.Sprintf("%s analyze-batch 失败，已单独重试", m.Key))
+				}
+				if ar.Meta.Degraded {
+					lg.Degraded = true
+				}
+				key := pipeline.AnalyzeViewKey(m.SHA1, v)
+				c := &analyzeCache{AnalyzeResp: *ar, PromptVersion: pv, TargetModel: pt, Versioned: true}
+				prompts[key] = c
+				done[m.Key] = true
+				r.cachePut(ctx, key, model.CacheAnalyze, c)
 			}
-			if ar.Meta.Degraded {
-				lg.Degraded = true
-			}
-			key := pipeline.AnalyzeKey(m.SHA1)
-			c := &analyzeCache{AnalyzeResp: *ar, PromptVersion: pv, TargetModel: pt, Versioned: true}
-			prompts[key] = c
-			done[m.Key] = true
-			r.cachePut(ctx, key, model.CacheAnalyze, c)
-		}
-		for _, m := range todo {
-			if !done[m.Key] {
-				return lg, &stepError{Step: pipeline.StepAnalyze, User: "反推结果缺失，点数已退回", Retryable: true,
-					Err: fmt.Errorf("analyze-batch 没有返回 %s", m.Key)}
+			for _, m := range group {
+				if !done[m.Key] {
+					return lg, &stepError{Step: pipeline.StepAnalyze, User: "反推结果缺失，点数已退回", Retryable: true,
+						Err: fmt.Errorf("analyze-batch 没有返回 %s", m.Key)}
+				}
 			}
 		}
 		return lg, nil
@@ -696,15 +739,20 @@ func (r *batchRun) tryon(ctx context.Context) error {
 			return "", nil, nil, fmt.Errorf("子任务 %d 模特下标越界", t.ID)
 		}
 		m := ms[t.ModelIndex]
-		ar := prompts[pipeline.AnalyzeKey(m.SHA1)]
+		view := views[t.ModelIndex]
+		selM := sels[view]
+		ar := prompts[pipeline.AnalyzeViewKey(m.SHA1, view)]
 		g := orDefault(t.ModelGroup, group)
 		opt := r.genOptions(ctx, g)
-		// 生图参考图按该模型的上限单独组装（≤14；细节图名额 = 上限 − 主图 − 1），与反推读图的 ≤9 张选择无关
-		gen := pipeline.GenerateRefs(sel, m, pipeline.RefCap(g, pipeline.KindTryon, opt.MaxRefImages))
+		// 生图参考图按该模型的上限单独组装（≤14；细节图名额 = 上限 − 主图 − 1），与反推读图的 ≤9 张选择无关；
+		// 按这位模特的面筛过的那一份服装图（selM），与反推读图同源。
+		// 图序以 Go 为准：生图图序 = gen.Images；sidecar 正文按它实际读图的顺序（image_manifest）写「参考图N」，
+		// 这里按 Key 改号，让提示词里每个「参考图N」都落在生图里同一张图上（缓存里存的是 sidecar 原文，每次从原文改，重放幂等）
+		gen, prompt, mok := pipeline.TryonGenPrompt(selM, m, pipeline.RefCap(g, pipeline.KindTryon, opt.MaxRefImages), ar.Prompt, ar.ImageManifest)
+		if !mok {
+			logx.WithContext(ctx).Errorf("studio: 批次 %d 子任务 %d image_manifest 与发送的图对不上，按发送顺序改号 (check=tryon_manifest_unmatched)", r.b.ID, t.ID)
+		}
 		order := gen.Images
-		// sidecar 正文按反推读图顺序（主图 → 细节 → 模特，模特在末位）写「参考图N」；生图是模特在图1、张数也不同，
-		// 按 Key 改号对齐生图顺序（缓存里存的是 sidecar 原文，每次从原文改，重放幂等）
-		prompt := pipeline.RemapTryonPrompt(ar.Prompt, withModel(sel, m).Images, order)
 		gp := genParams{AspectRatio: orDefault(p.AspectRatio, pipeline.NearestAspectRatio(m.Width, m.Height)), Resolution: p.Resolution, Quality: opt.Quality}
 		req, warns, err := pipeline.BuildImageEditRequestRefs(pipeline.KindTryon, g, prompt, mediaRefs(order),
 			gp.Resolution, gp.AspectRatio, r.labels(t), opt)
@@ -723,8 +771,15 @@ func (r *batchRun) tryon(ctx context.Context) error {
 		if p.FineRead {
 			meta["fine_read"] = true
 		}
+		if view != "" { // 这位模特的面（后台排查「为什么这张只有背面图」）
+			meta["model_view"] = view
+		}
 		// 给用户看的提示（任务详情 warnings）：读图降级 / 品类不符换成固定中文，参考图截断说明本来就是用户文案；sidecar 原文只留在 warnings（后台排查）
-		if uw := pipeline.DedupeStrings(append(pipeline.ReadWarnings(ar.Meta, ar.Warning, p.Items), gen.Warnings()...)); len(uw) > 0 {
+		uws := append(pipeline.ReadWarnings(ar.Meta, ar.Warning, p.Items), gen.Warnings()...)
+		if w := viewWarn[view]; w != "" {
+			uws = append(uws, w)
+		}
+		if uw := pipeline.DedupeStrings(uws); len(uw) > 0 {
 			meta[metaUserWarnings] = uw
 		}
 		warns = append(warns, gen.Warnings()...)
@@ -737,6 +792,19 @@ func (r *batchRun) tryon(ctx context.Context) error {
 		return err
 	}
 	return r.stage(ctx, model.BatchGenerating)
+}
+
+// viewLabels 模特图的面的中文名（给用户的提示用）。
+var viewLabels = map[string]string{pipeline.ViewFront: "正面", pipeline.ViewBack: "背面", pipeline.ViewSide: "侧面"}
+
+// hasView list 里是否有属于 view 的图。
+func hasView(list []pipeline.Image, view string) bool {
+	for _, im := range list {
+		if pipeline.ViewOf(im) == view {
+			return true
+		}
+	}
+	return false
 }
 
 // metaUserWarnings prompt_meta 里给用户看的提示（中文、不含供应商原文），任务详情 TaskInfo.warnings 原样透出。
@@ -863,16 +931,26 @@ func (r *batchRun) pose(ctx context.Context) error {
 	for i, u := range p.PoseImageURLs {
 		poses[i] = pipeline.Image{Key: fmt.Sprintf("p-%d", i+1), Kind: pipeline.ImagePose, Source: i, URL: strings.TrimSpace(u)}
 	}
+	// 服装参考图（单人，≤6）：图 3+，只送生图 / 读图，不当姿势
+	gar := make([]pipeline.Image, len(p.GarmentImageURLs))
+	for i, u := range p.GarmentImageURLs {
+		gar[i] = pipeline.Image{Key: fmt.Sprintf("pg-%d", i+1), Kind: pipeline.ImageGarment, Role: "服装", Source: i, URL: strings.TrimSpace(u)}
+	}
 	if err := r.stage(ctx, model.BatchPrompting); err != nil { // 姿态没有切图
 		return err
 	}
-	var source *reverse.PoseSource
+	var (
+		source      *reverse.PoseSource
+		garmentUsed int    // 实际送生图的服装参考图张数（读不出来 / 多人时为 0，见 resolvePoseGarments）
+		garmentWarn string // 服装图没用上时给用户的提示
+	)
 	results := make([]*reverse.PosePrompt, len(poses))
 	mappingWarns := make([][]string, len(poses)) // 每张姿势图的配对告警（写进子任务 meta）
 	err := r.plan(ctx,
 		step(pipeline.StepIngest, func(ctx context.Context) (pipeline.StepLog, error) {
 			all := append([]*pipeline.Image{&src}, ptrs(poses)...)
-			err := r.prepareAll(ctx, all, func(im *pipeline.Image) int { // 原图 1600、姿势 1400（s1.1）
+			all = append(all, ptrs(gar)...)
+			err := r.prepareAll(ctx, all, func(im *pipeline.Image) int { // 原图 1600、姿势 1400（s1.1）、服装参考图 1600
 				if im.Kind == pipeline.ImagePose {
 					return 1400
 				}
@@ -886,8 +964,9 @@ func (r *batchRun) pose(ctx context.Context) error {
 			return pipeline.StepLog{Images: len(all)}, err
 		}),
 		step(pipeline.StepSource, func(ctx context.Context) (pipeline.StepLog, error) {
-			lg := pipeline.StepLog{Images: 1}
-			key := pipeline.SourceKey(src.SHA1)
+			lg := pipeline.StepLog{Images: 1 + len(gar)}
+			// 带服装参考图：source 里含服装读图结果，缓存键带服装图集合；不复用配对预览的读图（它没读服装）
+			key := pipeline.SourceGarmentsKey(src.SHA1, shaOf(gar))
 			var c poseSourceCache
 			if ok, err := r.cacheGet(ctx, key, model.CacheSource, &c); err != nil {
 				return lg, err
@@ -897,7 +976,11 @@ func (r *batchRun) pose(ctx context.Context) error {
 				return lg, nil
 			}
 			// 用户做过配对预览：直接用预览读到的那份（人物左→右顺序与用户确认配对时一致），不再让 LLM 重读一遍
-			if s := r.previewSource(ctx, src.SHA1); s != nil {
+			var prev *reverse.PoseSource
+			if len(gar) == 0 {
+				prev = r.previewSource(ctx, src.SHA1)
+			}
+			if s := prev; s != nil {
 				source = s
 				r.cachePut(ctx, key, model.CacheSource, poseSourceCache{Source: s.Raw, Meta: s.Meta})
 				logx.WithContext(ctx).Infof("studio: 批次 %d 复用配对预览的原图读图结果（%d 人）", r.b.ID, s.Source.PeopleCount())
@@ -905,7 +988,7 @@ func (r *batchRun) pose(ctx context.Context) error {
 			}
 			actx, cancel := context.WithTimeout(ctx, r.f.analyzeTimeout())
 			defer cancel()
-			s, err := r.f.rev.PoseSource(actx, src.Data)
+			s, err := r.f.rev.PoseSource(actx, src.Data, dataOf(gar)...)
 			if err != nil {
 				return lg, err // 422 无人物 / 未成年 → classify 用 sidecar 文案，整批失败退款
 			}
@@ -919,6 +1002,14 @@ func (r *batchRun) pose(ctx context.Context) error {
 		}),
 		step(pipeline.StepPrompt, func(ctx context.Context) (pipeline.StepLog, error) {
 			lg := pipeline.StepLog{Images: len(poses)}
+			// 服装参考图能不能用上，决定提示词里有没有「图3+」那一段：在发 pose/prompt 之前定下来（缓存命中的 source 也走这里）
+			var gwarn string
+			garmentUsed, gwarn, source = resolvePoseGarments(source, len(gar))
+			if gwarn != "" {
+				garmentWarn = gwarn
+				lg.Warnings = append(lg.Warnings, gwarn)
+				logx.WithContext(ctx).Infof("studio: 批次 %d 姿态服装参考图未使用: %s (check=pose_garments_unused)", r.b.ID, gwarn)
+			}
 			actx, cancel := context.WithTimeout(ctx, r.f.analyzeTimeout())
 			defer cancel()
 			var (
@@ -987,14 +1078,18 @@ func (r *batchRun) pose(ctx context.Context) error {
 		g := orDefault(t.ModelGroup, group)
 		opt := r.genOptions(ctx, g)
 		gp := genParams{AspectRatio: orDefault(p.AspectRatio, pipeline.NearestAspectRatio(src.Width, src.Height)), Resolution: p.Resolution, Quality: opt.Quality}
-		// G4：图 1 = 原图，图 2 = 姿势
-		req, warns, err := pipeline.BuildImageEditRequestRefs(pipeline.KindPose, g, results[i].Prompt, mediaRefs([]pipeline.Image{src, poses[i]}),
+		// G4：图 1 = 原图，图 2 = 姿势，图 3+ = 服装参考图（提示词里的「图3–图N」与此逐张对应）
+		refs := append([]pipeline.Image{src, poses[i]}, gar[:garmentUsed]...)
+		req, warns, err := pipeline.BuildImageEditRequestRefs(pipeline.KindPose, g, results[i].Prompt, mediaRefs(refs),
 			gp.Resolution, gp.AspectRatio, r.labels(t), opt)
 		if err != nil {
 			return "", nil, nil, &stepError{Step: pipeline.StepGenerate, User: "生图请求构造失败，点数已退回", Err: err}
 		}
 		text, _ := promptOf(req.Input)
 		inputs := []model.InputImage{inputImage(src, "source"), inputImage(poses[i], "pose")}
+		for _, im := range gar[:garmentUsed] {
+			inputs = append(inputs, inputImage(im, "garment"))
+		}
 		meta := map[string]any{"pose_key": poses[i].Key, "orientation_deg": results[i].Pose.OrientationDeg,
 			"face_visible": results[i].Pose.FaceVisible, "reverse_model": results[i].Meta.Model, "gen": gp}
 		if results[i].Mapping != nil { // 多人：实际使用的配对与两边人数（后台排查「谁学了谁」）
@@ -1005,6 +1100,12 @@ func (r *batchRun) pose(ctx context.Context) error {
 		var uw []string
 		for _, w := range mappingWarns[i] {
 			uw = append(uw, pipeline.PoseMappingUserWarning(w))
+		}
+		if garmentUsed > 0 {
+			meta["garment_images"] = garmentUsed
+		}
+		if garmentWarn != "" {
+			uw = append(uw, garmentWarn)
 		}
 		if uw = pipeline.DedupeStrings(uw); len(uw) > 0 {
 			meta[metaUserWarnings] = uw
@@ -1203,4 +1304,67 @@ func (r *batchRun) imagegen(ctx context.Context) error {
 		return err
 	}
 	return r.stage(ctx, model.BatchGenerating)
+}
+
+// shaOf / dataOf 一组图的 sha1（按顺序）/ data URL（按顺序）。
+func shaOf(list []pipeline.Image) []string {
+	out := make([]string, 0, len(list))
+	for _, im := range list {
+		out = append(out, im.SHA1)
+	}
+	return out
+}
+
+func dataOf(list []pipeline.Image) []string {
+	out := make([]string, 0, len(list))
+	for _, im := range list {
+		out = append(out, im.Data)
+	}
+	return out
+}
+
+// resolvePoseGarments 带服装参考图的姿态 source 读完后，决定服装图能不能用，返回实际送生图的张数、给用户的提示、
+// 以及（不能用时抹掉服装段的）source。判据：
+//   - 没带服装图：原样返回；
+//   - 服装读图失败（garment_error）或一件都没读出（garment_refs 空）：提示词里不会有「图3+」那段，也就不送服装图；
+//   - 原图多于 1 人：服装参考图当前只支持单人（garment_person 固定 0），不用并提示；
+//   - sidecar 实际读的张数 ≠ 我们发的张数：以 sidecar 读的张数为准（提示词里的「图3–图N」用它），多出来的不送。
+//
+// 不能用时把 source 里的 garment_* 键删掉再交给 pose/prompt，否则提示词会引用没送的图。
+func resolvePoseGarments(source *reverse.PoseSource, sent int) (used int, warn string, out *reverse.PoseSource) {
+	if sent == 0 || source == nil {
+		return 0, "", source
+	}
+	d := source.Source
+	switch {
+	case d.GarmentError != "" || len(d.GarmentRefs) == 0:
+		return 0, "服装参考图没能读取成功，本次未使用服装参考图", stripGarments(source)
+	case d.PeopleCount() > 1:
+		return 0, "多人姿态暂不支持服装参考图，本次未使用服装参考图", stripGarments(source)
+	}
+	used = sent
+	if n := d.GarmentImageCount; n > 0 && n < sent {
+		used = n
+	}
+	return used, "", source
+}
+
+// stripGarments 返回去掉服装读图结果（garment_refs / garment_image_count / garment_missing_views / garment_person / garment_error）的 source 副本。
+func stripGarments(src *reverse.PoseSource) *reverse.PoseSource {
+	out := *src
+	out.Source.GarmentRefs, out.Source.GarmentImageCount, out.Source.GarmentError = nil, 0, ""
+	raw := src.Raw
+	if len(raw) == 0 {
+		raw, _ = json.Marshal(src.Source)
+	}
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &m); err != nil {
+		out.Raw = raw
+		return &out
+	}
+	for _, k := range []string{"garment_refs", "garment_image_count", "garment_missing_views", "garment_person", "garment_error"} {
+		delete(m, k)
+	}
+	out.Raw, _ = json.Marshal(m)
+	return &out
 }

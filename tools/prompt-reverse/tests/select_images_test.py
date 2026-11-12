@@ -189,5 +189,64 @@ class SelectImagesTest(unittest.TestCase):
         self.assertEqual(len(out), 3)
 
 
+def aimg(role, angle, label="", tag=None):
+    im = img(role, label, tag)
+    im["angle"] = angle
+    return im
+
+
+class ModelViewTest(unittest.TestCase):
+    """2026-11-10.13：model_view = front|back|side 过滤主图与裁切；image_order=input 保持宿主给的顺序。"""
+
+    def _payload(self, view, **extra):
+        p = {"category": "top", "model_view": view, "image_order": "input",
+             "images": [aimg("上衣", "front", tag="F1"), aimg("上衣", "back", tag="B1"),
+                        aimg("上衣", "side", tag="S1"), aimg("局部细节", "side", "上衣·侧缝", tag="SC"),
+                        aimg("局部细节", "front", "上衣·领口", tag="FC"), img("人物模特", tag="M")]}
+        p.update(extra)
+        return p
+
+    def test_model_view_aliases(self):
+        for raw, want in (("side", "side"), ("侧面", "side"), ("侧身", "side"), ("侧背", "side"), ("侧", "side"),
+                          ("front", "front"), ("背面", "back"), ("", "")):
+            self.assertEqual(sr._model_view({"model_view": raw}), want, raw)
+
+    def test_each_view_keeps_only_that_angle(self):
+        for view, tag in (("front", "F1"), ("back", "B1"), ("side", "S1")):
+            out = select_images(self._payload(view))
+            tags = [im["data"].split(",")[1] for im in out]
+            self.assertIn(tag, tags)
+            for other in {"F1", "B1", "S1"} - {tag}:
+                self.assertNotIn(other, tags)
+
+    def test_input_order_is_kept_and_manifest_matches(self):
+        out = select_images(self._payload("side"))
+        manifest = sr.image_manifest(out)
+        self.assertEqual([m["ref"] for m in manifest], ["参考图%d" % i for i in range(1, len(out) + 1)])
+        self.assertEqual(out[-1]["role"], "人物模特")
+        self.assertEqual(manifest[0]["angle"], "side")
+
+    def test_side_word_does_not_match_inside_outside(self):
+        self.assertEqual(sr._image_view({"angle": "", "label": "outside pocket"}), "")
+        self.assertEqual(sr._image_view({"angle": "side"}), "side")
+        self.assertEqual(sr._image_view({"label": "正面和侧面"}), "side")
+
+    def test_no_matching_angle_keeps_all(self):
+        p = {"category": "top", "model_view": "side", "images": [aimg("上衣", "front", tag="F9"), img("人物模特")]}
+        self.assertEqual(len(select_images(p)), 2)
+
+    def test_include_crops_false_drops_crops(self):
+        out = select_images(self._payload("side", include_crops=False))
+        self.assertFalse([im for im in out if im["role"] == "局部细节"])
+
+    def test_manifest_echoes_host_key(self):
+        p = self._payload("side")
+        for i, im in enumerate(p["images"]):
+            im["key"] = "k%d" % i
+        out = select_images(p)
+        manifest = sr.image_manifest(out)
+        self.assertEqual([m["key"] for m in manifest], [im["key"] for im in out])
+
+
 if __name__ == "__main__":
     unittest.main()

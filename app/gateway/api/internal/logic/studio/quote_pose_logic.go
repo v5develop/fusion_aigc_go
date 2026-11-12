@@ -30,10 +30,14 @@ func NewQuotePoseLogic(ctx context.Context, svcCtx *svc.ServiceContext) *QuotePo
 }
 
 func (l *QuotePoseLogic) QuotePose(req *types.StudioPoseQuoteReq) (resp *types.StudioQuoteResp, err error) {
-	out, err := l.svcCtx.StudioRpc.Quote(l.ctx, &studio_client.QuoteReq{
+	in := &studio_client.QuoteReq{
 		UserId: ctxdata.UserID(l.ctx), Kind: "pose", Model: req.Model, Resolution: req.Resolution,
 		AspectRatio: req.AspectRatio, TaskTotal: int32(len(req.PoseImageUrls)),
-	})
+	}
+	if n := int32(len(req.GarmentImageUrls)); n > 0 { // 带服装参考图才告诉 studio 张数（按请求参数冻结的载体用）；不带的报价与旧版一致
+		in.RefImageCount = &n
+	}
+	out, err := l.svcCtx.StudioRpc.Quote(l.ctx, in)
 	if err != nil {
 		return nil, err
 	}

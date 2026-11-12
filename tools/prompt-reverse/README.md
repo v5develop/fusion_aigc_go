@@ -2,7 +2,13 @@
 
 Python 标准库服务（`serve_reverse.py` + 网关客户端 `aig_client.py`），给 Go 侧（studio-rpc / 商拍与姿态编排）做「读图 + 反推提示词」。模型仍是 DeepSeek 视觉模型，但**经 ai-gateway 调用**（调用方 `prompt-reverse`，模型组默认 `vlm.deepseek-flash`），不再直连 api.deepseek.com、不持有 DeepSeek Key；**不生成图片**，没有页面、没有计费、没有对外转发。
 
-版本：`2026-11-10.merged`（`/api/status` 返回；在 11-07.merged 基础上只加了 analyze 的 `fine` 精细读图，旧版 sidecar 忽略该字段、按普通 deep 读图）。来源：上一版 `2026-10-30.merged` 三方合并产品方两个交付包——姿态段取 `prism-pose-fission-delivery-2026-11-07.1`（多人 1–4 人、`mapping`、人数漏检重问、全员未成年校验），商拍段（反推 / 试穿 / 组合 / 裁切）取 `prism-reverse-update-2026-11-07.2`（裁切重试与兜底框、target/keep、【层叠顺序】、按品类覆盖范围锁、内衣专用结构、Seedream `prompt_version=new`）；本仓自己的改动（经 ai-gateway、只留内网路由、`_colors_text` 修复、10-30.1 的「按件面料」）保留。合并清单写在 `serve_reverse.py` 文件头注释里。**提示词模板、清洗函数、CATS、读图字段整理一律以交付包为准，不自己改**——要改先过黄金回归。
+版本：`2026-11-10.13.merged`（`/api/status` 返回）。2026-11-12 在 `2026-11-10.merged` 上并入交付包 2026-11-10.13：商拍反推完整版（41 区块 / 19 维度，Compact 已移除）、`model_view` 按面过滤、`image_order` / `image_manifest`、`include_crops`、`user_prompt` 合并、`pose_mode`、`negative_prompt`、材质槽与材质锁定、裤型 / 口袋 / 人体比例锁，姿态服装参考图（`garments` ≤6、`garment_person`、图1 原图 / 图2 姿势 / 图3+ 服装），以及 side 补丁（`model_view=side`）；本仓自己的改动（经 ai-gateway、只留内网路由、`fine` 精细读图、按件面料、`_colors_text` 修复）全部保留，不并入的东西见同目录 `MERGE-2026-11-10.13.md`。更早来源：`2026-10-30.merged` 三方合并产品方两个交付包，姿态段取 `prism-pose-fission-delivery-2026-11-07.1`，商拍段取 `prism-reverse-update-2026-11-07.2`。合并清单写在 `serve_reverse.py` 文件头注释里。**提示词模板、清洗函数、CATS、读图字段整理一律以交付包为准，不自己改**，要改先过黄金回归。
+
+### 2026-11-10.13 新增请求 / 响应字段（只增，不带时与旧行为一致）
+
+- `analyze` / `analyze-batch` 请求：`model_view`（`front|back|side`，也认 正面 / 背面 / 侧面）按面过滤主图与裁切，该面没有图时保留全部；`images[].angle`（`front|back|side|...`，提示词写「整件服装（上衣·正面）」）；`image_order`（`garment_first` 默认 / `model_first` / `input` 保持传入顺序）；`include_crops`（false = 不引用裁切图）；`user_prompt`、`pose_mode`（`reference` 默认 / `user`）。响应：`image_manifest[]{index,ref,role,label,angle,key}`（实际读图顺序，提示词里「参考图N」的 N = `index`；**`key` 是本仓扩展**，原样回显请求里 `images[].key`，宿主按它对号入座）、`negative_prompt`、`user_intent`、`meta.prompt_mode`（恒 `full`）。
+- `pose/source` 请求：`garments[]`（data URL，至多 6 张）、`garment_person`（当前恒 0，单人专用）。响应 `source` 多 `garment_refs[]`、`garment_image_count`、`garment_missing_views`，服装读图失败时有 `garment_error`（此时提示词里没有服装段）。
+- 请求体上限 32MB（原 24MB：原图 + 姿势图 + 6 张服装图）。
 
 ### 2026-11-07 这次变了什么
 
@@ -21,7 +27,7 @@ Python 标准库服务（`serve_reverse.py` + 网关客户端 `aig_client.py`）
 
 ## 路由
 
-未知路由一律 404。所有 POST 为 `application/json`，body ≤ 24MB，否则 413；JSON 无法解析 400；业务校验失败 422（pose、crop-plan、crop-check）或 400（analyze-batch）；上游读图失败/未配置网关 502。
+未知路由一律 404。所有 POST 为 `application/json`，body ≤ 32MB，否则 413；JSON 无法解析 400；业务校验失败 422（pose、crop-plan、crop-check）或 400（analyze-batch）；上游读图失败/未配置网关 502。
 
 图片字段一律是 **data URL**（`data:image/...;base64,...`），非 data URL 的图会被静默丢弃。
 
@@ -81,7 +87,7 @@ docker build -t prompt-reverse . && docker run --rm -e AIG_BASE_URL=... -e AIG_S
 - 默认只听 `127.0.0.1`；放进容器/内网时由网络层限制，不要映射公网端口。
 - 无鉴权：靠网络隔离，只允许 Go 服务访问。
 - 网关 secret 只存在于 sidecar 环境变量；`/api/status` 只返回是否已配置与网关地址（不含凭据）。日志只记路由名、耗时、状态码/失败类别，不记 secret、图片、提示词。
-- 请求体 24MB 上限（超限在读 body 前直接 413）；pose 单张图 12MB 上限。
+- 请求体 32MB 上限（超限在读 body 前直接 413）；pose 单张图 12MB 上限。
 - 不提供文件服务：`/.env`、`/serve_reverse.py` 等一律 404；代码中无任何上游转发、无外部固定 IP。
 
 ## 与 Go 的调用关系

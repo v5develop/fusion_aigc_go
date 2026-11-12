@@ -20,7 +20,7 @@ import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SERVER = os.path.join(os.path.dirname(HERE), "serve_reverse.py")
-MAX_BODY = 24 * 1024 * 1024
+MAX_BODY = 32 * 1024 * 1024
 SECRET = "route-test-secret-0123456789"
 TINY_PNG = ("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8"
             "z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")
@@ -108,7 +108,7 @@ class RoutesTest(unittest.TestCase):
         st, js = self.call("GET", "/api/status")
         self.assertEqual(st, 200)
         self.assertEqual(js["service"], "prompt-reverse")
-        self.assertEqual(js["version"], "2026-11-10.merged")
+        self.assertEqual(js["version"], "2026-11-10.13.merged")
         self.assertFalse(js["llm_configured"])
         self.assertEqual(js["model_group"], "vlm.deepseek-flash")
         self.assertEqual(js["model"], "vlm.deepseek-flash")

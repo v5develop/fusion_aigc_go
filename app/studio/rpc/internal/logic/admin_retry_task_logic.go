@@ -215,8 +215,12 @@ func (f *flow) retryCharge(t *model.Task, b *model.Batch) (billing.Charge, error
 	if r, _, err := pipeline.NormalizeForGroup(t.ModelGroup, p.Resolution, p.AspectRatio); err == nil {
 		res = r // 与提交时同口径（历史批次的快照可能是未归一的档位）
 	}
-	// 用量与提交同口径：图片生成的参考图张数取批次快照里的 image_urls
-	return quoteCharge(svc.EntryCode(f.cfg, t.Kind), b.UserID, t.ModelGroup, res, imageUsage(t.Kind, t.ModelGroup, len(p.ImageURLs))), nil
+	// 用量与提交同口径：图片生成的参考图张数取批次快照里的 image_urls，姿态取服装参考图 garment_image_urls
+	userRefs := len(p.ImageURLs)
+	if t.Kind == model.KindPose {
+		userRefs = len(p.GarmentImageURLs)
+	}
+	return quoteCharge(svc.EntryCode(f.cfg, t.Kind), b.UserID, t.ModelGroup, res, imageUsage(t.Kind, t.ModelGroup, userRefs)), nil
 }
 
 // releaseUnheldRetry 冻结失败后退还刚占到的轮次（attempt → attempt-1），让失败的冻结（如点数不足）不白白消耗重试次数。

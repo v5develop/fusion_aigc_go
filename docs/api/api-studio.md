@@ -127,7 +127,7 @@ v1.0 契约里的 `tool:image-generate`、`tool:ai-posture-fission`、`tool:ai-d
 
 ### 1.4 字段与时间
 
-- 请求体、查询参数、响应一律**下划线**命名。
+- 请求体、查询参数、响应一律**下划线**命名。网关同时认 camelCase（请求里的 `modelViews` 等价于 `model_views`，响应里每个下划线键另带一个 camelCase 别名，如 `model_views` → `modelViews`）；2026-11-12 新增的 `modelViews` / `garmentImageUrls` 前端按 camelCase 收发即可，文档里统一写下划线名。
 - 时间都是 **unix 毫秒**（`created_at`、`updated_at`、`started_at`、`finished_at`）；`started_at` / `finished_at` 为 0 表示还没发生。
 - 任务号 `task_id` 是字符串；批次号 `batch_id` / `id` 是数字。
 
@@ -223,6 +223,7 @@ Idempotency-Key: <UUID>
 | `cloth_image_url` | string | 否 | — | 旧版兼容位，**新前端不要传** |
 | `color_fix` | bool | 否 | — | 「默认校色」开关。`true` 时写进批次 `payload`（`"color_fix": true`），前端据此给这批结果套默认校色参数（见 5.7）；不影响生图与计费。不传 / `false` 时 `payload` 里没有这个键 |
 | `fine_read` | bool | 否 | — | 「精细读图」（反推交付包验收 F7 / T2）：反推读图走 sidecar 精细模式——逐块检查领口、袖口、五金、刺绣等小细节，提示词【设计细节保留】最多多 3 条；读图更慢（单次约多 5–10 秒）。**不另收费**（交付包未定价，报价 / 冻结与不勾一致）。不勾时与旧版完全一致。`true` 时写进 `payload`（`"fine_read": true`） |
+| `model_views` | string[] | 否 | 与 `model_image_urls` **同序同长**；每项 `front` / `back` / `side`（线上名 `modelViews`） | 只增（2026-11-12）。每位模特图拍的是哪个「面」。传了就按面给每位模特**单独**筛服装图：`front` 模特只用正面服装图 / 细节、`back` 只用背面、`side` 只用侧面（判定看服装图 `angle`，细节图另看部位名里的「后袋 / 侧面…」词，与反推服务同口径）；某个面一张图都没有时，该模特保留全部服装图并在任务 `warnings` 里提示「所选的 X 面模特没有对应角度的服装图，已使用全部服装图」。每位模特各有自己的任务与自己的提示词（同一张模特图用不同面会各反推一次）。不传 / 空数组 = 老行为（不筛，老客户端、AIGC 桥不受影响）；长度不符或取值不在三者之内 → `code=1003`。传了写进 `payload`（`"model_views": [...]`），不传时 `payload` 没有这个键 |
 | `detail_crops` | object[] | 否 | 总数 ≤24、每张服装图 ≤12 | 「AI 找细节」确认后的细节框（2.4 的结果，用户删减 / 重新裁切后原样带回）。每项 `{garment_index, label, box, confidence}`：`garment_index` 为 `garment_images` 下标（从 0 起），`box` 为归一化 `[x, y, w, h]`（0–1、`x+w≤1`、`y+h≤1`），`label` 部位名 ≤24 字。只在 `detail_crops_manual=true` 时生效 |
 | `detail_crops_manual` | bool | 否 | — | `true` = 用户确认过细节框：编排直接按 `detail_crops` 切细节图，**不再调 AI 找细节 / 质检**（`detail_crops` 为 `[]` = 用户删光了，不用细节图）；`false` / 不传 = 照旧由服务端自动找细节。生图时细节图仍按模型参考图上限截取（6.4），多出的不参与生成，提交响应 `warnings` 会说明「已选的 N 张中将保留 K 张」 |
 
@@ -236,7 +237,7 @@ Idempotency-Key: <UUID>
 
 `items` 取值：`top` 上衣、`bottom` 下装、`dress` 连衣裙、`outer` 外套、`shoes` 鞋子、`accessory` 配饰、`bra` 文胸、`panties` 内裤。互斥：连衣裙与上衣 / 下装、文胸与上衣 / 连衣裙、内裤与下装 / 连衣裙不能同时选。
 
-校验顺序与前端一致：**单品 → 服装图 → 模特图 → 张数 → 其余**。第一个不通过的就是返回的错误。
+校验顺序与前端一致：**单品 → 服装图 → 模特图 → 模特视角 `model_views` → 张数 → 其余**。第一个不通过的就是返回的错误。
 
 ### 2.2 响应
 
@@ -281,6 +282,8 @@ Idempotency-Key: <UUID>
 {"code": 1002, "reason": "PARAM_MISSING", "msg": "请上传模特图", "data": null}
 {"code": 1003, "reason": "PARAM_INVALID", "msg": "模特最多 9 位", "data": null}
 {"code": 1003, "reason": "PARAM_INVALID", "msg": "模特图第 1 张地址不合法，只支持 http(s) 地址", "data": null}
+{"code": 1003, "reason": "PARAM_INVALID", "msg": "模特视角数量（1）必须与模特图数量（2）一致", "data": null}
+{"code": 1003, "reason": "PARAM_INVALID", "msg": "模特视角第 2 项「left」不合法，只支持 front / back / side", "data": null}
 {"code": 1003, "reason": "PARAM_INVALID", "msg": "每位模特生成张数为 1–9", "data": null}
 {"code": 1003, "reason": "PARAM_INVALID", "msg": "成套方式只支持 one / two", "data": null}
 {"code": 1003, "reason": "PARAM_INVALID", "msg": "补充说明不能超过 3000 字", "data": null}
@@ -381,6 +384,7 @@ Idempotency-Key: <UUID>
 | `source_person_count` | int | 传 `mappings` 时必填 | 2–4 | 3.1.1 预览返回的 `source.person_count` 原样带回 |
 | `mappings` | object[] | 否 | 每张姿势图至多一条 | 多人配对（3.1.1 用户确认 / 反转后的结果）。不传的姿势图按默认配对（左→左、右→右） |
 | `color_fix` | bool | 否 | — | 「默认校色」开关，同商拍 2.1 |
+| `garment_image_urls` | string[] | 否 | ≤6 张；我方地址；仅单人；原图 + 姿势 + 服装图总数 ≤ 所选模型参考图上限（6.4；GPT Image 2.6 为 6，即最多 4 张）（线上名 `garmentImageUrls`） | 只增（2026-11-12）。服装参考图：生图输入顺序 **图1 原图 / 图2 姿势 / 图3+ 服装**，提示词写「图3–图N 是服装参考图，只用于核对服装结构，不参考其中的模特与背景」。与多人配对（`mappings` / `source_person_count`≥2）同传 → `code=1003`「多人姿态暂不支持服装参考图」；提交时没声明多人、但服务端读图发现原图是多人（或服装图读取失败）时，本批不使用服装图，任务 `warnings` 写明原因，点数照常结算（GPT Image 2.6 按实际用量、其它模型按固定价，多冻结的部分退回）。服装图的归属 / 可取性与人物图、姿势图同口径校验。不传 = 老行为；传了写进 `payload`（`"garment_image_urls": [...]`） |
 | `mappings[].pose_index` | int | 是 | `0` ~ 姿势图张数-1，不重复 | 姿势序号 |
 | `mappings[].mapping` | int[] | 是 | 长度 = `source_person_count`；值在 `-1` ~ `pose_person_count-1`；非负值不重复；至少一个非负值 | `mapping[i]` = 原图第 i 位人物（左→右）学姿势图第几位人物（左→右，从 0 起）；`-1` = 保持原姿势 |
 | `mappings[].pose_person_count` | int | 是 | 1–4 | 3.1.1 预览返回的该姿势图 `pose.person_count` 原样带回 |
@@ -401,6 +405,11 @@ Idempotency-Key: <UUID>
 {"code": 1003, "reason": "PARAM_INVALID", "msg": "单张说明的姿势序号 5 超出范围", "data": null}
 {"code": 1003, "reason": "PARAM_INVALID", "msg": "姿势 2 的说明不能超过 3000 字", "data": null}
 {"code": 1003, "reason": "PARAM_INVALID", "msg": "pose_prompts 的键应为姿势下标（从 0 起）：abc", "data": null}
+{"code": 1003, "reason": "PARAM_INVALID", "msg": "服装参考图最多 6 张", "data": null}
+{"code": 1003, "reason": "PARAM_INVALID", "msg": "服装参考图第 1 张还没上传完成，请等上传结束再提交", "data": null}
+{"code": 1003, "reason": "PARAM_INVALID", "msg": "多人姿态暂不支持服装参考图", "data": null}
+{"code": 1003, "reason": "PARAM_INVALID", "msg": "所选模型最多支持 6 张参考图，原图和姿势图占 2 张，服装参考图最多 4 张（已选 5 张），请减少服装参考图或换用其它模型", "data": null}
+{"code": 1003, "reason": "PARAM_INVALID", "msg": "服装参考图第 2 张 不是本服务上传的地址", "data": null}
 {"code": 1003, "reason": "PARAM_INVALID", "msg": "人物配对需要原图人数（2–4），请先预览配对", "data": null}
 {"code": 1003, "reason": "PARAM_INVALID", "msg": "姿势 1 的人物配对应为 2 位（与原图人数一致），实际 3 位", "data": null}
 {"code": 1003, "reason": "PARAM_INVALID", "msg": "姿势 1 的人物配对第 1 位取值 2 超出范围（-1 到 1）", "data": null}
@@ -723,6 +732,8 @@ GET /api/v1/studio/batches/:id
 - 服务端推进（只影响延迟，接口不变）：每个生成中的子任务一直对网关长轮询（`GET /v1/calls/{id}?wait=AiGateway.LongPollWait`，默认 20 秒）直到终态，出图后约 0–1 秒内开始交付；轮询名额取 `max(Poll.Workers, Poll.MaxRunning)`（默认都是 64）。一个子任务到终态立刻派发同批的下一个排队子任务（每批并发 `Poll.Concurrency`，默认 3），不等下一轮扫描（`Poll.IntervalSeconds`，5 秒，只兜底）。编排名额按 kind 分池（`Poll.KindBatchConcurrency`：商拍 2 / 姿态 2 / 图片生成 4），商拍几分钟的切图 + 反推不再挤占图片生成。提交时逐张冻结按 `Poll.HoldConcurrency`（默认 4）并发；任一张冻结失败，已冻结的每张恰好退回一次，批次与子任务置失败，接口照旧返回失败原因。任务中心同步（2026-11-11）移出提交接口与批次收敛路径：异步合并执行、暂时失败重试 2 次，后台每轮扫描兜底；新批次 / 终态出现在任务中心可能晚 1–2 秒，提交接口少等一次全量窗口同步。
 - 通用的异步轮询说明见 `任务调用与轮询对接文档.md`；那份文档里的 `waiting/running/success` 是执行面的状态，studio 以本文 4.1 / 4.2 为准。
 
+**只增（2026-11-12）**：`batch` 另带 `model_views`（商拍，与 `model_image_urls` 同序，如 `["front","back"]`）与 `garment_image_urls`（姿态服装参考图），没传过为 `[]`，响应里同时有 `modelViews` / `garmentImageUrls` 别名；值与 `payload` 里的同名键一致，是给「重新编辑」直接回填用的便利字段（详情、历史列表、取消响应里的 `batch` 都带）。
+
 ### 5.2 单个任务
 
 ```
@@ -846,8 +857,8 @@ GET /api/v1/studio/history?kind=tryon&cursor=&limit=20
 
 | kind | 回填字段 |
 |---|---|
-| `tryon` | `model_image_urls`、`garment_images`、`items`、`set_mode`、`lengths`、`sleeves`、`fabric`、`prompt`、`model`、`resolution`、`aspect_ratio`、`count_per_model`；开了「默认校色」的批次另有 `color_fix: true`；勾了「精细读图」另有 `fine_read: true`；确认过细节框另有 `detail_crops_manual: true` + `detail_crops`（重新编辑时若换了服装图，要清掉或重新找细节） |
-| `pose` | `source_image_url`、`pose_image_urls`、`global_prompt`、`pose_prompts`、`model`、`resolution`、`aspect_ratio`；带了多人配对的批次另有 `source_person_count`、`mappings`（重新编辑时若换了图，要重新预览）；开了「默认校色」的批次另有 `color_fix: true` |
+| `tryon` | `model_image_urls`、`garment_images`、`items`、`set_mode`、`lengths`、`sleeves`、`fabric`、`prompt`、`model`、`resolution`、`aspect_ratio`、`count_per_model`；传了模特视角的批次另有 `model_views`（与 `model_image_urls` 同序；重新编辑时若增删 / 重排了模特图，要同步调整）；开了「默认校色」的批次另有 `color_fix: true`；勾了「精细读图」另有 `fine_read: true`；确认过细节框另有 `detail_crops_manual: true` + `detail_crops`（重新编辑时若换了服装图，要清掉或重新找细节） |
+| `pose` | `source_image_url`、`pose_image_urls`、`global_prompt`、`pose_prompts`、`model`、`resolution`、`aspect_ratio`；带了服装参考图的批次另有 `garment_image_urls`；带了多人配对的批次另有 `source_person_count`、`mappings`（重新编辑时若换了图，要重新预览）；开了「默认校色」的批次另有 `color_fix: true` |
 | `imagegen` | `prompt`、`image_urls`、`model`、`resolution`、`aspect_ratio`、`count`、`rewrite_prompt` |
 
 回填时注意：
@@ -1082,6 +1093,10 @@ POST /api/v1/studio/masks
 
 用户自选细节框（`detail_crops_manual=true`）时，「细节图将减少为约 k 张」这句换成按实际框数：`所选模型最多还能放 {k} 张细节图，已选的 {n} 张中将保留 {k} 张`（名额为 0：`…已选的 {n} 张细节图将不参与生成`）。
 
+**模特视角 `model_views` 与参考图编号**：按面筛过的服装图是**这位模特**的反推读图与生图参考图的同一份来源；提示词里的「参考图 N」始终以生图实际送出的顺序为准：反推服务返回 `image_manifest`（它实际读了哪些图、什么顺序，每项回显我们发的图片 key），服务端按 key 把提示词里的编号改写成生图顺序（图 1 = 模特，其后主图、细节）。反推服务过滤 / 去重 / 重排了图片也不会错位；旧版反推服务没有 `image_manifest` 时按发送顺序改号。
+
+**姿态服装参考图**：一次姿态生图送 `2 + 服装图张数` 张参考图，同样受该模型参考图上限约束（提交时校验，见 3.1）。
+
 ## 7. 计费口径
 
 - **按任务预留与结算**：每个任务（一张图）一张预留单。提交时对所有任务各冻结一次点数，任何一张冻结失败（如点数不足）**整批回滚**（已冻结的全部退回，批次记为 5「全部失败」），返回 `code=3003`。
@@ -1098,7 +1113,7 @@ POST /api/v1/studio/masks
   报价 / 模型价目里 `settle_mode=ACTUAL_COST` 时，前端把「消耗 N 点」换成「**按实际用量结算，最多 N 点**」（N = `max_points`，与 `points` 相同）；`estimated_points` 仍是冻结额。
 - **按本次参数冻结（2026-11-10 起，Java V1.0.223）**：上面这些载体配了 `afv_ai_model.freeze_cap_json` 时，冻结不再按价目表最坏档，而是按本次的分辨率、质量与参考图张数，用 Atlas 公布的预扣上限算每张最多扣多少：
   `每张 = min(价目表单价, max(1, ceil((输出上限 + 参考图张数 × $0.056192 + 辅助 $0.005) × 汇率 × 加价倍率 × 100)))`（输出上限 1024² low $0.0687 / medium $0.1061 / high $0.2326，2K / 4K 按档位最大面积放大；有参考图时网关固定 medium）。
-  质量与编排同口径（商拍 high、其余 medium，有参考图一律 medium）；参考图张数取上界：商拍 6（细节裁图编排时才知道）、姿态 2、图片生成 = 用户参考图张数（≤5）。例：图片生成 1k 文生图 104 点、1k 3 张参考图 262 点，姿态 1k 210 点，商拍 1k 仍 420 点。成功后照旧按实际用量结算（上限 = 冻结额）。
+  质量与编排同口径（商拍 high、其余 medium，有参考图一律 medium）；参考图张数取上界：商拍 6（细节裁图编排时才知道）、姿态 2 + 服装参考图张数（`garment_image_urls`，不传 = 2；2026-11-12 起）、图片生成 = 用户参考图张数（≤5）。**只有这一类「按本次参数冻结」的载体（GPT Image 2.6）的价格随参考图张数变化；其它模型按张固定价，服装参考图不加价。**例：图片生成 1k 文生图 104 点、1k 3 张参考图 262 点，姿态 1k 210 点，商拍 1k 仍 420 点。成功后照旧按实际用量结算（上限 = 冻结额）。
   `max_points` / `points` / `estimated_points` 都是这个按参数算出的数。图片生成的报价要知道参考图张数：请求体带 `image_urls`（只用张数，可直接发提交体；文生图传 `[]`），不带时按该模型参考图上限报（最多扣多少不会比提交冻得少）。
 - **历史多扣补退**：按实际用量结算上线前（Java V1.0.215 起）已按冻结上限确认的画布 / 商拍单，用 `go run ./tools/ops/actual-cost-refund -dsn … -gateway … -secret … -since '<V1.0.215 上线时间>'`（默认 dry-run，加 `-apply` 才退）按同一公式补退差额；每张预留单只退一次（流水幂等键 `actual-cost-refund:{reservationNo}`），预留单置 `PARTIALLY_REFUNDED`。**先跑 ai-gateway 的历史调用成本回填脚本**（让 `GET /v1/calls/{id}` 的 `cost` 变成 `source=reported, final=true`），否则这些单会判为 `no_reported_cost` 跳过；回填后重跑即可。成功后又「重新生成」的旧轮次（请求号被新一轮覆盖）对不上调用号，工具只列为 `UNMATCHED` 供人工处理。
 
@@ -1107,7 +1122,7 @@ POST /api/v1/studio/masks
 | 功能 | 报价接口 | 计价张数 `task_total` |
 |---|---|---|
 | 商拍换装 | `POST /tryon/quote` | `model_image_urls` 张数 × `count_per_model` |
-| 姿态复刻 | `POST /pose/quote` | `pose_image_urls` 张数 |
+| 姿态复刻 | `POST /pose/quote` | `pose_image_urls` 张数（另读 `garment_image_urls` 张数，只对 GPT Image 2.6 有影响，见上文；不传按 2 张参考图报） |
 | 图片生成 | `POST /image-generate/quote` | `count`（另读 `image_urls` 张数，见上文「按本次参数冻结」） |
 
 - 请求体与对应的提交接口**同构**，可以直接把提交体发过来；只读取上表的张数字段和 `model` / `resolution` / `aspect_ratio`，其余字段忽略。字段全部选填，**不需要** `Idempotency-Key`。

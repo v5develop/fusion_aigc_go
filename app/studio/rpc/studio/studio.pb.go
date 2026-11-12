@@ -143,8 +143,11 @@ type SubmitTryonReq struct {
 	// 不再调 crop-plan / crop-check（为空 = 用户删光了，不用细节图）；false 时忽略 detail_crops，照旧自动找细节
 	DetailCrops       []*DetailCrop `protobuf:"bytes,19,rep,name=detail_crops,json=detailCrops,proto3" json:"detail_crops,omitempty"`
 	DetailCropsManual bool          `protobuf:"varint,20,opt,name=detail_crops_manual,json=detailCropsManual,proto3" json:"detail_crops_manual,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// 每位模特图的「面」（只增）：与 model_image_urls 同序同长，取值 front / back / side；不传 / 空 = 不筛（老客户端、AIGC 桥不受影响）。
+	// 传了就按面给这位模特单独筛服装图（正面模特不喂背面图……），校验见 CheckModelViews
+	ModelViews    []string `protobuf:"bytes,21,rep,name=model_views,json=modelViews,proto3" json:"model_views,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *SubmitTryonReq) Reset() {
@@ -317,6 +320,13 @@ func (x *SubmitTryonReq) GetDetailCropsManual() bool {
 	return false
 }
 
+func (x *SubmitTryonReq) GetModelViews() []string {
+	if x != nil {
+		return x.ModelViews
+	}
+	return nil
+}
+
 // 一个细节框：garment_index 是 garment_images 的下标（从 0 起），box 为归一化 [x,y,w,h]（0–1，x+w≤1、y+h≤1）
 type DetailCrop struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -404,8 +414,11 @@ type SubmitPoseReq struct {
 	SourcePersonCount int32          `protobuf:"varint,11,opt,name=source_person_count,json=sourcePersonCount,proto3" json:"source_person_count,omitempty"`
 	Mappings          []*PoseMapping `protobuf:"bytes,12,rep,name=mappings,proto3" json:"mappings,omitempty"`
 	ColorFix          bool           `protobuf:"varint,13,opt,name=color_fix,json=colorFix,proto3" json:"color_fix,omitempty"` // 「默认校色」开关，同 SubmitTryonReq.color_fix
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// 服装参考图（只增，≤6 张）：生图输入顺序 图1 原图 / 图2 姿势 / 图3+ 服装；只支持单人，多人配对 + 服装图直接拒绝；
+	// 连同原图、姿势图不得超过所选模型的参考图上限
+	GarmentImageUrls []string `protobuf:"bytes,14,rep,name=garment_image_urls,json=garmentImageUrls,proto3" json:"garment_image_urls,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *SubmitPoseReq) Reset() {
@@ -527,6 +540,13 @@ func (x *SubmitPoseReq) GetColorFix() bool {
 		return x.ColorFix
 	}
 	return false
+}
+
+func (x *SubmitPoseReq) GetGarmentImageUrls() []string {
+	if x != nil {
+		return x.GarmentImageUrls
+	}
+	return nil
 }
 
 // 一张姿势图的人物配对。mapping[i] = 原图第 i 位人物（左→右）学姿势图第几位人物（左→右，从 0 起）；-1 = 该人物保持原姿势。
@@ -4051,7 +4071,7 @@ const file_studio_proto_rawDesc = "" +
 	"\fGarmentImage\x12\x10\n" +
 	"\x03url\x18\x01 \x01(\tR\x03url\x12\x12\n" +
 	"\x04role\x18\x02 \x01(\tR\x04role\x12\x14\n" +
-	"\x05angle\x18\x03 \x01(\tR\x05angle\"\xf3\x06\n" +
+	"\x05angle\x18\x03 \x01(\tR\x05angle\"\x94\a\n" +
 	"\x0eSubmitTryonReq\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12!\n" +
 	"\fworkspace_id\x18\x02 \x01(\x03R\vworkspaceId\x12\x1d\n" +
@@ -4076,7 +4096,9 @@ const file_studio_proto_rawDesc = "" +
 	"\tcolor_fix\x18\x11 \x01(\bR\bcolorFix\x12\x1b\n" +
 	"\tfine_read\x18\x12 \x01(\bR\bfineRead\x125\n" +
 	"\fdetail_crops\x18\x13 \x03(\v2\x12.studio.DetailCropR\vdetailCrops\x12.\n" +
-	"\x13detail_crops_manual\x18\x14 \x01(\bR\x11detailCropsManual\x1a:\n" +
+	"\x13detail_crops_manual\x18\x14 \x01(\bR\x11detailCropsManual\x12\x1f\n" +
+	"\vmodel_views\x18\x15 \x03(\tR\n" +
+	"modelViews\x1a:\n" +
 	"\fLengthsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1a:\n" +
@@ -4090,7 +4112,7 @@ const file_studio_proto_rawDesc = "" +
 	"\x03box\x18\x03 \x03(\x01R\x03box\x12\x1e\n" +
 	"\n" +
 	"confidence\x18\x04 \x01(\x01R\n" +
-	"confidence\"\xc3\x04\n" +
+	"confidence\"\xf1\x04\n" +
 	"\rSubmitPoseReq\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12!\n" +
 	"\fworkspace_id\x18\x02 \x01(\x03R\vworkspaceId\x12\x1d\n" +
@@ -4108,7 +4130,8 @@ const file_studio_proto_rawDesc = "" +
 	" \x01(\tR\vaspectRatio\x12.\n" +
 	"\x13source_person_count\x18\v \x01(\x05R\x11sourcePersonCount\x12/\n" +
 	"\bmappings\x18\f \x03(\v2\x13.studio.PoseMappingR\bmappings\x12\x1b\n" +
-	"\tcolor_fix\x18\r \x01(\bR\bcolorFix\x1a>\n" +
+	"\tcolor_fix\x18\r \x01(\bR\bcolorFix\x12,\n" +
+	"\x12garment_image_urls\x18\x0e \x03(\tR\x10garmentImageUrls\x1a>\n" +
 	"\x10PosePromptsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\x05R\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"r\n" +

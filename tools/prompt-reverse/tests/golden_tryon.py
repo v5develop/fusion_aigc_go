@@ -144,7 +144,8 @@ def validate_tryon_prompt(prompt, case):
     add("S2 单品顺序（单品锁定）", ok_lock, f"位置 {pos_lock}")
     ref = sec(secs, "参考图")
     if req.get("set_mode") == "two" or not any("整套" in str(i.get("role")) for i in req.get("images") or []):
-        seq = re.findall(r"整件服装（([^）]+)）", ref)
+        # 11-10.13 起主图标签带角度（「上衣·正面」），顺序只比较品类
+        seq = [x.split("·")[0] for x in re.findall(r"整件服装（([^）]+)）", ref)]
         want = []
         for im in req.get("images") or []:
             r = str(im.get("role") or "")

@@ -25,7 +25,10 @@ func NewSubmitPoseLogic(ctx context.Context, svcCtx *svc.ServiceContext) *Submit
 
 // 姿态复刻整批提交：人物 1 张 + 姿势 1–9 张，一个姿势一个子任务
 func (l *SubmitPoseLogic) SubmitPose(in *studio.SubmitPoseReq) (*studio.SubmitResp, error) {
-	v, err := ValidatePose(in, l.svcCtx.Config.ModelGroupMap())
+	// 服装参考图的张数上限取 gateway 目录（与 /studio/models、商拍同一份缓存）
+	v, err := ValidatePoseCap(in, l.svcCtx.Config.ModelGroupMap(), func(group string) int {
+		return catalogRefCap(studioCatalog.get(l.ctx, l.svcCtx.Gateway), group)
+	})
 	if err != nil {
 		return nil, err
 	}

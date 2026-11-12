@@ -102,6 +102,9 @@ message SubmitTryonReq {
   // 不再调 crop-plan / crop-check（为空 = 用户删光了，不用细节图）；false 时忽略 detail_crops，照旧自动找细节
   repeated DetailCrop detail_crops = 19;
   bool detail_crops_manual = 20;
+  // 每位模特图的「面」（只增）：与 model_image_urls 同序同长，取值 front / back / side；不传 / 空 = 不筛（老客户端、AIGC 桥不受影响）。
+  // 传了就按面给这位模特单独筛服装图（正面模特不喂背面图……），校验见 CheckModelViews
+  repeated string model_views = 21;
 }
 
 // 一个细节框：garment_index 是 garment_images 的下标（从 0 起），box 为归一化 [x,y,w,h]（0–1，x+w≤1、y+h≤1）
@@ -129,6 +132,9 @@ message SubmitPoseReq {
   int32 source_person_count = 11;
   repeated PoseMapping mappings = 12;
   bool color_fix = 13;                   // 「默认校色」开关，同 SubmitTryonReq.color_fix
+  // 服装参考图（只增，≤6 张）：生图输入顺序 图1 原图 / 图2 姿势 / 图3+ 服装；只支持单人，多人配对 + 服装图直接拒绝；
+  // 连同原图、姿势图不得超过所选模型的参考图上限
+  repeated string garment_image_urls = 14;
 }
 
 // 一张姿势图的人物配对。mapping[i] = 原图第 i 位人物（左→右）学姿势图第几位人物（左→右，从 0 起）；-1 = 该人物保持原姿势。

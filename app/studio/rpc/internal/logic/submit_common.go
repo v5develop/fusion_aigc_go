@@ -169,7 +169,8 @@ type submitSpec struct {
 	Resolution  string // 1k / 2k / 4k（已按 model group 归一，与实际下发、计费一致）
 	Slots       []slot
 	Warnings    []string // 归一告警（如 Seedream 4K → 2K），随 SubmitResp 回给前端
-	// UserRefs 图片生成用户给的参考图张数（按请求参数冻结用，见 imageUsage）；商拍 / 姿态不用
+	// UserRefs 额外的参考图张数（按请求参数冻结用，见 imageUsage）：图片生成 = 用户给的参考图张数；姿态 = 服装参考图张数
+	//（图 1 原图 + 图 2 姿势另算）；商拍不用
 	UserRefs int
 }
 
@@ -428,19 +429,19 @@ func quoteCharge(entry string, userID int64, modelGroup, resolution string, usag
 	}
 }
 
-// poseRefs 姿态复刻一次生图的参考图：图 1 原图 + 图 2 姿势（flow_batch.go pose）。
+// poseRefs 姿态复刻一次生图的基础参考图：图 1 原图 + 图 2 姿势（flow_batch.go pose），带服装参考图时图 3+ 另加。
 const poseRefs = 2
 
 // imageUsage 一张子任务出图的质量与参考图张数（上界）：质量与编排同一取值（pipeline.QualityFor，用户不能改）；
-// 参考图 商拍 = 该组上限（细节裁图要编排时才知道，按最坏）、姿态 = 2、图片生成 = min(用户参考图, 该组上限)，
-// userRefs < 0 表示不知道（报价没传参考图张数）→ 按上限。多算只会多冻，成功后按实际成本退回；少算会冻少，所以只取上界。
+// 参考图 商拍 = 该组上限（细节裁图要编排时才知道，按最坏）、姿态 = 2 + 服装参考图张数（userRefs，不知道按 0）、
+// 图片生成 = min(用户参考图, 该组上限)，userRefs < 0 表示不知道（报价没传参考图张数）→ 图片生成按上限。多算只会多冻，成功后按实际成本退回；少算会冻少，所以只取上界。
 func imageUsage(kind model.Kind, group string, userRefs int) *billing.ImageUsage {
 	k := string(kind)
 	limit := pipeline.RefCap(group, k, 0)
 	refs := limit
 	switch kind {
 	case model.KindPose:
-		refs = min(poseRefs, limit)
+		refs = min(poseRefs+max(userRefs, 0), limit)
 	case model.KindImageGen:
 		if userRefs >= 0 {
 			refs = min(userRefs, limit)
@@ -578,6 +579,10 @@ func tryonSpec(in *studio.SubmitTryonReq, v *TryonInput) *submitSpec {
 		Slots: tryonSlots(len(v.Models), int(v.CountPerModel)),
 	}
 	withColorFix(sp, in.ColorFix)
+	// 每位模特图的面：只在传了时写入，不传的提交 payload（及其幂等哈希）与旧版逐字一致；历史 / 详情回填按它恢复
+	if len(v.ModelViews) > 0 {
+		sp.Payload["model_views"] = v.ModelViews
+	}
 	// 精细读图 / 用户自选细节框：只在用到时写入，不用的提交 payload（及其幂等哈希）与旧版逐字一致
 	if v.FineRead {
 		sp.Payload["fine_read"] = true
@@ -617,6 +622,12 @@ func poseSpec(in *studio.SubmitPoseReq, v *PoseInput) *submitSpec {
 		},
 		URLs: append([]urlCheck{{"人物图", v.Source}}, urlChecks("姿势图", v.Poses)...), Texts: texts, ModelGroup: v.ModelGroup, Resolution: v.Resolution, Warnings: v.Warnings,
 		Slots: poseSlots(len(v.Poses)),
+	}
+	// 服装参考图：只在传了时写入（同上，不传的 payload / 幂等哈希与旧版一致）；归属与其它输入图同口径校验，参与参考图张数冻结
+	if len(v.Garments) > 0 {
+		sp.Payload["garment_image_urls"] = v.Garments
+		sp.URLs = append(sp.URLs, urlChecks("服装参考图", v.Garments)...)
+		sp.UserRefs = len(v.Garments)
 	}
 	// 多人配对：编排时传给 sidecar pose/prompt，历史回填时前端按它恢复配对。
 	// 只在传了配对时写入，不带配对的提交 payload（及其幂等哈希）与旧版逐字一致

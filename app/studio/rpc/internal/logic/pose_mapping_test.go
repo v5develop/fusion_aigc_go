@@ -172,7 +172,7 @@ func people(n int) []reverse.PoseSourcePerson {
 	return out
 }
 
-func (f *fakeRev) PoseSource(_ context.Context, data string) (*reverse.PoseSource, error) {
+func (f *fakeRev) PoseSource(_ context.Context, data string, _ ...string) (*reverse.PoseSource, error) {
 	if f.srcErr != nil {
 		return nil, f.srcErr
 	}

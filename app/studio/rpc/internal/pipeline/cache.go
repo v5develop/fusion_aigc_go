@@ -29,6 +29,26 @@ func SHA1String(s string) string { return SHA1Hex([]byte(s)) }
 // AnalyzeKey 商拍反推缓存键 = 模特图 sha1（同批服装固定，同模特多张共用 prompt）。
 func AnalyzeKey(modelSHA1 string) string { return strings.ToLower(modelSHA1) }
 
+// AnalyzeViewKey 带模特图的面的商拍反推缓存键：同一张模特图按不同的面读到的服装图不同，提示词也不同，不能共用。
+// view 为空（没传 model_views）时与 AnalyzeKey 逐字相同——老批次的缓存、重放不受影响。长度 ≤ 40+7。
+func AnalyzeViewKey(modelSHA1, view string) string {
+	k := AnalyzeKey(modelSHA1)
+	if view != "" {
+		k += ":v-" + view
+	}
+	return k
+}
+
+// SourceGarmentsKey 姿态人物解析缓存键（带服装参考图）：source 里含服装读图结果，所以服装图集合进键（顺序敏感：图 3+ 的编号
+// 跟顺序走）。没有服装图时与 SourceKey 逐字相同。长度 40+2+16。
+func SourceGarmentsKey(imageSHA1 string, garmentSHA1s []string) string {
+	k := SourceKey(imageSHA1)
+	if len(garmentSHA1s) > 0 {
+		k += ":g" + SHA1String(strings.ToLower(strings.Join(garmentSHA1s, ",")))[:16]
+	}
+	return k
+}
+
 // SourceKey 姿态人物解析缓存键 = 人物图 sha1。
 func SourceKey(imageSHA1 string) string { return strings.ToLower(imageSHA1) }
 

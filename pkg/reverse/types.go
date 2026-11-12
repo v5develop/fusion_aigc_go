@@ -82,6 +82,12 @@ type PoseSourceData struct {
 	Interaction     string             `json:"interaction"`
 	People          []PoseSourcePerson `json:"people"`
 	PeopleTruncated bool               `json:"people_truncated"`
+
+	// 服装参考图（2026-11-10.13，请求带 garments 时才有）：GarmentRefs 逐件读到的服装事实；GarmentImageCount 是
+	// sidecar 实际读了几张服装参考图（提示词里「图3–图N」的 N-2 就是它）；GarmentError 非空 = 服装读图失败，提示词里没有服装段。
+	GarmentRefs       []json.RawMessage `json:"garment_refs,omitempty"`
+	GarmentImageCount int               `json:"garment_image_count,omitempty"`
+	GarmentError      string            `json:"garment_error,omitempty"`
 }
 
 // PeopleCount 原图人数：People 为空（旧版 sidecar）时按 1 人。
@@ -193,10 +199,26 @@ const (
 )
 
 // AnalyzeImage analyze / analyze-batch 的 images[]。
+//
+// Angle（front / back / side）让 sidecar 在提示词里写「整件服装（上衣·正面）」、按 model_view 过滤；Key 是宿主自己的图片编号，
+// sidecar 在 image_manifest 里原样回显，宿主据此确认「提示词里的参考图 N」到底是哪张图（见 ManifestItem）。
 type AnalyzeImage struct {
 	Role  string `json:"role"`
 	Label string `json:"label,omitempty"`
+	Angle string `json:"angle,omitempty"`
+	Key   string `json:"key,omitempty"`
 	Data  string `json:"data"`
+}
+
+// ManifestItem analyze / analyze-batch 响应里的 image_manifest[]：sidecar 实际读图的顺序（提示词里「参考图N」的 N = Index）。
+// Key 是请求里 images[].key 的回显；旧版 sidecar 没有 image_manifest，或没有 Key（空串），调用方按「读图顺序 = 发送顺序」处理。
+type ManifestItem struct {
+	Index int    `json:"index"`
+	Ref   string `json:"ref,omitempty"`
+	Role  string `json:"role,omitempty"`
+	Label string `json:"label,omitempty"`
+	Angle string `json:"angle,omitempty"`
+	Key   string `json:"key,omitempty"`
 }
 
 // PaletteColor / Palette 可选的配色提示（palettes[]{role, colors[]{name,pct}}）。
@@ -228,6 +250,9 @@ type AnalyzeReq struct {
 	Fine          bool              `json:"fine,omitempty"`           // 精细读图（本仓 sidecar 扩展，验收 F7）：强制 deep + 逐块查小细节 + 设计细节上限 +3
 	PromptVersion string            `json:"prompt_version,omitempty"` // new 走实验版，默认 old
 	TargetModel   string            `json:"target_model,omitempty"`
+	// ModelView 商拍模特图的面：front / back / side（2026-11-10.13）。sidecar 按它过滤主图与裁切（没有该面的图时保留全部）；
+	// 空 = 不过滤（sidecar 会按模特图自身的 angle / label 推断）。
+	ModelView string `json:"model_view,omitempty"`
 }
 
 // AnalyzeMeta analyze 的 meta。garment_match / garment_type 只在读图成功时出现。
@@ -248,6 +273,8 @@ type AnalyzeResp struct {
 	Prompt  string      `json:"prompt"`
 	Meta    AnalyzeMeta `json:"meta"`
 	Warning string      `json:"warning"`
+	// ImageManifest 实际读图顺序（2026-11-10.13 起返回；旧版没有）。
+	ImageManifest []ManifestItem `json:"image_manifest,omitempty"`
 }
 
 // BatchModel analyze-batch 的 models[]。
@@ -274,6 +301,8 @@ type AnalyzeBatchResult struct {
 	Meta    AnalyzeMeta `json:"meta"`
 	Warning string      `json:"warning"`
 	Error   string      `json:"error,omitempty"`
+	// ImageManifest 该模特这次实际读图的顺序（同 AnalyzeResp.ImageManifest）
+	ImageManifest []ManifestItem `json:"image_manifest,omitempty"`
 }
 
 type AnalyzeBatchMeta struct {

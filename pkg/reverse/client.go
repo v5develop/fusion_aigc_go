@@ -145,16 +145,29 @@ func (c *Client) Status(ctx context.Context) (*Status, error) {
 	return &out, nil
 }
 
+// MaxPoseGarments 一次姿态读图最多带几张服装参考图（sidecar POSE_MAX_GARMENTS）。
+const MaxPoseGarments = 6
+
 // PoseSource POST /api/pose/source：人物原图读图。422 = 无人物 / 疑似未成年（IsRejected）。
-func (c *Client) PoseSource(ctx context.Context, imageDataURL string) (*PoseSource, error) {
+// garments 可选（≤6 张 data URL）：同时读服装参考图，source 里多出 garment_refs / garment_image_count，
+// 之后 pose/prompt 的提示词按「图1 原图 / 图2 姿势 / 图3+ 服装」写。单人原图专用（garment_person 固定 0）。
+func (c *Client) PoseSource(ctx context.Context, imageDataURL string, garments ...string) (*PoseSource, error) {
 	if err := checkImage(PathPoseSource, "image", imageDataURL); err != nil {
 		return nil, err
+	}
+	if len(garments) > MaxPoseGarments {
+		return nil, invalid(PathPoseSource, fmt.Sprintf("garments 最多 %d 张", MaxPoseGarments))
+	}
+	for i, g := range garments {
+		if err := checkImage(PathPoseSource, fmt.Sprintf("garments[%d]", i), g); err != nil {
+			return nil, err
+		}
 	}
 	var raw struct {
 		Source json.RawMessage `json:"source"`
 		Meta   PoseMeta        `json:"meta"`
 	}
-	if err := c.call(ctx, http.MethodPost, PathPoseSource, map[string]string{"image": imageDataURL}, &raw); err != nil {
+	if err := c.call(ctx, http.MethodPost, PathPoseSource, poseSourceBody(imageDataURL, garments), &raw); err != nil {
 		return nil, err
 	}
 	out := &PoseSource{Meta: raw.Meta, Raw: raw.Source}
@@ -164,6 +177,14 @@ func (c *Client) PoseSource(ctx context.Context, imageDataURL string) (*PoseSour
 		}
 	}
 	return out, nil
+}
+
+// poseSourceBody 不带服装参考图时与旧版逐字相同（只有 image）。
+func poseSourceBody(image string, garments []string) any {
+	if len(garments) == 0 {
+		return map[string]string{"image": image}
+	}
+	return map[string]any{"image": image, "garments": garments, "garment_person": 0}
 }
 
 // PosePrompt POST /api/pose/prompt：姿势参考图 → 长版提示词。source 用 PoseSource 的返回（按 Raw 原样回传）。

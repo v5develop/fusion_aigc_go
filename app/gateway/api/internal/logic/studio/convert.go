@@ -1,6 +1,7 @@
 package studio
 
 import (
+	"encoding/json"
 	"strconv"
 	"strings"
 
@@ -36,12 +37,31 @@ func toBatch(b *studio_client.BatchInfo) types.StudioBatch {
 	if b == nil {
 		return types.StudioBatch{}
 	}
+	modelViews, garmentURLs := payloadRefill(b.Payload)
 	return types.StudioBatch{
 		Id: b.Id, Kind: b.Kind, Status: b.Status, Payload: b.Payload,
 		TaskTotal: b.TaskTotal, TaskDone: b.TaskDone, TaskFailed: b.TaskFailed, EstimatedPoints: b.EstimatedPoints,
 		ErrorReason: b.ErrorReason, CoverUrl: b.CoverUrl, CreatedAt: b.CreatedAt, UpdatedAt: b.UpdatedAt,
-		Warnings: orEmpty(b.Warnings),
+		Warnings:   orEmpty(b.Warnings),
+		ModelViews: modelViews, GarmentImageUrls: garmentURLs,
 	}
+}
+
+// payloadRefill 从批次 payload（提交时的全量字段，JSON 文本）里取只增字段 model_views / garment_image_urls，
+// 作为 StudioBatch 的顶层字段回给前端重新编辑时回填（响应里 jsoncase 会补 modelViews / garmentImageUrls 别名）。
+// 没传过 / payload 为空 / 解析失败都回 []：payload 本身原样保留，这里只是便利字段，不影响历史列表可用性。
+func payloadRefill(payload string) (modelViews, garmentURLs []string) {
+	if strings.TrimSpace(payload) == "" {
+		return []string{}, []string{}
+	}
+	var p struct {
+		ModelViews       []string `json:"model_views"`
+		GarmentImageURLs []string `json:"garment_image_urls"`
+	}
+	if err := json.Unmarshal([]byte(payload), &p); err != nil {
+		return []string{}, []string{}
+	}
+	return orEmpty(p.ModelViews), orEmpty(p.GarmentImageURLs)
 }
 
 func toTask(t *studio_client.TaskInfo) types.StudioTask {
