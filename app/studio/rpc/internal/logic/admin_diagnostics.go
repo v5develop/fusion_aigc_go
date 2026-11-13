@@ -1,6 +1,7 @@
 package logic
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -8,6 +9,7 @@ import (
 	"time"
 
 	"aigc-local-life/app/studio/model"
+	"aigc-local-life/app/studio/rpc/internal/config"
 	"aigc-local-life/app/studio/rpc/internal/pipeline"
 )
 
@@ -22,6 +24,9 @@ type adminDiagnostics struct {
 	WorkflowSteps []adminWorkflowStep  `json:"workflowSteps"`
 	Diagnosis     adminDiagnosis       `json:"diagnosis"`
 	Timeline      []adminTimelineEvent `json:"timeline"`
+	// Media 全部图片引用（组图 / 送生图图序 / 成品 / 蒙版）及其现签预览地址；
+	// 每张子任务的 traceTaskId 也在这里，前端据此拉统一链路 /spans。
+	Media *adminMedia `json:"media,omitempty"`
 }
 
 type adminTrace struct {
@@ -55,6 +60,8 @@ type adminTraceStage struct {
 
 type adminWorkflowStep struct {
 	StepPath      string  `json:"stepPath"`
+	TaskID        string  `json:"taskId"`
+	TraceTaskID   string  `json:"traceTaskId"`
 	Status        string  `json:"status"`
 	Operation     string  `json:"operation"`
 	ModelGroup    *string `json:"modelGroup"`
@@ -122,7 +129,23 @@ type adminTimelineEvent struct {
 
 // encodeAdminDiagnostics 把排查视图序列化成 JSON 文本；失败返回空串（详情页照常显示其余字段）。
 func encodeAdminDiagnostics(b *model.Batch, tasks []*model.Task, now time.Time) string {
+	return encodeAdminDiagnosticsWithMedia(nil, nil, config.FreeWatermarkConf{}, nil, b, tasks, now)
+}
+
+// encodeAdminDiagnosticsWithMedia 同上，并把所有图片引用解析成短期预览地址放进 media。
+// traceID 给出子任务的统一链路任务号；nil 表示不带。
+func encodeAdminDiagnosticsWithMedia(ctx context.Context, signer processSigner, c config.FreeWatermarkConf, traceID func(*model.Task) string, b *model.Batch, tasks []*model.Task, now time.Time) string {
 	d := buildAdminDiagnostics(b, tasks, now)
+	if ctx != nil {
+		m := buildAdminMedia(ctx, signer, c, b, tasks, traceID)
+		d.Media = &m
+		for i := range d.WorkflowSteps {
+			if i < len(m.Tasks) {
+				d.WorkflowSteps[i].TaskID = m.Tasks[i].TaskID
+				d.WorkflowSteps[i].TraceTaskID = m.Tasks[i].TraceTaskID
+			}
+		}
+	}
 	raw, err := json.Marshal(d)
 	if err != nil {
 		return ""

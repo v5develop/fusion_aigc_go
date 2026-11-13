@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"aigc-local-life/app/studio/model"
 	"aigc-local-life/app/studio/rpc/internal/svc"
 	"aigc-local-life/app/studio/rpc/studio"
 	"aigc-local-life/pkg/xerr"
@@ -52,7 +53,8 @@ func (l *AdminGetBatchLogic) AdminGetBatch(in *studio.AdminGetBatchReq) (*studio
 		SelectedImages: jsonText(b.SelectedImages), StepLog: jsonText(b.StepLog),
 		Tasks: make([]*studio.AdminTask, 0, len(tasks)),
 	}
-	out.Diagnostics = encodeAdminDiagnostics(b, tasks, time.Now())
+	out.Diagnostics = encodeAdminDiagnosticsWithMedia(l.ctx, signerOf(l.svcCtx), l.svcCtx.Config.FreeWatermark,
+		func(t *model.Task) string { return studioTraceID(l.svcCtx.Config, t) }, b, tasks, time.Now())
 	grace, now := secs(l.svcCtx.Config.Timeouts.DeliverGrace, defaultDeliverGrace), time.Now()
 	for _, t := range tasks {
 		at := toAdminTask(t, b.Status)
