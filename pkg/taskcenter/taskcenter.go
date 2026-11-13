@@ -16,7 +16,6 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"strconv"
 	"strings"
 	"sync"
@@ -132,97 +131,12 @@ func (s Source) billingKeySQL() string {
 		" ELSE LEFT(CONCAT(s.user_id, '_', SHA2(" + id + ", 256)), 64) END"
 }
 
-// billingSub 取预留单的某一列；没有预留单返回 NULL。
-func (s Source) billingSub(expr string) string {
-	return "(SELECT " + expr + " FROM afv_billing_reservation r WHERE r.biz_type = 'LOCALLIFE' AND r.deleted = 0" +
-		" AND r.biz_id = " + s.billingKeySQL() + " LIMIT 1)"
-}
-
-// billingColumns 计费字段的 SELECT 表达式（顺序与 INSERT 列一致）。
-// 预留状态映射到 Java 的 billing_status：EXPIRED 是预扣过期释放，点数已回到余额，等同退款。
-func (s Source) billingColumns() []string {
-	if strings.TrimSpace(s.BillingRequest) == "" {
-		return []string{"'NONE'", "NULL", "NULL", "NULL", "NULL"}
-	}
-	status := "CASE r.status WHEN 'HELD' THEN 'HELD' WHEN 'CONFIRMED' THEN 'CONFIRMED' " +
-		"WHEN 'PARTIALLY_REFUNDED' THEN 'PARTIALLY_REFUNDED' WHEN 'REFUNDED' THEN 'REFUNDED' " +
-		"WHEN 'CANCELLED' THEN 'REFUNDED' WHEN 'EXPIRED' THEN 'REFUNDED' ELSE 'BILLING_PENDING_REVIEW' END"
-	return []string{
-		"IFNULL(" + s.billingSub(status) + ", 'NONE')",
-		s.billingSub("r.price_points"),
-		s.billingSub("r.feature_code"),
-		s.billingSub("r.model_id"),
-		s.billingSub("r.reservation_no"),
-	}
-}
-
-// args 与 sql() 的占位符一一对应：窗口参数，有计费关联时多一个。
-func (s Source) args(secs int64) []any {
-	if strings.TrimSpace(s.BillingRequest) == "" {
-		return []any{secs, secs}
-	}
-	return []any{secs, secs, secs}
-}
-
 // requestSQL 入参快照：配了 RequestPairs 就用完整入参，否则只有 prompt（与旧行为一致）。
 func (s Source) requestSQL() string {
 	if strings.TrimSpace(s.RequestPairs) != "" {
 		return "JSON_OBJECT('entryCode', '" + s.EntryCode + "', " + s.RequestPairs + ")"
 	}
 	return "JSON_OBJECT('entryCode', '" + s.EntryCode + "', 'prompt', " + orNull(s.Prompt) + ")"
-}
-
-// where 同步的筛选条件（窗口 + 类型 + 包含条件），sql 与 textSQL 共用，占位符参数见 args。
-func (s Source) where() []string {
-	where := []string{"(? = 0 OR " + s.updateCol() + " >= NOW() - INTERVAL ? SECOND)"}
-	if strings.TrimSpace(s.BillingRequest) != "" {
-		// 预留状态会独立变化（冻结→结算→过期），源记录没动也要同步：预留单在窗口内更新过也纳入
-		where[0] = "(? = 0 OR " + s.updateCol() + " >= NOW() - INTERVAL ? SECOND OR EXISTS (SELECT 1 FROM afv_billing_reservation r " +
-			"WHERE r.biz_type = 'LOCALLIFE' AND r.deleted = 0 AND r.biz_id = " + s.billingKeySQL() +
-			" AND r.update_time >= NOW() - INTERVAL ? SECOND))"
-	}
-	if s.Kind != "" {
-		where = append(where, "kind = '"+s.Kind+"'")
-	}
-	if s.Include != "" {
-		where = append(where, "("+s.Include+")")
-	}
-	return where
-}
-
-// textSQL 文本产物正文的 upsert，写扩展表 afv_creation_task_text（按任务编号 1:1）。
-// 任务主表不放正文：列表查询是 SELECT *，大字段会拖慢所有任务的列表。只有有正文（非空）的行才写。
-func (s Source) textSQL() string {
-	return "INSERT INTO " + TextTable + " (task_id, content, create_time, update_time) " +
-		"SELECT " + s.refSQL() + ", " + s.ResultText + ", " + s.createCol() + ", " + s.updateCol() + " FROM " + s.Table + " s " +
-		"WHERE " + strings.Join(s.where(), " AND ") + " AND COALESCE(" + s.ResultText + ", '') <> '' " +
-		"ON DUPLICATE KEY UPDATE content = VALUES(content), update_time = VALUES(update_time)"
-}
-
-// sql 生成主表 upsert 语句。窗口参数：只同步 update_time 在最近 N 秒内的行（N=0 同步全部）。
-func (s Source) sql() string {
-	where := s.where()
-	cover := s.Cover
-	if strings.TrimSpace(cover) == "" {
-		cover = s.Result
-	}
-	return "INSERT INTO afv_creation_task " +
-		"(task_id, user_id, type, status, entry_code, request_params, execution_task_id, execution_params, " +
-		"billing_status, price_points, feature_code, model_id, reservation_no, " +
-		"result_url, result_urls, cover_url, error_msg, is_transferred, deleted, create_time, update_time, origin_service, origin_ref) " +
-		"SELECT " + s.refSQL() + ", s.user_id, '" + s.Type + "', " + s.Status + ", '" + s.EntryCode + "', " +
-		s.requestSQL() + ", " + orNull(s.ExecTaskID) + ", " + s.execParamsSQL() + ", " +
-		strings.Join(s.billingColumns(), ", ") + ", " +
-		orNull(s.Result) + ", " + orNull(s.Results) + ", " + orNull(cover) + ", " + orNull(s.Fail) + ", " +
-		"1, s.deleted, " + s.createCol() + ", " + s.updateCol() + ", '" + OriginLocalLife + "', " + s.originRefSQL() + " FROM " + s.Table + " s WHERE " + strings.Join(where, " AND ") + " " +
-		"ON DUPLICATE KEY UPDATE status = VALUES(status), result_url = VALUES(result_url), result_urls = VALUES(result_urls), " +
-		"cover_url = VALUES(cover_url), error_msg = VALUES(error_msg), request_params = VALUES(request_params), " +
-		// 没有提交快照的行（上线前提交的）不覆盖已有的执行参数，免得同步一次就被清空
-		"execution_task_id = VALUES(execution_task_id), execution_params = COALESCE(VALUES(execution_params), execution_params), " +
-		"billing_status = VALUES(billing_status), price_points = VALUES(price_points), feature_code = VALUES(feature_code), " +
-		"model_id = VALUES(model_id), reservation_no = VALUES(reservation_no), " +
-		"deleted = GREATEST(afv_creation_task.deleted, VALUES(deleted)), update_time = VALUES(update_time), " +
-		"origin_service = VALUES(origin_service), origin_ref = VALUES(origin_ref)"
 }
 
 // Syncer 一个服务里的若干源表。
@@ -244,6 +158,10 @@ type Syncer struct {
 	evMu        sync.Mutex
 	evWG        sync.WaitGroup
 	seenResv    map[string]struct{}
+
+	// 新路径（sync_new.go）与 shadow（shadow.go）
+	mode SyncMode
+	nw   newState
 }
 
 func New(conn sqlx.SqlConn, window time.Duration, sources ...Source) *Syncer {
@@ -251,7 +169,8 @@ func New(conn sqlx.SqlConn, window time.Duration, sources ...Source) *Syncer {
 		window = 10 * time.Minute
 	}
 	y := &Syncer{conn: conn, sources: sources, synced: make([]bool, len(sources)), window: window,
-		traceFloor: DefaultTraceFloor, traceRowCap: DefaultTraceRowCap}
+		traceFloor: DefaultTraceFloor, traceRowCap: DefaultTraceRowCap, mode: DefaultMode()}
+	y.nw = newNewState(len(sources))
 	for _, s := range sources {
 		if strings.TrimSpace(s.Trace) != "" && conn != nil {
 			y.events = taskevent.New(conn) // 后台 worker 首次写入时才启动
@@ -263,6 +182,8 @@ func New(conn sqlx.SqlConn, window time.Duration, sources ...Source) *Syncer {
 
 // Sync 同步一轮，返回本轮所有失败的合并错误（nil=全部成功）。
 // 调用方可以只记日志、不影响业务轮询；返回值让测试和排障能直接看到失败原因。
+// 同步实现由 SyncMode 决定：legacy（INSERT … SELECT，默认）/ new（普通 SELECT + Go 拼装 + 批量 upsert）/
+// shadow（旧路径写、新路径只算不写并比对，见 shadow.go）。
 func (y *Syncer) Sync(ctx context.Context) error {
 	if y == nil {
 		return nil
@@ -272,19 +193,22 @@ func (y *Syncer) Sync(ctx context.Context) error {
 	func() {
 		y.mu.Lock()
 		defer y.mu.Unlock()
+		if y.mode == ModeNew {
+			errs, jobs = y.syncNewRound(ctx)
+			return
+		}
 		window := int64(y.window / time.Second)
 		for i, s := range y.sources {
 			secs := window
 			if !y.synced[i] {
 				secs = 0 // 首次（或上次失败后）全量同步，保证不漏
 			}
-			err := y.exec(ctx, s.sql(), s.args(secs))
-			if err == nil && s.ResultText != "" {
-				err = y.exec(ctx, s.textSQL(), s.args(secs))
-			}
-			if err != nil {
-				errs = append(errs, fmt.Errorf("%s/%s: %w", s.Table, s.EntryCode, err))
+			if err := y.syncLegacyOne(ctx, s, secs); err != nil {
+				errs = append(errs, err)
 				continue
+			}
+			if y.mode == ModeShadow {
+				y.shadowCompare(ctx, i, s, secs)
 			}
 			if strings.TrimSpace(s.Trace) != "" {
 				jobs = append(jobs, traceJob{idx: i, src: s, secs: secs})

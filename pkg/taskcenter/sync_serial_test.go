@@ -32,7 +32,7 @@ func TestSyncSerialized(t *testing.T) {
 	conn := &overlapConn{}
 	y := New(conn, time.Minute,
 		Source{Table: "afv_a", Prefix: "a", EntryCode: "e1", Type: "image", Status: "1", Result: "''"},
-		Source{Table: "afv_b", Prefix: "b", EntryCode: "e2", Type: "video", Status: "1", Result: "''"})
+		Source{Table: "afv_b", Prefix: "b", EntryCode: "e2", Type: "video", Status: "1", Result: "''"}).WithMode(ModeLegacy)
 	var wg sync.WaitGroup
 	for i := 0; i < 6; i++ {
 		wg.Add(1)
