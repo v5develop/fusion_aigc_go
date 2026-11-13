@@ -4,7 +4,7 @@ RPCS := copywriting digitalhuman note imagegen studio assetlib canvas
 # 使用 goctl 内置默认模板，避免受本机 ~/.goctl 自定义模板影响
 GOCTL_HOME := $(CURDIR)/deploy/goctl
 
-.PHONY: gen gen-rpc gen-api gen-model gen-audit db build test test-migrate run-all stop-all release package image
+.PHONY: check-shared-tables gen gen-rpc gen-api gen-model gen-audit db build test test-migrate run-all stop-all release package image
 
 gen: gen-rpc gen-api gen-model
 
@@ -73,6 +73,10 @@ build:
 
 test:
 	go test ./...
+
+# 共享表写入守卫：Java 拥有的共享表只能由属主包写（规则与例外见 tools/sharedtables）。`go test ./...` 也会跑到它。
+check-shared-tables:
+	go test -count=1 ./tools/sharedtables/
 
 # 迁移记录逻辑（离线，用假库）
 test-migrate:

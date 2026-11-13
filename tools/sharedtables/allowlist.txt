@@ -1,0 +1,7 @@
+# 共享表写入守卫的例外清单（格式：文件|表|理由；按「文件 + 表」放行，不按行号）。
+# 守卫规则见 tools/sharedtables/sharedtables.go 头注释。登记前先确认确实不能走属主包；
+# 例外不再需要时守卫会报「过期例外」，请及时删行。以下都是守卫上线前就存在的写入，属技术债，迁进 pkg/asset 后删除。
+app/assetlib/rpc/internal/repo/asset.go|afv_asset|Rename / SoftDelete：用户在素材库改标题、删除；与「解除标签关联」同一事务（bun tx），pkg/asset 目前只有 sqlx 写入口且没有改名方法，Java 的 PUT /api/v1/asset 需用户令牌 Go 调不到。条件带归属 + source_type，只改 name / deleted
+app/assetlib/rpc/internal/repo/upload.go|afv_asset|「存为资产」：用户把一张图存进素材库，只 INSERT 一行 source_type=1 并取回自增 id（LastInsertId）供旁表使用，且复用 bun 连接 / 事务；pkg/asset.Writer 是 sqlx 入口、不返回 id
+app/studio/rpc/internal/repo/color_fix.go|afv_asset|MarkAssetSuperseded：色差修复换成品后给旧成品素材行打 properties.supersededSrcRid 标记（幂等 JSON_SET），pkg/asset 无对应方法
+app/studio/rpc/internal/repo/free_original.go|afv_asset|PromoteAssetRefs：免费原图转公有地址时按旧值改写 result_url / cover_url（幂等），与子任务 result_url 改写同一流程，pkg/asset 无对应方法

@@ -52,7 +52,8 @@ ADMIN=http://<host>:8889/api/v1/local-life/admin deploy/scripts/gen-voice-previe
 - **画布 / 提示词库接口文档**：`docs/api/api-canvas.md`（以实现为准；官方种子 `deploy/sql/seed/canvas-official-prompts.sql`、`canvas-official-templates.sql`，19 条官方提示词全部启用，含 8 条第三方来源，已于 2026-10-31 确认授权）
 - **跨仓库上线手册**：`docs/design/xiaoqi-2026-10-30/13-上线手册.md`（studio / 资产库 / 画布：ai-gateway → Java → sidecar → Go → nginx → 管理后台 → 就绪检查 → 真实链路 e2e → 种子，含回退与检查清单）
 - **数据层约定**：新模块业务数据访问用 bun（`pkg/bundb`），计费/对账审计用 sqlc，写 Java 共享表仍走现有 pkg，详见 `docs/design/xiaoqi-2026-10-30/00-需求分流与设计方案.md` §9.5
-- **auditdb 约定**：`pkg/auditdb` 是 sqlc 生成的只读审计查询（SQL 在 `db/audit/query/`，表定义在 `db/audit/schema/`，改后执行 `make gen-audit`），与 bundb 共用同一个连接池；只给对账 / 运营报表 / 审计脚本用，业务逻辑不得 import
+- **共享表写入守卫**：Java 拥有的共享表只能由属主 Go 包写——`afv_billing_*` → `pkg/billing`；`afv_creation_task` / `afv_creation_task_text` / `afv_exec_submission` → `pkg/taskcenter`；`afv_asset` / `afv_asset_item` → `pkg/asset`；`afv_task_event` → `pkg/taskevent`。其它模块要写就调属主包，不要在 bun / sqlx / goctl model 里自己写 SQL（读不受限）。`tools/sharedtables` 静态扫描所有非测试 Go 源码（SQL 字符串、bun 的 NewInsert/NewUpdate/NewDelete 写链、`bun:"table:"` 模型、goctl model），违规时 `go test ./...` 失败并列出 file:line；本地单跑 `make check-shared-tables`。确有正当理由的在 `tools/sharedtables/allowlist.txt` 登记「文件|表|理由」（理由必填，例外不再需要时守卫会报过期）。表名请写成字面量或包级常量，靠变量 / fmt 拼的表名守卫看不见。
+- **auditdb 约定**：`pkg/auditdb` 是 sqlc 生成的只读审计查询（SQL 在 `db/audit/query/`，表定义在 `db/audit/schema/`，改后执行 `make gen-audit`），与 bundb 共用同一个连接池；只给对账 / 运营报表 / 审计脚本用，业务逻辑不得 import（例外：`pkg/billing/audit.go` 上线前计费配置检查，已走 `BillingAuditModelGroups` / `BillingAuditActiveFeatureCount`）
 
 ## 本地运行
 

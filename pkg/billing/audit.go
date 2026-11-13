@@ -8,6 +8,7 @@ import (
 
 	"github.com/zeromicro/go-zero/core/stores/sqlx"
 
+	"aigc-local-life/pkg/auditdb"
 	"aigc-local-life/pkg/modelgroup"
 )
 
@@ -91,6 +92,11 @@ func HasError(fs []Finding) bool {
 
 // Audit 逐个入口、逐个档位算一次价，并检查几处典型的配错。只读，不动账。
 func Audit(ctx context.Context, conn sqlx.SqlConn) []Finding {
+	// 审计只读查询走 sqlc（db/audit/query/billing_audit.sql），与 price() 共用同一个连接池
+	aq, err := auditdb.NewFromSqlConn(conn)
+	if err != nil {
+		return []Finding{{Level: LevelError, Entry: "-", Name: "计费配置检查", Detail: fmt.Sprintf("取数据库连接失败：%v", err)}}
+	}
 	var out []Finding
 	for _, t := range Targets {
 		tiers := t.Tiers
@@ -98,10 +104,10 @@ func Audit(ctx context.Context, conn sqlx.SqlConn) []Finding {
 			tiers = []string{""}
 		}
 		for _, tier := range tiers {
-			out = append(out, auditOne(ctx, conn, t, tier)...)
+			out = append(out, auditOne(ctx, conn, aq, t, tier)...)
 		}
 		if ModelGroupEntries[t.Entry] {
-			out = append(out, auditGroups(ctx, conn, t)...)
+			out = append(out, auditGroups(ctx, conn, aq, t)...)
 		}
 	}
 	return out
@@ -109,18 +115,17 @@ func Audit(ctx context.Context, conn sqlx.SqlConn) []Finding {
 
 // auditGroups 分模型计价的入口：逐个模型组档位按 Charge.ModelGroup 试算（与线上提交同一个 price()），
 // 并核对选中的确实是那个组的档位（没选中说明组码对不上，线上会退回默认档位按错的价扣）。
-func auditGroups(ctx context.Context, conn sqlx.SqlConn, t Target) []Finding {
+func auditGroups(ctx context.Context, conn sqlx.SqlConn, aq *auditdb.Queries, t Target) []Finding {
 	add := func(l Level, group, d string, a ...any) Finding {
 		return Finding{Level: l, Entry: t.Entry, Name: t.Name, Tier: "组 " + group, Detail: fmt.Sprintf(d, a...)}
 	}
-	var groups []string
-	const q = "SELECT DISTINCT m.`gateway_model_group` FROM `afv_billing_offer` o " +
-		"JOIN `afv_billing_offer_variant` v ON v.`offer_code` = o.`offer_code` AND v.`status` = 'ENABLED' AND v.`deleted` = 0 " +
-		"JOIN `afv_ai_model` m ON m.`id` = v.`default_model_id` AND m.`deleted` = 0 " +
-		"WHERE o.`entry_code` = ? AND o.`status` = 'ENABLED' AND o.`deleted` = 0 " +
-		"AND m.`gateway_model_group` IS NOT NULL AND m.`gateway_model_group` <> '' ORDER BY 1"
-	if err := conn.QueryRowsCtx(ctx, &groups, q, t.Entry); err != nil {
+	rows, err := aq.BillingAuditModelGroups(ctx, t.Entry)
+	if err != nil {
 		return []Finding{add(LevelError, "-", "查分模型档位失败：%v", err)}
+	}
+	groups := make([]string, 0, len(rows))
+	for _, g := range rows {
+		groups = append(groups, g.String)
 	}
 	if len(groups) == 0 {
 		return []Finding{add(LevelWarn, "-", "没有分模型档位（默认模型带 gateway_model_group 的档位），所有模型按默认档位同价扣")}
@@ -138,7 +143,7 @@ func auditGroups(ctx context.Context, conn sqlx.SqlConn, t Target) []Finding {
 	return out
 }
 
-func auditOne(ctx context.Context, conn sqlx.SqlConn, t Target, tier string) []Finding {
+func auditOne(ctx context.Context, conn sqlx.SqlConn, aq *auditdb.Queries, t Target, tier string) []Finding {
 	add := func(l Level, d string, a ...any) Finding {
 		return Finding{Level: l, Entry: t.Entry, Name: t.Name, Tier: tier, Detail: fmt.Sprintf(d, a...)}
 	}
@@ -158,7 +163,7 @@ func auditOne(ctx context.Context, conn sqlx.SqlConn, t Target, tier string) []F
 	var out []Finding
 	if strings.TrimSpace(q.FeatureCode) == "" {
 		out = append(out, add(LevelWarn, "场景没挂创作能力码，开了权益准入也拦不住没权益的人"))
-	} else if n, err := issuedCount(ctx, conn, q.FeatureCode); err == nil && n == 0 {
+	} else if n, err := aq.BillingAuditActiveFeatureCount(ctx, q.FeatureCode); err == nil && n == 0 {
 		out = append(out, add(LevelError, "能力码 %s 没有任何人被发放过，开了准入等于对所有人关掉这个功能", q.FeatureCode))
 	}
 
@@ -183,12 +188,4 @@ func auditOne(ctx context.Context, conn sqlx.SqlConn, t Target, tier string) []F
 		}
 	}
 	return out
-}
-
-func issuedCount(ctx context.Context, conn sqlx.SqlConn, featureCode string) (int64, error) {
-	var n int64
-	const q = "SELECT COUNT(*) FROM `afv_app_user_feature` WHERE `feature_code` = ? AND `status` = 'ACTIVE' AND `deleted` = 0 " +
-		"AND (`expire_time` IS NULL OR `expire_time` > NOW())"
-	err := conn.QueryRowCtx(ctx, &n, q, featureCode)
-	return n, err
 }

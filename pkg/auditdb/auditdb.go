@@ -4,6 +4,7 @@
 // 约定：
 //   - 只读。这里的查询只服务运营后台的对账报表、定点审计脚本和测试，写操作一律不走 sqlc。
 //   - 禁止业务调用。业务逻辑（studio / billing / taskcenter 等）不得 import 本包，
+//     例外：pkg/billing/audit.go（上线前计费配置检查，本身就是审计，不在任何业务请求路径上）；
 //     否则同一语义会在 bun 模型与这里各定义一份；一张表可以同时被 bun（业务读写）和本包（审计只读）访问。
 //   - 与 bundb 共享连接。NewFromSqlConn 取 go-zero SqlConn 的 RawDB，和 bundb.New 用的是同一个 *sql.DB 连接池，不另开池。
 //   - 生成文件（db.go、models.go、querier.go、*.sql.go）不要手改：改 db/audit/query/*.sql 或

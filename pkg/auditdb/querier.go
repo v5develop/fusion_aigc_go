@@ -6,9 +6,17 @@ package auditdb
 
 import (
 	"context"
+	"database/sql"
 )
 
 type Querier interface {
+	// 业务含义：某创作能力码当前有效（ACTIVE 且未过期）的发放数；0 表示没人被发放过，开了准入等于对所有人关闭。
+	// 读者：pkg/billing.Audit 的 auditOne。
+	BillingAuditActiveFeatureCount(ctx context.Context, featureCode string) (int64, error)
+	// 计费配置检查（pkg/billing/audit.go，上线前自检；只读）。
+	// 业务含义：某入口下所有已启用档位的默认模型的网关模型组（去重、排序）。分模型计价的入口按这些组逐个试算。
+	// 读者：pkg/billing.Audit 的 auditGroups。
+	BillingAuditModelGroups(ctx context.Context, entryCode string) ([]sql.NullString, error)
 	// 业务含义：一个批次内每个任务的成本、状态和对应预留单（状态 / 点数）；预留单按 pkg/billing 的 biz_id 规则关联，没有预留单时为空。
 	// 读者：客服 / 运营查单批次为何成本异常、对账定位到具体任务。
 	StudioBatchCost(ctx context.Context, batchID int64) ([]StudioBatchCostRow, error)

@@ -142,6 +142,56 @@ func (ns NullAfvStudioTaskKind) Value() (driver.Value, error) {
 	return string(ns.AfvStudioTaskKind), nil
 }
 
+type AfvAiModel struct {
+	// 主键ID
+	ID int64 `json:"id"`
+	// AI 网关模型组编码
+	GatewayModelGroup sql.NullString `json:"gateway_model_group"`
+	// 逻辑删除标志
+	Deleted int8 `json:"deleted"`
+}
+
+type AfvAppUserFeature struct {
+	// 主键ID
+	ID int64 `json:"id"`
+	// 用户ID
+	UserID int64 `json:"user_id"`
+	// 创作能力编码
+	FeatureCode string `json:"feature_code"`
+	// 状态
+	Status string `json:"status"`
+	// 到期时间
+	ExpireTime sql.NullTime `json:"expire_time"`
+	// 逻辑删除标志
+	Deleted int8 `json:"deleted"`
+}
+
+type AfvBillingOffer struct {
+	// 主键ID
+	ID int64 `json:"id"`
+	// 售卖产品编码，唯一
+	OfferCode string `json:"offer_code"`
+	// 前端入口编码（type）
+	EntryCode string `json:"entry_code"`
+	// 状态：DRAFT/ENABLED/DISABLED
+	Status string `json:"status"`
+	// 逻辑删除标志
+	Deleted int8 `json:"deleted"`
+}
+
+type AfvBillingOfferVariant struct {
+	// 主键ID
+	ID int64 `json:"id"`
+	// 所属offer编码
+	OfferCode string `json:"offer_code"`
+	// 默认模型ID
+	DefaultModelID sql.NullInt64 `json:"default_model_id"`
+	// 状态：DRAFT/ENABLED/DISABLED
+	Status string `json:"status"`
+	// 逻辑删除标志
+	Deleted int8 `json:"deleted"`
+}
+
 type AfvBillingReservation struct {
 	// 主键ID
 	ID int64 `json:"id"`
