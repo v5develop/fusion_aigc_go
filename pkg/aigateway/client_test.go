@@ -339,3 +339,24 @@ func TestReadinessOpBody(t *testing.T) {
 		t.Fatal("空查询应直接返回")
 	}
 }
+
+// X-Trace-Id 带创作任务号（网关据此把调用挂到任务轨迹）；不传时不发该头。
+func TestSubmitSendsTraceID(t *testing.T) {
+	c, log := newGateway(t, func(w http.ResponseWriter, s seen) {
+		w.WriteHeader(http.StatusCreated)
+		_, _ = io.WriteString(w, callJSON)
+	})
+	req := CallRequest{Operation: "image.generate", ModelGroup: "img.gpt-image-2", Input: map[string]any{"prompt": "p"}}
+	if _, err := c.Submit(context.Background(), req, SubmitOptions{IdempotencyKey: "k1", TraceID: " AiCreation_LF_abc "}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Submit(context.Background(), req, SubmitOptions{IdempotencyKey: "k2"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := (*log)[0].header.Get("X-Trace-Id"); got != "AiCreation_LF_abc" {
+		t.Errorf("X-Trace-Id = %q", got)
+	}
+	if _, ok := (*log)[1].header["X-Trace-Id"]; ok {
+		t.Error("不传 TraceID 不应发 X-Trace-Id")
+	}
+}

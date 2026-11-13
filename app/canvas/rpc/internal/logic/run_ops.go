@@ -12,6 +12,7 @@ import (
 	"aigc-local-life/app/canvas/rpc/internal/repo"
 	"aigc-local-life/pkg/billing"
 	"aigc-local-life/pkg/lease"
+	"aigc-local-life/pkg/taskevent"
 	"aigc-local-life/pkg/xerr"
 
 	"github.com/zeromicro/go-zero/core/logx"
@@ -107,6 +108,8 @@ func (c *core) RunNode(ctx context.Context, in *canvas.RunNodeReq) (*canvas.RunN
 		return nil, err
 	}
 	run.CreatedAt = c.now()
+	c.evMark(ctx, run, "go.canvas/created", "受理并落库", 0, runAttrs(run, taskevent.Attrs{"entry_code": sp.EntryCode, "count": sp.Count, "points": run.Points}))
+	c.evStart(ctx, run, stQueue, 0, runAttrs(run, nil))
 	// 6. 冻结（每个 run 一张预留单）→ 一次 CAS 写 billing_status + points 并转排队
 	if err := c.holdAndQueue(ctx, run, sp); err != nil {
 		return nil, err

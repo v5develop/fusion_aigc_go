@@ -20,6 +20,7 @@ import (
 	"aigc-local-life/pkg/reverse"
 	"aigc-local-life/pkg/storage"
 	"aigc-local-life/pkg/taskcenter"
+	"aigc-local-life/pkg/taskevent"
 	"aigc-local-life/pkg/usertier"
 
 	"github.com/uptrace/bun"
@@ -36,6 +37,8 @@ type ServiceContext struct {
 	Storage    storage.Store
 	Moderation moderation.Checker
 	TaskCenter *taskcenter.Syncer
+	// Events 任务轨迹（afv_task_event）写入器，尽力而为；nil 时不写
+	Events *taskevent.Writer
 	// TaskSync 请求 / 收尾路径上的任务中心同步（异步、合并、带重试），不占提交响应与批次收敛的时间；后台 tick 仍同步跑一轮兜底
 	TaskSync *taskcenter.AsyncSync
 	// MediaSvc 共享媒体服务（下载 / conform / 裁图 / 组图 / resources/copy）；未配置为 nil
@@ -87,6 +90,7 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		Storage:        storage.New(c.Storage, conn),
 		Moderation:     moderation.New(c.Moderation.Mode, blockWords(conn)),
 		TaskCenter:     taskcenter.New(conn, 10*time.Minute, TaskSources(c)...),
+		Events:         taskevent.New(conn),
 		MediaSvc:       newMediaSvc(c),
 		ColorFixSolver: colorfixsolver.New(c.ColorFixSolver),
 		Tier: usertier.New(conn, usertier.Defaults{

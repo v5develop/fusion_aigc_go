@@ -20,6 +20,7 @@ import (
 	"aigc-local-life/pkg/billing"
 	"aigc-local-life/pkg/lease"
 	"aigc-local-life/pkg/semaphore"
+	"aigc-local-life/pkg/taskevent"
 
 	"github.com/zeromicro/go-zero/core/logx"
 )
@@ -119,8 +120,9 @@ type flowBiller interface {
 type flow struct {
 	cfg   config.Config
 	repo  *repo.Repo
-	media pipeline.Media   // 未配置媒体服务时为 nil
-	rev   pipeline.Reverse // sidecar
+	ev    *taskevent.Writer // 任务轨迹；nil 不写
+	media pipeline.Media    // 未配置媒体服务时为 nil
+	rev   pipeline.Reverse  // sidecar
 	gw    pipeline.Gateway
 	gwOn  bool
 	bill  flowBiller
@@ -200,7 +202,7 @@ const (
 
 func newFlow(s *svc.ServiceContext) *flow {
 	f := &flow{
-		cfg: s.Config, repo: s.Repo, rev: s.Reverse, bill: s.Billing,
+		cfg: s.Config, repo: s.Repo, rev: s.Reverse, bill: s.Billing, ev: s.Events,
 		sem: semaphore.NewGroup(), now: time.Now, owner: lease.Owner(),
 		asset:     func(ctx context.Context, list []asset.Asset) error { return s.Asset.InsertSet(ctx, list) },
 		assetOnce: func(ctx context.Context, a asset.Asset) (bool, error) { return s.Asset.InsertOnceByURL(ctx, a) },
@@ -519,6 +521,7 @@ func (f *flow) submitBatch(ctx context.Context, batchID int64) (started []int64)
 		if !ok { // 用户刚取消 / 别处已派发
 			continue
 		}
+		f.evQueueDone(ctx, t, taskevent.StatusOK, taskevent.Fail{})
 		running++
 		slots--
 		started = append(started, t.ID)

@@ -267,10 +267,12 @@ func (d *deps) cancel(ctx context.Context, batchID, userID int64) (*model.Batch,
 			continue
 		}
 		canceled++
+		d.evCancel(ctx, t, refundable(d.bill.Mode(), t))
 		if refundable(d.bill.Mode(), t) {
 			rctx, cancel := detached(ctx)
 			d.bill.Fail(rctx, b.UserID, t.BillingRequestID.String, "用户取消，点数已退回")
 			cancel()
+			d.evRefundRequested(ctx, t, "用户取消")
 			if err := d.repo.Task.SetBilling(ctx, t.ID, "", model.BillingRefunded); err != nil {
 				log.Errorf("studio: 子任务 %d 写退款状态失败: %v", t.ID, err)
 			}

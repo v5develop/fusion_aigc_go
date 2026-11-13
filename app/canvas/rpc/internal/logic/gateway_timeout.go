@@ -16,10 +16,12 @@ package logic
 
 import (
 	"context"
+	"strconv"
 	"time"
 
 	"aigc-local-life/app/canvas/model"
 	"aigc-local-life/pkg/aigateway"
+	"aigc-local-life/pkg/taskevent"
 
 	"github.com/zeromicro/go-zero/core/logx"
 )
@@ -72,7 +74,18 @@ type timeoutVerdict struct {
 	fail   bool     // 置失败退款并取消全部调用
 	cancel []string // 只取消这些（未受理的），run 继续等已受理的
 	extend bool     // 已过软时限，因有已受理调用（或状态未知）继续等
+	// reason 判定依据（写进任务轨迹的 reason 属性）：soft_cap_none_accepted / soft_cap_accepted_extended /
+	// soft_cap_partial_delivered / soft_cap_status_unknown / hard_cap / hard_cap_partial_grace
+	reason string
+	// attrs 判定时的现场（已耗时、软 / 硬上限、已受理 / 未受理 / 未知的调用数）
+	attrs taskevent.Attrs
 }
+
+// 超时区间的 attempt：延长判定与最终失败判定是同一 step_path 下的两次，用不同序号避免 dedupe 互相吞掉。
+const (
+	timeoutExtendSeq = 1
+	timeoutFailSeq   = 2
+)
 
 // hardCapGrace 过了硬上限、已有成品时，取消其余调用后再等多久让它们到终态（按成功张数收尾）；再不到终态就整单失败退款。
 const hardCapGrace = 2 * time.Minute
@@ -103,24 +116,30 @@ func (c *core) gatewayTimeout(run *model.NodeRun, ids []string, calls []*aigatew
 			open = append(open, id)
 		}
 	}
+	_, soft := c.budget(run.Kind)
+	info := taskevent.Attrs{
+		"elapsed_ms": c.now().Sub(run.CreatedAt).Milliseconds(), "soft_cap_s": int64(soft / time.Second),
+		"hard_cap_s": int64(c.hardCap(run.Kind) / time.Second), "calls": len(ids), "unaccepted": len(unaccepted),
+		"accepted": accepted, "unknown": unknown, "delivered": delivered,
+	}
 	if age := c.now().Sub(run.CreatedAt); age > c.hardCap(run.Kind) {
 		// 硬上限：count>1 已有成品时不把已出的图连同退款一起丢掉——其余调用全部取消，到终态后按成功张数收尾
 		// （ClassifyGateway：成功 + 已取消 → 成功，actual=成功张数）；宽限期内仍不到终态才整单失败退款。
 		if delivered && age <= c.hardCap(run.Kind)+hardCapGrace {
-			return timeoutVerdict{extend: true, cancel: open}
+			return timeoutVerdict{extend: true, cancel: open, reason: "hard_cap_partial_grace", attrs: info}
 		}
-		return timeoutVerdict{fail: true}
+		return timeoutVerdict{fail: true, reason: "hard_cap", attrs: info}
 	}
 	switch {
 	case accepted:
-		return timeoutVerdict{extend: true, cancel: unaccepted}
+		return timeoutVerdict{extend: true, cancel: unaccepted, reason: "soft_cap_accepted_extended", attrs: info}
 	case delivered && !unknown:
 		// 已有成品：未受理的取消掉，取消到终态后按成功张数收尾（不把已出的图连同退款一起丢掉）
-		return timeoutVerdict{extend: true, cancel: unaccepted}
+		return timeoutVerdict{extend: true, cancel: unaccepted, reason: "soft_cap_partial_delivered", attrs: info}
 	case unknown:
-		return timeoutVerdict{extend: true}
+		return timeoutVerdict{extend: true, reason: "soft_cap_status_unknown", attrs: info}
 	}
-	return timeoutVerdict{fail: true}
+	return timeoutVerdict{fail: true, reason: "soft_cap_none_accepted", attrs: info}
 }
 
 // hardDeadline run 的硬上限时刻（日志用）。
@@ -132,13 +151,36 @@ func (c *core) hardDeadline(run *model.NodeRun) time.Time {
 func (c *core) applyGatewayTimeout(ctx context.Context, run *model.NodeRun, ids []string, v timeoutVerdict) bool {
 	switch {
 	case v.fail:
+		attrs := runAttrs(run, v.attrs)
+		attrs["reason"] = v.reason
+		attrs["decision"] = "fail"
+		sfx := func(status string) taskevent.SpanOpt { return taskevent.WithDedupeSuffix(status) }
+		c.evStart(ctx, run, stTimeout, timeoutFailSeq, attrs)
 		if c.failRun(ctx, run, model.RunRunning, "TIMEOUT", "生成超时，点数已退回", true) {
 			c.cancelCalls(ctx, run.ID, ids, "生成超时")
+			c.evEnd(ctx, run, stTimeout, timeoutFailSeq, taskevent.StatusTimeout,
+				taskevent.Fail{Class: "TIMEOUT", Code: "TIMEOUT", Check: "canvas.gateway_timeout", Message: "生成超时（" + v.reason + "），已失败退款并取消调用"}, attrs, sfx(taskevent.StatusTimeout))
+		} else {
+			// 状态进 dedupe：这次没抢到（skipped）不会吞掉之后真正失败的 timeout
+			c.evEnd(ctx, run, stTimeout, timeoutFailSeq, taskevent.StatusSkipped,
+				taskevent.Fail{Class: "LOCAL", Code: "STATE_CHANGED", Check: "canvas.gateway_timeout", Message: "超时判定时 run 已被别处推进"}, attrs, sfx(taskevent.StatusSkipped))
 		}
 		return true
 	case v.extend:
+		attrs := runAttrs(run, v.attrs)
+		attrs["reason"] = v.reason
+		attrs["decision"] = "extend"
+		attrs["cancel_unaccepted"] = len(v.cancel)
+		attrs["hard_deadline"] = c.hardDeadline(run).Format(time.RFC3339)
 		if len(v.cancel) > 0 {
 			c.cancelCalls(ctx, run.ID, v.cancel, "生成超时（未受理）")
+		}
+		// 每个轮询 tick 都会再判一次：只在原因变化时才写（原因进 dedupe，A→B→A 也各记一次），在取消调用之后写
+		if n, changed := timeoutReasons.changed(run.ID, v.reason); changed {
+			sfx := taskevent.WithDedupeSuffix(v.reason + "#" + strconv.Itoa(n))
+			c.evStart(ctx, run, stTimeout, timeoutExtendSeq, attrs, sfx)
+			c.evEnd(ctx, run, stTimeout, timeoutExtendSeq, taskevent.StatusSkipped,
+				taskevent.Fail{Class: "TIMEOUT", Code: "TIMEOUT_EXTENDED", Check: "canvas.timeout_extended", Message: "已过软时限，不取消，继续等待（" + v.reason + "）"}, attrs, sfx)
 		}
 		logx.WithContext(ctx).Infof("canvas: run %d 已过软时限，有调用已被供应商受理（或状态未知），不取消，最多等到 %s (check=canvas.timeout_extended)",
 			run.ID, c.hardDeadline(run).Format(time.RFC3339))

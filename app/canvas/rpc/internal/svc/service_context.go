@@ -17,6 +17,7 @@ import (
 	"aigc-local-life/pkg/bundb"
 	"aigc-local-life/pkg/mediasvc"
 	"aigc-local-life/pkg/taskcenter"
+	"aigc-local-life/pkg/taskevent"
 
 	"github.com/uptrace/bun"
 	"github.com/zeromicro/go-zero/core/logx"
@@ -33,6 +34,8 @@ type ServiceContext struct {
 	Billing    *billing.Service
 	Asset      *asset.Writer
 	TaskCenter *taskcenter.Syncer
+	// Events 任务轨迹（afv_task_event）写入器，写入尽力而为；nil 时不写
+	Events *taskevent.Writer
 	// Gateway ai-gateway（image / video / i2p）；BaseURL 为空时 Enabled()=false
 	Gateway *aigateway.Client
 	// Media 媒体服务（裁剪 / 转存 / 拉入）；未配置为 nil
@@ -64,6 +67,7 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		Billing:    billing.New(c.Billing, conn),
 		Asset:      asset.NewWriter(conn),
 		TaskCenter: taskcenter.New(conn, 10*time.Minute, TaskSources(c)...),
+		Events:     taskevent.New(conn),
 		Gateway:    newGateway(c),
 		Media:      newMediaSvc(c),
 		Java:       javatool.New(c.Java.BaseURL, time.Duration(c.Java.Timeout)*time.Second),

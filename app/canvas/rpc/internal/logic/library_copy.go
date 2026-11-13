@@ -37,6 +37,7 @@ import (
 	"aigc-local-life/app/canvas/model"
 	"aigc-local-life/app/canvas/rpc/internal/repo"
 	"aigc-local-life/pkg/mediasvc"
+	"aigc-local-life/pkg/taskevent"
 
 	"github.com/go-sql-driver/mysql"
 	"github.com/zeromicro/go-zero/core/logx"
@@ -529,11 +530,19 @@ func (c *core) runCopyJob(ctx context.Context, j *model.CopyJob) {
 	}
 	cands, video := run.CandidateList(), run.VideoURL.String
 	if hasPendingRefs(cands, video) {
+		tid, rn := c.traceIDOf(j.RunPK), int(round)
+		c.s.Events.Start(wctx, tid, stRehost, rn, taskevent.Attrs{"async": true, "outputs": len(jobsOf(cands, video)), "kind": string(run.Kind)})
 		nc, nv, jobs, errs := c.copyRefs(ctx, run, cands, video)
 		for i, e := range errs {
 			if e == nil {
 				continue
 			}
+			class := "PERMANENT"
+			if isTemporary(e) {
+				class = "TEMPORARY"
+			}
+			c.s.Events.Finish(wctx, tid, stRehost, rn, taskevent.StatusFailed,
+				taskevent.Fail{Class: class, Code: "REHOST_FAILED", Check: "canvas.rehost", Message: traceErrMsg(e)}, taskevent.Attrs{"async": true, "round": rn})
 			if !isTemporary(e) {
 				what := "产物"
 				if jobs[i].video {
@@ -545,6 +554,7 @@ func (c *core) runCopyJob(ctx context.Context, j *model.CopyJob) {
 			retry(e)
 			return
 		}
+		c.s.Events.Finish(wctx, tid, stRehost, rn, taskevent.StatusOK, taskevent.Fail{}, taskevent.Attrs{"async": true, "round": rn})
 		if !stillMine() {
 			return
 		}

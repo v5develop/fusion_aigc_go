@@ -22,6 +22,8 @@ import (
 	"sync"
 	"time"
 
+	"aigc-local-life/pkg/taskevent"
+
 	"github.com/zeromicro/go-zero/core/logx"
 	"github.com/zeromicro/go-zero/core/stores/sqlx"
 )
@@ -65,6 +67,10 @@ type Source struct {
 	Cover          string // 封面；空=用 Result
 	Fail           string // 失败原因
 	Prompt         string // 提示词 / 文案，放进 request_params.prompt 供列表展示
+
+	// Trace 任务轨迹（afv_task_event）里的组件名（step_path 形如 go.<Trace>/created）；空=不写派生事件。
+	// 没有自己埋点的服务填它（imagegen / note / copywriting / digitalhuman），见 trace.go。
+	Trace string
 
 	// CreateTimeCol / UpdateTimeCol 源表的创建、更新时间列名；空=create_time / update_time（老表）。
 	// 新模块（bun 模型，如 afv_studio_task）用 created_at / updated_at，在这里改名即可，同步语义不变。
@@ -230,13 +236,29 @@ type Syncer struct {
 	// INSERT … SELECT … ON DUPLICATE KEY UPDATE 会互相等锁甚至死锁（1213）白白报错，串行后后到的一轮读到的一定不旧于先到的
 	mu     sync.Mutex
 	window time.Duration
+
+	// 任务轨迹派生事件（trace.go）：异步写入器、创建时间下限、每轮行数上限；evMu 保证同一时刻只跑一轮派生
+	events      *taskevent.Writer
+	traceFloor  time.Duration
+	traceRowCap int
+	evMu        sync.Mutex
+	evWG        sync.WaitGroup
+	seenResv    map[string]struct{}
 }
 
 func New(conn sqlx.SqlConn, window time.Duration, sources ...Source) *Syncer {
 	if window <= 0 {
 		window = 10 * time.Minute
 	}
-	return &Syncer{conn: conn, sources: sources, synced: make([]bool, len(sources)), window: window}
+	y := &Syncer{conn: conn, sources: sources, synced: make([]bool, len(sources)), window: window,
+		traceFloor: DefaultTraceFloor, traceRowCap: DefaultTraceRowCap}
+	for _, s := range sources {
+		if strings.TrimSpace(s.Trace) != "" && conn != nil {
+			y.events = taskevent.New(conn) // 后台 worker 首次写入时才启动
+			break
+		}
+	}
+	return y
 }
 
 // Sync 同步一轮，返回本轮所有失败的合并错误（nil=全部成功）。
@@ -245,25 +267,33 @@ func (y *Syncer) Sync(ctx context.Context) error {
 	if y == nil {
 		return nil
 	}
-	y.mu.Lock()
-	defer y.mu.Unlock()
-	window := int64(y.window / time.Second)
 	var errs []error
-	for i, s := range y.sources {
-		secs := window
-		if !y.synced[i] {
-			secs = 0 // 首次（或上次失败后）全量同步，保证不漏
+	var jobs []traceJob
+	func() {
+		y.mu.Lock()
+		defer y.mu.Unlock()
+		window := int64(y.window / time.Second)
+		for i, s := range y.sources {
+			secs := window
+			if !y.synced[i] {
+				secs = 0 // 首次（或上次失败后）全量同步，保证不漏
+			}
+			err := y.exec(ctx, s.sql(), s.args(secs))
+			if err == nil && s.ResultText != "" {
+				err = y.exec(ctx, s.textSQL(), s.args(secs))
+			}
+			if err != nil {
+				errs = append(errs, fmt.Errorf("%s/%s: %w", s.Table, s.EntryCode, err))
+				continue
+			}
+			if strings.TrimSpace(s.Trace) != "" {
+				jobs = append(jobs, traceJob{idx: i, src: s, secs: secs})
+			}
+			y.synced[i] = true
 		}
-		err := y.exec(ctx, s.sql(), s.args(secs))
-		if err == nil && s.ResultText != "" {
-			err = y.exec(ctx, s.textSQL(), s.args(secs))
-		}
-		if err != nil {
-			errs = append(errs, fmt.Errorf("%s/%s: %w", s.Table, s.EntryCode, err))
-			continue
-		}
-		y.synced[i] = true
-	}
+	}()
+	// 派生轨迹事件在锁外异步跑：不延迟 Sync，也不让别的 Sync 等它
+	y.deriveAsync(ctx, jobs)
 	return errors.Join(errs...)
 }
 

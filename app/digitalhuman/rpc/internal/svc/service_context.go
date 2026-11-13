@@ -50,7 +50,7 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	}
 	return &ServiceContext{
 		TaskCenter: taskcenter.New(conn, 10*time.Minute, taskcenter.Source{
-			Table: "afv_digital_human", Prefix: "dh", EntryCode: entry, Type: "video",
+			Table: "afv_digital_human", Prefix: "dh", Trace: "digitalhuman", EntryCode: entry, Type: "video",
 			Status: "CASE status WHEN 2 THEN 2 WHEN 3 THEN 3 ELSE 1 END",
 			Result: "video_url", Cover: "image_url", Fail: "fail_reason", Prompt: "script",
 			BillingRequest: "s.`video_task_id`",

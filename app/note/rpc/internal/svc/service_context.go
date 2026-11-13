@@ -44,7 +44,7 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	}
 	return &ServiceContext{
 		TaskCenter: taskcenter.New(conn, 10*time.Minute, taskcenter.Source{
-			Table: "afv_image_text_note", Prefix: "note", EntryCode: entry, Type: "image",
+			Table: "afv_image_text_note", Prefix: "note", Trace: "note", EntryCode: entry, Type: "image",
 			// 构思阶段不算任务，开始出图才进任务中心
 			Include: "status IN (3,4,5)",
 			Status:  "CASE status WHEN 3 THEN 1 WHEN 4 THEN 2 ELSE 3 END",

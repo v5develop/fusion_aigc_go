@@ -20,6 +20,7 @@ import (
 	"aigc-local-life/pkg/billing"
 	"aigc-local-life/pkg/lease"
 	"aigc-local-life/pkg/modellabel"
+	"aigc-local-life/pkg/taskevent"
 	"aigc-local-life/pkg/xerr"
 
 	"github.com/zeromicro/go-zero/core/logx"
@@ -254,9 +255,10 @@ func (c *core) endRun(ctx context.Context, run *model.NodeRun, from, to int8, co
 	if !ok {
 		return false
 	}
+	c.traceEnded(ctx, run, from, code, msg, bill == model.BillRefunded)
 	if bill == model.BillRefunded && run.BillingRequestID.Valid {
 		bctx, cancel := detached(ctx)
-		c.s.Billing.Fail(bctx, run.UserID, run.BillingRequestID.String, msg)
+		c.refundTrace(bctx, run, msg)
 		cancel()
 	}
 	run.Status, run.BillingStatus = to, bill
@@ -287,7 +289,10 @@ func (c *core) succeed(ctx context.Context, run *model.NodeRun, o outcome, ready
 	async := false
 	pending := run.Backend != model.BackendStudio && hasPendingRefs(cands, videoURL)
 	if pending && c.asyncCopyOn(run) {
+		dseq := nowSeq()
+		c.evStart(ctx, run, stDeliver, dseq, runAttrs(run, taskevent.Attrs{"async_rehost": true}))
 		ok, err := c.transitWithCopyJob(ctx, run, c.successSet(run, o, cands, videoURL, actual))
+		c.deliverEnd(ctx, run, dseq, ok, err, len(cands))
 		switch {
 		case err == nil && !ok:
 			return // 已被取消 / 强制失败（取消时已退款）；事务回滚，不留 outbox
@@ -306,13 +311,19 @@ func (c *core) succeed(ctx context.Context, run *model.NodeRun, o outcome, ready
 			// 同步转存：各产物（含视频）并发（Poll.FanoutConcurrency），幂等键 canvas-copy:{task_id}:{i}（视频 i=99），
 			// 下轮重试 / 别的实例接管时同键得到同一个 rid，不会重复落桶。判定按下标顺序取第一个错误：
 			// 暂时性 → 整个 run 下轮重试（已转存的按同键复用）；永久 → 失败退款。
+			rseq := nowSeq()
+			c.evStart(ctx, run, stRehost, rseq, runAttrs(run, taskevent.Attrs{"outputs": len(jobsOf(cands, videoURL))}))
 			nc, nv, jobs, errs := c.copyRefs(ctx, run, cands, videoURL)
+			c.rehostEnd(ctx, run, rseq, errs)
 			if !c.outputErrs(ctx, run, jobs, errs) {
 				return
 			}
 			cands, videoURL = nc, nv
 		}
+		dseq := nowSeq()
+		c.evStart(ctx, run, stDeliver, dseq, runAttrs(run, nil))
 		ok, err := c.s.Repo.Run.Transit(ctx, run.ID, model.RunRunning, model.RunSucceeded, c.successSet(run, o, cands, videoURL, actual))
+		c.deliverEnd(ctx, run, dseq, ok, err, len(cands))
 		if err != nil {
 			log.Errorf("canvas: run %d 置成功失败: %v", run.ID, err)
 			return
@@ -322,6 +333,9 @@ func (c *core) succeed(ctx context.Context, run *model.NodeRun, o outcome, ready
 		}
 	}
 	run.Status = model.RunSucceeded
+	timeoutReasons.forget(run.ID)
+	c.evEnd(ctx, run, stWait, 0, taskevent.StatusOK, taskevent.Fail{}, runAttrs(run, taskevent.Attrs{
+		"elapsed_ms": c.now().Sub(run.CreatedAt).Milliseconds(), "outputs": len(cands), "actual": actual}))
 	// 结算只看 run 已成功，与转存无关（异步转存的成败都不再动账）
 	if held(run) {
 		c.settle(ctx, run, settleQuantity(run.Kind, actual), o.calls)

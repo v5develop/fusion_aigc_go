@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"aigc-local-life/app/studio/model"
+	"aigc-local-life/app/studio/rpc/internal/config"
 	"aigc-local-life/app/studio/rpc/internal/pipeline"
 	"aigc-local-life/app/studio/rpc/internal/repo"
 	"aigc-local-life/app/studio/rpc/internal/svc"
@@ -22,6 +23,7 @@ import (
 	"aigc-local-life/pkg/moderation"
 	"aigc-local-life/pkg/storage"
 	"aigc-local-life/pkg/taskcenter"
+	"aigc-local-life/pkg/taskevent"
 	"aigc-local-life/pkg/workspace"
 	"aigc-local-life/pkg/xerr"
 
@@ -45,6 +47,8 @@ type biller interface {
 // deps 提交 / 查询 / 取消共用的依赖。生产由 newDeps 从 svcCtx 组装，单测直接构造。
 type deps struct {
 	repo       *repo.Repo
+	ev         *taskevent.Writer // 任务轨迹；nil 不写
+	cfg        config.Config
 	bill       biller
 	mod        moderation.Checker
 	owns       func(url string) bool                                  // 输入图是否本存储签发 / 素材库公有桶
@@ -77,7 +81,7 @@ func (d *deps) ownsSigned(ctx context.Context, userID int64, u string) bool {
 func newDeps(s *svc.ServiceContext) *deps {
 	c := s.Config
 	return &deps{
-		repo: s.Repo, bill: s.Billing, mod: s.Moderation,
+		repo: s.Repo, bill: s.Billing, mod: s.Moderation, ev: s.Events, cfg: s.Config,
 		owns: func(u string) bool {
 			// 先过结构校验（无 userinfo / .. / 反斜杠），再认本存储签发或白名单前缀（scheme + host 全等、路径按段前缀）
 			if !cleanHTTPURL(u) {

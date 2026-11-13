@@ -39,6 +39,7 @@ import (
 	"aigc-local-life/pkg/aigateway"
 	"aigc-local-life/pkg/mediasvc"
 	"aigc-local-life/pkg/modelgroup"
+	"aigc-local-life/pkg/taskevent"
 	"aigc-local-life/pkg/xerr"
 
 	"github.com/zeromicro/go-zero/core/logx"
@@ -343,13 +344,28 @@ func (c *core) submitGateway(ctx context.Context, run *model.NodeRun, sp *runSpe
 		return nil, err
 	}
 	ids := make([]string, len(reqs))
+	trace := c.traceIDOf(run.ID)
 	errs := fanout(len(reqs), c.fanoutLimit(), func(i int) error {
 		key, _ := gatewayIdem(run, i)
-		call, err := c.s.Gateway.Submit(ctx, reqs[i], aigateway.SubmitOptions{IdempotencyKey: key})
+		step := stCall + strconv.Itoa(i)
+		attrs := taskevent.Attrs{"model_group": reqs[i].ModelGroup, "operation": reqs[i].Operation, "idempotency_key": key}
+		c.evStart(ctx, run, step, int(run.Attempt)+1, attrs)
+		call, err := c.s.Gateway.Submit(ctx, reqs[i], aigateway.SubmitOptions{IdempotencyKey: key, TraceID: trace})
 		if err != nil {
+			f := taskevent.Fail{Class: "GATEWAY_SUBMIT", Code: gatewayErrCode(err), Check: "canvas.gateway_submit", Message: traceErrMsg(err)}
+			if isTemporary(gatewayErr(err)) {
+				f.Class = "TEMPORARY"
+			}
+			c.evEnd(ctx, run, step, int(run.Attempt)+1, taskevent.StatusFailed, f, attrs)
 			return err
 		}
 		ids[i] = call.ID
+		// 调用一创建就直接写库关联（不依赖 reportGatewayCalls 的 HTTP 回报）
+		ext := taskevent.WithExternal(taskevent.ExternalGatewayCall, call.ID)
+		if c.s.Events != nil {
+			c.s.Events.LinkGatewayCall(ctx, trace, step, call.ID, int(run.Attempt)+1, attrs)
+		}
+		c.evEnd(ctx, run, step, int(run.Attempt)+1, taskevent.StatusOK, taskevent.Fail{}, attrs, ext)
 		return nil
 	})
 	if err := firstErr(errs); err != nil {
@@ -905,6 +921,8 @@ func (c *core) dispatch(ctx context.Context, run *model.NodeRun, sp *runSpec, be
 		err   error
 	)
 	var acquired []string // 已拿到的 gateway 调用（失败收尾时取消）
+	dn := int(run.Attempt) + 1
+	c.evStart(ctx, run, stDispatch, dn, runAttrs(run, nil))
 	switch run.Backend {
 	case model.BackendGateway:
 		if acquired, err = c.submitGateway(ctx, run, sp); err == nil {
@@ -924,6 +942,7 @@ func (c *core) dispatch(ctx context.Context, run *model.NodeRun, sp *runSpec, be
 		err = fmt.Errorf("canvas: 未知后端 %s", run.Backend)
 	}
 	if err != nil {
+		c.evEnd(ctx, run, stDispatch, dn, taskevent.StatusFailed, dispatchFail(err), runAttrs(run, taskevent.Attrs{"temporary": isTemporary(err)}))
 		if isTemporary(err) && int(run.Attempt)+1 < c.s.Config.Poll.MaxSubmitAttempts {
 			log.Infof("canvas: run %d 提交暂时失败（第 %d 次），稍后重试: %v", run.ID, run.Attempt+1, err)
 			_ = c.s.Repo.Run.Update(ctx, run.ID, map[string]any{"attempt": run.Attempt + 1})
@@ -967,9 +986,11 @@ func (c *core) dispatch(ctx context.Context, run *model.NodeRun, sp *runSpec, be
 	}
 	if run.Backend == model.BackendMedia {
 		if ok, err := c.s.Repo.Run.Transit(ctx, run.ID, model.RunQueued, model.RunRunning, map[string]any{"attempt": run.Attempt + 1}); err != nil || !ok {
+			c.evEnd(ctx, run, stDispatch, dn, taskevent.StatusFailed, taskevent.Fail{Class: "LOCAL", Code: "STATE_CHANGED", Check: "canvas.dispatch_cas", Message: traceErrMsg(err)}, runAttrs(run, nil))
 			return err
 		}
 		run.Status = model.RunRunning
+		c.traceRunning(ctx, run, dn, 1)
 		c.succeed(ctx, run, outcome{done: true, ok: true}, cands)
 		return nil
 	}
@@ -981,9 +1002,11 @@ func (c *core) dispatch(ctx context.Context, run *model.NodeRun, sp *runSpec, be
 		log.Errorf("canvas: run %d 提交成功但转运行中写库失败（下轮按幂等键重提）: %v", run.ID, err)
 		_ = c.s.Repo.Run.Update(ctx, run.ID, map[string]any{"attempt": run.Attempt + 1})
 		run.Attempt++
+		c.evEnd(ctx, run, stDispatch, dn, taskevent.StatusFailed, taskevent.Fail{Class: "LOCAL", Code: "DISPATCH_WRITE", Check: "canvas.dispatch_write", Message: traceErrMsg(err)}, runAttrs(run, nil))
 		return nil
 	}
 	if !ok {
+		c.evEnd(ctx, run, stDispatch, dn, taskevent.StatusSkipped, taskevent.Fail{Class: "LOCAL", Code: "STATE_CHANGED", Check: "canvas.dispatch_cas", Message: "提交期间已被取消 / 强制失败 / 超时"}, runAttrs(run, nil))
 		// 提交期间 run 已被取消 / 强制失败 / 超时：刚拿到的上游调用成了孤儿，取消掉
 		switch run.Backend {
 		case model.BackendGateway:
@@ -997,6 +1020,7 @@ func (c *core) dispatch(ctx context.Context, run *model.NodeRun, sp *runSpec, be
 		return nil
 	}
 	run.Status, run.BackendRef.String, run.BackendRef.Valid = model.RunRunning, ref, true
+	c.traceRunning(ctx, run, dn, len(acquired))
 	if run.Backend == model.BackendGateway {
 		c.reportGatewayCalls(ctx, run, acquired, bearer)
 	}

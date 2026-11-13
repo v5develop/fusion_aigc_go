@@ -55,7 +55,7 @@ func NewServiceContext(c config.Config) *ServiceContext {
 // 计费请求号与 generate_logic.go 的 billingRequestID 一致（copywriting-<id>），预留单可以关联回来。
 func copywritingSource(entry string) taskcenter.Source {
 	return taskcenter.Source{
-		Table: "afv_copywriting", Prefix: "cw", EntryCode: entry, Type: "copywriting",
+		Table: "afv_copywriting", Prefix: "cw", Trace: "copywriting", EntryCode: entry, Type: "copywriting",
 		// 生成中=1 处理中，已完成=2 成功，失败=3
 		Status:         "CASE status WHEN 0 THEN 1 WHEN 1 THEN 2 ELSE 3 END",
 		Fail:           "fail_reason",

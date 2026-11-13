@@ -128,6 +128,8 @@ type SubmitOptions struct {
 	ReconciledNotCharged string
 	// Traceparent W3C 链路头，可空
 	Traceparent string
+	// TraceID 创作任务号（afv_creation_task.task_id），放在 X-Trace-Id 请求头，网关据此把调用挂到任务轨迹上；可空
+	TraceID string
 }
 
 // Submit 提交（或重放）一次调用。POST /v1/calls，scope=calls。
@@ -158,6 +160,9 @@ func (c *Client) Submit(ctx context.Context, req CallRequest, opt SubmitOptions)
 	h := http.Header{"Idempotency-Key": {opt.IdempotencyKey}}
 	if opt.Traceparent != "" {
 		h.Set("traceparent", opt.Traceparent)
+	}
+	if t := strings.TrimSpace(opt.TraceID); t != "" {
+		h.Set("X-Trace-Id", t)
 	}
 	var out Call
 	if err := c.do(ctx, PurposeCalls, http.MethodPost, "/v1/calls", q, body, h, wait, &out); err != nil {

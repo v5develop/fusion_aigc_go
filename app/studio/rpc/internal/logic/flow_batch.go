@@ -18,6 +18,7 @@ import (
 	"aigc-local-life/pkg/aigateway"
 	"aigc-local-life/pkg/mediasvc"
 	"aigc-local-life/pkg/reverse"
+	"aigc-local-life/pkg/taskevent"
 
 	"github.com/zeromicro/go-zero/core/logx"
 )
@@ -210,8 +211,9 @@ func (f *flow) failBatch(ctx context.Context, batchID int64, reason string) {
 			continue
 		}
 		n++
+		f.evQueueDone(ctx, t, taskevent.StatusFailed, taskevent.Fail{Class: "LOCAL", Code: "QUEUED_FAILED", Check: "studio.queue_failed", Message: reason})
 		if refund {
-			f.refundTask(ctx, b.UserID, t.BillingRequestID.String, reason)
+			f.refundTask(ctx, t, b.UserID, t.BillingRequestID.String, reason)
 		}
 	}
 	if err := f.repo.Batch.UpdateCounters(ctx, b.ID, 0, n); err != nil {

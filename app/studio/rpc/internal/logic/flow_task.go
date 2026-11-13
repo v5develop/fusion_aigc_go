@@ -17,6 +17,7 @@ import (
 	"aigc-local-life/pkg/asset"
 	"aigc-local-life/pkg/billing"
 	"aigc-local-life/pkg/mediasvc"
+	"aigc-local-life/pkg/taskevent"
 	"aigc-local-life/pkg/xerr"
 
 	"github.com/zeromicro/go-zero/core/logx"
@@ -209,6 +210,9 @@ func (f *flow) onTerminal(ctx context.Context, t *model.Task, b *model.Batch, ca
 			return
 		case <-time.After(delay):
 		}
+		f.evEnd(ctx, t, stWait, callAttempt(t, false), taskevent.StatusFailed,
+			taskevent.Fail{Class: failClass(call), Code: failCode(call), Check: "studio.retry_failed", Message: "网关调用失败，按 retry_safe 重开下一轮"},
+			taskevent.Attrs{"run_no": call.RunNo}, taskevent.WithExternal(taskevent.ExternalGatewayCall, call.ID))
 		nc, err := f.submit(ctx, t, b, true)
 		if err != nil {
 			if pipeline.RetryableSubmitErr(err) {
@@ -391,11 +395,18 @@ func (f *flow) copyNow(ctx context.Context, t *model.Task, b *model.Batch, call 
 		}
 		return mediasvc.Resource{}, false
 	}
+	rseq := nowSeq()
+	f.evStart(ctx, t, stRehost, rseq, nil)
 	res, err := f.media.CopyToLibrary(ctx, rid, mediasvc.PurposeAssetLibrary, "")
 	if err == nil && res.URL == "" {
 		err = &mediasvc.Error{Status: 422, Code: "no_public_url", Message: "素材库桶没有公开地址"}
 	}
 	if err != nil {
+		cls := "TEMPORARY"
+		if me := new(mediasvc.Error); errors.As(err, &me) && me.Permanent() {
+			cls = "PERMANENT"
+		}
+		f.evEnd(ctx, t, stRehost, rseq, taskevent.StatusFailed, taskevent.Fail{Class: cls, Code: "REHOST_FAILED", Check: "studio.rehost", Message: taskevent.FromError(err, "").Message}, nil)
 		var me *mediasvc.Error
 		if (errors.As(err, &me) && me.Permanent()) || giveUp {
 			log.Errorf("studio: 子任务 %d 转存失败，放弃: %v", t.ID, err)
@@ -405,6 +416,7 @@ func (f *flow) copyNow(ctx context.Context, t *model.Task, b *model.Batch, call 
 		log.Errorf("studio: 子任务 %d 转存失败，下一轮重试: %v", t.ID, err)
 		return mediasvc.Resource{}, false
 	}
+	f.evEnd(ctx, t, stRehost, rseq, taskevent.StatusOK, taskevent.Fail{}, nil)
 	return res, true
 }
 
@@ -423,6 +435,11 @@ func (f *flow) finishDelivery(ctx context.Context, t *model.Task, b *model.Batch
 		gwStatus = call.Status
 	}
 	reqID := t.BillingRequestID.String
+	// 交付区间（结算 + 置成功）：默认以 failed 收尾（走失败路径或留到下一轮重试），成功 / CAS 没抢到时改写
+	dseq, dstatus := nowSeq(), taskevent.StatusFailed
+	dfail := taskevent.Fail{Class: "TEMPORARY", Code: "DELIVER_INCOMPLETE", Check: "studio.deliver", Message: "交付未完成：结算失败 / 预留已失效 / 置成功失败，留待下一轮或已置失败"}
+	f.evStart(ctx, t, stDeliver, dseq, taskevent.Attrs{"overdue": overdue})
+	defer func() { f.evEnd(ctx, t, stDeliver, dseq, dstatus, dfail, taskevent.Attrs{"overdue": overdue}) }()
 	sctx, cancel := detached(ctx)
 	_, err := f.bill.SettleCost(sctx, b.UserID, reqID, 1, f.taskCost(t, call))
 	cancel()
@@ -500,8 +517,12 @@ func (f *flow) finishDelivery(ctx context.Context, t *model.Task, b *model.Batch
 		return
 	}
 	if !ok {
+		dstatus, dfail = taskevent.StatusSkipped, taskevent.Fail{Class: "LOCAL", Code: "STATE_CHANGED", Check: "studio.deliver_cas", Message: "交付时任务状态已变化"}
 		return
 	}
+	dstatus, dfail = taskevent.StatusOK, taskevent.Fail{}
+	f.evEnd(ctx, t, stWait, callAttempt(t, false), taskevent.StatusOK, taskevent.Fail{},
+		taskevent.Attrs{"cost_cny": c, "gateway_status": gwStatus}, taskevent.WithExternal(taskevent.ExternalGatewayCall, t.GatewayCallID.String))
 	if err := f.repo.Batch.UpdateCounters(ctx, b.ID, 1, 0); err != nil {
 		log.Errorf("studio: 批次 %d 更新计数失败: %v", b.ID, err)
 	}
@@ -550,8 +571,12 @@ func (f *flow) failTask(ctx context.Context, t *model.Task, b *model.Batch, reas
 	if !ok {
 		return
 	}
+	if reason == reasonTimeout {
+		f.evTimeout(ctx, t, gwStatus, "generate_timeout")
+	}
+	f.evWaitFail(ctx, t, reason, gwStatus)
 	if refund {
-		f.refundTask(ctx, b.UserID, t.BillingRequestID.String, reason)
+		f.refundTask(ctx, t, b.UserID, t.BillingRequestID.String, reason)
 	}
 	if err := f.repo.Batch.UpdateCounters(ctx, b.ID, 0, 1); err != nil {
 		log.Errorf("studio: 批次 %d 更新计数失败: %v", b.ID, err)
@@ -596,8 +621,13 @@ func (f *flow) forceFail(ctx context.Context, t *model.Task, b *model.Batch) err
 	if !ok {
 		return xerr.New(xerr.Conflict, "任务状态已变化，请刷新后再看")
 	}
+	if t.Status == model.TaskQueued {
+		f.evQueueDone(ctx, t, taskevent.StatusFailed, taskevent.Fail{Class: "ADMIN", Code: "ADMIN_FORCE_FAIL", Check: "studio.force_fail", Message: reasonForceFail})
+	} else {
+		f.evWaitFail(ctx, t, reasonForceFail, "")
+	}
 	if refund {
-		f.refundTask(ctx, b.UserID, t.BillingRequestID.String, reasonForceFail)
+		f.refundTask(ctx, t, b.UserID, t.BillingRequestID.String, reasonForceFail)
 	}
 	if err := f.repo.Batch.UpdateCounters(ctx, b.ID, 0, 1); err != nil {
 		log.Errorf("studio: 批次 %d 更新计数失败: %v", b.ID, err)
@@ -623,10 +653,20 @@ func (f *flow) submit(ctx context.Context, t *model.Task, b *model.Batch, retryF
 	}
 	sctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
-	call, err := f.gw.Submit(sctx, req, aigateway.SubmitOptions{IdempotencyKey: idemKey(b.ID, t), RetryFailed: retryFailed})
+	tid, key, attempt := studioTraceID(f.cfg, t), idemKey(b.ID, t), callAttempt(t, retryFailed)
+	ca := taskevent.Attrs{"model_group": req.ModelGroup, "operation": req.Operation, "idempotency_key": key, "retry_failed": retryFailed}
+	f.evStart(ctx, t, stCall, attempt, ca)
+	call, err := f.gw.Submit(sctx, req, aigateway.SubmitOptions{IdempotencyKey: key, RetryFailed: retryFailed, TraceID: tid})
 	if err != nil {
+		f.evEnd(ctx, t, stCall, attempt, taskevent.StatusFailed, gwErrFail(err, pipeline.RetryableSubmitErr(err)), ca, failSeq())
 		return nil, err
 	}
+	// 调用一创建就直接写库关联（不依赖任何 HTTP 回报）
+	if f.ev != nil {
+		f.ev.LinkGatewayCall(ctx, tid, stCall, call.ID, attempt, ca)
+	}
+	f.evEnd(ctx, t, stCall, attempt, taskevent.StatusOK, taskevent.Fail{}, ca, taskevent.WithExternal(taskevent.ExternalGatewayCall, call.ID))
+	f.evStart(ctx, t, stWait, attempt, taskevent.Attrs{"call_status": call.Status}, taskevent.WithExternal(taskevent.ExternalGatewayCall, call.ID))
 	if err := f.repo.Task.SetGateway(ctx, t.ID, call.ID, call.Status); err != nil {
 		logx.WithContext(ctx).Errorf("studio: 子任务 %d 写 gateway 调用号失败: %v", t.ID, err)
 	}

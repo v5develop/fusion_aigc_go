@@ -7,6 +7,7 @@ import (
 
 	"aigc-local-life/app/studio/model"
 	"aigc-local-life/pkg/billing"
+	"aigc-local-life/pkg/taskevent"
 
 	"github.com/zeromicro/go-zero/core/logx"
 )
@@ -46,10 +47,10 @@ const (
 
 // refundTask 退回一个子任务的点数：先按 HELD 退（Fail）；之后若预留单已是 CONFIRMED（已扣费，例如结算后才被改失败），
 // 走已确认退款（RefundConfirmed）。调用方须先 CAS 抢到失败状态，保证只退一次。
-func (f *flow) refundTask(ctx context.Context, userID int64, requestID, reason string) {
+func (f *flow) refundTask(ctx context.Context, t *model.Task, userID int64, requestID, reason string) {
 	ctx, cancel := detached(ctx)
 	defer cancel()
-	f.bill.Fail(ctx, userID, requestID, reason)
+	f.evRefund(ctx, t, reason, func() { f.bill.Fail(ctx, userID, requestID, reason) })
 	st, err := f.bill.Status(ctx, userID, requestID)
 	if err != nil {
 		logx.WithContext(ctx).Errorf("studio: 查预留单 %s 状态失败（未核对是否已扣费）: %v", requestID, err)
@@ -255,8 +256,9 @@ func (f *flow) reapSubmitting(ctx context.Context) {
 			if err != nil || !ok {
 				continue
 			}
+			f.evQueueDone(ctx, t, taskevent.StatusFailed, taskevent.Fail{Class: "LOCAL", Code: "SUBMIT_ABORTED", Check: "studio.submit_aborted", Message: reasonSubmitAborted})
 			if refund {
-				f.refundTask(ctx, b.UserID, t.BillingRequestID.String, reasonSubmitAborted)
+				f.refundTask(ctx, t, b.UserID, t.BillingRequestID.String, reasonSubmitAborted)
 			}
 		}
 		log.Errorw("studio submitting batch reaped", logx.Field("batch_id", b.ID), logx.Field("task_total", b.TaskTotal))
@@ -302,8 +304,9 @@ func (f *flow) rescueStrayQueued(ctx context.Context) {
 				continue
 			}
 			failed++
+			f.evQueueDone(ctx, t, taskevent.StatusFailed, taskevent.Fail{Class: "LOCAL", Code: "SUBMIT_ABORTED", Check: "studio.submit_aborted", Message: reasonSubmitAborted})
 			if refundable(mode, t) {
-				f.refundTask(ctx, b.UserID, t.BillingRequestID.String, reasonSubmitAborted)
+				f.refundTask(ctx, t, b.UserID, t.BillingRequestID.String, reasonSubmitAborted)
 			}
 		}
 		if failed > 0 {

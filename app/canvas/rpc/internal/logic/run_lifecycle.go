@@ -24,6 +24,7 @@ import (
 	"aigc-local-life/pkg/aigc"
 	"aigc-local-life/pkg/billing"
 	"aigc-local-life/pkg/taskcenter"
+	"aigc-local-life/pkg/taskevent"
 	"aigc-local-life/pkg/xerr"
 
 	"github.com/zeromicro/go-zero/core/logx"
@@ -78,6 +79,7 @@ func (c *core) holdAndQueue(ctx context.Context, run *model.NodeRun, sp *runSpec
 	set := map[string]any{}
 	bill := run.BillingStatus
 	if sp.Backend == model.BackendGateway {
+		c.evStart(bctx, run, stFreeze, 0, runAttrs(run, taskevent.Attrs{"entry_code": sp.EntryCode}))
 		r, err := c.s.Billing.Hold(bctx, c.charge(run.UserID, run.BillingRequestID.String, sp))
 		if err != nil {
 			code, msg, ok := xerr.Parse(err)
@@ -85,7 +87,8 @@ func (c *core) holdAndQueue(ctx context.Context, run *model.NodeRun, sp *runSpec
 				log.Errorf("canvas: run %d 冻结失败: %v", run.ID, err)
 				code, msg = xerr.ServerError, "暂时无法计费，请稍后重试"
 			}
-			c.s.Billing.Fail(bctx, run.UserID, run.BillingRequestID.String, "冻结失败："+msg)
+			c.evEnd(bctx, run, stFreeze, 0, taskevent.StatusFailed, taskevent.Fail{Class: "BILLING", Code: "BILLING_REJECTED", Check: "canvas.billing_hold", Message: msg}, runAttrs(run, nil))
+			c.refundTrace(bctx, run, "冻结失败："+msg)
 			c.endRun(bctx, run, model.RunSubmitting, model.RunFailed, "BILLING_REJECTED", msg, false, false)
 			return xerr.New(code, msg)
 		}
@@ -96,6 +99,7 @@ func (c *core) holdAndQueue(ctx context.Context, run *model.NodeRun, sp *runSpec
 			run.Points = r.PricePoints
 			sp.SettleMode = c.s.Billing.SettleModeOf(bctx, r)
 		}
+		c.evEnd(bctx, run, stFreeze, 0, taskevent.StatusOK, taskevent.Fail{}, runAttrs(run, taskevent.Attrs{"points": run.Points, "billing_status": bill, "settle_mode": sp.SettleMode}))
 	}
 	ok, err := c.s.Repo.Run.Transit(bctx, run.ID, model.RunSubmitting, model.RunQueued, set)
 	if err != nil {
@@ -104,7 +108,7 @@ func (c *core) holdAndQueue(ctx context.Context, run *model.NodeRun, sp *runSpec
 	}
 	if !ok {
 		if bill == model.BillHeld {
-			c.s.Billing.Fail(bctx, run.UserID, run.BillingRequestID.String, "提交中已取消")
+			c.refundTrace(bctx, run, "提交中已取消")
 		}
 		return xerr.New(xerr.Conflict, "执行已被取消")
 	}
@@ -130,8 +134,9 @@ func (c *core) advanceSubmitting(ctx context.Context) {
 			logx.WithContext(ctx).Errorf("canvas: run %d 提交中兜底置失败出错: %v", run.ID, err)
 		} else if ok {
 			logx.WithContext(ctx).Errorf("canvas: run %d 提交中超过 %s，已置失败并退回冻结", run.ID, submittingTTL)
+			c.traceEnded(bctx, run, model.RunSubmitting, "SUBMIT_TIMEOUT", "提交超时，点数已退回", run.BillingRequestID.Valid)
 			if run.BillingRequestID.Valid {
-				c.s.Billing.Fail(bctx, run.UserID, run.BillingRequestID.String, "提交超时")
+				c.refundTrace(bctx, run, "提交超时")
 			}
 		}
 		cancel()
@@ -246,7 +251,7 @@ func (c *core) reclaimQueuedCalls(ctx context.Context, run *model.NodeRun, why s
 		if err != nil {
 			return
 		}
-		call, err := c.s.Gateway.Submit(bctx, r, aigateway.SubmitOptions{IdempotencyKey: key})
+		call, err := c.s.Gateway.Submit(bctx, r, aigateway.SubmitOptions{IdempotencyKey: key, TraceID: c.traceIDOf(run.ID)})
 		if err != nil {
 			logx.WithContext(ctx).Infof("canvas: run %d %s，按幂等键 %s 取回调用失败: %v", run.ID, why, key, err)
 			continue
@@ -275,6 +280,9 @@ func (c *core) settle(ctx context.Context, run *model.NodeRun, actual int, calls
 	defer cancel()
 	bill := model.BillSettled
 	set := map[string]any{}
+	// 每次结算尝试各占一个序号：失败后重试成功的那次不会被先到的失败行吞掉（start / end 共用同一序号）
+	sseq := nowSeq()
+	c.evStart(bctx, run, stSettle, sseq, runAttrs(run, taskevent.Attrs{"actual": actual}))
 	st, err := c.s.Billing.SettleCost(bctx, run.UserID, run.BillingRequestID.String, actual, c.runCost(run, calls))
 	if err != nil {
 		bill = model.BillUnsettled
@@ -285,6 +293,11 @@ func (c *core) settle(ctx context.Context, run *model.NodeRun, actual int, calls
 		run.Points = st.Points
 	}
 	set["billing_status"] = bill
+	if bill == model.BillUnsettled {
+		c.evEnd(bctx, run, stSettle, sseq, taskevent.StatusFailed, taskevent.Fail{Class: "BILLING", Code: "SETTLE_FAILED", Check: "canvas.settle", Message: traceErrMsg(err)}, runAttrs(run, taskevent.Attrs{"points": run.Points}))
+	} else {
+		c.evEnd(bctx, run, stSettle, sseq, taskevent.StatusOK, taskevent.Fail{}, runAttrs(run, taskevent.Attrs{"points": run.Points, "actual": actual}))
+	}
 	if err := c.s.Repo.Run.Update(bctx, run.ID, set); err != nil {
 		logx.WithContext(ctx).Errorf("canvas: run %d 写计费状态 %s 失败: %v", run.ID, bill, err)
 	}

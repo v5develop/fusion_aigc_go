@@ -84,7 +84,7 @@ func taskSources(c config.Config) []taskcenter.Source {
 	image := func(kind string, k config.KindConf, def string) taskcenter.Source {
 		t := typ(k.AssetType, def)
 		s := taskcenter.Source{
-			Table: "afv_local_life_creation", Prefix: "img", Kind: kind, EntryCode: code(k.AssetEntryCode, kind), Type: t,
+			Table: "afv_local_life_creation", Prefix: "img", Trace: "imagegen", Kind: kind, EntryCode: code(k.AssetEntryCode, kind), Type: t,
 			Status: "CASE status WHEN 0 THEN 1 WHEN 1 THEN 2 ELSE 3 END",
 			Result: "JSON_UNQUOTE(JSON_EXTRACT(image_urls, '$[0]'))", Fail: "fail_reason", Prompt: "content",
 			BillingRequest: "s.`request_id`",
@@ -104,7 +104,7 @@ func taskSources(c config.Config) []taskcenter.Source {
 	}
 	video := func(kind, entry, t string) taskcenter.Source {
 		return taskcenter.Source{
-			Table: "afv_video_creation", Prefix: "vid", Kind: kind, EntryCode: code(entry, kind), Type: typ(t, "video"),
+			Table: "afv_video_creation", Prefix: "vid", Trace: "imagegen", Kind: kind, EntryCode: code(entry, kind), Type: typ(t, "video"),
 			// 剧本阶段（构思中 / 待确认）不算任务，开始出片才进任务中心
 			Include: "status IN (2,3) OR (status = 4 AND gen_task_id IS NOT NULL)",
 			Status:  "CASE status WHEN 2 THEN 1 WHEN 3 THEN 2 ELSE 3 END",
