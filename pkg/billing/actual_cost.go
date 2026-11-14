@@ -320,8 +320,20 @@ func (s *Service) SettleCost(ctx context.Context, userID int64, requestID string
 		return nil, err
 	}
 	if r == nil {
-		// 查询与加锁之间被别人改了状态：按已变化处理，不交付
-		return nil, fmt.Errorf("%w: %s 状态已变化", ErrGone, bizID)
+		// 查状态与捞单之间被别人改了状态：重读一次。并发的另一次确认已扣除 → 幂等成功（Already），
+		// 不能误报 ErrGone（调用方会据此拒绝交付、甚至退款）；其余（被回收 / 已退回）才是 ErrGone，不交付。
+		var now string
+		rerr := s.conn.QueryRowCtx(ctx, &now,
+			"SELECT `status` FROM `afv_billing_reservation` WHERE `biz_type` = ? AND `biz_id` = ? AND `deleted` = 0 LIMIT 1",
+			bizTypeLocalLife, bizID)
+		switch {
+		case rerr == nil && (now == statusConfirmed || now == statusPartiallyRefunded):
+			return &Settlement{Mode: SettleFixed, Already: true}, nil
+		case rerr != nil && !errors.Is(rerr, sqlx.ErrNotFound):
+			// 重读失败：保持原口径按 ErrGone（不交付，调用方下轮再核），不把查库错误当成已扣除
+			return nil, fmt.Errorf("%w: %s 状态已变化（重读失败: %v）", ErrGone, bizID, rerr)
+		}
+		return nil, fmt.Errorf("%w: %s 状态已变化（现在是 %q）", ErrGone, bizID, now)
 	}
 	if r.shadow {
 		return &Settlement{Mode: SettleFixed}, nil

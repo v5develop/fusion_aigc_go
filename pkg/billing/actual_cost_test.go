@@ -2,6 +2,7 @@ package billing
 
 import (
 	"context"
+	"errors"
 	"math/big"
 	"regexp"
 	"testing"
@@ -593,6 +594,35 @@ func TestRefundConfirmedAfterOverchargeIntoNewBatch(t *testing.T) {
 	got, err := s.RefundConfirmed(context.Background(), 7, "canvas-cv_1", "人工")
 	if err != nil || got != 14 {
 		t.Fatalf("got=%d err=%v", got, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// 并发：状态查询是 HELD，捞单时已被另一次确认扣除 → 重读到 CONFIRMED，幂等成功，不误报 ErrGone。
+func TestSettleCostConcurrentConfirmIsAlready(t *testing.T) {
+	s, mock := onService(t)
+	mock.ExpectQuery(qStatus).WithArgs("LOCALLIFE", testBiz).WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow("HELD"))
+	mock.ExpectQuery(qLoadHeld).WithArgs("LOCALLIFE", testBiz, "HELD").WillReturnRows(sqlmock.NewRows(resvCols))
+	mock.ExpectQuery(qStatus).WithArgs("LOCALLIFE", testBiz).WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow("CONFIRMED"))
+	st, err := s.SettleCost(context.Background(), 7, "canvas-cv_1", 1, nil)
+	if err != nil || !st.Already {
+		t.Fatalf("并发确认应幂等成功：%+v %v", st, err)
+	}
+	// 捞单时已被回收 → 重读 EXPIRED → ErrGone
+	mock.ExpectQuery(qStatus).WithArgs("LOCALLIFE", testBiz).WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow("HELD"))
+	mock.ExpectQuery(qLoadHeld).WithArgs("LOCALLIFE", testBiz, "HELD").WillReturnRows(sqlmock.NewRows(resvCols))
+	mock.ExpectQuery(qStatus).WithArgs("LOCALLIFE", testBiz).WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow("EXPIRED"))
+	if _, err := s.SettleCost(context.Background(), 7, "canvas-cv_1", 1, nil); !errors.Is(err, ErrGone) {
+		t.Fatalf("被回收应 ErrGone：%v", err)
+	}
+	// 重读失败：保持原口径 ErrGone（不交付）
+	mock.ExpectQuery(qStatus).WithArgs("LOCALLIFE", testBiz).WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow("HELD"))
+	mock.ExpectQuery(qLoadHeld).WithArgs("LOCALLIFE", testBiz, "HELD").WillReturnRows(sqlmock.NewRows(resvCols))
+	mock.ExpectQuery(qStatus).WithArgs("LOCALLIFE", testBiz).WillReturnError(errors.New("conn reset"))
+	if _, err := s.SettleCost(context.Background(), 7, "canvas-cv_1", 1, nil); !errors.Is(err, ErrGone) {
+		t.Fatalf("重读失败应 ErrGone：%v", err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
