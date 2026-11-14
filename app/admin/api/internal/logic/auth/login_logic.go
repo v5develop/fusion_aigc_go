@@ -6,11 +6,13 @@ package auth
 import (
 	"context"
 	"errors"
+	"net/http"
 	"strings"
 
 	"aigc-local-life/app/admin/api/internal/svc"
 	"aigc-local-life/app/admin/api/internal/types"
 	"aigc-local-life/pkg/adminuser"
+	"aigc-local-life/pkg/clientip"
 	"aigc-local-life/pkg/token"
 	"aigc-local-life/pkg/xerr"
 
@@ -41,7 +43,7 @@ func (l *LoginLogic) Login(req *types.AdminLoginReq) (resp *types.AdminLoginResp
 	if username == "" || req.Password == "" {
 		return nil, xerr.New(xerr.ParamError, "请输入用户名和密码")
 	}
-	a, err := l.svcCtx.AdminUser.Login(l.ctx, username, req.Password, clientIP(req.ForwardedFor))
+	a, err := l.svcCtx.AdminUser.Login(l.ctx, username, req.Password, clientIPFrom(l.ctx))
 	switch {
 	case errors.Is(err, adminuser.ErrNoDB):
 		return nil, xerr.New(xerr.NotReady, "后台登录暂未开放")
@@ -82,8 +84,15 @@ func toAdminInfo(a *adminuser.Admin) types.AdminInfo {
 	}
 }
 
-// clientIP 取 X-Forwarded-For 里最前面那个（nginx 会把真实来源放在最前），只用于记录。
-func clientIP(forwardedFor string) string {
-	ip, _, _ := strings.Cut(forwardedFor, ",")
-	return strings.TrimSpace(ip)
+type clientIPKey struct{}
+
+// WithRequestClientIP 把调用方 IP 放进 ctx 供 Login 记录 last_login_ip。
+// 取法见 pkg/clientip：只信可信代理写入的头，X-Forwarded-For 首段可被客户端伪造，不能直接用。
+func WithRequestClientIP(ctx context.Context, r *http.Request) context.Context {
+	return context.WithValue(ctx, clientIPKey{}, clientip.From(r))
+}
+
+func clientIPFrom(ctx context.Context) string {
+	ip, _ := ctx.Value(clientIPKey{}).(string)
+	return ip
 }

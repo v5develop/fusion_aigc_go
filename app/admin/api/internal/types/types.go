@@ -11,9 +11,8 @@ type AdminInfo struct {
 }
 
 type AdminLoginReq struct {
-	Username     string `json:"username"`
-	Password     string `json:"password"`
-	ForwardedFor string `header:"X-Forwarded-For,optional"`
+	Username string `json:"username"`
+	Password string `json:"password"`
 }
 
 type AdminLoginResp struct {

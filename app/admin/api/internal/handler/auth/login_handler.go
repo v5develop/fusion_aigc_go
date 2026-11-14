@@ -21,7 +21,7 @@ func LoginHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 			return
 		}
 
-		l := auth.NewLoginLogic(r.Context(), svcCtx)
+		l := auth.NewLoginLogic(auth.WithRequestClientIP(r.Context(), r), svcCtx)
 		resp, err := l.Login(&req)
 		if err != nil {
 			httpx.ErrorCtx(r.Context(), w, err)

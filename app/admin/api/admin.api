@@ -84,8 +84,6 @@ type (
 	AdminLoginReq {
 		Username string `json:"username"`
 		Password string `json:"password"`
-		// ForwardedFor 仅用于记录 last_login_ip，前端不用管（网关/nginx 会带）
-		ForwardedFor string `header:"X-Forwarded-For,optional"`
 	}
 	AdminInfo {
 		Id       int64    `json:"id"`
