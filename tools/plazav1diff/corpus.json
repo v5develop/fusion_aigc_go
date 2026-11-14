@@ -1,0 +1,351 @@
+{
+ "comment": "plazav1diff 语料：creaft v1 兼容三接口。占位符由运行时先问 Java 取数据再填（见 README）。不含有意偏差请求（page<1、size<0、page×size 溢出成负数），那些 Java 是 500、Go 是 400 PARAM_INVALID，见 docs/api/api-plaza.md。",
+ "rules": {
+  "ignore": [
+   "timestamp",
+   "requestId"
+  ],
+  "raw": [
+   "payload"
+  ],
+  "volatile": [
+   "usageCount",
+   "uses",
+   "previousUses",
+   "trend",
+   "isNew"
+  ],
+  "orderDerived": [
+   "rank"
+  ],
+  "align": {
+   "data.items": "plazaTemplateId"
+  },
+  "volatileAbs": 5,
+  "volatileRel": 0.1
+ },
+ "requests": [
+  {
+   "name": "list_p1_s1",
+   "path": "/api/v1/plaza-templates/list",
+   "query": "page=1&size=1"
+  },
+  {
+   "name": "list_p2_s1",
+   "path": "/api/v1/plaza-templates/list",
+   "query": "page=2&size=1"
+  },
+  {
+   "name": "list_plast_s1",
+   "path": "/api/v1/plaza-templates/list",
+   "query": "page={last:1}&size=1"
+  },
+  {
+   "name": "list_pbeyond_s1",
+   "path": "/api/v1/plaza-templates/list",
+   "query": "page={beyond:1}&size=1"
+  },
+  {
+   "name": "list_p1_s10",
+   "path": "/api/v1/plaza-templates/list",
+   "query": "page=1&size=10"
+  },
+  {
+   "name": "list_p2_s10",
+   "path": "/api/v1/plaza-templates/list",
+   "query": "page=2&size=10"
+  },
+  {
+   "name": "list_plast_s10",
+   "path": "/api/v1/plaza-templates/list",
+   "query": "page={last:10}&size=10"
+  },
+  {
+   "name": "list_pbeyond_s10",
+   "path": "/api/v1/plaza-templates/list",
+   "query": "page={beyond:10}&size=10"
+  },
+  {
+   "name": "list_p1_s24",
+   "path": "/api/v1/plaza-templates/list",
+   "query": "page=1&size=24"
+  },
+  {
+   "name": "list_p2_s24",
+   "path": "/api/v1/plaza-templates/list",
+   "query": "page=2&size=24"
+  },
+  {
+   "name": "list_plast_s24",
+   "path": "/api/v1/plaza-templates/list",
+   "query": "page={last:24}&size=24"
+  },
+  {
+   "name": "list_pbeyond_s24",
+   "path": "/api/v1/plaza-templates/list",
+   "query": "page={beyond:24}&size=24"
+  },
+  {
+   "name": "list_p1_s100",
+   "path": "/api/v1/plaza-templates/list",
+   "query": "page=1&size=100"
+  },
+  {
+   "name": "list_p2_s100",
+   "path": "/api/v1/plaza-templates/list",
+   "query": "page=2&size=100"
+  },
+  {
+   "name": "list_plast_s100",
+   "path": "/api/v1/plaza-templates/list",
+   "query": "page={last:100}&size=100"
+  },
+  {
+   "name": "list_pbeyond_s100",
+   "path": "/api/v1/plaza-templates/list",
+   "query": "page={beyond:100}&size=100"
+  },
+  {
+   "name": "list_default",
+   "path": "/api/v1/plaza-templates/list",
+   "query": ""
+  },
+  {
+   "name": "list_empty_params",
+   "path": "/api/v1/plaza-templates/list",
+   "query": "page=&size="
+  },
+  {
+   "name": "list_hex_params",
+   "path": "/api/v1/plaza-templates/list",
+   "query": "page=0x1&size=%2310"
+  },
+  {
+   "name": "list_whitespace_params",
+   "path": "/api/v1/plaza-templates/list",
+   "query": "page=%201%20&size=+5"
+  },
+  {
+   "name": "list_repeated_page",
+   "path": "/api/v1/plaza-templates/list",
+   "query": "page=2&page=9&size=5"
+  },
+  {
+   "name": "list_size0",
+   "path": "/api/v1/plaza-templates/list",
+   "query": "size=0"
+  },
+  {
+   "name": "list_size1000",
+   "path": "/api/v1/plaza-templates/list",
+   "query": "size=1000"
+  },
+  {
+   "name": "list_bad_page",
+   "path": "/api/v1/plaza-templates/list",
+   "query": "page=abc"
+  },
+  {
+   "name": "list_bad_size",
+   "path": "/api/v1/plaza-templates/list",
+   "query": "size=1.5"
+  },
+  {
+   "name": "list_bad_both",
+   "path": "/api/v1/plaza-templates/list",
+   "query": "page=x&size=y"
+  },
+  {
+   "name": "list_tag_single",
+   "path": "/api/v1/plaza-templates/list",
+   "query": "tags={tag0}"
+  },
+  {
+   "name": "list_tag_repeated",
+   "path": "/api/v1/plaza-templates/list",
+   "query": "tags={tag0}&tags={tag1}"
+  },
+  {
+   "name": "list_tag_comma",
+   "path": "/api/v1/plaza-templates/list",
+   "query": "tags={tag0},{tag1}"
+  },
+  {
+   "name": "list_tag_comma_encoded",
+   "path": "/api/v1/plaza-templates/list",
+   "query": "tags={tag0}%2C__no_such_tag__"
+  },
+  {
+   "name": "list_tag_comma_spaces",
+   "path": "/api/v1/plaza-templates/list",
+   "query": "tags=%20{tag0}%20,%20__x__"
+  },
+  {
+   "name": "list_tag_repeated_comma_not_split",
+   "path": "/api/v1/plaza-templates/list",
+   "query": "tags={tag0},{tag1}&tags=__x__"
+  },
+  {
+   "name": "list_tag_missing",
+   "path": "/api/v1/plaza-templates/list",
+   "query": "tags=__no_such_tag__"
+  },
+  {
+   "name": "list_tag_cjk",
+   "path": "/api/v1/plaza-templates/list",
+   "query": "tags={tagCJK}"
+  },
+  {
+   "name": "list_tag_emoji",
+   "path": "/api/v1/plaza-templates/list",
+   "query": "tags={tagEmoji}"
+  },
+  {
+   "name": "list_tag_last",
+   "path": "/api/v1/plaza-templates/list",
+   "query": "tags={tagLast}&size=100"
+  },
+  {
+   "name": "list_tag_page2",
+   "path": "/api/v1/plaza-templates/list",
+   "query": "tags={tag0}&page=2&size=1"
+  },
+  {
+   "name": "list_tag_empty",
+   "path": "/api/v1/plaza-templates/list",
+   "query": "tags="
+  },
+  {
+   "name": "list_unknown_params",
+   "path": "/api/v1/plaza-templates/list",
+   "query": "industry=foot_bath&subIndustry=x&mediaType=video&keyword=a"
+  },
+  {
+   "name": "list_bogus_token",
+   "path": "/api/v1/plaza-templates/list",
+   "query": "",
+   "headers": {
+    "Authorization": "Bearer 00000000000000000000000000000000"
+   }
+  },
+  {
+   "name": "list_with_request_id",
+   "path": "/api/v1/plaza-templates/list",
+   "query": "",
+   "headers": {
+    "X-Request-Id": "plazav1diff-req-0001"
+   }
+  },
+  {
+   "name": "list_logged_in",
+   "path": "/api/v1/plaza-templates/list",
+   "query": "page=1&size=10",
+   "auth": true
+  },
+  {
+   "name": "tags",
+   "path": "/api/v1/plaza-templates/tags",
+   "query": ""
+  },
+  {
+   "name": "tags_unknown_params",
+   "path": "/api/v1/plaza-templates/tags",
+   "query": "industry=foot_bath&page=2"
+  },
+  {
+   "name": "tags_logged_in",
+   "path": "/api/v1/plaza-templates/tags",
+   "query": "",
+   "auth": true
+  },
+  {
+   "name": "headlines",
+   "path": "/api/v1/plaza-headlines",
+   "query": ""
+  },
+  {
+   "name": "headlines_tag",
+   "path": "/api/v1/plaza-headlines",
+   "query": "tag={htag}"
+  },
+  {
+   "name": "headlines_tag_padded",
+   "path": "/api/v1/plaza-headlines",
+   "query": "tag=%20{htag}%20"
+  },
+  {
+   "name": "headlines_tag_missing",
+   "path": "/api/v1/plaza-headlines",
+   "query": "tag=__no_such_tag__"
+  },
+  {
+   "name": "headlines_tag_repeated",
+   "path": "/api/v1/plaza-headlines",
+   "query": "tag={htag}&tag=__x__"
+  },
+  {
+   "name": "headlines_tag_empty",
+   "path": "/api/v1/plaza-headlines",
+   "query": "tag="
+  },
+  {
+   "name": "headlines_kw",
+   "path": "/api/v1/plaza-headlines",
+   "query": "keyword={hkw}"
+  },
+  {
+   "name": "headlines_kw_mixed_case",
+   "path": "/api/v1/plaza-headlines",
+   "query": "keyword={hkwMixed}"
+  },
+  {
+   "name": "headlines_kw_ascii_upper",
+   "path": "/api/v1/plaza-headlines",
+   "query": "keyword=A"
+  },
+  {
+   "name": "headlines_kw_ascii_lower",
+   "path": "/api/v1/plaza-headlines",
+   "query": "keyword=a"
+  },
+  {
+   "name": "headlines_kw_blank",
+   "path": "/api/v1/plaza-headlines",
+   "query": "keyword=%20%20"
+  },
+  {
+   "name": "headlines_kw_empty",
+   "path": "/api/v1/plaza-headlines",
+   "query": "keyword="
+  },
+  {
+   "name": "headlines_kw_missing",
+   "path": "/api/v1/plaza-headlines",
+   "query": "keyword=__no_such_kw__"
+  },
+  {
+   "name": "headlines_tag_and_kw",
+   "path": "/api/v1/plaza-headlines",
+   "query": "tag={htag}&keyword={hkw}"
+  },
+  {
+   "name": "headlines_industry_ignored",
+   "path": "/api/v1/plaza-headlines",
+   "query": "industry=foot_bath&subIndustry=x"
+  },
+  {
+   "name": "headlines_bogus_token",
+   "path": "/api/v1/plaza-headlines",
+   "query": "",
+   "headers": {
+    "Authorization": "Bearer 00000000000000000000000000000000"
+   }
+  },
+  {
+   "name": "headlines_logged_in",
+   "path": "/api/v1/plaza-headlines",
+   "query": "",
+   "auth": true
+  }
+ ]
+}

@@ -1,0 +1,808 @@
+{
+ "comment": "v1 兼容三接口的黄金样本输入：GoldenGen.java（真实 Java 类 + Jackson 2.17）与 Go 单测共用。tagsJson/dataJson 是库里 JSON 列读出的原文；头条日期为相对今天的偏移。",
+ "datasets": [
+  {
+   "name": "main",
+   "templates": [
+    {
+     "id": 1,
+     "title": "夏日海报",
+     "description": "列说明一",
+     "tagsJson": "{\"tags\": [\"电商\", \"海报\"]}",
+     "dataJson": "{\"n\": 12345678901234567890123, \"f\": 1e10, \"g\": 0.0001, \"h\": 1.5, \"z\": -0, \"big\": 2085576666117050369, \"neg\": -1.25e-7, \"huge\": 1.7976931348623157e308, \"tiny\": 5e-324, \"s\": \"a\\\"b\\\\c\\u0001\\n\\t/<>& é😀\", \"prompt\": \"秘密\", \"result\": [\"https://x/1.png\"], \"authorName\": \" 小王 \", \"description\": \"夏日海报说明\", \"agentSkillId\": \"2085576666117050369\", \"v1PlazaTemplateId\": \"7491431182907736184\"}",
+     "sortOrder": 0,
+     "updateTime": "2026-11-10 10:00:00",
+     "enabled": 1
+    },
+    {
+     "id": 2,
+     "title": "冬季上新",
+     "description": null,
+     "tagsJson": "{\"tags\": [\"海报\", \"😀表情\"]}",
+     "dataJson": "{\"five_panel\": {\"prompt\": \"嵌套保留\", \"k\": [1, 2.50, {\"x\": null}]}, \"description\": \"冬季\", \"agent_skill_id\": 7}",
+     "sortOrder": 0,
+     "updateTime": "2026-11-12 08:00:00",
+     "enabled": 1
+    },
+    {
+     "id": 3,
+     "title": "Mixed Case",
+     "description": null,
+     "tagsJson": "{\"tags\": [\"Ａ全角\", \"a小写\", \" 空格 \", null, 3, 1.0, \"\", \"　\"]}",
+     "dataJson": "{\"authorName\": {\"a\": 1, \"b\": [true, null]}, \"agentSkillId\": null, \"agent_skill_id\": \"x\", \"description\": \"Hello WORLD\"}",
+     "sortOrder": 1,
+     "updateTime": "2026-11-01 10:00:00",
+     "enabled": 1
+    },
+    {
+     "id": 4,
+     "title": "无标签",
+     "description": null,
+     "tagsJson": null,
+     "dataJson": "{}",
+     "sortOrder": -1,
+     "updateTime": "2026-11-01 10:00:00",
+     "enabled": 1
+    },
+    {
+     "id": 5,
+     "title": "标签不是数组",
+     "description": null,
+     "tagsJson": "{\"tags\": \"电商\"}",
+     "dataJson": "{\"prompt\": \"p\", \"authorName\": 0, \"description\": 123}",
+     "sortOrder": 2,
+     "updateTime": "2026-11-01 10:00:00",
+     "enabled": 1
+    },
+    {
+     "id": 6,
+     "title": "重复键",
+     "description": "说明列 ΣΑΣ",
+     "tagsJson": "{\"tags\": [\"电商\", \"电商\"]}",
+     "dataJson": "{\"a\": 1, \"b\": 2, \"a\": 3}",
+     "sortOrder": 2,
+     "updateTime": "2026-11-05 00:00:00",
+     "enabled": 1
+    },
+    {
+     "id": 7,
+     "title": "批量7",
+     "description": null,
+     "tagsJson": "{\"tags\": [\"批量\", \"𝒜增补\"]}",
+     "dataJson": "{\"description\": \"批量7\", \"authorName\": \"  \"}",
+     "sortOrder": 3,
+     "updateTime": "2026-11-01 12:00:00",
+     "enabled": 1
+    },
+    {
+     "id": 8,
+     "title": "批量8",
+     "description": null,
+     "tagsJson": "{\"tags\": [\"批量\", \"ｂ\"]}",
+     "dataJson": "{\"description\": \"批量8\", \"authorName\": \"  \"}",
+     "sortOrder": 3,
+     "updateTime": "2026-11-02 12:00:00",
+     "enabled": 1
+    },
+    {
+     "id": 9,
+     "title": "批量9",
+     "description": null,
+     "tagsJson": "{\"tags\": [\"批量\", \"b\"]}",
+     "dataJson": "{\"description\": \"批量9\", \"authorName\": \"  \"}",
+     "sortOrder": 3,
+     "updateTime": "2026-11-03 12:00:00",
+     "enabled": 1
+    },
+    {
+     "id": 10,
+     "title": "批量10",
+     "description": null,
+     "tagsJson": "{\"tags\": [\"批量\", \"b\"]}",
+     "dataJson": "{\"description\": \"批量10\", \"authorName\": \"  \"}",
+     "sortOrder": 3,
+     "updateTime": "2026-11-04 12:00:00",
+     "enabled": 1
+    },
+    {
+     "id": 11,
+     "title": "批量11",
+     "description": null,
+     "tagsJson": "{\"tags\": [\"批量\", \"b\"]}",
+     "dataJson": "{\"description\": \"批量11\", \"authorName\": \"  \"}",
+     "sortOrder": 3,
+     "updateTime": "2026-11-05 12:00:00",
+     "enabled": 1
+    },
+    {
+     "id": 12,
+     "title": "批量12",
+     "description": null,
+     "tagsJson": "{\"tags\": [\"批量\", \"b\"]}",
+     "dataJson": "{\"description\": \"批量12\", \"authorName\": \"  \"}",
+     "sortOrder": 3,
+     "updateTime": "2026-11-06 12:00:00",
+     "enabled": 1
+    },
+    {
+     "id": 13,
+     "title": "已停用",
+     "description": null,
+     "tagsJson": "{\"tags\": [\"停用标签\"]}",
+     "dataJson": "{\"description\": \"disabled\"}",
+     "sortOrder": 0,
+     "updateTime": "2026-11-01 10:00:00",
+     "enabled": 0
+    }
+   ],
+   "headlines": [
+    {
+     "id": 1,
+     "plazaTemplateId": 1,
+     "startOffset": -3,
+     "endOffset": 3,
+     "why": "爆款推荐",
+     "sortOrder": 0,
+     "enabled": 1
+    },
+    {
+     "id": 2,
+     "plazaTemplateId": 1,
+     "startOffset": -1,
+     "endOffset": 1,
+     "why": "同模板更晚起始",
+     "sortOrder": 5,
+     "enabled": 1
+    },
+    {
+     "id": 3,
+     "plazaTemplateId": 2,
+     "startOffset": 0,
+     "endOffset": 0,
+     "why": "今天",
+     "sortOrder": 0,
+     "enabled": 1
+    },
+    {
+     "id": 4,
+     "plazaTemplateId": 6,
+     "startOffset": -10,
+     "endOffset": -1,
+     "why": "已过期",
+     "sortOrder": 0,
+     "enabled": 1
+    },
+    {
+     "id": 5,
+     "plazaTemplateId": 13,
+     "startOffset": -1,
+     "endOffset": 1,
+     "why": "停用模板",
+     "sortOrder": 0,
+     "enabled": 1
+    },
+    {
+     "id": 6,
+     "plazaTemplateId": 3,
+     "startOffset": -2,
+     "endOffset": 5,
+     "why": "Mixed Case WHY",
+     "sortOrder": 0,
+     "enabled": 1
+    },
+    {
+     "id": 7,
+     "plazaTemplateId": 4,
+     "startOffset": -1,
+     "endOffset": 1,
+     "why": "停用头条",
+     "sortOrder": 0,
+     "enabled": 0
+    },
+    {
+     "id": 8,
+     "plazaTemplateId": 5,
+     "startOffset": -1,
+     "endOffset": 1,
+     "why": "",
+     "sortOrder": -2,
+     "enabled": 1
+    },
+    {
+     "id": 9,
+     "plazaTemplateId": 7,
+     "startOffset": -1,
+     "endOffset": 1,
+     "why": "ΣΑΣ 希腊",
+     "sortOrder": 3,
+     "enabled": 1
+    },
+    {
+     "id": 10,
+     "plazaTemplateId": 8,
+     "startOffset": -1,
+     "endOffset": 1,
+     "why": "同分按 sort",
+     "sortOrder": 3,
+     "enabled": 1
+    },
+    {
+     "id": 11,
+     "plazaTemplateId": 9,
+     "startOffset": -1,
+     "endOffset": 1,
+     "why": "同分同 sort 按 id",
+     "sortOrder": 3,
+     "enabled": 1
+    },
+    {
+     "id": 12,
+     "plazaTemplateId": 10,
+     "startOffset": 1,
+     "endOffset": 3,
+     "why": "未开始",
+     "sortOrder": 0,
+     "enabled": 1
+    }
+   ],
+   "usage": [
+    {
+     "templateId": 1,
+     "uses": 42,
+     "previousUses": 5
+    },
+    {
+     "templateId": 2,
+     "uses": 3,
+     "previousUses": 0
+    },
+    {
+     "templateId": 6,
+     "uses": 10,
+     "previousUses": 10
+    },
+    {
+     "templateId": 7,
+     "uses": 0,
+     "previousUses": 4
+    },
+    {
+     "templateId": 3,
+     "uses": 3,
+     "previousUses": 7
+    }
+   ],
+   "cases": [
+    {
+     "name": "p1s10",
+     "endpoint": "list",
+     "page": 1,
+     "size": 10,
+     "tags": null
+    },
+    {
+     "name": "p2s10",
+     "endpoint": "list",
+     "page": 2,
+     "size": 10,
+     "tags": null
+    },
+    {
+     "name": "p1s5",
+     "endpoint": "list",
+     "page": 1,
+     "size": 5,
+     "tags": null
+    },
+    {
+     "name": "p3s5_last",
+     "endpoint": "list",
+     "page": 3,
+     "size": 5,
+     "tags": null
+    },
+    {
+     "name": "p99_beyond",
+     "endpoint": "list",
+     "page": 99,
+     "size": 10,
+     "tags": null
+    },
+    {
+     "name": "p1s100",
+     "endpoint": "list",
+     "page": 1,
+     "size": 100,
+     "tags": null
+    },
+    {
+     "name": "p1s1",
+     "endpoint": "list",
+     "page": 1,
+     "size": 1,
+     "tags": null
+    },
+    {
+     "name": "p12s1",
+     "endpoint": "list",
+     "page": 12,
+     "size": 1,
+     "tags": null
+    },
+    {
+     "name": "s0",
+     "endpoint": "list",
+     "page": 1,
+     "size": 0,
+     "tags": null
+    },
+    {
+     "name": "p0s0",
+     "endpoint": "list",
+     "page": 0,
+     "size": 0,
+     "tags": null
+    },
+    {
+     "name": "pneg_s0",
+     "endpoint": "list",
+     "page": -5,
+     "size": 0,
+     "tags": null
+    },
+    {
+     "name": "tag_dianshang",
+     "endpoint": "list",
+     "page": 1,
+     "size": 10,
+     "tags": [
+      "电商"
+     ]
+    },
+    {
+     "name": "tag_union",
+     "endpoint": "list",
+     "page": 1,
+     "size": 10,
+     "tags": [
+      "海报",
+      "电商"
+     ]
+    },
+    {
+     "name": "tag_missing",
+     "endpoint": "list",
+     "page": 1,
+     "size": 10,
+     "tags": [
+      "不存在"
+     ]
+    },
+    {
+     "name": "tag_emoji",
+     "endpoint": "list",
+     "page": 1,
+     "size": 10,
+     "tags": [
+      "😀表情"
+     ]
+    },
+    {
+     "name": "tag_nullstr",
+     "endpoint": "list",
+     "page": 1,
+     "size": 10,
+     "tags": [
+      "null"
+     ]
+    },
+    {
+     "name": "tag_number",
+     "endpoint": "list",
+     "page": 1,
+     "size": 10,
+     "tags": [
+      "3"
+     ]
+    },
+    {
+     "name": "tag_double",
+     "endpoint": "list",
+     "page": 1,
+     "size": 10,
+     "tags": [
+      "1.0"
+     ]
+    },
+    {
+     "name": "tag_emptystr",
+     "endpoint": "list",
+     "page": 1,
+     "size": 10,
+     "tags": [
+      ""
+     ]
+    },
+    {
+     "name": "tag_emptylist",
+     "endpoint": "list",
+     "page": 1,
+     "size": 10,
+     "tags": []
+    },
+    {
+     "name": "tag_supplementary",
+     "endpoint": "list",
+     "page": 1,
+     "size": 10,
+     "tags": [
+      "𝒜增补"
+     ]
+    },
+    {
+     "name": "tag_page2",
+     "endpoint": "list",
+     "page": 2,
+     "size": 1,
+     "tags": [
+      "电商"
+     ]
+    },
+    {
+     "name": "tags",
+     "endpoint": "tags"
+    },
+    {
+     "name": "all",
+     "endpoint": "headlines",
+     "tag": null,
+     "keyword": null
+    },
+    {
+     "name": "tag",
+     "endpoint": "headlines",
+     "tag": "电商",
+     "keyword": null
+    },
+    {
+     "name": "tag_trim",
+     "endpoint": "headlines",
+     "tag": " 电商 ",
+     "keyword": null
+    },
+    {
+     "name": "tag_blank",
+     "endpoint": "headlines",
+     "tag": "  ",
+     "keyword": null
+    },
+    {
+     "name": "kw_title",
+     "endpoint": "headlines",
+     "tag": null,
+     "keyword": "海报"
+    },
+    {
+     "name": "kw_why_case",
+     "endpoint": "headlines",
+     "tag": null,
+     "keyword": "mixed case why"
+    },
+    {
+     "name": "kw_desc_col",
+     "endpoint": "headlines",
+     "tag": null,
+     "keyword": "列说明"
+    },
+    {
+     "name": "kw_payload_desc",
+     "endpoint": "headlines",
+     "tag": null,
+     "keyword": "hello world"
+    },
+    {
+     "name": "kw_blank",
+     "endpoint": "headlines",
+     "tag": null,
+     "keyword": "   "
+    },
+    {
+     "name": "kw_sigma",
+     "endpoint": "headlines",
+     "tag": null,
+     "keyword": "σας"
+    },
+    {
+     "name": "kw_none",
+     "endpoint": "headlines",
+     "tag": null,
+     "keyword": "說"
+    },
+    {
+     "name": "tag_and_kw",
+     "endpoint": "headlines",
+     "tag": "海报",
+     "keyword": "冬"
+    },
+    {
+     "name": "empty_both",
+     "endpoint": "headlines",
+     "tag": "",
+     "keyword": ""
+    }
+   ]
+  },
+  {
+   "name": "empty",
+   "templates": [],
+   "headlines": [],
+   "usage": [],
+   "cases": [
+    {
+     "name": "p1s10",
+     "endpoint": "list",
+     "page": 1,
+     "size": 10,
+     "tags": null
+    },
+    {
+     "name": "tags",
+     "endpoint": "tags"
+    },
+    {
+     "name": "all",
+     "endpoint": "headlines",
+     "tag": null,
+     "keyword": null
+    }
+   ]
+  },
+  {
+   "name": "corrupt_data",
+   "templates": [
+    {
+     "id": 1,
+     "title": "好",
+     "description": null,
+     "tagsJson": "{\"tags\": [\"a\"]}",
+     "dataJson": "{\"x\": 1}",
+     "sortOrder": 0,
+     "updateTime": "2026-11-01 10:00:00",
+     "enabled": 1
+    },
+    {
+     "id": 2,
+     "title": "坏",
+     "description": null,
+     "tagsJson": "{\"tags\": [\"b\"]}",
+     "dataJson": "[1, 2]",
+     "sortOrder": 1,
+     "updateTime": "2026-11-01 10:00:00",
+     "enabled": 1
+    }
+   ],
+   "headlines": [
+    {
+     "id": 1,
+     "plazaTemplateId": 2,
+     "startOffset": -1,
+     "endOffset": 1,
+     "why": "坏数据头条",
+     "sortOrder": 0,
+     "enabled": 1
+    }
+   ],
+   "usage": [],
+   "cases": [
+    {
+     "name": "page_with_bad",
+     "endpoint": "list",
+     "page": 1,
+     "size": 10,
+     "tags": null
+    },
+    {
+     "name": "page_without_bad",
+     "endpoint": "list",
+     "page": 1,
+     "size": 1,
+     "tags": null
+    },
+    {
+     "name": "tags",
+     "endpoint": "tags"
+    },
+    {
+     "name": "lenient",
+     "endpoint": "headlines",
+     "tag": null,
+     "keyword": null
+    }
+   ]
+  },
+  {
+   "name": "null_data",
+   "templates": [
+    {
+     "id": 1,
+     "title": "null",
+     "description": null,
+     "tagsJson": "{\"tags\": [\"a\"]}",
+     "dataJson": "null",
+     "sortOrder": 0,
+     "updateTime": "2026-11-01 10:00:00",
+     "enabled": 1
+    }
+   ],
+   "headlines": [
+    {
+     "id": 1,
+     "plazaTemplateId": 1,
+     "startOffset": -1,
+     "endOffset": 1,
+     "why": "null 数据",
+     "sortOrder": 0,
+     "enabled": 1
+    }
+   ],
+   "usage": [],
+   "cases": [
+    {
+     "name": "npe",
+     "endpoint": "list",
+     "page": 1,
+     "size": 10,
+     "tags": null
+    },
+    {
+     "name": "tags",
+     "endpoint": "tags"
+    },
+    {
+     "name": "lenient",
+     "endpoint": "headlines",
+     "tag": null,
+     "keyword": null
+    }
+   ]
+  },
+  {
+   "name": "corrupt_tags",
+   "templates": [
+    {
+     "id": 1,
+     "title": "好",
+     "description": null,
+     "tagsJson": "{\"tags\": [\"a\"]}",
+     "dataJson": "{}",
+     "sortOrder": 0,
+     "updateTime": "2026-11-01 10:00:00",
+     "enabled": 1
+    },
+    {
+     "id": 2,
+     "title": "坏标签",
+     "description": null,
+     "tagsJson": "[\"a\"]",
+     "dataJson": "{}",
+     "sortOrder": 1,
+     "updateTime": "2026-11-01 10:00:00",
+     "enabled": 1
+    },
+    {
+     "id": 3,
+     "title": "null标签",
+     "description": null,
+     "tagsJson": "null",
+     "dataJson": "{}",
+     "sortOrder": 2,
+     "updateTime": "2026-11-01 10:00:00",
+     "enabled": 1
+    }
+   ],
+   "headlines": [
+    {
+     "id": 1,
+     "plazaTemplateId": 2,
+     "startOffset": -1,
+     "endOffset": 1,
+     "why": "坏标签头条",
+     "sortOrder": 0,
+     "enabled": 1
+    },
+    {
+     "id": 2,
+     "plazaTemplateId": 3,
+     "startOffset": -1,
+     "endOffset": 1,
+     "why": "null 标签头条",
+     "sortOrder": 0,
+     "enabled": 1
+    }
+   ],
+   "usage": [],
+   "cases": [
+    {
+     "name": "filter",
+     "endpoint": "list",
+     "page": 1,
+     "size": 10,
+     "tags": [
+      "a"
+     ]
+    },
+    {
+     "name": "nofilter_first",
+     "endpoint": "list",
+     "page": 1,
+     "size": 1,
+     "tags": null
+    },
+    {
+     "name": "nofilter_all",
+     "endpoint": "list",
+     "page": 1,
+     "size": 10,
+     "tags": null
+    },
+    {
+     "name": "tags",
+     "endpoint": "tags"
+    },
+    {
+     "name": "lenient",
+     "endpoint": "headlines",
+     "tag": null,
+     "keyword": null
+    }
+   ]
+  },
+  {
+   "name": "page_errors",
+   "templates": [
+    {
+     "id": 1,
+     "title": "t",
+     "description": null,
+     "tagsJson": "{\"tags\": [\"a\"]}",
+     "dataJson": "{}",
+     "sortOrder": 0,
+     "updateTime": "2026-11-01 10:00:00",
+     "enabled": 1
+    }
+   ],
+   "headlines": [],
+   "usage": [],
+   "cases": [
+    {
+     "name": "p0s10",
+     "endpoint": "list",
+     "page": 0,
+     "size": 10,
+     "tags": null
+    },
+    {
+     "name": "p1sneg",
+     "endpoint": "list",
+     "page": 1,
+     "size": -1,
+     "tags": null
+    },
+    {
+     "name": "pneg_s10",
+     "endpoint": "list",
+     "page": -1,
+     "size": 10,
+     "tags": null
+    },
+    {
+     "name": "overflow",
+     "endpoint": "list",
+     "page": 4611686018427387905,
+     "size": 4,
+     "tags": null
+    }
+   ]
+  }
+ ]
+}

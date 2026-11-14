@@ -1,0 +1,359 @@
+{
+  "comment" : "由 tools/plazav1diff/javagolden/GoldenGen.java 生成，勿手改。body 已去掉 requestId / timestamp。",
+  "javaVersion" : "21.0.12.1",
+  "jacksonVersion" : "2.17.3",
+  "now" : "2026-11-14T10:18:14.991405",
+  "nowEpochMilli" : 1794622694991,
+  "datasets" : [ {
+    "name" : "main",
+    "cases" : [ {
+      "name" : "p1s10",
+      "endpoint" : "list",
+      "status" : 200,
+      "body" : "{\"code\":0,\"msg\":\"success\",\"data\":{\"pages\":2,\"total\":12,\"current\":1,\"data\":[{\"payload\":{},\"plazaTemplateId\":4,\"title\":\"无标签\",\"agentSkillId\":null,\"tags\":[],\"authorName\":\"官方\",\"usageCount\":0},{\"payload\":{\"five_panel\":{\"prompt\":\"嵌套保留\",\"k\":[1,2.5,{\"x\":null}]},\"description\":\"冬季\"},\"plazaTemplateId\":2,\"title\":\"冬季上新\",\"agentSkillId\":\"7\",\"tags\":[\"海报\",\"\uD83D\uDE00表情\"],\"authorName\":\"官方\",\"usageCount\":3},{\"payload\":{\"n\":12345678901234567890123,\"f\":1.0E10,\"g\":1.0E-4,\"h\":1.5,\"z\":0,\"big\":2085576666117050369,\"neg\":-1.25E-7,\"huge\":1.7976931348623157E308,\"tiny\":4.9E-324,\"s\":\"a\\\"b\\\\c\\u0001\\n\\t/<>& é\uD83D\uDE00\",\"result\":[\"https://x/1.png\"],\"description\":\"夏日海报说明\"},\"plazaTemplateId\":1,\"title\":\"夏日海报\",\"agentSkillId\":\"2085576666117050369\",\"tags\":[\"电商\",\"海报\"],\"authorName\":\"小王\",\"usageCount\":42},{\"payload\":{\"description\":\"Hello WORLD\"},\"plazaTemplateId\":3,\"title\":\"Mixed Case\",\"agentSkillId\":null,\"tags\":[\"Ａ全角\",\"a小写\",\" 空格 \",\"null\",\"3\",\"1.0\",\"\",\"　\"],\"authorName\":\"{a=1, b=[true, null]}\",\"usageCount\":3},{\"payload\":{\"a\":3,\"b\":2},\"plazaTemplateId\":6,\"title\":\"重复键\",\"agentSkillId\":null,\"tags\":[\"电商\",\"电商\"],\"authorName\":\"官方\",\"usageCount\":10},{\"payload\":{\"description\":123},\"plazaTemplateId\":5,\"title\":\"标签不是数组\",\"agentSkillId\":null,\"tags\":[],\"authorName\":\"0\",\"usageCount\":0},{\"payload\":{\"description\":\"批量12\"},\"plazaTemplateId\":12,\"title\":\"批量12\",\"agentSkillId\":null,\"tags\":[\"批量\",\"b\"],\"authorName\":\"官方\",\"usageCount\":0},{\"payload\":{\"description\":\"批量11\"},\"plazaTemplateId\":11,\"title\":\"批量11\",\"agentSkillId\":null,\"tags\":[\"批量\",\"b\"],\"authorName\":\"官方\",\"usageCount\":0},{\"payload\":{\"description\":\"批量10\"},\"plazaTemplateId\":10,\"title\":\"批量10\",\"agentSkillId\":null,\"tags\":[\"批量\",\"b\"],\"authorName\":\"官方\",\"usageCount\":0},{\"payload\":{\"description\":\"批量9\"},\"plazaTemplateId\":9,\"title\":\"批量9\",\"agentSkillId\":null,\"tags\":[\"批量\",\"b\"],\"authorName\":\"官方\",\"usageCount\":0}]}}"
+    }, {
+      "name" : "p2s10",
+      "endpoint" : "list",
+      "status" : 200,
+      "body" : "{\"code\":0,\"msg\":\"success\",\"data\":{\"pages\":2,\"total\":12,\"current\":2,\"data\":[{\"payload\":{\"description\":\"批量8\"},\"plazaTemplateId\":8,\"title\":\"批量8\",\"agentSkillId\":null,\"tags\":[\"批量\",\"ｂ\"],\"authorName\":\"官方\",\"usageCount\":0},{\"payload\":{\"description\":\"批量7\"},\"plazaTemplateId\":7,\"title\":\"批量7\",\"agentSkillId\":null,\"tags\":[\"批量\",\"\uD835\uDC9C增补\"],\"authorName\":\"官方\",\"usageCount\":0}]}}"
+    }, {
+      "name" : "p1s5",
+      "endpoint" : "list",
+      "status" : 200,
+      "body" : "{\"code\":0,\"msg\":\"success\",\"data\":{\"pages\":3,\"total\":12,\"current\":1,\"data\":[{\"payload\":{},\"plazaTemplateId\":4,\"title\":\"无标签\",\"agentSkillId\":null,\"tags\":[],\"authorName\":\"官方\",\"usageCount\":0},{\"payload\":{\"five_panel\":{\"prompt\":\"嵌套保留\",\"k\":[1,2.5,{\"x\":null}]},\"description\":\"冬季\"},\"plazaTemplateId\":2,\"title\":\"冬季上新\",\"agentSkillId\":\"7\",\"tags\":[\"海报\",\"\uD83D\uDE00表情\"],\"authorName\":\"官方\",\"usageCount\":3},{\"payload\":{\"n\":12345678901234567890123,\"f\":1.0E10,\"g\":1.0E-4,\"h\":1.5,\"z\":0,\"big\":2085576666117050369,\"neg\":-1.25E-7,\"huge\":1.7976931348623157E308,\"tiny\":4.9E-324,\"s\":\"a\\\"b\\\\c\\u0001\\n\\t/<>& é\uD83D\uDE00\",\"result\":[\"https://x/1.png\"],\"description\":\"夏日海报说明\"},\"plazaTemplateId\":1,\"title\":\"夏日海报\",\"agentSkillId\":\"2085576666117050369\",\"tags\":[\"电商\",\"海报\"],\"authorName\":\"小王\",\"usageCount\":42},{\"payload\":{\"description\":\"Hello WORLD\"},\"plazaTemplateId\":3,\"title\":\"Mixed Case\",\"agentSkillId\":null,\"tags\":[\"Ａ全角\",\"a小写\",\" 空格 \",\"null\",\"3\",\"1.0\",\"\",\"　\"],\"authorName\":\"{a=1, b=[true, null]}\",\"usageCount\":3},{\"payload\":{\"a\":3,\"b\":2},\"plazaTemplateId\":6,\"title\":\"重复键\",\"agentSkillId\":null,\"tags\":[\"电商\",\"电商\"],\"authorName\":\"官方\",\"usageCount\":10}]}}"
+    }, {
+      "name" : "p3s5_last",
+      "endpoint" : "list",
+      "status" : 200,
+      "body" : "{\"code\":0,\"msg\":\"success\",\"data\":{\"pages\":3,\"total\":12,\"current\":3,\"data\":[{\"payload\":{\"description\":\"批量8\"},\"plazaTemplateId\":8,\"title\":\"批量8\",\"agentSkillId\":null,\"tags\":[\"批量\",\"ｂ\"],\"authorName\":\"官方\",\"usageCount\":0},{\"payload\":{\"description\":\"批量7\"},\"plazaTemplateId\":7,\"title\":\"批量7\",\"agentSkillId\":null,\"tags\":[\"批量\",\"\uD835\uDC9C增补\"],\"authorName\":\"官方\",\"usageCount\":0}]}}"
+    }, {
+      "name" : "p99_beyond",
+      "endpoint" : "list",
+      "status" : 200,
+      "body" : "{\"code\":0,\"msg\":\"success\",\"data\":{\"pages\":2,\"total\":12,\"current\":99,\"data\":[]}}"
+    }, {
+      "name" : "p1s100",
+      "endpoint" : "list",
+      "status" : 200,
+      "body" : "{\"code\":0,\"msg\":\"success\",\"data\":{\"pages\":1,\"total\":12,\"current\":1,\"data\":[{\"payload\":{},\"plazaTemplateId\":4,\"title\":\"无标签\",\"agentSkillId\":null,\"tags\":[],\"authorName\":\"官方\",\"usageCount\":0},{\"payload\":{\"five_panel\":{\"prompt\":\"嵌套保留\",\"k\":[1,2.5,{\"x\":null}]},\"description\":\"冬季\"},\"plazaTemplateId\":2,\"title\":\"冬季上新\",\"agentSkillId\":\"7\",\"tags\":[\"海报\",\"\uD83D\uDE00表情\"],\"authorName\":\"官方\",\"usageCount\":3},{\"payload\":{\"n\":12345678901234567890123,\"f\":1.0E10,\"g\":1.0E-4,\"h\":1.5,\"z\":0,\"big\":2085576666117050369,\"neg\":-1.25E-7,\"huge\":1.7976931348623157E308,\"tiny\":4.9E-324,\"s\":\"a\\\"b\\\\c\\u0001\\n\\t/<>& é\uD83D\uDE00\",\"result\":[\"https://x/1.png\"],\"description\":\"夏日海报说明\"},\"plazaTemplateId\":1,\"title\":\"夏日海报\",\"agentSkillId\":\"2085576666117050369\",\"tags\":[\"电商\",\"海报\"],\"authorName\":\"小王\",\"usageCount\":42},{\"payload\":{\"description\":\"Hello WORLD\"},\"plazaTemplateId\":3,\"title\":\"Mixed Case\",\"agentSkillId\":null,\"tags\":[\"Ａ全角\",\"a小写\",\" 空格 \",\"null\",\"3\",\"1.0\",\"\",\"　\"],\"authorName\":\"{a=1, b=[true, null]}\",\"usageCount\":3},{\"payload\":{\"a\":3,\"b\":2},\"plazaTemplateId\":6,\"title\":\"重复键\",\"agentSkillId\":null,\"tags\":[\"电商\",\"电商\"],\"authorName\":\"官方\",\"usageCount\":10},{\"payload\":{\"description\":123},\"plazaTemplateId\":5,\"title\":\"标签不是数组\",\"agentSkillId\":null,\"tags\":[],\"authorName\":\"0\",\"usageCount\":0},{\"payload\":{\"description\":\"批量12\"},\"plazaTemplateId\":12,\"title\":\"批量12\",\"agentSkillId\":null,\"tags\":[\"批量\",\"b\"],\"authorName\":\"官方\",\"usageCount\":0},{\"payload\":{\"description\":\"批量11\"},\"plazaTemplateId\":11,\"title\":\"批量11\",\"agentSkillId\":null,\"tags\":[\"批量\",\"b\"],\"authorName\":\"官方\",\"usageCount\":0},{\"payload\":{\"description\":\"批量10\"},\"plazaTemplateId\":10,\"title\":\"批量10\",\"agentSkillId\":null,\"tags\":[\"批量\",\"b\"],\"authorName\":\"官方\",\"usageCount\":0},{\"payload\":{\"description\":\"批量9\"},\"plazaTemplateId\":9,\"title\":\"批量9\",\"agentSkillId\":null,\"tags\":[\"批量\",\"b\"],\"authorName\":\"官方\",\"usageCount\":0},{\"payload\":{\"description\":\"批量8\"},\"plazaTemplateId\":8,\"title\":\"批量8\",\"agentSkillId\":null,\"tags\":[\"批量\",\"ｂ\"],\"authorName\":\"官方\",\"usageCount\":0},{\"payload\":{\"description\":\"批量7\"},\"plazaTemplateId\":7,\"title\":\"批量7\",\"agentSkillId\":null,\"tags\":[\"批量\",\"\uD835\uDC9C增补\"],\"authorName\":\"官方\",\"usageCount\":0}]}}"
+    }, {
+      "name" : "p1s1",
+      "endpoint" : "list",
+      "status" : 200,
+      "body" : "{\"code\":0,\"msg\":\"success\",\"data\":{\"pages\":12,\"total\":12,\"current\":1,\"data\":[{\"payload\":{},\"plazaTemplateId\":4,\"title\":\"无标签\",\"agentSkillId\":null,\"tags\":[],\"authorName\":\"官方\",\"usageCount\":0}]}}"
+    }, {
+      "name" : "p12s1",
+      "endpoint" : "list",
+      "status" : 200,
+      "body" : "{\"code\":0,\"msg\":\"success\",\"data\":{\"pages\":12,\"total\":12,\"current\":12,\"data\":[{\"payload\":{\"description\":\"批量7\"},\"plazaTemplateId\":7,\"title\":\"批量7\",\"agentSkillId\":null,\"tags\":[\"批量\",\"\uD835\uDC9C增补\"],\"authorName\":\"官方\",\"usageCount\":0}]}}"
+    }, {
+      "name" : "s0",
+      "endpoint" : "list",
+      "status" : 200,
+      "body" : "{\"code\":0,\"msg\":\"success\",\"data\":{\"pages\":0,\"total\":12,\"current\":1,\"data\":[]}}"
+    }, {
+      "name" : "p0s0",
+      "endpoint" : "list",
+      "status" : 200,
+      "body" : "{\"code\":0,\"msg\":\"success\",\"data\":{\"pages\":0,\"total\":12,\"current\":1,\"data\":[]}}"
+    }, {
+      "name" : "pneg_s0",
+      "endpoint" : "list",
+      "status" : 200,
+      "body" : "{\"code\":0,\"msg\":\"success\",\"data\":{\"pages\":0,\"total\":12,\"current\":1,\"data\":[]}}"
+    }, {
+      "name" : "tag_dianshang",
+      "endpoint" : "list",
+      "status" : 200,
+      "body" : "{\"code\":0,\"msg\":\"success\",\"data\":{\"pages\":1,\"total\":2,\"current\":1,\"data\":[{\"payload\":{\"n\":12345678901234567890123,\"f\":1.0E10,\"g\":1.0E-4,\"h\":1.5,\"z\":0,\"big\":2085576666117050369,\"neg\":-1.25E-7,\"huge\":1.7976931348623157E308,\"tiny\":4.9E-324,\"s\":\"a\\\"b\\\\c\\u0001\\n\\t/<>& é\uD83D\uDE00\",\"result\":[\"https://x/1.png\"],\"description\":\"夏日海报说明\"},\"plazaTemplateId\":1,\"title\":\"夏日海报\",\"agentSkillId\":\"2085576666117050369\",\"tags\":[\"电商\",\"海报\"],\"authorName\":\"小王\",\"usageCount\":42},{\"payload\":{\"a\":3,\"b\":2},\"plazaTemplateId\":6,\"title\":\"重复键\",\"agentSkillId\":null,\"tags\":[\"电商\",\"电商\"],\"authorName\":\"官方\",\"usageCount\":10}]}}"
+    }, {
+      "name" : "tag_union",
+      "endpoint" : "list",
+      "status" : 200,
+      "body" : "{\"code\":0,\"msg\":\"success\",\"data\":{\"pages\":1,\"total\":3,\"current\":1,\"data\":[{\"payload\":{\"five_panel\":{\"prompt\":\"嵌套保留\",\"k\":[1,2.5,{\"x\":null}]},\"description\":\"冬季\"},\"plazaTemplateId\":2,\"title\":\"冬季上新\",\"agentSkillId\":\"7\",\"tags\":[\"海报\",\"\uD83D\uDE00表情\"],\"authorName\":\"官方\",\"usageCount\":3},{\"payload\":{\"n\":12345678901234567890123,\"f\":1.0E10,\"g\":1.0E-4,\"h\":1.5,\"z\":0,\"big\":2085576666117050369,\"neg\":-1.25E-7,\"huge\":1.7976931348623157E308,\"tiny\":4.9E-324,\"s\":\"a\\\"b\\\\c\\u0001\\n\\t/<>& é\uD83D\uDE00\",\"result\":[\"https://x/1.png\"],\"description\":\"夏日海报说明\"},\"plazaTemplateId\":1,\"title\":\"夏日海报\",\"agentSkillId\":\"2085576666117050369\",\"tags\":[\"电商\",\"海报\"],\"authorName\":\"小王\",\"usageCount\":42},{\"payload\":{\"a\":3,\"b\":2},\"plazaTemplateId\":6,\"title\":\"重复键\",\"agentSkillId\":null,\"tags\":[\"电商\",\"电商\"],\"authorName\":\"官方\",\"usageCount\":10}]}}"
+    }, {
+      "name" : "tag_missing",
+      "endpoint" : "list",
+      "status" : 200,
+      "body" : "{\"code\":0,\"msg\":\"success\",\"data\":{\"pages\":0,\"total\":0,\"current\":1,\"data\":[]}}"
+    }, {
+      "name" : "tag_emoji",
+      "endpoint" : "list",
+      "status" : 200,
+      "body" : "{\"code\":0,\"msg\":\"success\",\"data\":{\"pages\":1,\"total\":1,\"current\":1,\"data\":[{\"payload\":{\"five_panel\":{\"prompt\":\"嵌套保留\",\"k\":[1,2.5,{\"x\":null}]},\"description\":\"冬季\"},\"plazaTemplateId\":2,\"title\":\"冬季上新\",\"agentSkillId\":\"7\",\"tags\":[\"海报\",\"\uD83D\uDE00表情\"],\"authorName\":\"官方\",\"usageCount\":3}]}}"
+    }, {
+      "name" : "tag_nullstr",
+      "endpoint" : "list",
+      "status" : 200,
+      "body" : "{\"code\":0,\"msg\":\"success\",\"data\":{\"pages\":1,\"total\":1,\"current\":1,\"data\":[{\"payload\":{\"description\":\"Hello WORLD\"},\"plazaTemplateId\":3,\"title\":\"Mixed Case\",\"agentSkillId\":null,\"tags\":[\"Ａ全角\",\"a小写\",\" 空格 \",\"null\",\"3\",\"1.0\",\"\",\"　\"],\"authorName\":\"{a=1, b=[true, null]}\",\"usageCount\":3}]}}"
+    }, {
+      "name" : "tag_number",
+      "endpoint" : "list",
+      "status" : 200,
+      "body" : "{\"code\":0,\"msg\":\"success\",\"data\":{\"pages\":1,\"total\":1,\"current\":1,\"data\":[{\"payload\":{\"description\":\"Hello WORLD\"},\"plazaTemplateId\":3,\"title\":\"Mixed Case\",\"agentSkillId\":null,\"tags\":[\"Ａ全角\",\"a小写\",\" 空格 \",\"null\",\"3\",\"1.0\",\"\",\"　\"],\"authorName\":\"{a=1, b=[true, null]}\",\"usageCount\":3}]}}"
+    }, {
+      "name" : "tag_double",
+      "endpoint" : "list",
+      "status" : 200,
+      "body" : "{\"code\":0,\"msg\":\"success\",\"data\":{\"pages\":1,\"total\":1,\"current\":1,\"data\":[{\"payload\":{\"description\":\"Hello WORLD\"},\"plazaTemplateId\":3,\"title\":\"Mixed Case\",\"agentSkillId\":null,\"tags\":[\"Ａ全角\",\"a小写\",\" 空格 \",\"null\",\"3\",\"1.0\",\"\",\"　\"],\"authorName\":\"{a=1, b=[true, null]}\",\"usageCount\":3}]}}"
+    }, {
+      "name" : "tag_emptystr",
+      "endpoint" : "list",
+      "status" : 200,
+      "body" : "{\"code\":0,\"msg\":\"success\",\"data\":{\"pages\":1,\"total\":1,\"current\":1,\"data\":[{\"payload\":{\"description\":\"Hello WORLD\"},\"plazaTemplateId\":3,\"title\":\"Mixed Case\",\"agentSkillId\":null,\"tags\":[\"Ａ全角\",\"a小写\",\" 空格 \",\"null\",\"3\",\"1.0\",\"\",\"　\"],\"authorName\":\"{a=1, b=[true, null]}\",\"usageCount\":3}]}}"
+    }, {
+      "name" : "tag_emptylist",
+      "endpoint" : "list",
+      "status" : 200,
+      "body" : "{\"code\":0,\"msg\":\"success\",\"data\":{\"pages\":2,\"total\":12,\"current\":1,\"data\":[{\"payload\":{},\"plazaTemplateId\":4,\"title\":\"无标签\",\"agentSkillId\":null,\"tags\":[],\"authorName\":\"官方\",\"usageCount\":0},{\"payload\":{\"five_panel\":{\"prompt\":\"嵌套保留\",\"k\":[1,2.5,{\"x\":null}]},\"description\":\"冬季\"},\"plazaTemplateId\":2,\"title\":\"冬季上新\",\"agentSkillId\":\"7\",\"tags\":[\"海报\",\"\uD83D\uDE00表情\"],\"authorName\":\"官方\",\"usageCount\":3},{\"payload\":{\"n\":12345678901234567890123,\"f\":1.0E10,\"g\":1.0E-4,\"h\":1.5,\"z\":0,\"big\":2085576666117050369,\"neg\":-1.25E-7,\"huge\":1.7976931348623157E308,\"tiny\":4.9E-324,\"s\":\"a\\\"b\\\\c\\u0001\\n\\t/<>& é\uD83D\uDE00\",\"result\":[\"https://x/1.png\"],\"description\":\"夏日海报说明\"},\"plazaTemplateId\":1,\"title\":\"夏日海报\",\"agentSkillId\":\"2085576666117050369\",\"tags\":[\"电商\",\"海报\"],\"authorName\":\"小王\",\"usageCount\":42},{\"payload\":{\"description\":\"Hello WORLD\"},\"plazaTemplateId\":3,\"title\":\"Mixed Case\",\"agentSkillId\":null,\"tags\":[\"Ａ全角\",\"a小写\",\" 空格 \",\"null\",\"3\",\"1.0\",\"\",\"　\"],\"authorName\":\"{a=1, b=[true, null]}\",\"usageCount\":3},{\"payload\":{\"a\":3,\"b\":2},\"plazaTemplateId\":6,\"title\":\"重复键\",\"agentSkillId\":null,\"tags\":[\"电商\",\"电商\"],\"authorName\":\"官方\",\"usageCount\":10},{\"payload\":{\"description\":123},\"plazaTemplateId\":5,\"title\":\"标签不是数组\",\"agentSkillId\":null,\"tags\":[],\"authorName\":\"0\",\"usageCount\":0},{\"payload\":{\"description\":\"批量12\"},\"plazaTemplateId\":12,\"title\":\"批量12\",\"agentSkillId\":null,\"tags\":[\"批量\",\"b\"],\"authorName\":\"官方\",\"usageCount\":0},{\"payload\":{\"description\":\"批量11\"},\"plazaTemplateId\":11,\"title\":\"批量11\",\"agentSkillId\":null,\"tags\":[\"批量\",\"b\"],\"authorName\":\"官方\",\"usageCount\":0},{\"payload\":{\"description\":\"批量10\"},\"plazaTemplateId\":10,\"title\":\"批量10\",\"agentSkillId\":null,\"tags\":[\"批量\",\"b\"],\"authorName\":\"官方\",\"usageCount\":0},{\"payload\":{\"description\":\"批量9\"},\"plazaTemplateId\":9,\"title\":\"批量9\",\"agentSkillId\":null,\"tags\":[\"批量\",\"b\"],\"authorName\":\"官方\",\"usageCount\":0}]}}"
+    }, {
+      "name" : "tag_supplementary",
+      "endpoint" : "list",
+      "status" : 200,
+      "body" : "{\"code\":0,\"msg\":\"success\",\"data\":{\"pages\":1,\"total\":1,\"current\":1,\"data\":[{\"payload\":{\"description\":\"批量7\"},\"plazaTemplateId\":7,\"title\":\"批量7\",\"agentSkillId\":null,\"tags\":[\"批量\",\"\uD835\uDC9C增补\"],\"authorName\":\"官方\",\"usageCount\":0}]}}"
+    }, {
+      "name" : "tag_page2",
+      "endpoint" : "list",
+      "status" : 200,
+      "body" : "{\"code\":0,\"msg\":\"success\",\"data\":{\"pages\":2,\"total\":2,\"current\":2,\"data\":[{\"payload\":{\"a\":3,\"b\":2},\"plazaTemplateId\":6,\"title\":\"重复键\",\"agentSkillId\":null,\"tags\":[\"电商\",\"电商\"],\"authorName\":\"官方\",\"usageCount\":10}]}}"
+    }, {
+      "name" : "tags",
+      "endpoint" : "tags",
+      "status" : 200,
+      "body" : "{\"code\":0,\"msg\":\"success\",\"data\":[\"\",\" 空格 \",\"1.0\",\"3\",\"a小写\",\"b\",\"null\",\"　\",\"批量\",\"海报\",\"电商\",\"\uD835\uDC9C增补\",\"\uD83D\uDE00表情\",\"Ａ全角\",\"ｂ\"]}"
+    }, {
+      "name" : "all",
+      "endpoint" : "headlines",
+      "status" : 200,
+      "body" : "{\"code\":0,\"msg\":\"success\",\"data\":{\"statsFrom\":\"2026-11-07\",\"statsTo\":\"2026-11-14\",\"items\":[{\"headlineId\":2,\"rank\":1,\"plazaTemplateId\":1,\"title\":\"夏日海报\",\"agentSkillId\":\"2085576666117050369\",\"tags\":[\"电商\",\"海报\"],\"payload\":{\"n\":12345678901234567890123,\"f\":1.0E10,\"g\":1.0E-4,\"h\":1.5,\"z\":0,\"big\":2085576666117050369,\"neg\":-1.25E-7,\"huge\":1.7976931348623157E308,\"tiny\":4.9E-324,\"s\":\"a\\\"b\\\\c\\u0001\\n\\t/<>& é\uD83D\uDE00\",\"result\":[\"https://x/1.png\"],\"authorName\":\" 小王 \",\"description\":\"夏日海报说明\"},\"why\":\"同模板更晚起始\",\"uses\":42,\"previousUses\":5,\"trend\":740,\"isNew\":false,\"startDate\":\"2026-11-13\",\"endDate\":\"2026-11-15\"},{\"headlineId\":3,\"rank\":2,\"plazaTemplateId\":2,\"title\":\"冬季上新\",\"agentSkillId\":\"7\",\"tags\":[\"海报\",\"\uD83D\uDE00表情\"],\"payload\":{\"five_panel\":{\"prompt\":\"嵌套保留\",\"k\":[1,2.5,{\"x\":null}]},\"description\":\"冬季\"},\"why\":\"今天\",\"uses\":3,\"previousUses\":0,\"trend\":null,\"isNew\":true,\"startDate\":\"2026-11-14\",\"endDate\":\"2026-11-14\"},{\"headlineId\":6,\"rank\":3,\"plazaTemplateId\":3,\"title\":\"Mixed Case\",\"agentSkillId\":null,\"tags\":[\"Ａ全角\",\"a小写\",\" 空格 \",\"3\",\"1.0\"],\"payload\":{\"authorName\":{\"a\":1,\"b\":[true,null]},\"description\":\"Hello WORLD\"},\"why\":\"Mixed Case WHY\",\"uses\":3,\"previousUses\":7,\"trend\":-57,\"isNew\":false,\"startDate\":\"2026-11-12\",\"endDate\":\"2026-11-19\"},{\"headlineId\":8,\"rank\":4,\"plazaTemplateId\":5,\"title\":\"标签不是数组\",\"agentSkillId\":null,\"tags\":[],\"payload\":{\"authorName\":0,\"description\":123},\"why\":\"\",\"uses\":0,\"previousUses\":0,\"trend\":null,\"isNew\":true,\"startDate\":\"2026-11-13\",\"endDate\":\"2026-11-15\"},{\"headlineId\":9,\"rank\":5,\"plazaTemplateId\":7,\"title\":\"批量7\",\"agentSkillId\":null,\"tags\":[\"批量\",\"\uD835\uDC9C增补\"],\"payload\":{\"description\":\"批量7\",\"authorName\":\"  \"},\"why\":\"ΣΑΣ 希腊\",\"uses\":0,\"previousUses\":4,\"trend\":-100,\"isNew\":false,\"startDate\":\"2026-11-13\",\"endDate\":\"2026-11-15\"},{\"headlineId\":10,\"rank\":6,\"plazaTemplateId\":8,\"title\":\"批量8\",\"agentSkillId\":null,\"tags\":[\"批量\",\"ｂ\"],\"payload\":{\"description\":\"批量8\",\"authorName\":\"  \"},\"why\":\"同分按 sort\",\"uses\":0,\"previousUses\":0,\"trend\":null,\"isNew\":true,\"startDate\":\"2026-11-13\",\"endDate\":\"2026-11-15\"},{\"headlineId\":11,\"rank\":7,\"plazaTemplateId\":9,\"title\":\"批量9\",\"agentSkillId\":null,\"tags\":[\"批量\",\"b\"],\"payload\":{\"description\":\"批量9\",\"authorName\":\"  \"},\"why\":\"同分同 sort 按 id\",\"uses\":0,\"previousUses\":0,\"trend\":null,\"isNew\":true,\"startDate\":\"2026-11-13\",\"endDate\":\"2026-11-15\"}]}}"
+    }, {
+      "name" : "tag",
+      "endpoint" : "headlines",
+      "status" : 200,
+      "body" : "{\"code\":0,\"msg\":\"success\",\"data\":{\"statsFrom\":\"2026-11-07\",\"statsTo\":\"2026-11-14\",\"items\":[{\"headlineId\":2,\"rank\":1,\"plazaTemplateId\":1,\"title\":\"夏日海报\",\"agentSkillId\":\"2085576666117050369\",\"tags\":[\"电商\",\"海报\"],\"payload\":{\"n\":12345678901234567890123,\"f\":1.0E10,\"g\":1.0E-4,\"h\":1.5,\"z\":0,\"big\":2085576666117050369,\"neg\":-1.25E-7,\"huge\":1.7976931348623157E308,\"tiny\":4.9E-324,\"s\":\"a\\\"b\\\\c\\u0001\\n\\t/<>& é\uD83D\uDE00\",\"result\":[\"https://x/1.png\"],\"authorName\":\" 小王 \",\"description\":\"夏日海报说明\"},\"why\":\"同模板更晚起始\",\"uses\":42,\"previousUses\":5,\"trend\":740,\"isNew\":false,\"startDate\":\"2026-11-13\",\"endDate\":\"2026-11-15\"}]}}"
+    }, {
+      "name" : "tag_trim",
+      "endpoint" : "headlines",
+      "status" : 200,
+      "body" : "{\"code\":0,\"msg\":\"success\",\"data\":{\"statsFrom\":\"2026-11-07\",\"statsTo\":\"2026-11-14\",\"items\":[{\"headlineId\":2,\"rank\":1,\"plazaTemplateId\":1,\"title\":\"夏日海报\",\"agentSkillId\":\"2085576666117050369\",\"tags\":[\"电商\",\"海报\"],\"payload\":{\"n\":12345678901234567890123,\"f\":1.0E10,\"g\":1.0E-4,\"h\":1.5,\"z\":0,\"big\":2085576666117050369,\"neg\":-1.25E-7,\"huge\":1.7976931348623157E308,\"tiny\":4.9E-324,\"s\":\"a\\\"b\\\\c\\u0001\\n\\t/<>& é\uD83D\uDE00\",\"result\":[\"https://x/1.png\"],\"authorName\":\" 小王 \",\"description\":\"夏日海报说明\"},\"why\":\"同模板更晚起始\",\"uses\":42,\"previousUses\":5,\"trend\":740,\"isNew\":false,\"startDate\":\"2026-11-13\",\"endDate\":\"2026-11-15\"}]}}"
+    }, {
+      "name" : "tag_blank",
+      "endpoint" : "headlines",
+      "status" : 200,
+      "body" : "{\"code\":0,\"msg\":\"success\",\"data\":{\"statsFrom\":\"2026-11-07\",\"statsTo\":\"2026-11-14\",\"items\":[{\"headlineId\":2,\"rank\":1,\"plazaTemplateId\":1,\"title\":\"夏日海报\",\"agentSkillId\":\"2085576666117050369\",\"tags\":[\"电商\",\"海报\"],\"payload\":{\"n\":12345678901234567890123,\"f\":1.0E10,\"g\":1.0E-4,\"h\":1.5,\"z\":0,\"big\":2085576666117050369,\"neg\":-1.25E-7,\"huge\":1.7976931348623157E308,\"tiny\":4.9E-324,\"s\":\"a\\\"b\\\\c\\u0001\\n\\t/<>& é\uD83D\uDE00\",\"result\":[\"https://x/1.png\"],\"authorName\":\" 小王 \",\"description\":\"夏日海报说明\"},\"why\":\"同模板更晚起始\",\"uses\":42,\"previousUses\":5,\"trend\":740,\"isNew\":false,\"startDate\":\"2026-11-13\",\"endDate\":\"2026-11-15\"},{\"headlineId\":3,\"rank\":2,\"plazaTemplateId\":2,\"title\":\"冬季上新\",\"agentSkillId\":\"7\",\"tags\":[\"海报\",\"\uD83D\uDE00表情\"],\"payload\":{\"five_panel\":{\"prompt\":\"嵌套保留\",\"k\":[1,2.5,{\"x\":null}]},\"description\":\"冬季\"},\"why\":\"今天\",\"uses\":3,\"previousUses\":0,\"trend\":null,\"isNew\":true,\"startDate\":\"2026-11-14\",\"endDate\":\"2026-11-14\"},{\"headlineId\":6,\"rank\":3,\"plazaTemplateId\":3,\"title\":\"Mixed Case\",\"agentSkillId\":null,\"tags\":[\"Ａ全角\",\"a小写\",\" 空格 \",\"3\",\"1.0\"],\"payload\":{\"authorName\":{\"a\":1,\"b\":[true,null]},\"description\":\"Hello WORLD\"},\"why\":\"Mixed Case WHY\",\"uses\":3,\"previousUses\":7,\"trend\":-57,\"isNew\":false,\"startDate\":\"2026-11-12\",\"endDate\":\"2026-11-19\"},{\"headlineId\":8,\"rank\":4,\"plazaTemplateId\":5,\"title\":\"标签不是数组\",\"agentSkillId\":null,\"tags\":[],\"payload\":{\"authorName\":0,\"description\":123},\"why\":\"\",\"uses\":0,\"previousUses\":0,\"trend\":null,\"isNew\":true,\"startDate\":\"2026-11-13\",\"endDate\":\"2026-11-15\"},{\"headlineId\":9,\"rank\":5,\"plazaTemplateId\":7,\"title\":\"批量7\",\"agentSkillId\":null,\"tags\":[\"批量\",\"\uD835\uDC9C增补\"],\"payload\":{\"description\":\"批量7\",\"authorName\":\"  \"},\"why\":\"ΣΑΣ 希腊\",\"uses\":0,\"previousUses\":4,\"trend\":-100,\"isNew\":false,\"startDate\":\"2026-11-13\",\"endDate\":\"2026-11-15\"},{\"headlineId\":10,\"rank\":6,\"plazaTemplateId\":8,\"title\":\"批量8\",\"agentSkillId\":null,\"tags\":[\"批量\",\"ｂ\"],\"payload\":{\"description\":\"批量8\",\"authorName\":\"  \"},\"why\":\"同分按 sort\",\"uses\":0,\"previousUses\":0,\"trend\":null,\"isNew\":true,\"startDate\":\"2026-11-13\",\"endDate\":\"2026-11-15\"},{\"headlineId\":11,\"rank\":7,\"plazaTemplateId\":9,\"title\":\"批量9\",\"agentSkillId\":null,\"tags\":[\"批量\",\"b\"],\"payload\":{\"description\":\"批量9\",\"authorName\":\"  \"},\"why\":\"同分同 sort 按 id\",\"uses\":0,\"previousUses\":0,\"trend\":null,\"isNew\":true,\"startDate\":\"2026-11-13\",\"endDate\":\"2026-11-15\"}]}}"
+    }, {
+      "name" : "kw_title",
+      "endpoint" : "headlines",
+      "status" : 200,
+      "body" : "{\"code\":0,\"msg\":\"success\",\"data\":{\"statsFrom\":\"2026-11-07\",\"statsTo\":\"2026-11-14\",\"items\":[{\"headlineId\":2,\"rank\":1,\"plazaTemplateId\":1,\"title\":\"夏日海报\",\"agentSkillId\":\"2085576666117050369\",\"tags\":[\"电商\",\"海报\"],\"payload\":{\"n\":12345678901234567890123,\"f\":1.0E10,\"g\":1.0E-4,\"h\":1.5,\"z\":0,\"big\":2085576666117050369,\"neg\":-1.25E-7,\"huge\":1.7976931348623157E308,\"tiny\":4.9E-324,\"s\":\"a\\\"b\\\\c\\u0001\\n\\t/<>& é\uD83D\uDE00\",\"result\":[\"https://x/1.png\"],\"authorName\":\" 小王 \",\"description\":\"夏日海报说明\"},\"why\":\"同模板更晚起始\",\"uses\":42,\"previousUses\":5,\"trend\":740,\"isNew\":false,\"startDate\":\"2026-11-13\",\"endDate\":\"2026-11-15\"},{\"headlineId\":3,\"rank\":2,\"plazaTemplateId\":2,\"title\":\"冬季上新\",\"agentSkillId\":\"7\",\"tags\":[\"海报\",\"\uD83D\uDE00表情\"],\"payload\":{\"five_panel\":{\"prompt\":\"嵌套保留\",\"k\":[1,2.5,{\"x\":null}]},\"description\":\"冬季\"},\"why\":\"今天\",\"uses\":3,\"previousUses\":0,\"trend\":null,\"isNew\":true,\"startDate\":\"2026-11-14\",\"endDate\":\"2026-11-14\"}]}}"
+    }, {
+      "name" : "kw_why_case",
+      "endpoint" : "headlines",
+      "status" : 200,
+      "body" : "{\"code\":0,\"msg\":\"success\",\"data\":{\"statsFrom\":\"2026-11-07\",\"statsTo\":\"2026-11-14\",\"items\":[{\"headlineId\":6,\"rank\":1,\"plazaTemplateId\":3,\"title\":\"Mixed Case\",\"agentSkillId\":null,\"tags\":[\"Ａ全角\",\"a小写\",\" 空格 \",\"3\",\"1.0\"],\"payload\":{\"authorName\":{\"a\":1,\"b\":[true,null]},\"description\":\"Hello WORLD\"},\"why\":\"Mixed Case WHY\",\"uses\":3,\"previousUses\":7,\"trend\":-57,\"isNew\":false,\"startDate\":\"2026-11-12\",\"endDate\":\"2026-11-19\"}]}}"
+    }, {
+      "name" : "kw_desc_col",
+      "endpoint" : "headlines",
+      "status" : 200,
+      "body" : "{\"code\":0,\"msg\":\"success\",\"data\":{\"statsFrom\":\"2026-11-07\",\"statsTo\":\"2026-11-14\",\"items\":[{\"headlineId\":2,\"rank\":1,\"plazaTemplateId\":1,\"title\":\"夏日海报\",\"agentSkillId\":\"2085576666117050369\",\"tags\":[\"电商\",\"海报\"],\"payload\":{\"n\":12345678901234567890123,\"f\":1.0E10,\"g\":1.0E-4,\"h\":1.5,\"z\":0,\"big\":2085576666117050369,\"neg\":-1.25E-7,\"huge\":1.7976931348623157E308,\"tiny\":4.9E-324,\"s\":\"a\\\"b\\\\c\\u0001\\n\\t/<>& é\uD83D\uDE00\",\"result\":[\"https://x/1.png\"],\"authorName\":\" 小王 \",\"description\":\"夏日海报说明\"},\"why\":\"同模板更晚起始\",\"uses\":42,\"previousUses\":5,\"trend\":740,\"isNew\":false,\"startDate\":\"2026-11-13\",\"endDate\":\"2026-11-15\"}]}}"
+    }, {
+      "name" : "kw_payload_desc",
+      "endpoint" : "headlines",
+      "status" : 200,
+      "body" : "{\"code\":0,\"msg\":\"success\",\"data\":{\"statsFrom\":\"2026-11-07\",\"statsTo\":\"2026-11-14\",\"items\":[{\"headlineId\":6,\"rank\":1,\"plazaTemplateId\":3,\"title\":\"Mixed Case\",\"agentSkillId\":null,\"tags\":[\"Ａ全角\",\"a小写\",\" 空格 \",\"3\",\"1.0\"],\"payload\":{\"authorName\":{\"a\":1,\"b\":[true,null]},\"description\":\"Hello WORLD\"},\"why\":\"Mixed Case WHY\",\"uses\":3,\"previousUses\":7,\"trend\":-57,\"isNew\":false,\"startDate\":\"2026-11-12\",\"endDate\":\"2026-11-19\"}]}}"
+    }, {
+      "name" : "kw_blank",
+      "endpoint" : "headlines",
+      "status" : 200,
+      "body" : "{\"code\":0,\"msg\":\"success\",\"data\":{\"statsFrom\":\"2026-11-07\",\"statsTo\":\"2026-11-14\",\"items\":[{\"headlineId\":2,\"rank\":1,\"plazaTemplateId\":1,\"title\":\"夏日海报\",\"agentSkillId\":\"2085576666117050369\",\"tags\":[\"电商\",\"海报\"],\"payload\":{\"n\":12345678901234567890123,\"f\":1.0E10,\"g\":1.0E-4,\"h\":1.5,\"z\":0,\"big\":2085576666117050369,\"neg\":-1.25E-7,\"huge\":1.7976931348623157E308,\"tiny\":4.9E-324,\"s\":\"a\\\"b\\\\c\\u0001\\n\\t/<>& é\uD83D\uDE00\",\"result\":[\"https://x/1.png\"],\"authorName\":\" 小王 \",\"description\":\"夏日海报说明\"},\"why\":\"同模板更晚起始\",\"uses\":42,\"previousUses\":5,\"trend\":740,\"isNew\":false,\"startDate\":\"2026-11-13\",\"endDate\":\"2026-11-15\"},{\"headlineId\":3,\"rank\":2,\"plazaTemplateId\":2,\"title\":\"冬季上新\",\"agentSkillId\":\"7\",\"tags\":[\"海报\",\"\uD83D\uDE00表情\"],\"payload\":{\"five_panel\":{\"prompt\":\"嵌套保留\",\"k\":[1,2.5,{\"x\":null}]},\"description\":\"冬季\"},\"why\":\"今天\",\"uses\":3,\"previousUses\":0,\"trend\":null,\"isNew\":true,\"startDate\":\"2026-11-14\",\"endDate\":\"2026-11-14\"},{\"headlineId\":6,\"rank\":3,\"plazaTemplateId\":3,\"title\":\"Mixed Case\",\"agentSkillId\":null,\"tags\":[\"Ａ全角\",\"a小写\",\" 空格 \",\"3\",\"1.0\"],\"payload\":{\"authorName\":{\"a\":1,\"b\":[true,null]},\"description\":\"Hello WORLD\"},\"why\":\"Mixed Case WHY\",\"uses\":3,\"previousUses\":7,\"trend\":-57,\"isNew\":false,\"startDate\":\"2026-11-12\",\"endDate\":\"2026-11-19\"},{\"headlineId\":8,\"rank\":4,\"plazaTemplateId\":5,\"title\":\"标签不是数组\",\"agentSkillId\":null,\"tags\":[],\"payload\":{\"authorName\":0,\"description\":123},\"why\":\"\",\"uses\":0,\"previousUses\":0,\"trend\":null,\"isNew\":true,\"startDate\":\"2026-11-13\",\"endDate\":\"2026-11-15\"},{\"headlineId\":9,\"rank\":5,\"plazaTemplateId\":7,\"title\":\"批量7\",\"agentSkillId\":null,\"tags\":[\"批量\",\"\uD835\uDC9C增补\"],\"payload\":{\"description\":\"批量7\",\"authorName\":\"  \"},\"why\":\"ΣΑΣ 希腊\",\"uses\":0,\"previousUses\":4,\"trend\":-100,\"isNew\":false,\"startDate\":\"2026-11-13\",\"endDate\":\"2026-11-15\"},{\"headlineId\":10,\"rank\":6,\"plazaTemplateId\":8,\"title\":\"批量8\",\"agentSkillId\":null,\"tags\":[\"批量\",\"ｂ\"],\"payload\":{\"description\":\"批量8\",\"authorName\":\"  \"},\"why\":\"同分按 sort\",\"uses\":0,\"previousUses\":0,\"trend\":null,\"isNew\":true,\"startDate\":\"2026-11-13\",\"endDate\":\"2026-11-15\"},{\"headlineId\":11,\"rank\":7,\"plazaTemplateId\":9,\"title\":\"批量9\",\"agentSkillId\":null,\"tags\":[\"批量\",\"b\"],\"payload\":{\"description\":\"批量9\",\"authorName\":\"  \"},\"why\":\"同分同 sort 按 id\",\"uses\":0,\"previousUses\":0,\"trend\":null,\"isNew\":true,\"startDate\":\"2026-11-13\",\"endDate\":\"2026-11-15\"}]}}"
+    }, {
+      "name" : "kw_sigma",
+      "endpoint" : "headlines",
+      "status" : 200,
+      "body" : "{\"code\":0,\"msg\":\"success\",\"data\":{\"statsFrom\":\"2026-11-07\",\"statsTo\":\"2026-11-14\",\"items\":[{\"headlineId\":9,\"rank\":1,\"plazaTemplateId\":7,\"title\":\"批量7\",\"agentSkillId\":null,\"tags\":[\"批量\",\"\uD835\uDC9C增补\"],\"payload\":{\"description\":\"批量7\",\"authorName\":\"  \"},\"why\":\"ΣΑΣ 希腊\",\"uses\":0,\"previousUses\":4,\"trend\":-100,\"isNew\":false,\"startDate\":\"2026-11-13\",\"endDate\":\"2026-11-15\"}]}}"
+    }, {
+      "name" : "kw_none",
+      "endpoint" : "headlines",
+      "status" : 200,
+      "body" : "{\"code\":0,\"msg\":\"success\",\"data\":{\"statsFrom\":\"2026-11-07\",\"statsTo\":\"2026-11-14\",\"items\":[]}}"
+    }, {
+      "name" : "tag_and_kw",
+      "endpoint" : "headlines",
+      "status" : 200,
+      "body" : "{\"code\":0,\"msg\":\"success\",\"data\":{\"statsFrom\":\"2026-11-07\",\"statsTo\":\"2026-11-14\",\"items\":[{\"headlineId\":3,\"rank\":1,\"plazaTemplateId\":2,\"title\":\"冬季上新\",\"agentSkillId\":\"7\",\"tags\":[\"海报\",\"\uD83D\uDE00表情\"],\"payload\":{\"five_panel\":{\"prompt\":\"嵌套保留\",\"k\":[1,2.5,{\"x\":null}]},\"description\":\"冬季\"},\"why\":\"今天\",\"uses\":3,\"previousUses\":0,\"trend\":null,\"isNew\":true,\"startDate\":\"2026-11-14\",\"endDate\":\"2026-11-14\"}]}}"
+    }, {
+      "name" : "empty_both",
+      "endpoint" : "headlines",
+      "status" : 200,
+      "body" : "{\"code\":0,\"msg\":\"success\",\"data\":{\"statsFrom\":\"2026-11-07\",\"statsTo\":\"2026-11-14\",\"items\":[{\"headlineId\":2,\"rank\":1,\"plazaTemplateId\":1,\"title\":\"夏日海报\",\"agentSkillId\":\"2085576666117050369\",\"tags\":[\"电商\",\"海报\"],\"payload\":{\"n\":12345678901234567890123,\"f\":1.0E10,\"g\":1.0E-4,\"h\":1.5,\"z\":0,\"big\":2085576666117050369,\"neg\":-1.25E-7,\"huge\":1.7976931348623157E308,\"tiny\":4.9E-324,\"s\":\"a\\\"b\\\\c\\u0001\\n\\t/<>& é\uD83D\uDE00\",\"result\":[\"https://x/1.png\"],\"authorName\":\" 小王 \",\"description\":\"夏日海报说明\"},\"why\":\"同模板更晚起始\",\"uses\":42,\"previousUses\":5,\"trend\":740,\"isNew\":false,\"startDate\":\"2026-11-13\",\"endDate\":\"2026-11-15\"},{\"headlineId\":3,\"rank\":2,\"plazaTemplateId\":2,\"title\":\"冬季上新\",\"agentSkillId\":\"7\",\"tags\":[\"海报\",\"\uD83D\uDE00表情\"],\"payload\":{\"five_panel\":{\"prompt\":\"嵌套保留\",\"k\":[1,2.5,{\"x\":null}]},\"description\":\"冬季\"},\"why\":\"今天\",\"uses\":3,\"previousUses\":0,\"trend\":null,\"isNew\":true,\"startDate\":\"2026-11-14\",\"endDate\":\"2026-11-14\"},{\"headlineId\":6,\"rank\":3,\"plazaTemplateId\":3,\"title\":\"Mixed Case\",\"agentSkillId\":null,\"tags\":[\"Ａ全角\",\"a小写\",\" 空格 \",\"3\",\"1.0\"],\"payload\":{\"authorName\":{\"a\":1,\"b\":[true,null]},\"description\":\"Hello WORLD\"},\"why\":\"Mixed Case WHY\",\"uses\":3,\"previousUses\":7,\"trend\":-57,\"isNew\":false,\"startDate\":\"2026-11-12\",\"endDate\":\"2026-11-19\"},{\"headlineId\":8,\"rank\":4,\"plazaTemplateId\":5,\"title\":\"标签不是数组\",\"agentSkillId\":null,\"tags\":[],\"payload\":{\"authorName\":0,\"description\":123},\"why\":\"\",\"uses\":0,\"previousUses\":0,\"trend\":null,\"isNew\":true,\"startDate\":\"2026-11-13\",\"endDate\":\"2026-11-15\"},{\"headlineId\":9,\"rank\":5,\"plazaTemplateId\":7,\"title\":\"批量7\",\"agentSkillId\":null,\"tags\":[\"批量\",\"\uD835\uDC9C增补\"],\"payload\":{\"description\":\"批量7\",\"authorName\":\"  \"},\"why\":\"ΣΑΣ 希腊\",\"uses\":0,\"previousUses\":4,\"trend\":-100,\"isNew\":false,\"startDate\":\"2026-11-13\",\"endDate\":\"2026-11-15\"},{\"headlineId\":10,\"rank\":6,\"plazaTemplateId\":8,\"title\":\"批量8\",\"agentSkillId\":null,\"tags\":[\"批量\",\"ｂ\"],\"payload\":{\"description\":\"批量8\",\"authorName\":\"  \"},\"why\":\"同分按 sort\",\"uses\":0,\"previousUses\":0,\"trend\":null,\"isNew\":true,\"startDate\":\"2026-11-13\",\"endDate\":\"2026-11-15\"},{\"headlineId\":11,\"rank\":7,\"plazaTemplateId\":9,\"title\":\"批量9\",\"agentSkillId\":null,\"tags\":[\"批量\",\"b\"],\"payload\":{\"description\":\"批量9\",\"authorName\":\"  \"},\"why\":\"同分同 sort 按 id\",\"uses\":0,\"previousUses\":0,\"trend\":null,\"isNew\":true,\"startDate\":\"2026-11-13\",\"endDate\":\"2026-11-15\"}]}}"
+    } ]
+  }, {
+    "name" : "empty",
+    "cases" : [ {
+      "name" : "p1s10",
+      "endpoint" : "list",
+      "status" : 200,
+      "body" : "{\"code\":0,\"msg\":\"success\",\"data\":{\"pages\":0,\"total\":0,\"current\":1,\"data\":[]}}"
+    }, {
+      "name" : "tags",
+      "endpoint" : "tags",
+      "status" : 200,
+      "body" : "{\"code\":0,\"msg\":\"success\",\"data\":[]}"
+    }, {
+      "name" : "all",
+      "endpoint" : "headlines",
+      "status" : 200,
+      "body" : "{\"code\":0,\"msg\":\"success\",\"data\":{\"statsFrom\":\"2026-11-07\",\"statsTo\":\"2026-11-14\",\"items\":[]}}"
+    } ]
+  }, {
+    "name" : "corrupt_data",
+    "cases" : [ {
+      "name" : "page_with_bad",
+      "endpoint" : "list",
+      "exception" : "com.pengqiwl.fusion.common.BusinessException",
+      "status" : 500,
+      "body" : "{\"code\":5002,\"reason\":\"DATABASE_ERROR\",\"msg\":\"兼容数据损坏\",\"data\":null}"
+    }, {
+      "name" : "page_without_bad",
+      "endpoint" : "list",
+      "status" : 200,
+      "body" : "{\"code\":0,\"msg\":\"success\",\"data\":{\"pages\":2,\"total\":2,\"current\":1,\"data\":[{\"payload\":{\"x\":1},\"plazaTemplateId\":1,\"title\":\"好\",\"agentSkillId\":null,\"tags\":[\"a\"],\"authorName\":\"官方\",\"usageCount\":0}]}}"
+    }, {
+      "name" : "tags",
+      "endpoint" : "tags",
+      "status" : 200,
+      "body" : "{\"code\":0,\"msg\":\"success\",\"data\":[\"a\",\"b\"]}"
+    }, {
+      "name" : "lenient",
+      "endpoint" : "headlines",
+      "status" : 200,
+      "body" : "{\"code\":0,\"msg\":\"success\",\"data\":{\"statsFrom\":\"2026-11-07\",\"statsTo\":\"2026-11-14\",\"items\":[{\"headlineId\":1,\"rank\":1,\"plazaTemplateId\":2,\"title\":\"坏\",\"agentSkillId\":null,\"tags\":[\"b\"],\"payload\":{},\"why\":\"坏数据头条\",\"uses\":0,\"previousUses\":0,\"trend\":null,\"isNew\":true,\"startDate\":\"2026-11-13\",\"endDate\":\"2026-11-15\"}]}}"
+    } ]
+  }, {
+    "name" : "null_data",
+    "cases" : [ {
+      "name" : "npe",
+      "endpoint" : "list",
+      "exception" : "java.lang.NullPointerException",
+      "status" : 500,
+      "body" : "{\"code\":5001,\"reason\":\"SYSTEM_ERROR\",\"msg\":\"系统内部错误\",\"data\":null}"
+    }, {
+      "name" : "tags",
+      "endpoint" : "tags",
+      "status" : 200,
+      "body" : "{\"code\":0,\"msg\":\"success\",\"data\":[\"a\"]}"
+    }, {
+      "name" : "lenient",
+      "endpoint" : "headlines",
+      "status" : 200,
+      "body" : "{\"code\":0,\"msg\":\"success\",\"data\":{\"statsFrom\":\"2026-11-07\",\"statsTo\":\"2026-11-14\",\"items\":[{\"headlineId\":1,\"rank\":1,\"plazaTemplateId\":1,\"title\":\"null\",\"agentSkillId\":null,\"tags\":[\"a\"],\"payload\":{},\"why\":\"null 数据\",\"uses\":0,\"previousUses\":0,\"trend\":null,\"isNew\":true,\"startDate\":\"2026-11-13\",\"endDate\":\"2026-11-15\"}]}}"
+    } ]
+  }, {
+    "name" : "corrupt_tags",
+    "cases" : [ {
+      "name" : "filter",
+      "endpoint" : "list",
+      "exception" : "com.pengqiwl.fusion.common.BusinessException",
+      "status" : 500,
+      "body" : "{\"code\":5002,\"reason\":\"DATABASE_ERROR\",\"msg\":\"兼容数据损坏\",\"data\":null}"
+    }, {
+      "name" : "nofilter_first",
+      "endpoint" : "list",
+      "status" : 200,
+      "body" : "{\"code\":0,\"msg\":\"success\",\"data\":{\"pages\":3,\"total\":3,\"current\":1,\"data\":[{\"payload\":{},\"plazaTemplateId\":1,\"title\":\"好\",\"agentSkillId\":null,\"tags\":[\"a\"],\"authorName\":\"官方\",\"usageCount\":0}]}}"
+    }, {
+      "name" : "nofilter_all",
+      "endpoint" : "list",
+      "exception" : "com.pengqiwl.fusion.common.BusinessException",
+      "status" : 500,
+      "body" : "{\"code\":5002,\"reason\":\"DATABASE_ERROR\",\"msg\":\"兼容数据损坏\",\"data\":null}"
+    }, {
+      "name" : "tags",
+      "endpoint" : "tags",
+      "exception" : "com.pengqiwl.fusion.common.BusinessException",
+      "status" : 500,
+      "body" : "{\"code\":5002,\"reason\":\"DATABASE_ERROR\",\"msg\":\"兼容数据损坏\",\"data\":null}"
+    }, {
+      "name" : "lenient",
+      "endpoint" : "headlines",
+      "status" : 200,
+      "body" : "{\"code\":0,\"msg\":\"success\",\"data\":{\"statsFrom\":\"2026-11-07\",\"statsTo\":\"2026-11-14\",\"items\":[{\"headlineId\":1,\"rank\":1,\"plazaTemplateId\":2,\"title\":\"坏标签\",\"agentSkillId\":null,\"tags\":[],\"payload\":{},\"why\":\"坏标签头条\",\"uses\":0,\"previousUses\":0,\"trend\":null,\"isNew\":true,\"startDate\":\"2026-11-13\",\"endDate\":\"2026-11-15\"},{\"headlineId\":2,\"rank\":2,\"plazaTemplateId\":3,\"title\":\"null标签\",\"agentSkillId\":null,\"tags\":[],\"payload\":{},\"why\":\"null 标签头条\",\"uses\":0,\"previousUses\":0,\"trend\":null,\"isNew\":true,\"startDate\":\"2026-11-13\",\"endDate\":\"2026-11-15\"}]}}"
+    } ]
+  }, {
+    "name" : "page_errors",
+    "cases" : [ {
+      "name" : "p0s10",
+      "endpoint" : "list",
+      "exception" : "java.lang.IndexOutOfBoundsException",
+      "status" : 500,
+      "body" : "{\"code\":5001,\"reason\":\"SYSTEM_ERROR\",\"msg\":\"系统内部错误\",\"data\":null}"
+    }, {
+      "name" : "p1sneg",
+      "endpoint" : "list",
+      "exception" : "java.lang.IllegalArgumentException",
+      "status" : 500,
+      "body" : "{\"code\":5001,\"reason\":\"SYSTEM_ERROR\",\"msg\":\"系统内部错误\",\"data\":null}"
+    }, {
+      "name" : "pneg_s10",
+      "endpoint" : "list",
+      "exception" : "java.lang.IndexOutOfBoundsException",
+      "status" : 500,
+      "body" : "{\"code\":5001,\"reason\":\"SYSTEM_ERROR\",\"msg\":\"系统内部错误\",\"data\":null}"
+    }, {
+      "name" : "overflow",
+      "endpoint" : "list",
+      "status" : 200,
+      "body" : "{\"code\":0,\"msg\":\"success\",\"data\":{\"pages\":1,\"total\":1,\"current\":4611686018427387905,\"data\":[{\"payload\":{},\"plazaTemplateId\":1,\"title\":\"t\",\"agentSkillId\":null,\"tags\":[\"a\"],\"authorName\":\"官方\",\"usageCount\":0}]}}"
+    } ]
+  } ],
+  "jacksonRoundTrip" : [ {
+    "in" : "{\"n\": 12345678901234567890123, \"i\": 2147483648, \"z\": -0, \"f\": 1e10, \"g\": 0.0001, \"h\": 1.5, \"e7\": 1e7, \"e7m\": 9999999.0, \"m3\": 0.001, \"m3b\": 0.00099}",
+    "out" : "{\"n\":12345678901234567890123,\"i\":2147483648,\"z\":0,\"f\":1.0E10,\"g\":1.0E-4,\"h\":1.5,\"e7\":1.0E7,\"e7m\":9999999.0,\"m3\":0.001,\"m3b\":9.9E-4}",
+    "valueOf" : {
+      "n" : "12345678901234567890123",
+      "i" : "2147483648",
+      "z" : "0",
+      "f" : "1.0E10",
+      "g" : "1.0E-4",
+      "h" : "1.5",
+      "e7" : "1.0E7",
+      "e7m" : "9999999.0",
+      "m3" : "0.001",
+      "m3b" : "9.9E-4"
+    }
+  }, {
+    "in" : "{\"tiny\": 5e-324, \"huge\": 1.7976931348623157e308, \"nz\": -0.0, \"third\": 0.3333333333333333, \"p\": 100.0, \"q\": 1.0E23, \"r\": 2e-3, \"s\": 123456789012.5}",
+    "out" : "{\"tiny\":4.9E-324,\"huge\":1.7976931348623157E308,\"nz\":-0.0,\"third\":0.3333333333333333,\"p\":100.0,\"q\":1.0E23,\"r\":0.002,\"s\":1.234567890125E11}",
+    "valueOf" : {
+      "tiny" : "4.9E-324",
+      "huge" : "1.7976931348623157E308",
+      "nz" : "-0.0",
+      "third" : "0.3333333333333333",
+      "p" : "100.0",
+      "q" : "1.0E23",
+      "r" : "0.002",
+      "s" : "1.234567890125E11"
+    }
+  }, {
+    "in" : "{\"s\": \"a\\\"b\\\\c\\u0001\\u001f\\b\\f\\n\\r\\t/<>&\\u2028\\u007f é\uD83D\uDE00\\ud83d\\ude00\"}",
+    "out" : "{\"s\":\"a\\\"b\\\\c\\u0001\\u001F\\b\\f\\n\\r\\t/<>&  é\uD83D\uDE00\uD83D\uDE00\"}",
+    "valueOf" : {
+      "s" : "a\"b\\c\u0001\u001F\b\f\n\r\t/<>&  é\uD83D\uDE00\uD83D\uDE00"
+    }
+  }, {
+    "in" : "{\"a\": 1, \"b\": 2, \"a\": {\"x\": [1, 2.50, null, true]}}",
+    "out" : "{\"a\":{\"x\":[1,2.5,null,true]},\"b\":2}",
+    "valueOf" : {
+      "a" : "{x=[1, 2.5, null, true]}",
+      "b" : "2"
+    }
+  }, {
+    "in" : "{\"k\": []}  trailing",
+    "out" : "{\"k\":[]}",
+    "valueOf" : {
+      "k" : "[]"
+    }
+  } ],
+  "sortInput" : [ "b", "a", "B", "Ａ", "ａ", "\uD83D\uDE00", "�", "海报", "电商", "\uD835\uDC9C", "z", "", " ", "中", "ｂ" ],
+  "sortOutput" : [ "", " ", "B", "a", "b", "z", "中", "海报", "电商", "\uD835\uDC9C", "\uD83D\uDE00", "Ａ", "ａ", "ｂ", "�" ]
+}
