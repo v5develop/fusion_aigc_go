@@ -282,10 +282,12 @@ func TestWriteDropsWhenQueueFull(t *testing.T) {
 	db := &fakeDB{gate: make(chan struct{})}
 	w := New(db).WithTimeout(time.Hour)
 	w.queue = make(chan []any, 10)
+	// 批大小固定为 1：worker 取走 1 行就卡在 Exec 上；否则它会边收边攒批，负载高时一次收走远超 1 行，丢弃数不确定
+	w.batchSize = 1
 	for i := 0; i < 100; i++ {
 		w.Write(context.Background(), Event{TaskID: "x", Kind: KindMark, StepPath: "a", Seq: i})
 	}
-	// worker 取走至多 1 批（≤1 行在途被收走）；其余超出队列容量的被丢
+	// worker 取走 1 行后卡在 Exec；队列再容 10 行，其余被丢
 	if w.Dropped() < 80 {
 		t.Fatalf("队列容量 10，应丢掉大部分，dropped=%d", w.Dropped())
 	}

@@ -44,8 +44,8 @@ func TestCopywritingTaskSyncOnMySQL(t *testing.T) {
 		t.Fatal(err)
 	}
 	// 计费请求号与 generate_logic.go 的 billingRequestID 一致：copywriting-<id>
-	if _, err := good.ExecCtx(ctx, "INSERT INTO afv_billing_reservation (biz_type, biz_id, status, price_points, feature_code, reservation_no) "+
-		"VALUES ('LOCALLIFE', ?, 'CONFIRMED', 1, 'locallife_text_gen', 'BR-TEST')", "7_copywriting-"+strconv.FormatInt(id, 10)); err != nil {
+	if _, err := good.ExecCtx(ctx, "INSERT INTO afv_billing_reservation (user_id, biz_type, biz_id, status, price_points, feature_code, reservation_no, idempotency_key) "+
+		"VALUES (7, 'LOCALLIFE', ?, 'CONFIRMED', 1, 'locallife_text_gen', 'BR-TEST', 'BR-TEST')", "7_copywriting-"+strconv.FormatInt(id, 10)); err != nil {
 		t.Fatal(err)
 	}
 
