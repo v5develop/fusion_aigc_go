@@ -143,3 +143,33 @@ func (s *ossStore) Owns(u string) bool {
 	}
 	return strings.HasPrefix(u, c.publicBase()+"/"+s.prefix+"/")
 }
+
+// Delete 用 OSS V1 签名 DELETE 对象。OSS 对不存在的对象也返回 204，所以天然幂等；404 同样当成功。
+func (s *ossStore) Delete(ctx context.Context, key string) error {
+	if err := checkDeleteKey(s.prefix, key); err != nil {
+		return err
+	}
+	c, err := s.config(ctx)
+	if err != nil {
+		return err
+	}
+	date := time.Now().UTC().Format(http.TimeFormat)
+	mac := hmac.New(sha1.New, []byte(c.SecretKey))
+	mac.Write([]byte("DELETE\n\n\n" + date + "\n/" + c.Bucket + "/" + key))
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, "https://"+c.host()+"/"+key, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Date", date)
+	req.Header.Set("Authorization", "OSS "+c.AccessKey+":"+base64.StdEncoding.EncodeToString(mac.Sum(nil)))
+	resp, err := s.hc.Do(req)
+	if err != nil {
+		return fmt.Errorf("storage: 删除失败: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 && resp.StatusCode != http.StatusNotFound {
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return fmt.Errorf("storage: 删除返回 %d: %s", resp.StatusCode, raw)
+	}
+	return nil
+}

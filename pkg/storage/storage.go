@@ -38,6 +38,9 @@ type Store interface {
 	// 执行面跑本地模型（lite）时不下载 URL，要求直接给 OSS key，所以要这一步。
 	// 地址不在本服务用的桶里时返回错误——那种情况得先 Transfer 过来。
 	ObjectKey(ctx context.Context, rawURL string) (string, error)
+	// Delete 删除桶内对象（幂等：对象不存在也返回 nil）。key 必须在本存储的 Prefix 之下，否则拒绝——
+	// 这是存储层的最后一道边界；调用方（如 plaza 孤儿清理）还要自己再限定到具体业务目录。
+	Delete(ctx context.Context, key string) error
 	// Uploader 客户端直传：签发临时凭证、校验传上来的对象。
 	Uploader
 }
@@ -74,4 +77,29 @@ func (s *localStore) Put(_ context.Context, key, _ string, data []byte) (string,
 
 func (s *localStore) Owns(url string) bool {
 	return strings.HasPrefix(url, s.baseURL+"/"+s.prefix+"/")
+}
+
+// checkDeleteKey 删除前的 key 边界：非空、相对路径、无 ..、无查询串、且在 prefix/ 之下。
+func checkDeleteKey(prefix, key string) error {
+	p := strings.Trim(prefix, "/")
+	switch {
+	case key == "" || p == "":
+		return fmt.Errorf("storage: 拒绝删除 判据=key 或 prefix 为空")
+	case strings.HasPrefix(key, "/") || strings.Contains(key, "..") || strings.ContainsAny(key, "?#\\") || strings.Contains(key, "//"):
+		return fmt.Errorf("storage: 拒绝删除 判据=key 不规范 key=%q", key)
+	case !strings.HasPrefix(key, p+"/") || len(key) == len(p)+1:
+		return fmt.Errorf("storage: 拒绝删除 判据=key 不在 %s/ 之下 key=%q", p, key)
+	}
+	return nil
+}
+
+// Delete 删本机文件；文件不存在视为成功。
+func (s *localStore) Delete(_ context.Context, key string) error {
+	if err := checkDeleteKey(s.prefix, key); err != nil {
+		return err
+	}
+	if err := os.Remove(filepath.Join(s.dir, filepath.FromSlash(key))); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
 }
