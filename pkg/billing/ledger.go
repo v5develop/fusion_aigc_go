@@ -144,7 +144,11 @@ func freeze(ctx context.Context, conn sqlx.SqlConn, c Charge, q *Quote, hold tim
 	case isDup(err):
 		// 并发下同一个 bizId 有人先写成功了，读回来原样返回，不重复扣
 		logx.WithContext(ctx).Infof("billing: %s 并发冻结，返回已有的单", bizID)
-		return loadHeldOrAny(ctx, conn, bizID)
+		r, lerr := loadHeldOrAny(ctx, conn, bizID)
+		if r != nil {
+			r.replayed = true
+		}
+		return r, lerr
 	default:
 		return nil, err
 	}
@@ -199,6 +203,7 @@ func freezeTx(ctx context.Context, conn sqlx.SqlConn, c Charge, q *Quote, hold t
 			return err
 		} else if old != nil {
 			out = toReservation(old)
+			out.replayed = true
 			return nil
 		}
 
@@ -213,6 +218,7 @@ func freezeTx(ctx context.Context, conn sqlx.SqlConn, c Charge, q *Quote, hold t
 			return err
 		} else if old != nil {
 			out = toReservation(old)
+			out.replayed = true
 			return nil
 		}
 
@@ -715,12 +721,13 @@ func toReservation(r *reservationRow) *Reservation {
 			Settlement     string `json:"settlement"`
 			Quantity       int    `json:"quantity"`
 			EntryCode      string `json:"entryCode"`
+			ModelGroup     string `json:"modelGroup"`
 			VariantCode    string `json:"variantCode"`
 			CarrierModelID int64  `json:"carrierModelId"`
 		}
 		if err := jsonUnmarshal(r.PriceSnapsht.String, &snap); err == nil {
 			out.Quote = &Quote{Settlement: snap.Settlement, Quantity: snap.Quantity, EntryCode: snap.EntryCode,
-				VariantCode: snap.VariantCode, CarrierModelID: snap.CarrierModelID}
+				ModelGroup: snap.ModelGroup, VariantCode: snap.VariantCode, CarrierModelID: snap.CarrierModelID}
 			out.variantCode, out.carrierModelID = snap.VariantCode, snap.CarrierModelID
 		}
 	}

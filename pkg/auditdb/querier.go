@@ -17,6 +17,24 @@ type Querier interface {
 	// 业务含义：某入口下所有已启用档位的默认模型的网关模型组（去重、排序）。分模型计价的入口按这些组逐个试算。
 	// 读者：pkg/billing.Audit 的 auditGroups。
 	BillingAuditModelGroups(ctx context.Context, entryCode string) ([]sql.NullString, error)
+	// 视频做同款分段预留对账（只读；读者：对账人员 / 值班运营）。
+	// 每段一张预留单，镜像在 afv_replicate_charge；真值在 afv_billing_reservation。
+	// 关联规则与 pkg/billing 的 bizID 一致：biz_type='LOCALLIFE'，biz_id = {user_id}_{request_id}，超过 64 字节折叠成
+	// {user_id}_{SHA-256 十六进制} 截 64 位（与 studio_reconcile.sql 同一写法）。
+	// 镜像状态：0-待预留 1-已预留 2-已扣除 3-已退回 4-不计费 5-预留失败 6-结算待重试。
+	// 预留单状态 CONFIRMED / PARTIALLY_REFUNDED 算已扣除；REFUNDED / EXPIRED / CANCELLED 算已退回。
+	// 业务含义：镜像与预留单真实状态不一致，或该结算的没结算：
+	//   confirmed_but_not_charged   镜像已扣除，预留单不是已扣除（或没有）
+	//   refunded_but_charged        镜像已退回，预留单却已扣除（多扣）
+	//   refunded_but_held           镜像已退回，预留单仍冻结（漏退）
+	//   settle_failed               镜像结算待重试（扣除 / 退回调用失败，引擎对账会重做；长时间不消失要人工核）
+	//   held_on_final_job           任务已终态（成功 / 失败 / 取消 / 部分成功）而预留单仍冻结，超过 older_than（漏结算）
+	// 读者：对账人员每天跑；有结果就要人工核。
+	ReplicateChargeBillingMismatch(ctx context.Context, arg ReplicateChargeBillingMismatchParams) ([]ReplicateChargeBillingMismatchRow, error)
+	// 业务含义：每个 job 每段的出片尝试：自动重试（#r1）次数、用户重做（#u<n>）次数、最终状态；
+	// 用于审计自动重试成本（平台承担）与重做是否被滥用。只看 created_after 之后建的 job。
+	// 读者：运营 / 财务。
+	ReplicateSegmentRetryAudit(ctx context.Context, arg ReplicateSegmentRetryAuditParams) ([]ReplicateSegmentRetryAuditRow, error)
 	// 业务含义：一个批次内每个任务的成本、状态和对应预留单（状态 / 点数）；预留单按 pkg/billing 的 biz_id 规则关联，没有预留单时为空。
 	// 读者：客服 / 运营查单批次为何成本异常、对账定位到具体任务。
 	StudioBatchCost(ctx context.Context, batchID int64) ([]StudioBatchCostRow, error)

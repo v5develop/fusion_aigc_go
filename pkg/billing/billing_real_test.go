@@ -215,6 +215,11 @@ func TestRealFreezeConfirm(t *testing.T) {
 		t.Fatalf("重复冻结: %v", err)
 	}
 	want(t, "幂等返回同一单", int64(btoi(r2.No == r.No)), 1)
+	want(t, "新冻结不是命中旧单", int64(btoi(r.Replayed())), 0)
+	want(t, "幂等命中旧单要标出来", int64(btoi(r2.Replayed())), 1)
+	if r2.Quote == nil || r2.Quote.EntryCode != testEntryAll {
+		t.Fatalf("命中旧单应带回价格快照的入口: %+v", r2.Quote)
+	}
 	b, f = acct(t, conn)
 	want(t, "重复冻结后余额不变", b, 850)
 	want(t, "重复冻结后冻结额不变", f, 150)

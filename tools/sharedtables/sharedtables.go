@@ -6,6 +6,7 @@
 //	afv_creation_task / afv_creation_task_text / afv_exec_submission   只有 pkg/taskcenter 可写
 //	afv_asset / afv_asset_item                     只有 pkg/asset 可写
 //	afv_task_event                                 只有 pkg/taskevent 可写
+//	afv_notification                               只有 pkg/notify 可写（Java 站内通知中心，Go 写定向通知）
 //
 // 检测手段（静态，只看非 _test.go 源码）：
 //  1. SQL 字符串：把整条字符串拼接（含 const）还原后，匹配 INSERT INTO / REPLACE INTO / UPDATE / DELETE FROM 受保护表；
@@ -44,6 +45,7 @@ var Rules = []Rule{
 	{regexp.MustCompile(`^afv_exec_submission$`), "pkg/taskcenter"},
 	{regexp.MustCompile(`^afv_asset(_item)?$`), "pkg/asset"},
 	{regexp.MustCompile(`^afv_task_event$`), "pkg/taskevent"},
+	{regexp.MustCompile(`^afv_notification$`), "pkg/notify"}, // Java 站内通知中心（V1.0.99）：Go 只经 pkg/notify 写定向通知
 }
 
 func ruleOf(table string) (Rule, bool) {

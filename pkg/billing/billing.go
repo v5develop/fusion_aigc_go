@@ -141,6 +141,20 @@ type Reservation struct {
 	// 载体（档位默认模型）与档位码：结算时据此判断是否按实际用量结算（见 actual_cost.go）
 	carrierModelID int64
 	variantCode    string
+	// replayed 冻结按幂等键命中了库里已有的单（不是这一次新写的）。见 Replayed。
+	replayed bool
+}
+
+// Replayed 这张单是冻结按幂等键命中的已有单（重放 / 并发先写），而不是本次调用新冻结的。
+//
+// 命中的单原样返回、不论它当初按什么价、什么入口冻结——请求号可能被别的调用方（外部幂等键）先占用，
+// 需要防伪的调用方（如视频做同款）据此再核对价格 / 入口 / 模型组。新冻结的单返回 false；nil 安全。
+func (r *Reservation) Replayed() bool { return r != nil && r.replayed }
+
+// ReplayedReservation 构造一张「冻结命中已有单」的返回值，供调用方的替身（测试 / 本地桩）模拟请求号被先占用的情形；
+// 生产路径不用它。
+func ReplayedReservation(no string, points int64, q *Quote) *Reservation {
+	return &Reservation{No: no, PricePoints: points, Quote: q, replayed: true}
 }
 
 // Service 计费服务。

@@ -65,6 +65,8 @@ type Error struct {
 	Status  int
 	Code    string
 	Message string
+	// Check 服务端的排障判据（如 video.cut_out_of_range、request.segment_range），业务侧据此给用户可读文案；旧版服务端没有时为空。
+	Check string
 }
 
 func (e *Error) Error() string {
@@ -366,12 +368,22 @@ func errorFrom(status int, body []byte) error {
 	var e struct {
 		Code    string `json:"code"`
 		Message string `json:"message"`
+		Check   string `json:"check"`
+		// 服务端实际的错误体是 {"error": {code, class, retryable, check, message}}
+		Error *struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+			Check   string `json:"check"`
+		} `json:"error"`
 	}
 	_ = json.Unmarshal(body, &e)
+	if e.Error != nil {
+		e.Code, e.Message, e.Check = e.Error.Code, e.Error.Message, e.Error.Check
+	}
 	if e.Message == "" {
 		e.Message = fmt.Sprintf("媒体服务返回 %d", status)
 	}
-	return &Error{Status: status, Code: e.Code, Message: e.Message}
+	return &Error{Status: status, Code: e.Code, Message: e.Message, Check: e.Check}
 }
 
 // newNamingClient 创建注册中心客户端。

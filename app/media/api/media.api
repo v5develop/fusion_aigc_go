@@ -52,8 +52,8 @@ type (
 	}
 	// MediaResult 写操作统一结果。
 	MediaResult {
-		Object  ObjectRef `json:"object"`
-		Url     URLRef    `json:"url"`
+		Object ObjectRef `json:"object"`
+		Url    URLRef    `json:"url"`
 		// Parents 复制产物的源 rid（仅 resources/copy 返回）；其它写操作不返回该字段。
 		Parents []string `json:"parents,optional"`
 	}
@@ -291,6 +291,104 @@ type (
 		Rid      string `json:"rid"`
 		Restored bool   `json:"restored"`
 	}
+	// ---- 视频做同款：区间切段 / 多段拼接（含占位）/ 文字叠加。全部只接受 rid；限制 80 秒、6 段、16 个文字槽位 ----
+	CutRange {
+		Start float64 `json:"start"`
+		End   float64 `json:"end"`
+	}
+	VideoCutReq {
+		IdempotencyKey string     `header:"Idempotency-Key"`
+		Source         Source     `json:"source"`
+		Segments       []CutRange `json:"segments"`
+		Purpose        string     `json:"purpose,options=user_input|intermediate|asset_library|third_party"`
+	}
+	CutSegment {
+		Object ObjectRef `json:"object"`
+		Url    URLRef    `json:"url"`
+		Start  float64   `json:"start"`
+		End    float64   `json:"end"`
+	}
+	VideoCutResp {
+		Segments []CutSegment `json:"segments"`
+	}
+	Placeholder {
+		Duration   float64 `json:"duration"`
+		Text       string  `json:"text,optional"`
+		FontRid    string  `json:"font_rid,optional"`
+		Size       int     `json:"size,optional"`
+		Color      string  `json:"color,optional"`
+		Background string  `json:"background,optional"`
+	}
+	ConcatItem {
+		Source      *Source      `json:"source,optional"`
+		Placeholder *Placeholder `json:"placeholder,optional"`
+	}
+	VideoConcatReq {
+		IdempotencyKey string       `header:"Idempotency-Key"`
+		Items          []ConcatItem `json:"items"`
+		Width          int          `json:"width,optional"`
+		Height         int          `json:"height,optional"`
+		Fps            int          `json:"fps,optional"`
+		SampleRate     int          `json:"sample_rate,optional"`
+		Audio          string       `json:"audio,optional,options=keep|drop"`
+		Purpose        string       `json:"purpose,options=user_input|intermediate|asset_library|third_party"`
+	}
+	ConcatTimelineEntry {
+		Index    int     `json:"index"`
+		Kind     string  `json:"kind,options=source|placeholder"`
+		Start    float64 `json:"start"`
+		Duration float64 `json:"duration"`
+	}
+	VideoConcatResp {
+		Object   ObjectRef             `json:"object"`
+		Url      URLRef                `json:"url"`
+		Timeline []ConcatTimelineEntry `json:"timeline"`
+	}
+	TextBox {
+		X float64 `json:"x"`
+		Y float64 `json:"y"`
+		W float64 `json:"w"`
+		H float64 `json:"h"`
+	}
+	TextStroke {
+		Color string  `json:"color,optional"`
+		Width float64 `json:"width"`
+	}
+	TextShadow {
+		Color string `json:"color,optional"`
+		Dx    int    `json:"dx,optional"`
+		Dy    int    `json:"dy,optional"`
+	}
+	// TextSlot 文字槽位（视频与图片同一份规格）：自动折行、按框缩放、超长以「…」省略，不溢出框。
+	// box 为相对画面的 0~1；size 为最大字号（像素），0 = 按框高自适应；颜色 #RGB/#RRGGBB/#RRGGBBAA；start/end 仅视频，必须成对。
+	TextSlot {
+		Text       string      `json:"text"`
+		Box        TextBox     `json:"box"`
+		FontRid    string      `json:"font_rid,optional"`
+		Size       int         `json:"size,optional"`
+		MinSize    int         `json:"min_size,optional"`
+		Color      string      `json:"color,optional"`
+		Align      string      `json:"align,optional,options=left|center|right"`
+		Valign     string      `json:"valign,optional,options=top|middle|bottom"`
+		Stroke     *TextStroke `json:"stroke,optional"`
+		Shadow     *TextShadow `json:"shadow,optional"`
+		MaxLines   int         `json:"max_lines,optional"`
+		LineHeight float64     `json:"line_height,optional"`
+		Start      *float64    `json:"start,optional"`
+		End        *float64    `json:"end,optional"`
+	}
+	VideoOverlayTextReq {
+		IdempotencyKey string     `header:"Idempotency-Key"`
+		Source         Source     `json:"source"`
+		Slots          []TextSlot `json:"slots"`
+		Purpose        string     `json:"purpose,options=user_input|intermediate|asset_library|third_party"`
+	}
+	ImageTextReq {
+		IdempotencyKey string     `header:"Idempotency-Key"`
+		Source         Source     `json:"source"`
+		Slots          []TextSlot `json:"slots"`
+		Purpose        string     `json:"purpose,options=user_input|intermediate|asset_library|third_party"`
+	}
 )
 
 @server (
@@ -357,6 +455,22 @@ service media {
 	@doc "图片打标：像素坐标画圆环 / 实心点 / 矩形 / 折线，默认红色，JPEG 95（可选 PNG）"
 	@handler ImageMark
 	post /image/mark (ImageMarkReq) returns (MediaResult)
+
+	@doc "按区间切段（视频做同款）：只接受 rid；1~6 段，重编码保起点精确（毫秒），区间可重叠；越界 422 source_too_short(video.cut_out_of_range)；源视频 ≤ 80 秒"
+	@handler VideoCut
+	post /video/cut (VideoCutReq) returns (VideoCutResp)
+
+	@doc "多段拼接（视频做同款）：1~6 项有序，rid 或占位画面（纯色底+居中文字，失败段预览用）；规格统一到第一个真实段或参数指定；可去音轨；总时长 ≤ 85 秒；返回成片 rid 与时间轴"
+	@handler VideoConcat
+	post /video/concat (VideoConcatReq) returns (VideoConcatResp)
+
+	@doc "视频文字叠加：槽位（相对框、自动折行/缩放/省略、描边阴影、start/end 分时显示），字体用 font 摄入的 rid；重编码保留音轨"
+	@handler VideoOverlayText
+	post /video/overlay-text (VideoOverlayTextReq) returns (MediaResult)
+
+	@doc "图片文字叠加：与 video/overlay-text 同一份槽位规格；仅 PNG/JPEG，输出格式同输入"
+	@handler ImageText
+	post /image/text (ImageTextReq) returns (MediaResult)
 
 	@doc "配音时间线：按起点拼成整条音轨（m4a）"
 	@handler AudioTimeline

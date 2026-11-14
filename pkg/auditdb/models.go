@@ -378,6 +378,140 @@ type AfvPointsLogLine struct {
 	CreateTime time.Time `json:"create_time"`
 }
 
+// 视频做同款：分段预留单镜像（真值在 afv_billing_reservation）
+type AfvReplicateCharge struct {
+	// 主键ID
+	ID int64 `json:"id"`
+	// afv_replicate_job.id
+	JobID int64 `json:"job_id"`
+	// 所属用户ID（与 request_id 组成预留单 biz_id）
+	UserID int64 `json:"user_id"`
+	// 段号（从 1 起）
+	SegIndex int32 `json:"seg_index"`
+	// first / all / rest / redo
+	Stage string `json:"stage"`
+	// 预留单请求号 billing.Charge.RequestID：replicate-<job>-<kk>、-c<n>（继续）、-u<n>（重做）；从不复用
+	RequestID string `json:"request_id"`
+	// 用户重做的 Idempotency-Key（重复点击返回同一笔）
+	ClientKey sql.NullString `json:"client_key"`
+	// 计费秒数（生成时长）
+	Seconds int32 `json:"seconds"`
+	// 预留时的报价点数
+	Points int64 `json:"points"`
+	// 0-待预留 1-已预留 2-已扣除 3-已退回 4-不计费（off/shadow/0 点） 5-预留失败 6-结算待重试（退回/扣除失败，对账重做）
+	Status int8 `json:"status"`
+	// 最近一次结算/失败原因（内部）
+	Reason sql.NullString `json:"reason"`
+	// 创建时间
+	CreatedAt time.Time `json:"created_at"`
+	// 更新时间
+	UpdatedAt time.Time `json:"updated_at"`
+	// 扣除 / 退回时间
+	SettledAt sql.NullTime `json:"settled_at"`
+}
+
+// 视频做同款：出片任务（确认后）
+type AfvReplicateJob struct {
+	// 主键ID
+	ID int64 `json:"id"`
+	// 所属用户ID
+	UserID int64 `json:"user_id"`
+	// 工作空间ID；0=个人空间
+	WorkspaceID int64 `json:"workspace_id"`
+	// 确认接口的 Idempotency-Key（同用户唯一）
+	RequestID string `json:"request_id"`
+	// afv_replicate_plan.id
+	PlanID int64 `json:"plan_id"`
+	// 方案号（冗余，诊断用）
+	PlanNo string `json:"plan_no"`
+	// 确认时的方案指纹；继续其余段必须一致
+	PlanHash string `json:"plan_hash"`
+	// 对外任务号 taskcenter.Ref(rpl,id)；网关幂等键前缀与 X-Trace-Id
+	TaskID sql.NullString `json:"task_id"`
+	// 0-排队 1-执行中 2-成功 3-失败 4-已取消 5-部分成功 6-提交中（逐段预留） 7-待继续（第 1 段已好） 8-继续中（逐段预留其余段）
+	Status int8 `json:"status"`
+	// 1=先做第 1 段（有 gate/continue 步骤）
+	Staged int8 `json:"staged"`
+	// 冻结输入（模型/分辨率/段/提示词/参考），之后不再读方案表
+	Input json.RawMessage `json:"input"`
+	// 段数
+	SegTotal int32 `json:"seg_total"`
+	// 已成功段数（终态时汇总）
+	SegDone int32 `json:"seg_done"`
+	// 最终失败段数（终态时汇总）
+	SegFailed int32 `json:"seg_failed"`
+	// 用户单段重做次数（全 job）
+	RedoCount int32 `json:"redo_count"`
+	// 第几次「继续」（参与其余段预留请求号，避免复用已退回的预留单）
+	ContinueAttempt int32 `json:"continue_attempt"`
+	// 成功的「继续」所用 Idempotency-Key（重复点击返回同一结果）
+	ContinueRequestID sql.NullString `json:"continue_request_id"`
+	// 待继续的截止时间（默认第 1 段完成后 24 小时）；到期以仅第 1 段收尾
+	ContinueDeadline sql.NullTime `json:"continue_deadline"`
+	// 只交付第 1 段的原因：user_stop / continue_expired
+	StopReason sql.NullString `json:"stop_reason"`
+	// 结果文档（各段状态与产物、失败与退点）
+	ResultDocument json.RawMessage `json:"result_document"`
+	// job 级失败原因（用户口径）
+	ErrorReason sql.NullString `json:"error_reason"`
+	// 租约持有者（pkg/lease）
+	LeaseOwner sql.NullString `json:"lease_owner"`
+	// 租约到期（库时钟）
+	LeaseUntil sql.NullTime `json:"lease_until"`
+	// 创建时间
+	CreatedAt time.Time `json:"created_at"`
+	// 更新时间
+	UpdatedAt time.Time `json:"updated_at"`
+	// 终态时间
+	FinishedAt sql.NullTime `json:"finished_at"`
+}
+
+// 视频做同款：出片步骤（静态 DAG + 重试/重做行）
+type AfvReplicateStep struct {
+	// 主键ID
+	ID int64 `json:"id"`
+	// afv_replicate_job.id
+	JobID int64 `json:"job_id"`
+	// 步骤键：seg/01/generate、seg/01/generate#r1（自动重试）、seg/01/generate#u1（用户重做）、gate/continue
+	StepKey string `json:"step_key"`
+	// gateway / gate
+	Kind string `json:"kind"`
+	// 段号（从 1 起）；gate 为 0
+	SegIndex int32 `json:"seg_index"`
+	// HOLDING 等预留 / PENDING / RUNNING / DELIVERING 已出片待确认扣费 / SUCCEEDED / FAILED / CANCELLED / WAITING（gate）
+	Status string `json:"status"`
+	// {task_id}:{step_key}：网关 Idempotency-Key
+	IdemKey string `json:"idem_key"`
+	// 本步骤用的预留单请求号（自动重试与原步骤共用一张）
+	BillingRequestID sql.NullString `json:"billing_request_id"`
+	// 抢占次数（CAS PENDING→RUNNING 时 +1）
+	Attempt int32 `json:"attempt"`
+	// 网关调用号（提交后立即落库，恢复时先按它查）
+	GatewayCallID sql.NullString `json:"gateway_call_id"`
+	// 网关调用状态原文
+	GatewayStatus sql.NullString `json:"gateway_status"`
+	// 产物 {videoRid,coverRid,lastFrameRid,durationMs,costCny,cutRid}
+	Output json.RawMessage `json:"output"`
+	// 失败分类（内部）
+	ErrorClass sql.NullString `json:"error_class"`
+	// 失败判据码（内部）
+	ErrorCode sql.NullString `json:"error_code"`
+	// 失败文案（用户口径，单一失败表）
+	ErrorMsg sql.NullString `json:"error_msg"`
+	// 自动重试步骤指向原步骤键
+	RetryOf sql.NullString `json:"retry_of"`
+	// 开始时间
+	StartedAt sql.NullTime `json:"started_at"`
+	// 终态时间
+	FinishedAt sql.NullTime `json:"finished_at"`
+	// 执行实例（终态 CAS 带 owner）
+	LeaseOwner sql.NullString `json:"lease_owner"`
+	// 创建时间
+	CreatedAt time.Time `json:"created_at"`
+	// 更新时间
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 // studio 批次（一次提交）
 type AfvStudioBatch struct {
 	// 主键ID（批次号）
