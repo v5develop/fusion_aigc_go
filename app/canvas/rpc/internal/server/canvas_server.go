@@ -193,3 +193,35 @@ func (s *CanvasServer) AdminCostSummary(ctx context.Context, in *canvas.AdminCos
 	l := logic.NewAdminCostSummaryLogic(ctx, s.svcCtx)
 	return l.AdminCostSummary(in)
 }
+
+// 智能体工具（只增，2026-11-13）
+func (s *CanvasServer) AgentCall(ctx context.Context, in *canvas.AgentCallReq) (*canvas.AgentCallResp, error) {
+	l := logic.NewAgentCallLogic(ctx, s.svcCtx)
+	return l.AgentCall(in)
+}
+
+// 画布当前 revision（只读元数据；网关 SSE / 轮询）
+func (s *CanvasServer) GetCanvasRevision(ctx context.Context, in *canvas.CanvasIdReq) (*canvas.CanvasRevisionResp, error) {
+	l := logic.NewGetCanvasRevisionLogic(ctx, s.svcCtx)
+	return l.GetCanvasRevision(in)
+}
+
+// MCP 访问令牌（Go_V1.0.42）：执行在 logic/mcp_token.go
+func (s *CanvasServer) CreateMcpToken(ctx context.Context, in *canvas.CreateMcpTokenReq) (*canvas.CreateMcpTokenResp, error) {
+	return logic.NewMcpTokenLogic(ctx, s.svcCtx).CreateMcpToken(in)
+}
+
+// MCP 访问令牌（Go_V1.0.42）：执行在 logic/mcp_token.go
+func (s *CanvasServer) ListMcpTokens(ctx context.Context, in *canvas.ListMcpTokensReq) (*canvas.ListMcpTokensResp, error) {
+	return logic.NewMcpTokenLogic(ctx, s.svcCtx).ListMcpTokens(in)
+}
+
+// MCP 访问令牌（Go_V1.0.42）：执行在 logic/mcp_token.go
+func (s *CanvasServer) RevokeMcpToken(ctx context.Context, in *canvas.RevokeMcpTokenReq) (*canvas.RevokeMcpTokenResp, error) {
+	return logic.NewMcpTokenLogic(ctx, s.svcCtx).RevokeMcpToken(in)
+}
+
+// MCP 访问令牌（Go_V1.0.42）：执行在 logic/mcp_token.go
+func (s *CanvasServer) VerifyMcpToken(ctx context.Context, in *canvas.VerifyMcpTokenReq) (*canvas.VerifyMcpTokenResp, error) {
+	return logic.NewMcpTokenLogic(ctx, s.svcCtx).VerifyMcpToken(in)
+}

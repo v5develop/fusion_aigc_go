@@ -365,3 +365,59 @@ func JavaTaskIDOf(runTaskID string) string {
 	}
 	return m[1]
 }
+
+// QuoteSuffix 报价接口 = 对应提交路径 + "/quote"（Java 只读报价，请求体与提交完全相同，不受理、不预扣）。
+const QuoteSuffix = "/quote"
+
+// ErrQuoteUnsupported Java 没有这个报价接口（旧版本，404 / 405）：调用方回落「价格未知」，不要求与 Java 同批上线。
+var ErrQuoteUnsupported = errors.New("javatool: Java 未提供该工具的报价接口")
+
+// QuoteResult Java 报价（提交时会冻结的点数）。
+type QuoteResult struct {
+	Points           int64
+	PriceUnit        string
+	Quantity         int
+	FreeQuotaApplied bool
+}
+
+// Quote POST {path}/quote：body 与提交同一份。返回 Java 按其价目算出的点数。
+// 老版本 Java 没有该接口（404 / 405）→ ErrQuoteUnsupported。
+func (c *Client) Quote(ctx context.Context, bearer, path string, body any) (*QuoteResult, error) {
+	if !c.Enabled() {
+		return nil, ErrNotConfigured
+	}
+	if strings.TrimSpace(bearer) == "" {
+		return nil, ErrNoBearer
+	}
+	b, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	h := http.Header{}
+	h.Set("Content-Type", "application/json")
+	data, err := c.do(ctx, http.MethodPost, path+QuoteSuffix, nil, bearer, h, b)
+	if err != nil {
+		var je *Error
+		if errors.As(err, &je) && (je.HTTPStatus == http.StatusNotFound || je.HTTPStatus == http.StatusMethodNotAllowed) {
+			return nil, ErrQuoteUnsupported
+		}
+		return nil, err
+	}
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil {
+		return nil, fmt.Errorf("javatool: 报价回执无法解析: %w", err)
+	}
+	pts, ok := m["points"].(float64)
+	if !ok || pts < 0 {
+		return nil, errors.New("javatool: 报价回执缺少 points")
+	}
+	q := &QuoteResult{Points: int64(pts)}
+	q.FreeQuotaApplied, _ = m["freeQuotaApplied"].(bool)
+	if pb, ok := m["priceBasis"].(map[string]any); ok {
+		q.PriceUnit = str(pb, "priceUnit")
+		if n, ok := pb["quantity"].(float64); ok {
+			q.Quantity = int(n)
+		}
+	}
+	return q, nil
+}

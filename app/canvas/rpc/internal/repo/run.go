@@ -148,6 +148,44 @@ func (r *RunRepo) NodesWithRuns(ctx context.Context, canvasID string) (map[strin
 	return out, err
 }
 
+// DedupeCandidatesOnNode 智能体短窗口去重的候选：用户某画布某节点上仍在途（提交中 / 排队 / 运行中，不限时间）
+// 或 created_at 在 succeededSince 之后已成功的 run，新的在前。
+func (r *RunRepo) DedupeCandidatesOnNode(ctx context.Context, userID int64, canvasID, nodeID string, succeededSince time.Time, limit int) ([]*model.NodeRun, error) {
+	var list []*model.NodeRun
+	err := r.db.NewSelect().Model(&list).Where("r.user_id = ?", userID).Where("r.canvas_id = ?", canvasID).
+		Where("r.node_id = ?", nodeID).Where("r.deleted = 0").
+		WhereGroup(" AND ", func(q *bun.SelectQuery) *bun.SelectQuery {
+			return q.Where("r.status IN (?)", bun.In(model.RunActive)).
+				WhereOr("r.status = ? AND r.created_at >= FROM_UNIXTIME(? / 1000)", model.RunSucceeded, succeededSince.UnixMilli())
+		}).
+		OrderExpr("r.id DESC").Limit(int64(limit)).Scan(ctx)
+	return list, err
+}
+
+// RecentDurations 近期同类（kind + 模型组）成功 run 的耗时（秒，创建 → 完成），最近的在前，最多 limit 个。
+// 走 idx_status(status, updated_at) 倒序扫，再按 kind / model_group 过滤（报价的预计耗时用，结果在进程内缓存）。
+func (r *RunRepo) RecentDurations(ctx context.Context, kind model.RunKind, modelGroup string, since time.Time, limit int) ([]int, error) {
+	var rows []struct {
+		Sec int `bun:"sec"`
+	}
+	err := r.db.NewSelect().Table(TableRun).
+		ColumnExpr("TIMESTAMPDIFF(SECOND, created_at, finished_at) AS sec").
+		Where("status = ?", model.RunSucceeded).Where("updated_at >= FROM_UNIXTIME(? / 1000)", since.UnixMilli()).
+		Where("kind = ?", string(kind)).Where("model_group = ?", modelGroup).
+		Where("finished_at IS NOT NULL").Where("deleted = 0").
+		OrderExpr("updated_at DESC").Limit(int64(limit)).Scan(ctx, &rows)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]int, 0, len(rows))
+	for _, x := range rows {
+		if x.Sec > 0 {
+			out = append(out, x.Sec)
+		}
+	}
+	return out, nil
+}
+
 // ListByCanvas 用户某画布（可限节点）的 run，新的在前。
 func (r *RunRepo) ListByCanvas(ctx context.Context, userID int64, canvasID, nodeID string, limit int) ([]*model.NodeRun, error) {
 	var list []*model.NodeRun
@@ -384,4 +422,15 @@ func MarshalCandidates(c []model.Candidate) json.RawMessage {
 	}
 	b, _ := json.Marshal(c)
 	return b
+}
+
+// ListSettledFinished 付费产物入库对账（logic/asset_reconcile.go）：成功、已确认扣费（billing_status=settled）、kind ∈ kinds 的 run，
+// 附加键集分页条件 cond（pkg/asset.KeysetCond 生成，列为 r.updated_at / r.id），按 updated_at, id 升序（走 idx_sync_updated_id）。
+// 不看 deleted：用户删除画布 / run 不影响付费产物入素材库（与转存 outbox 同一口径）。
+func (r *RunRepo) ListSettledFinished(ctx context.Context, kinds []model.RunKind, cond string, args []any, limit int) ([]*model.NodeRun, error) {
+	var list []*model.NodeRun
+	err := r.db.NewSelect().Model(&list).Where("r.status = ?", model.RunSucceeded).Where("r.billing_status = ?", model.BillSettled).
+		Where("r.kind IN (?)", bun.In(kinds)).Where(cond, args...).
+		OrderExpr("r.updated_at ASC, r.id ASC").Limit(int64(max(1, limit))).Scan(ctx)
+	return list, err
 }

@@ -91,3 +91,6 @@ Limits:
   MaxPromptLen: 3000
   MaxPromptsPerUser: 500
   MaxTitleLen: 100
+Events:                 # 画布变更事件（Redis pub/sub）；须与网关 Auth.Session 是同一台 Redis（pub/sub 不分 DB），不配则不发、前端只靠心跳对账
+  RedisAddr: ""
+  RedisPass: ""

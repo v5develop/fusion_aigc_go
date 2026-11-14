@@ -34,6 +34,12 @@ type Repo struct {
 	Template *TemplateRepo
 	Prompt   *PromptRepo
 	CopyJob  *CopyJobRepo
+	// AgentCall 智能体工具调用审计 / 幂等（Go_V1.0.38）
+	AgentCall *AgentCallRepo
+	// Revision 画布快照历史（Go_V1.0.40，三方合并 base）
+	Revision *RevisionRepo
+	// McpToken 画布 MCP 访问令牌（Go_V1.0.42）
+	McpToken *McpTokenRepo
 }
 
 // New 根 Repo。
@@ -45,7 +51,8 @@ func New(db *bun.DB) *Repo {
 
 func bind(db bun.IDB) *Repo {
 	return &Repo{Canvas: &CanvasRepo{db: db}, Run: &RunRepo{db: db}, Template: &TemplateRepo{db: db}, Prompt: &PromptRepo{db: db},
-		CopyJob: &CopyJobRepo{db: db}}
+		CopyJob: &CopyJobRepo{db: db}, AgentCall: &AgentCallRepo{db: db}, Revision: &RevisionRepo{db: db},
+		McpToken: &McpTokenRepo{db: db}}
 }
 
 // RunInTx 在事务里执行 fn。

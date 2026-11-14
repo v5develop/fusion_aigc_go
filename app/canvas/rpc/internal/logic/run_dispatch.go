@@ -453,42 +453,13 @@ func (c *core) submitJava(ctx context.Context, run *model.NodeRun, sp *runSpec, 
 		}
 		return sub.TaskID, nil
 	}
-	img := sp.Images[0].URL
 	idem, err := runKey(run)
 	if err != nil {
 		return "", err
 	}
-	var (
-		path string
-		body any
-	)
-	switch run.Kind {
-	case model.KindToolUpscale:
-		res, err := upscaleResolution(sp.Params, sp.Size)
-		if err != nil {
-			return "", err
-		}
-		path, body = javatool.PathUpscale, javatool.UpscaleReq{Title: "画布 · 高清放大", ImageURL: img, Resolution: res}
-	case model.KindToolOutpaint:
-		r := javatool.RatioConvertReq{Title: "画布 · 扩图", ImageURLs: []string{img}}
-		if w, h := toInt(sp.Params["width"]), toInt(sp.Params["height"]); w > 0 && h > 0 {
-			r.Width, r.Height = w, h
-		} else {
-			r.AspectRatio = sp.Ratio
-			r.Resolution = strings.ToLower(firstNonEmpty(paramStr(sp.Params, "resolution"), "2k"))
-		}
-		path, body = javatool.PathOutpaint, r
-	case model.KindToolInpaint:
-		box, err := c.maskBox(ctx, run, sp)
-		if err != nil {
-			return "", err
-		}
-		path, body = javatool.PathInpaint, javatool.InpaintReq{
-			Title: "画布 · 局部重绘", Content: sp.Prompt, Num: 1,
-			Images: []javatool.InpaintImage{{URL: img, BBox: BoxPoints(box)}},
-		}
-	default:
-		return "", fmt.Errorf("canvas: %s 不走 Java", run.Kind)
+	path, body, err := c.javaToolBody(ctx, run, sp, false)
+	if err != nil {
+		return "", err
 	}
 	raw, err := json.Marshal(body)
 	if err != nil {
@@ -503,6 +474,51 @@ func (c *core) submitJava(ctx context.Context, run *model.NodeRun, sp *runSpec, 
 		return "", javaErr(err)
 	}
 	return sub.TaskID, nil
+}
+
+// javaToolBody Java 兼容工具的请求路径与请求体（提交与报价同一份组装）。
+// forQuote=true（canvas_quote_node 报价）时不碰媒体服务：蒙版只认 bbox / mask_strokes / mask_data_url（内存解码），
+// 其余（mask_rid / mask_url）按整图框报价——重绘区域不影响价格，提交时照常按蒙版算框。
+func (c *core) javaToolBody(ctx context.Context, run *model.NodeRun, sp *runSpec, forQuote bool) (string, any, error) {
+	if len(sp.Images) == 0 {
+		return "", nil, xerr.Param("工具需要连接一张图片")
+	}
+	img := sp.Images[0].URL
+	switch run.Kind {
+	case model.KindToolUpscale:
+		res, err := upscaleResolution(sp.Params, sp.Size)
+		if err != nil {
+			return "", nil, err
+		}
+		return javatool.PathUpscale, javatool.UpscaleReq{Title: "画布 · 高清放大", ImageURL: img, Resolution: res}, nil
+	case model.KindToolOutpaint:
+		r := javatool.RatioConvertReq{Title: "画布 · 扩图", ImageURLs: []string{img}}
+		if w, h := toInt(sp.Params["width"]), toInt(sp.Params["height"]); w > 0 && h > 0 {
+			r.Width, r.Height = w, h
+		} else {
+			r.AspectRatio = sp.Ratio
+			r.Resolution = strings.ToLower(firstNonEmpty(paramStr(sp.Params, "resolution"), "2k"))
+		}
+		return javatool.PathOutpaint, r, nil
+	case model.KindToolInpaint:
+		var box NormBox
+		_, hasBox := sp.Params["bbox"]
+		_, hasStrokes := sp.Params["mask_strokes"]
+		if forQuote && !hasBox && !hasStrokes && paramStr(sp.Params, "mask_data_url") == "" {
+			box = NormBox{0, 0, 1, 1}
+		} else {
+			b, err := c.maskBox(ctx, run, sp)
+			if err != nil {
+				return "", nil, err
+			}
+			box = b
+		}
+		return javatool.PathInpaint, javatool.InpaintReq{
+			Title: "画布 · 局部重绘", Content: sp.Prompt, Num: 1,
+			Images: []javatool.InpaintImage{{URL: img, BBox: BoxPoints(box)}},
+		}, nil
+	}
+	return "", nil, fmt.Errorf("canvas: %s 不走 Java", run.Kind)
 }
 
 // BoxPoints 归一化框 → Java bbox 四点（左上、右上、右下、左下）。

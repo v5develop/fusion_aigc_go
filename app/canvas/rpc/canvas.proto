@@ -61,6 +61,23 @@ service Canvas {
   rpc AdminUpsertOfficialPrompt(AdminUpsertPromptReq) returns (PromptItem);
   rpc AdminTogglePrompt(AdminToggleReq) returns (Empty);
   rpc AdminCostSummary(AdminCostSummaryReq) returns (AdminCostSummaryResp);
+
+  // ---- 智能体工具（只增，2026-11-13）----
+  // 执行一个画布智能体工具（清单见 app/canvas/agenttool；Function Call 与 MCP 两种形式都走这里）。
+  // user_id 只来自网关鉴权；工具业务错误放在 is_error + result（{error_code,message,retryable}），不作 gRPC 错误返回。
+  // 设计见 docs/design/canvas-agent-tools.md
+  rpc AgentCall(AgentCallReq) returns (AgentCallResp);
+  // 画布当前 revision（只读元数据，不读快照）：网关 SSE 归属校验 / 心跳对账 / 降级轮询
+  rpc GetCanvasRevision(CanvasIdReq) returns (CanvasRevisionResp);
+
+  // ---- MCP 访问令牌（只增，2026-11-14；Go_V1.0.42）----
+  // 外部 MCP 客户端专用令牌：明文只在创建时返回一次，库里只存 sha256 + 前缀；每人最多 10 个生效中的令牌。
+  // 管理（建 / 列 / 吊销）只接受登录令牌（网关校验）；校验由网关 Auth 前置调用（网关侧 Redis 缓存，吊销时网关删缓存）。
+  rpc CreateMcpToken(CreateMcpTokenReq) returns (CreateMcpTokenResp);
+  rpc ListMcpTokens(ListMcpTokensReq) returns (ListMcpTokensResp);
+  rpc RevokeMcpToken(RevokeMcpTokenReq) returns (RevokeMcpTokenResp);
+  // 按令牌哈希校验：不存在 / 已吊销 / 已过期 → Unauthorized（reason 区分）；成功时记最后使用时间与 IP
+  rpc VerifyMcpToken(VerifyMcpTokenReq) returns (VerifyMcpTokenResp);
 }
 
 message Empty {}
@@ -109,6 +126,16 @@ message CanvasDoc {
 message CanvasIdReq {
   int64 user_id = 1;
   string id = 2;
+  // 仅 GetCanvas：取历史某个 revision 的快照（三方合并的 base）。空或等于当前 revision 时取最新；
+  // 超出保留范围（每张画布只留最近 Limits.RevisionKeep 个）返回 4001 + reason CANVAS_REVISION_NOT_RETAINED。
+  string revision = 3;
+}
+
+// 画布当前 revision（SSE 归属校验、心跳对账、无 Redis 时的轮询接口）。不读快照。
+message CanvasRevisionResp {
+  string revision = 1;
+  int64 updated_at = 2;
+  int32 node_count = 3;
 }
 
 message SaveCanvasReq {
@@ -537,4 +564,84 @@ message CostRow {
 
 message AdminCostSummaryResp {
   repeated CostRow rows = 1;
+}
+
+// ---------------- 智能体工具 ----------------
+
+message AgentCallReq {
+  int64 user_id = 1;
+  string tool = 2;               // 工具名（canvas_get / canvas_add_nodes …）
+  string arguments = 3;          // JSON 对象文本（按工具 inputSchema 校验）
+  string call_id = 4;            // 幂等键（可空）：写 / 生成类工具同 key 同参数重放结果
+  string client = 5;             // mcp / function / grpc（审计）
+  string agent = 6;              // 客户端名（审计）
+  string client_ip = 7;          // 调用方 IP（审计）
+  // 只增（2026-11-14）：鉴权来源 user（登录令牌）| mcp_token（MCP 访问令牌）| svc（服务间 HMAC）；空按 user。
+  // mcp_token 时 canvas-rpc 不借用用户 Bearer 缓存（需要 Java 令牌的操作回 MCP_TOKEN_JAVA_TOOL_UNSUPPORTED），并按 token_scope 二次校验生成类工具
+  string auth_source = 8;
+  string token_scope = 9;        // auth_source=mcp_token 时的作用域：canvas_rw | canvas_rw_generate
+}
+
+message AgentCallResp {
+  string result = 1;             // JSON 对象文本：成功为工具出参；失败为 {error_code,message,retryable,...}
+  bool is_error = 2;
+  bool replayed = 3;             // 按 call_id 幂等重放
+}
+
+// ---------------- MCP 访问令牌 ----------------
+
+message McpTokenInfo {
+  int64 id = 1;
+  string name = 2;
+  string token_prefix = 3;       // 明文前若干位（mcp_xxxxxxxx），便于识别
+  string scope = 4;              // canvas_rw | canvas_rw_generate
+  int64 expires_at = 5;
+  int64 last_used_at = 6;        // 0 = 从未使用
+  string last_used_ip = 7;
+  int64 created_at = 8;
+  bool expired = 9;
+}
+
+message CreateMcpTokenReq {
+  int64 user_id = 1;
+  string name = 2;
+  int32 expires_in_days = 3;     // 7 / 30 / 90
+  string scope = 4;
+  string client_ip = 5;
+}
+
+message CreateMcpTokenResp {
+  McpTokenInfo token = 1;
+  string plain_token = 2;        // 明文，只此一次
+}
+
+message ListMcpTokensReq {
+  int64 user_id = 1;
+}
+
+message ListMcpTokensResp {
+  repeated McpTokenInfo tokens = 1;  // 未吊销的（含已过期），新的在前
+  int32 active_count = 2;            // 生效中（未过期）个数
+  int32 max_active = 3;
+}
+
+message RevokeMcpTokenReq {
+  int64 user_id = 1;
+  int64 id = 2;
+}
+
+message RevokeMcpTokenResp {
+  string token_hash = 1;         // 网关据此删校验缓存
+}
+
+message VerifyMcpTokenReq {
+  string token_hash = 1;         // sha256(明文) 小写 hex；明文不出网关
+  string client_ip = 2;
+}
+
+message VerifyMcpTokenResp {
+  int64 token_id = 1;
+  int64 user_id = 2;
+  string scope = 3;
+  int64 expires_at = 4;
 }

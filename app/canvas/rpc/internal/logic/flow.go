@@ -262,6 +262,7 @@ func (c *core) endRun(ctx context.Context, run *model.NodeRun, from, to int8, co
 		cancel()
 	}
 	run.Status, run.BillingStatus = to, bill
+	c.publishRun(ctx, run)
 	return true
 }
 
@@ -333,6 +334,7 @@ func (c *core) succeed(ctx context.Context, run *model.NodeRun, o outcome, ready
 		}
 	}
 	run.Status = model.RunSucceeded
+	c.publishRun(ctx, run)
 	timeoutReasons.forget(run.ID)
 	c.evEnd(ctx, run, stWait, 0, taskevent.StatusOK, taskevent.Fail{}, runAttrs(run, taskevent.Attrs{
 		"elapsed_ms": c.now().Sub(run.CreatedAt).Milliseconds(), "outputs": len(cands), "actual": actual}))
@@ -382,31 +384,49 @@ func settleQuantity(kind model.RunKind, actual int) int {
 	return 0
 }
 
-// insertAssets 成品入素材库（同步转存路径；只有 Go 生成的：gateway 图 / 视频、裁剪；Java 与 studio 的成品由对方入库）。
+// assetRetryDelay 同步路径入素材库失败后登记的 outbox 行多久后对扫描可见（秒）。
+const assetRetryDelay = 30
+
+// insertAssets 成品入素材库（同步转存路径：Library.AsyncCopy=false / 未配媒体服务 / 落 outbox 失败退回同步；只有 Go 生成的：
+// gateway 图 / 视频、裁剪；Java 与 studio 的成品由对方入库）。走 insertAssetsOnce（同 task_id 只写一组，锁定读查重）；
+// 失败不只打日志：登记一行转存 outbox（产物已是素材库地址，后台执行时跳过复制、只做入库，按 Library.BackoffSeconds 退避重试，
+// 超过上限进永久失败 → 定时重投 / 用户一键重试）；连 outbox 也落不下（如 Go_V1.0.29 未执行）时打 ERROR check=ASSET_RECONCILE_PENDING，
+// 由对账扫描（asset_reconcile.go）补入。入库失败不影响 run 的成功与结算。
 func (c *core) insertAssets(ctx context.Context, run *model.NodeRun, cands []model.Candidate, videoURL string) {
-	list := c.assetList(run, cands, videoURL)
-	if len(list) == 0 {
+	_, err := c.insertAssetsOnce(ctx, run, cands, videoURL)
+	if err == nil {
 		return
 	}
-	if err := c.s.Asset.InsertSet(ctx, list); err != nil {
-		logx.WithContext(ctx).Errorf("canvas: run %d 入素材库失败（成品已在画布）: %v", run.ID, err)
+	bctx, cancel := detached(ctx)
+	defer cancel()
+	snap := copySnapshotOf(run, repo.MarshalCandidates(cands), videoURL)
+	if eerr := c.s.Repo.CopyJob.Enqueue(bctx, run.ID, run.TaskID.String, run.UserID, assetRetryDelay, snap); eerr != nil {
+		asset.LogPending(ctx, "canvas", run.ID, run.TaskID.String, run.UserID, fmt.Errorf("入库失败: %w；登记 outbox 也失败: %v", err, eerr))
+		return
 	}
+	copyJobs.Inc("asset_retry")
+	logx.WithContext(ctx).Errorw(fmt.Sprintf("canvas: run %d 入素材库失败（成品已在画布），已登记 outbox 重试 (check=%s)", run.ID, copyAssetRetryCheck),
+		logx.Field("task_id", run.TaskID.String), logx.Field("user_id", run.UserID), logx.Field("err", err.Error()))
 }
 
 // insertAssetsOnce 异步转存完成后入素材库：同一 task_id 已有资产行（含用户已删的）就不再写，后台重做不会写出第二组。
 // 返回错误由调用方退避重试。
-func (c *core) insertAssetsOnce(ctx context.Context, run *model.NodeRun, cands []model.Candidate, videoURL string) error {
+// 返回是否写了行（false = 已入过 / 不入库）。
+func (c *core) insertAssetsOnce(ctx context.Context, run *model.NodeRun, cands []model.Candidate, videoURL string) (bool, error) {
 	list := c.assetList(run, cands, videoURL)
 	if len(list) == 0 {
-		return nil
+		return false, nil
 	}
-	_, err := c.s.Asset.InsertSetOnce(ctx, list)
-	return err
+	return c.s.Asset.InsertSetOnce(ctx, list)
 }
 
 // assetList 本 run 要写进素材库的资产行；不入库（开关关 / 工具类 / 没有成品）时为空。
+//
+// 没有 task_id 的 run（C3 核查）：task_id 与插入同一事务回填（repo.InsertRun 是唯一插入口，Go_V1.0.25 建表起就有该列），
+// gateway 后端没有 task_id 也生成不了幂等键 / 计费请求号（errNoTaskID），所以合法产生的付费 run 不会没有 task_id；
+// 万一出现（人工改库）无从幂等入库，打 ERROR check=ASSET_RECONCILE_NO_SOURCE 待人工核对，不拿 run 主键凑 source_task_id。
 func (c *core) assetList(run *model.NodeRun, cands []model.Candidate, videoURL string) []asset.Asset {
-	if !c.s.Config.Asset.Enabled || !run.TaskID.Valid || c.s.Asset == nil {
+	if !c.s.Config.Asset.Enabled || c.s.Asset == nil {
 		return nil
 	}
 	var entry, typ string
@@ -418,6 +438,13 @@ func (c *core) assetList(run *model.NodeRun, cands []model.Candidate, videoURL s
 	case model.KindToolCrop:
 		entry, typ = c.s.Config.EntryCodes.Crop, "image"
 	default:
+		return nil
+	}
+	if !run.TaskID.Valid || run.TaskID.String == "" {
+		if len(cands) > 0 || videoURL != "" {
+			logx.Errorw(fmt.Sprintf("canvas: run %d 有成品却没有 task_id，无从幂等入素材库，需人工核对 (check=%s)", run.ID, asset.CheckReconcileNoSource),
+				logx.Field("user_id", run.UserID), logx.Field("kind", string(run.Kind)), logx.Field("billing_status", run.BillingStatus))
+		}
 		return nil
 	}
 	req := parseStored(run.Request)
@@ -439,6 +466,8 @@ func (c *core) assetList(run *model.NodeRun, cands []model.Candidate, videoURL s
 		},
 		"relatedIds": related,
 	})
+	// 系统标签：来源「画布」+ 用途（图片默认其他、视频成片，见 pkg/asset.EntryUsage）+ 清晰度（size 是 1K/2K/4K 才写）
+	sysTags := asset.SysTags{Feature: "画布", Usage: asset.UsageFor(entry, typ), Resolution: req.Size}.List()
 	var list []asset.Asset
 	if run.Kind == model.KindVideo {
 		if videoURL == "" {
@@ -449,11 +478,13 @@ func (c *core) assetList(run *model.NodeRun, cands []model.Candidate, videoURL s
 			cover = cands[0].URL
 		}
 		list = append(list, asset.Asset{UserID: run.UserID, SourceTaskID: run.TaskID.String, Type: typ, EntryCode: entry, Name: name,
-			CoverURL: cover, ResultURL: videoURL, AspectRatio: req.Ratio, AIPrompt: trunc(req.Prompt, 2000), Properties: string(props)})
+			CoverURL: cover, ResultURL: videoURL, AspectRatio: req.Ratio, AIPrompt: trunc(req.Prompt, 2000), Properties: string(props),
+			SysTags: sysTags})
 	} else {
 		for _, cd := range cands {
 			list = append(list, asset.Asset{UserID: run.UserID, SourceTaskID: run.TaskID.String, Type: typ, EntryCode: entry, Name: name,
-				CoverURL: cd.URL, ResultURL: cd.URL, AspectRatio: req.Ratio, AIPrompt: trunc(req.Prompt, 2000), Properties: string(props)})
+				CoverURL: cd.URL, ResultURL: cd.URL, AspectRatio: req.Ratio, AIPrompt: trunc(req.Prompt, 2000), Properties: string(props),
+				SysTags: sysTags})
 		}
 	}
 	return list
@@ -482,6 +513,18 @@ type Poller struct {
 	started atomic.Bool
 	w       *watcher
 	cp      *copier
+	recon   *asset.Reconciler // 付费产物入库对账
+	requeue atomic.Int64      // 上次重投扫描的 unix 秒
+}
+
+// requeueDue 到了重投扫描间隔（每进程每分钟一次；多实例各扫各的，改行靠 attempt CAS）。
+func (p *Poller) requeueDue() bool {
+	now := p.c.now().Unix()
+	last := p.requeue.Load()
+	if now-last < int64(requeueInterval/time.Second) {
+		return false
+	}
+	return p.requeue.CompareAndSwap(last, now)
 }
 
 // NewPoller 建推进器并把长轮询入口挂到 svc.WatchRun（RunNode 内联提交成功后经它交给长轮询协程）。
@@ -492,6 +535,7 @@ func NewPoller(s *svc.ServiceContext) *Poller {
 	s.WatchRun = func(id int64) { p.w.Watch(id) }
 	p.cp = newCopier(ctx, p.c)
 	s.KickCopy = func(id int64) { p.cp.Kick(id) }
+	p.recon = p.c.newAssetReconciler()
 	return p
 }
 
@@ -539,6 +583,10 @@ func (p *Poller) Tick(ctx context.Context) {
 		c.handOff(run) // 扫描看到仍在跑的 gateway run（重启 / 名额满 / 协程退出后没人管的）：再交给长轮询协程
 	}
 	p.cp.sweep(ctx) // 到点的转存 outbox（即时转存没做成 / 进程崩溃 / 暂时失败退避到点的）交给转存池，不阻塞本轮
+	if p.requeueDue() {
+		c.requeueFailedCopies(ctx) // 永久失败的转存按代退避自动重投（library_requeue.go）
+	}
+	p.recon.Tick(ctx) // 付费产物入库对账（asset_reconcile.go，到间隔才扫）
 	if err := c.s.TaskCenter.Sync(ctx); err != nil {
 		logx.WithContext(ctx).Errorf("canvas: 任务中心同步失败: %v", err)
 	}

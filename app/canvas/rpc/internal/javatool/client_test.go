@@ -74,3 +74,42 @@ func TestSubmitAndTask(t *testing.T) {
 		t.Fatal("未配置")
 	}
 }
+
+func TestQuote(t *testing.T) {
+	var gotPath, gotAuth, gotIdem string
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath, gotAuth, gotIdem = r.URL.Path, r.Header.Get("Authorization"), r.Header.Get("Idempotency-Key")
+		switch r.URL.Path {
+		case PathUpscale + QuoteSuffix:
+			b, _ := io.ReadAll(r.Body)
+			_ = json.Unmarshal(b, &gotBody)
+			_, _ = io.WriteString(w, `{"code":0,"data":{"points":30,"priceBasis":{"priceUnit":"PER_IMAGE","quantity":1},"freeQuotaApplied":true}}`)
+		case PathOutpaint + QuoteSuffix:
+			_, _ = io.WriteString(w, `{"code":3003,"reason":"INSUFFICIENT_POINTS","msg":"点数余额不足"}`)
+		default: // 旧版 Java：没有这条路由
+			w.WriteHeader(404)
+			_, _ = io.WriteString(w, `{"timestamp":"x","status":404,"error":"Not Found"}`)
+		}
+	}))
+	defer srv.Close()
+	c := New(srv.URL, 0)
+
+	q, err := c.Quote(context.Background(), "tok123", PathUpscale, UpscaleReq{ImageURL: "https://a/1.png", Resolution: "2k"})
+	if err != nil || q.Points != 30 || q.PriceUnit != "PER_IMAGE" || q.Quantity != 1 || !q.FreeQuotaApplied {
+		t.Fatalf("quote=%+v err=%v", q, err)
+	}
+	if gotPath != PathUpscale+"/quote" || gotAuth != "Bearer tok123" || gotIdem != "" || gotBody["imageUrl"] != "https://a/1.png" {
+		t.Fatalf("path=%s auth=%s idem=%q body=%v", gotPath, gotAuth, gotIdem, gotBody)
+	}
+	if _, err := c.Quote(context.Background(), "tok123", PathInpaint, InpaintReq{}); !errors.Is(err, ErrQuoteUnsupported) {
+		t.Fatalf("404 应回 ErrQuoteUnsupported: %v", err)
+	}
+	var je *Error
+	if _, err := c.Quote(context.Background(), "tok123", PathOutpaint, RatioConvertReq{}); !errors.As(err, &je) || je.Reason != "INSUFFICIENT_POINTS" {
+		t.Fatalf("业务拒绝应原样返回: %v", err)
+	}
+	if _, err := c.Quote(context.Background(), "", PathUpscale, UpscaleReq{}); !errors.Is(err, ErrNoBearer) {
+		t.Fatalf("没有 Bearer: %v", err)
+	}
+}

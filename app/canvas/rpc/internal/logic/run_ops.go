@@ -74,7 +74,7 @@ func (c *core) RunNode(ctx context.Context, in *canvas.RunNodeReq) (*canvas.RunN
 	if err := c.checkRefs(doc, in, sp); err != nil {
 		return nil, err
 	}
-	if err := c.ready(sp, bearer); err != nil {
+	if err := c.ready(ctx, sp, bearer); err != nil {
 		return nil, err
 	}
 	// 3. 同一节点同一时刻只允许一个 run（这里先查一次给友好提示；并发靠 uk_active_node 唯一键兜住）
@@ -82,6 +82,10 @@ func (c *core) RunNode(ctx context.Context, in *canvas.RunNodeReq) (*canvas.RunN
 		return nil, err
 	} else if act != nil {
 		return nil, errActiveOnNode
+	}
+	// 智能体给了点数上限（max_points）：冻结前按与冻结同源的报价比较，超出不落库、不冻结（agent_budget.go）
+	if err := c.checkBudget(ctx, in.UserId, sp); err != nil {
+		return nil, err
 	}
 	// 4. 准入（gateway 后端由 Go 计费）
 	if sp.Backend == model.BackendGateway {
@@ -232,7 +236,7 @@ func (c *core) checkRefs(doc *Doc, in *canvas.RunNodeReq, sp *runSpec) error {
 }
 
 // ready 后端是否就绪。
-func (c *core) ready(sp *runSpec, bearer string) error {
+func (c *core) ready(ctx context.Context, sp *runSpec, bearer string) error {
 	switch sp.Backend {
 	case model.BackendGateway:
 		if !c.s.Gateway.Enabled() {
@@ -246,10 +250,16 @@ func (c *core) ready(sp *runSpec, bearer string) error {
 			return xerr.New(xerr.NotReady, "裁剪暂未开放，请稍后再试")
 		}
 	case model.BackendJava:
+		if bearer == "" && viaMcpToken(ctx) {
+			return javaToolUnsupported()
+		}
 		if !c.s.Java.Enabled() {
 			return xerr.New(xerr.NotReady, "该工具暂未开放，请稍后再试")
 		}
 		if bearer == "" {
+			if viaSvc(ctx) {
+				return loginRequired()
+			}
 			return xerr.New(xerr.NotReady, "该工具需要登录令牌（Authorization），请重新登录后再试")
 		}
 	case model.BackendStudio:
@@ -296,6 +306,9 @@ func (c *core) CancelRun(ctx context.Context, in *canvas.RunIdReq) (*canvas.RunR
 		return nil, xerr.New(xerr.Conflict, "执行已结束，不能取消")
 	}
 	if javaLive(r) { // 运行中的 Java 任务，或排队中已发过请求、可按幂等键找回的
+		if viaMcpToken(ctx) { // 取消要用用户本人的 Java 登录令牌：MCP 令牌不借用缓存（agent_auth.go）
+			return nil, javaToolUnsupported()
+		}
 		ended, pending := c.stopJava(ctx, r, stopUser, "已取消执行", c.rememberBearer(ctx, in.UserId), 0)
 		if !ended && !pending {
 			return nil, xerr.New(xerr.Conflict, "执行状态已变化，请刷新")
@@ -369,6 +382,7 @@ func (c *core) SelectCandidate(ctx context.Context, in *canvas.SelectCandidateRe
 			return nil, err
 		}
 		r.SelectedIndex = in.Index
+		c.publishRun(ctx, r)
 	}
 	return c.toResult(ctx, r), nil
 }

@@ -31,6 +31,24 @@ func (r *CanvasRepo) GetOwned(ctx context.Context, userID int64, id string) (*mo
 		Where("c.deleted = 0").Limit(1).Scan(ctx))
 }
 
+// GetOwnedMeta 同 GetOwned，但不读快照（SSE 归属校验 / 心跳对账 / 轮询 revision 用，避免每次搬 2MB）。
+func (r *CanvasRepo) GetOwnedMeta(ctx context.Context, userID int64, id string) (*model.Canvas, error) {
+	c := new(model.Canvas)
+	return noRows(c, r.db.NewSelect().Model(c).
+		Column("id", "user_id", "workspace_id", "title", "revision", "node_count", "cover_url", "deleted", "created_at", "updated_at").
+		Where("c.id = ?", id).Where("c.user_id = ?", userID).Where("c.deleted = 0").Limit(1).Scan(ctx))
+}
+
+// RevisionOf 画布当前 revision（不校验归属；run 事件取当前版本用）。不存在返回空串。
+func (r *CanvasRepo) RevisionOf(ctx context.Context, id string) (string, error) {
+	var rev string
+	err := r.db.NewSelect().Table(TableCanvas).Column("revision").Where("id = ?", id).Limit(1).Scan(ctx, &rev)
+	if _, e := noRows(&rev, err); e != nil {
+		return "", e
+	}
+	return rev, nil
+}
+
 // ListByUser 用户的画布（不含快照），按 updated_at 倒序。
 func (r *CanvasRepo) ListByUser(ctx context.Context, userID int64, offset, limit int64) ([]*model.Canvas, int64, error) {
 	var list []*model.Canvas

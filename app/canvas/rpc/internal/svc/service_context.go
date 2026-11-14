@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"aigc-local-life/app/canvas/canvasevent"
 	"aigc-local-life/app/canvas/rpc/internal/config"
 	"aigc-local-life/app/canvas/rpc/internal/javatool"
 	"aigc-local-life/app/canvas/rpc/internal/repo"
@@ -19,6 +20,7 @@ import (
 	"aigc-local-life/pkg/taskcenter"
 	"aigc-local-life/pkg/taskevent"
 
+	"github.com/redis/go-redis/v9"
 	"github.com/uptrace/bun"
 	"github.com/zeromicro/go-zero/core/logx"
 	"github.com/zeromicro/go-zero/core/stores/sqlx"
@@ -53,6 +55,8 @@ type ServiceContext struct {
 	WatchRun func(runID int64)
 	// KickCopy 刚置成功、已落 outbox 的 run 立即在后台转存素材库（Poller 启动时挂上；nil 或名额满时等扫描接手）。
 	KickCopy func(runID int64)
+	// CanvasEvents 画布变更事件发布（Redis pub/sub canvas:{id}:events）；Events.RedisAddr 没配为 nil（不发）
+	CanvasEvents *canvasevent.Publisher
 }
 
 func NewServiceContext(c config.Config) *ServiceContext {
@@ -73,6 +77,8 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		Java:       javatool.New(c.Java.BaseURL, time.Duration(c.Java.Timeout)*time.Second),
 		Studio:     newStudio(c),
 		Bearers:    NewBearerCache(2 * time.Hour),
+
+		CanvasEvents: newCanvasEvents(c),
 	}
 	sc.TaskSync = NewAsyncSync(sc.TaskCenter.Sync)
 	return sc
@@ -287,4 +293,16 @@ func (a *AsyncSync) once() {
 	if err != nil {
 		logx.Errorf("canvas: 任务中心异步同步失败（Poller 下一轮兜底）: %v", err)
 	}
+}
+
+// newCanvasEvents 画布变更事件发布端：Events.RedisAddr 没配返回 nil（只记一条 Info，网关 SSE 靠心跳对账兜底）。
+func newCanvasEvents(c config.Config) *canvasevent.Publisher {
+	if strings.TrimSpace(c.Events.RedisAddr) == "" {
+		logx.Info("canvas: 未配置 Events.RedisAddr，不发画布变更事件（网关 SSE 只能靠 15 秒心跳对账发现变化）")
+		return nil
+	}
+	return canvasevent.NewPublisher(redis.NewClient(&redis.Options{
+		Addr: c.Events.RedisAddr, Password: c.Events.RedisPass, DB: c.Events.RedisDB,
+		DialTimeout: 2 * time.Second, ReadTimeout: time.Second, WriteTimeout: time.Second,
+	}))
 }

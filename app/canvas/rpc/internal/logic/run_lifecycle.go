@@ -113,6 +113,7 @@ func (c *core) holdAndQueue(ctx context.Context, run *model.NodeRun, sp *runSpec
 		return xerr.New(xerr.Conflict, "执行已被取消")
 	}
 	run.Status, run.BillingStatus = model.RunQueued, bill
+	c.publishRun(bctx, run) // 受理：另一个窗口 / 智能体触发的生成，编辑器据此开始轮询该节点
 	return nil
 }
 
@@ -138,6 +139,8 @@ func (c *core) advanceSubmitting(ctx context.Context) {
 			if run.BillingRequestID.Valid {
 				c.refundTrace(bctx, run, "提交超时")
 			}
+			run.Status = model.RunFailed
+			c.publishRun(bctx, run)
 		}
 		cancel()
 	}

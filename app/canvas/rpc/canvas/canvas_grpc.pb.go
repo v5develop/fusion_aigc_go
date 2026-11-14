@@ -51,6 +51,12 @@ const (
 	Canvas_AdminUpsertOfficialPrompt_FullMethodName   = "/canvas.Canvas/AdminUpsertOfficialPrompt"
 	Canvas_AdminTogglePrompt_FullMethodName           = "/canvas.Canvas/AdminTogglePrompt"
 	Canvas_AdminCostSummary_FullMethodName            = "/canvas.Canvas/AdminCostSummary"
+	Canvas_AgentCall_FullMethodName                   = "/canvas.Canvas/AgentCall"
+	Canvas_GetCanvasRevision_FullMethodName           = "/canvas.Canvas/GetCanvasRevision"
+	Canvas_CreateMcpToken_FullMethodName              = "/canvas.Canvas/CreateMcpToken"
+	Canvas_ListMcpTokens_FullMethodName               = "/canvas.Canvas/ListMcpTokens"
+	Canvas_RevokeMcpToken_FullMethodName              = "/canvas.Canvas/RevokeMcpToken"
+	Canvas_VerifyMcpToken_FullMethodName              = "/canvas.Canvas/VerifyMcpToken"
 )
 
 // CanvasClient is the client API for Canvas service.
@@ -110,6 +116,21 @@ type CanvasClient interface {
 	AdminUpsertOfficialPrompt(ctx context.Context, in *AdminUpsertPromptReq, opts ...grpc.CallOption) (*PromptItem, error)
 	AdminTogglePrompt(ctx context.Context, in *AdminToggleReq, opts ...grpc.CallOption) (*Empty, error)
 	AdminCostSummary(ctx context.Context, in *AdminCostSummaryReq, opts ...grpc.CallOption) (*AdminCostSummaryResp, error)
+	// ---- 智能体工具（只增，2026-11-13）----
+	// 执行一个画布智能体工具（清单见 app/canvas/agenttool；Function Call 与 MCP 两种形式都走这里）。
+	// user_id 只来自网关鉴权；工具业务错误放在 is_error + result（{error_code,message,retryable}），不作 gRPC 错误返回。
+	// 设计见 docs/design/canvas-agent-tools.md
+	AgentCall(ctx context.Context, in *AgentCallReq, opts ...grpc.CallOption) (*AgentCallResp, error)
+	// 画布当前 revision（只读元数据，不读快照）：网关 SSE 归属校验 / 心跳对账 / 降级轮询
+	GetCanvasRevision(ctx context.Context, in *CanvasIdReq, opts ...grpc.CallOption) (*CanvasRevisionResp, error)
+	// ---- MCP 访问令牌（只增，2026-11-14；Go_V1.0.42）----
+	// 外部 MCP 客户端专用令牌：明文只在创建时返回一次，库里只存 sha256 + 前缀；每人最多 10 个生效中的令牌。
+	// 管理（建 / 列 / 吊销）只接受登录令牌（网关校验）；校验由网关 Auth 前置调用（网关侧 Redis 缓存，吊销时网关删缓存）。
+	CreateMcpToken(ctx context.Context, in *CreateMcpTokenReq, opts ...grpc.CallOption) (*CreateMcpTokenResp, error)
+	ListMcpTokens(ctx context.Context, in *ListMcpTokensReq, opts ...grpc.CallOption) (*ListMcpTokensResp, error)
+	RevokeMcpToken(ctx context.Context, in *RevokeMcpTokenReq, opts ...grpc.CallOption) (*RevokeMcpTokenResp, error)
+	// 按令牌哈希校验：不存在 / 已吊销 / 已过期 → Unauthorized（reason 区分）；成功时记最后使用时间与 IP
+	VerifyMcpToken(ctx context.Context, in *VerifyMcpTokenReq, opts ...grpc.CallOption) (*VerifyMcpTokenResp, error)
 }
 
 type canvasClient struct {
@@ -440,6 +461,66 @@ func (c *canvasClient) AdminCostSummary(ctx context.Context, in *AdminCostSummar
 	return out, nil
 }
 
+func (c *canvasClient) AgentCall(ctx context.Context, in *AgentCallReq, opts ...grpc.CallOption) (*AgentCallResp, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AgentCallResp)
+	err := c.cc.Invoke(ctx, Canvas_AgentCall_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *canvasClient) GetCanvasRevision(ctx context.Context, in *CanvasIdReq, opts ...grpc.CallOption) (*CanvasRevisionResp, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CanvasRevisionResp)
+	err := c.cc.Invoke(ctx, Canvas_GetCanvasRevision_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *canvasClient) CreateMcpToken(ctx context.Context, in *CreateMcpTokenReq, opts ...grpc.CallOption) (*CreateMcpTokenResp, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateMcpTokenResp)
+	err := c.cc.Invoke(ctx, Canvas_CreateMcpToken_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *canvasClient) ListMcpTokens(ctx context.Context, in *ListMcpTokensReq, opts ...grpc.CallOption) (*ListMcpTokensResp, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListMcpTokensResp)
+	err := c.cc.Invoke(ctx, Canvas_ListMcpTokens_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *canvasClient) RevokeMcpToken(ctx context.Context, in *RevokeMcpTokenReq, opts ...grpc.CallOption) (*RevokeMcpTokenResp, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RevokeMcpTokenResp)
+	err := c.cc.Invoke(ctx, Canvas_RevokeMcpToken_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *canvasClient) VerifyMcpToken(ctx context.Context, in *VerifyMcpTokenReq, opts ...grpc.CallOption) (*VerifyMcpTokenResp, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(VerifyMcpTokenResp)
+	err := c.cc.Invoke(ctx, Canvas_VerifyMcpToken_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // CanvasServer is the server API for Canvas service.
 // All implementations must embed UnimplementedCanvasServer
 // for forward compatibility.
@@ -497,6 +578,21 @@ type CanvasServer interface {
 	AdminUpsertOfficialPrompt(context.Context, *AdminUpsertPromptReq) (*PromptItem, error)
 	AdminTogglePrompt(context.Context, *AdminToggleReq) (*Empty, error)
 	AdminCostSummary(context.Context, *AdminCostSummaryReq) (*AdminCostSummaryResp, error)
+	// ---- 智能体工具（只增，2026-11-13）----
+	// 执行一个画布智能体工具（清单见 app/canvas/agenttool；Function Call 与 MCP 两种形式都走这里）。
+	// user_id 只来自网关鉴权；工具业务错误放在 is_error + result（{error_code,message,retryable}），不作 gRPC 错误返回。
+	// 设计见 docs/design/canvas-agent-tools.md
+	AgentCall(context.Context, *AgentCallReq) (*AgentCallResp, error)
+	// 画布当前 revision（只读元数据，不读快照）：网关 SSE 归属校验 / 心跳对账 / 降级轮询
+	GetCanvasRevision(context.Context, *CanvasIdReq) (*CanvasRevisionResp, error)
+	// ---- MCP 访问令牌（只增，2026-11-14；Go_V1.0.42）----
+	// 外部 MCP 客户端专用令牌：明文只在创建时返回一次，库里只存 sha256 + 前缀；每人最多 10 个生效中的令牌。
+	// 管理（建 / 列 / 吊销）只接受登录令牌（网关校验）；校验由网关 Auth 前置调用（网关侧 Redis 缓存，吊销时网关删缓存）。
+	CreateMcpToken(context.Context, *CreateMcpTokenReq) (*CreateMcpTokenResp, error)
+	ListMcpTokens(context.Context, *ListMcpTokensReq) (*ListMcpTokensResp, error)
+	RevokeMcpToken(context.Context, *RevokeMcpTokenReq) (*RevokeMcpTokenResp, error)
+	// 按令牌哈希校验：不存在 / 已吊销 / 已过期 → Unauthorized（reason 区分）；成功时记最后使用时间与 IP
+	VerifyMcpToken(context.Context, *VerifyMcpTokenReq) (*VerifyMcpTokenResp, error)
 	mustEmbedUnimplementedCanvasServer()
 }
 
@@ -602,6 +698,24 @@ func (UnimplementedCanvasServer) AdminTogglePrompt(context.Context, *AdminToggle
 }
 func (UnimplementedCanvasServer) AdminCostSummary(context.Context, *AdminCostSummaryReq) (*AdminCostSummaryResp, error) {
 	return nil, status.Error(codes.Unimplemented, "method AdminCostSummary not implemented")
+}
+func (UnimplementedCanvasServer) AgentCall(context.Context, *AgentCallReq) (*AgentCallResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method AgentCall not implemented")
+}
+func (UnimplementedCanvasServer) GetCanvasRevision(context.Context, *CanvasIdReq) (*CanvasRevisionResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetCanvasRevision not implemented")
+}
+func (UnimplementedCanvasServer) CreateMcpToken(context.Context, *CreateMcpTokenReq) (*CreateMcpTokenResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateMcpToken not implemented")
+}
+func (UnimplementedCanvasServer) ListMcpTokens(context.Context, *ListMcpTokensReq) (*ListMcpTokensResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListMcpTokens not implemented")
+}
+func (UnimplementedCanvasServer) RevokeMcpToken(context.Context, *RevokeMcpTokenReq) (*RevokeMcpTokenResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method RevokeMcpToken not implemented")
+}
+func (UnimplementedCanvasServer) VerifyMcpToken(context.Context, *VerifyMcpTokenReq) (*VerifyMcpTokenResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method VerifyMcpToken not implemented")
 }
 func (UnimplementedCanvasServer) mustEmbedUnimplementedCanvasServer() {}
 func (UnimplementedCanvasServer) testEmbeddedByValue()                {}
@@ -1200,6 +1314,114 @@ func _Canvas_AdminCostSummary_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Canvas_AgentCall_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AgentCallReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CanvasServer).AgentCall(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Canvas_AgentCall_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CanvasServer).AgentCall(ctx, req.(*AgentCallReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Canvas_GetCanvasRevision_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CanvasIdReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CanvasServer).GetCanvasRevision(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Canvas_GetCanvasRevision_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CanvasServer).GetCanvasRevision(ctx, req.(*CanvasIdReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Canvas_CreateMcpToken_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateMcpTokenReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CanvasServer).CreateMcpToken(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Canvas_CreateMcpToken_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CanvasServer).CreateMcpToken(ctx, req.(*CreateMcpTokenReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Canvas_ListMcpTokens_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListMcpTokensReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CanvasServer).ListMcpTokens(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Canvas_ListMcpTokens_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CanvasServer).ListMcpTokens(ctx, req.(*ListMcpTokensReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Canvas_RevokeMcpToken_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RevokeMcpTokenReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CanvasServer).RevokeMcpToken(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Canvas_RevokeMcpToken_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CanvasServer).RevokeMcpToken(ctx, req.(*RevokeMcpTokenReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Canvas_VerifyMcpToken_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(VerifyMcpTokenReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CanvasServer).VerifyMcpToken(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Canvas_VerifyMcpToken_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CanvasServer).VerifyMcpToken(ctx, req.(*VerifyMcpTokenReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Canvas_ServiceDesc is the grpc.ServiceDesc for Canvas service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1334,6 +1556,30 @@ var Canvas_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "AdminCostSummary",
 			Handler:    _Canvas_AdminCostSummary_Handler,
+		},
+		{
+			MethodName: "AgentCall",
+			Handler:    _Canvas_AgentCall_Handler,
+		},
+		{
+			MethodName: "GetCanvasRevision",
+			Handler:    _Canvas_GetCanvasRevision_Handler,
+		},
+		{
+			MethodName: "CreateMcpToken",
+			Handler:    _Canvas_CreateMcpToken_Handler,
+		},
+		{
+			MethodName: "ListMcpTokens",
+			Handler:    _Canvas_ListMcpTokens_Handler,
+		},
+		{
+			MethodName: "RevokeMcpToken",
+			Handler:    _Canvas_RevokeMcpToken_Handler,
+		},
+		{
+			MethodName: "VerifyMcpToken",
+			Handler:    _Canvas_VerifyMcpToken_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

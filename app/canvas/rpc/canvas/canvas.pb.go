@@ -423,9 +423,12 @@ func (x *CanvasDoc) GetUpdatedAt() int64 {
 }
 
 type CanvasIdReq struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
-	Id            string                 `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	UserId int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	Id     string                 `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
+	// 仅 GetCanvas：取历史某个 revision 的快照（三方合并的 base）。空或等于当前 revision 时取最新；
+	// 超出保留范围（每张画布只留最近 Limits.RevisionKeep 个）返回 4001 + reason CANVAS_REVISION_NOT_RETAINED。
+	Revision      string `protobuf:"bytes,3,opt,name=revision,proto3" json:"revision,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -474,6 +477,74 @@ func (x *CanvasIdReq) GetId() string {
 	return ""
 }
 
+func (x *CanvasIdReq) GetRevision() string {
+	if x != nil {
+		return x.Revision
+	}
+	return ""
+}
+
+// 画布当前 revision（SSE 归属校验、心跳对账、无 Redis 时的轮询接口）。不读快照。
+type CanvasRevisionResp struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Revision      string                 `protobuf:"bytes,1,opt,name=revision,proto3" json:"revision,omitempty"`
+	UpdatedAt     int64                  `protobuf:"varint,2,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	NodeCount     int32                  `protobuf:"varint,3,opt,name=node_count,json=nodeCount,proto3" json:"node_count,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CanvasRevisionResp) Reset() {
+	*x = CanvasRevisionResp{}
+	mi := &file_canvas_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CanvasRevisionResp) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CanvasRevisionResp) ProtoMessage() {}
+
+func (x *CanvasRevisionResp) ProtoReflect() protoreflect.Message {
+	mi := &file_canvas_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CanvasRevisionResp.ProtoReflect.Descriptor instead.
+func (*CanvasRevisionResp) Descriptor() ([]byte, []int) {
+	return file_canvas_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *CanvasRevisionResp) GetRevision() string {
+	if x != nil {
+		return x.Revision
+	}
+	return ""
+}
+
+func (x *CanvasRevisionResp) GetUpdatedAt() int64 {
+	if x != nil {
+		return x.UpdatedAt
+	}
+	return 0
+}
+
+func (x *CanvasRevisionResp) GetNodeCount() int32 {
+	if x != nil {
+		return x.NodeCount
+	}
+	return 0
+}
+
 type SaveCanvasReq struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	UserId          int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
@@ -489,7 +560,7 @@ type SaveCanvasReq struct {
 
 func (x *SaveCanvasReq) Reset() {
 	*x = SaveCanvasReq{}
-	mi := &file_canvas_proto_msgTypes[7]
+	mi := &file_canvas_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -501,7 +572,7 @@ func (x *SaveCanvasReq) String() string {
 func (*SaveCanvasReq) ProtoMessage() {}
 
 func (x *SaveCanvasReq) ProtoReflect() protoreflect.Message {
-	mi := &file_canvas_proto_msgTypes[7]
+	mi := &file_canvas_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -514,7 +585,7 @@ func (x *SaveCanvasReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SaveCanvasReq.ProtoReflect.Descriptor instead.
 func (*SaveCanvasReq) Descriptor() ([]byte, []int) {
-	return file_canvas_proto_rawDescGZIP(), []int{7}
+	return file_canvas_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *SaveCanvasReq) GetUserId() int64 {
@@ -579,7 +650,7 @@ type SaveCanvasResp struct {
 
 func (x *SaveCanvasResp) Reset() {
 	*x = SaveCanvasResp{}
-	mi := &file_canvas_proto_msgTypes[8]
+	mi := &file_canvas_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -591,7 +662,7 @@ func (x *SaveCanvasResp) String() string {
 func (*SaveCanvasResp) ProtoMessage() {}
 
 func (x *SaveCanvasResp) ProtoReflect() protoreflect.Message {
-	mi := &file_canvas_proto_msgTypes[8]
+	mi := &file_canvas_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -604,7 +675,7 @@ func (x *SaveCanvasResp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SaveCanvasResp.ProtoReflect.Descriptor instead.
 func (*SaveCanvasResp) Descriptor() ([]byte, []int) {
-	return file_canvas_proto_rawDescGZIP(), []int{8}
+	return file_canvas_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *SaveCanvasResp) GetConflict() bool {
@@ -653,7 +724,7 @@ type SaveAsCanvasReq struct {
 
 func (x *SaveAsCanvasReq) Reset() {
 	*x = SaveAsCanvasReq{}
-	mi := &file_canvas_proto_msgTypes[9]
+	mi := &file_canvas_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -665,7 +736,7 @@ func (x *SaveAsCanvasReq) String() string {
 func (*SaveAsCanvasReq) ProtoMessage() {}
 
 func (x *SaveAsCanvasReq) ProtoReflect() protoreflect.Message {
-	mi := &file_canvas_proto_msgTypes[9]
+	mi := &file_canvas_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -678,7 +749,7 @@ func (x *SaveAsCanvasReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SaveAsCanvasReq.ProtoReflect.Descriptor instead.
 func (*SaveAsCanvasReq) Descriptor() ([]byte, []int) {
-	return file_canvas_proto_rawDescGZIP(), []int{9}
+	return file_canvas_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *SaveAsCanvasReq) GetUserId() int64 {
@@ -722,7 +793,7 @@ type RunReference struct {
 
 func (x *RunReference) Reset() {
 	*x = RunReference{}
-	mi := &file_canvas_proto_msgTypes[10]
+	mi := &file_canvas_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -734,7 +805,7 @@ func (x *RunReference) String() string {
 func (*RunReference) ProtoMessage() {}
 
 func (x *RunReference) ProtoReflect() protoreflect.Message {
-	mi := &file_canvas_proto_msgTypes[10]
+	mi := &file_canvas_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -747,7 +818,7 @@ func (x *RunReference) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunReference.ProtoReflect.Descriptor instead.
 func (*RunReference) Descriptor() ([]byte, []int) {
-	return file_canvas_proto_rawDescGZIP(), []int{10}
+	return file_canvas_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *RunReference) GetHandle() string {
@@ -857,7 +928,7 @@ type RunNodeRequest struct {
 
 func (x *RunNodeRequest) Reset() {
 	*x = RunNodeRequest{}
-	mi := &file_canvas_proto_msgTypes[11]
+	mi := &file_canvas_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -869,7 +940,7 @@ func (x *RunNodeRequest) String() string {
 func (*RunNodeRequest) ProtoMessage() {}
 
 func (x *RunNodeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_canvas_proto_msgTypes[11]
+	mi := &file_canvas_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -882,7 +953,7 @@ func (x *RunNodeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunNodeRequest.ProtoReflect.Descriptor instead.
 func (*RunNodeRequest) Descriptor() ([]byte, []int) {
-	return file_canvas_proto_rawDescGZIP(), []int{11}
+	return file_canvas_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *RunNodeRequest) GetModel() string {
@@ -996,7 +1067,7 @@ type RunNodeReq struct {
 
 func (x *RunNodeReq) Reset() {
 	*x = RunNodeReq{}
-	mi := &file_canvas_proto_msgTypes[12]
+	mi := &file_canvas_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1008,7 +1079,7 @@ func (x *RunNodeReq) String() string {
 func (*RunNodeReq) ProtoMessage() {}
 
 func (x *RunNodeReq) ProtoReflect() protoreflect.Message {
-	mi := &file_canvas_proto_msgTypes[12]
+	mi := &file_canvas_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1021,7 +1092,7 @@ func (x *RunNodeReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunNodeReq.ProtoReflect.Descriptor instead.
 func (*RunNodeReq) Descriptor() ([]byte, []int) {
-	return file_canvas_proto_rawDescGZIP(), []int{12}
+	return file_canvas_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *RunNodeReq) GetUserId() int64 {
@@ -1075,7 +1146,7 @@ type RunNodeResp struct {
 
 func (x *RunNodeResp) Reset() {
 	*x = RunNodeResp{}
-	mi := &file_canvas_proto_msgTypes[13]
+	mi := &file_canvas_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1087,7 +1158,7 @@ func (x *RunNodeResp) String() string {
 func (*RunNodeResp) ProtoMessage() {}
 
 func (x *RunNodeResp) ProtoReflect() protoreflect.Message {
-	mi := &file_canvas_proto_msgTypes[13]
+	mi := &file_canvas_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1100,7 +1171,7 @@ func (x *RunNodeResp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunNodeResp.ProtoReflect.Descriptor instead.
 func (*RunNodeResp) Descriptor() ([]byte, []int) {
-	return file_canvas_proto_rawDescGZIP(), []int{13}
+	return file_canvas_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *RunNodeResp) GetRequestId() string {
@@ -1170,7 +1241,7 @@ type Candidate struct {
 
 func (x *Candidate) Reset() {
 	*x = Candidate{}
-	mi := &file_canvas_proto_msgTypes[14]
+	mi := &file_canvas_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1182,7 +1253,7 @@ func (x *Candidate) String() string {
 func (*Candidate) ProtoMessage() {}
 
 func (x *Candidate) ProtoReflect() protoreflect.Message {
-	mi := &file_canvas_proto_msgTypes[14]
+	mi := &file_canvas_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1195,7 +1266,7 @@ func (x *Candidate) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Candidate.ProtoReflect.Descriptor instead.
 func (*Candidate) Descriptor() ([]byte, []int) {
-	return file_canvas_proto_rawDescGZIP(), []int{14}
+	return file_canvas_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *Candidate) GetUrl() string {
@@ -1251,7 +1322,7 @@ type RunResult struct {
 
 func (x *RunResult) Reset() {
 	*x = RunResult{}
-	mi := &file_canvas_proto_msgTypes[15]
+	mi := &file_canvas_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1263,7 +1334,7 @@ func (x *RunResult) String() string {
 func (*RunResult) ProtoMessage() {}
 
 func (x *RunResult) ProtoReflect() protoreflect.Message {
-	mi := &file_canvas_proto_msgTypes[15]
+	mi := &file_canvas_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1276,7 +1347,7 @@ func (x *RunResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunResult.ProtoReflect.Descriptor instead.
 func (*RunResult) Descriptor() ([]byte, []int) {
-	return file_canvas_proto_rawDescGZIP(), []int{15}
+	return file_canvas_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *RunResult) GetRequestId() string {
@@ -1436,7 +1507,7 @@ type RunIdReq struct {
 
 func (x *RunIdReq) Reset() {
 	*x = RunIdReq{}
-	mi := &file_canvas_proto_msgTypes[16]
+	mi := &file_canvas_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1448,7 +1519,7 @@ func (x *RunIdReq) String() string {
 func (*RunIdReq) ProtoMessage() {}
 
 func (x *RunIdReq) ProtoReflect() protoreflect.Message {
-	mi := &file_canvas_proto_msgTypes[16]
+	mi := &file_canvas_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1461,7 +1532,7 @@ func (x *RunIdReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunIdReq.ProtoReflect.Descriptor instead.
 func (*RunIdReq) Descriptor() ([]byte, []int) {
-	return file_canvas_proto_rawDescGZIP(), []int{16}
+	return file_canvas_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *RunIdReq) GetUserId() int64 {
@@ -1491,7 +1562,7 @@ type SelectCandidateReq struct {
 
 func (x *SelectCandidateReq) Reset() {
 	*x = SelectCandidateReq{}
-	mi := &file_canvas_proto_msgTypes[17]
+	mi := &file_canvas_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1503,7 +1574,7 @@ func (x *SelectCandidateReq) String() string {
 func (*SelectCandidateReq) ProtoMessage() {}
 
 func (x *SelectCandidateReq) ProtoReflect() protoreflect.Message {
-	mi := &file_canvas_proto_msgTypes[17]
+	mi := &file_canvas_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1516,7 +1587,7 @@ func (x *SelectCandidateReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SelectCandidateReq.ProtoReflect.Descriptor instead.
 func (*SelectCandidateReq) Descriptor() ([]byte, []int) {
-	return file_canvas_proto_rawDescGZIP(), []int{17}
+	return file_canvas_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *SelectCandidateReq) GetUserId() int64 {
@@ -1565,7 +1636,7 @@ type CandidateSourceReq struct {
 
 func (x *CandidateSourceReq) Reset() {
 	*x = CandidateSourceReq{}
-	mi := &file_canvas_proto_msgTypes[18]
+	mi := &file_canvas_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1577,7 +1648,7 @@ func (x *CandidateSourceReq) String() string {
 func (*CandidateSourceReq) ProtoMessage() {}
 
 func (x *CandidateSourceReq) ProtoReflect() protoreflect.Message {
-	mi := &file_canvas_proto_msgTypes[18]
+	mi := &file_canvas_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1590,7 +1661,7 @@ func (x *CandidateSourceReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CandidateSourceReq.ProtoReflect.Descriptor instead.
 func (*CandidateSourceReq) Descriptor() ([]byte, []int) {
-	return file_canvas_proto_rawDescGZIP(), []int{18}
+	return file_canvas_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *CandidateSourceReq) GetUserId() int64 {
@@ -1625,7 +1696,7 @@ type CandidateSourceResp struct {
 
 func (x *CandidateSourceResp) Reset() {
 	*x = CandidateSourceResp{}
-	mi := &file_canvas_proto_msgTypes[19]
+	mi := &file_canvas_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1637,7 +1708,7 @@ func (x *CandidateSourceResp) String() string {
 func (*CandidateSourceResp) ProtoMessage() {}
 
 func (x *CandidateSourceResp) ProtoReflect() protoreflect.Message {
-	mi := &file_canvas_proto_msgTypes[19]
+	mi := &file_canvas_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1650,7 +1721,7 @@ func (x *CandidateSourceResp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CandidateSourceResp.ProtoReflect.Descriptor instead.
 func (*CandidateSourceResp) Descriptor() ([]byte, []int) {
-	return file_canvas_proto_rawDescGZIP(), []int{19}
+	return file_canvas_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *CandidateSourceResp) GetRid() string {
@@ -1686,7 +1757,7 @@ type ListRunsReq struct {
 
 func (x *ListRunsReq) Reset() {
 	*x = ListRunsReq{}
-	mi := &file_canvas_proto_msgTypes[20]
+	mi := &file_canvas_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1698,7 +1769,7 @@ func (x *ListRunsReq) String() string {
 func (*ListRunsReq) ProtoMessage() {}
 
 func (x *ListRunsReq) ProtoReflect() protoreflect.Message {
-	mi := &file_canvas_proto_msgTypes[20]
+	mi := &file_canvas_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1711,7 +1782,7 @@ func (x *ListRunsReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListRunsReq.ProtoReflect.Descriptor instead.
 func (*ListRunsReq) Descriptor() ([]byte, []int) {
-	return file_canvas_proto_rawDescGZIP(), []int{20}
+	return file_canvas_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *ListRunsReq) GetUserId() int64 {
@@ -1751,7 +1822,7 @@ type ListRunsResp struct {
 
 func (x *ListRunsResp) Reset() {
 	*x = ListRunsResp{}
-	mi := &file_canvas_proto_msgTypes[21]
+	mi := &file_canvas_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1763,7 +1834,7 @@ func (x *ListRunsResp) String() string {
 func (*ListRunsResp) ProtoMessage() {}
 
 func (x *ListRunsResp) ProtoReflect() protoreflect.Message {
-	mi := &file_canvas_proto_msgTypes[21]
+	mi := &file_canvas_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1776,7 +1847,7 @@ func (x *ListRunsResp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListRunsResp.ProtoReflect.Descriptor instead.
 func (*ListRunsResp) Descriptor() ([]byte, []int) {
-	return file_canvas_proto_rawDescGZIP(), []int{21}
+	return file_canvas_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *ListRunsResp) GetList() []*RunResult {
@@ -1795,7 +1866,7 @@ type CatalogReq struct {
 
 func (x *CatalogReq) Reset() {
 	*x = CatalogReq{}
-	mi := &file_canvas_proto_msgTypes[22]
+	mi := &file_canvas_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1807,7 +1878,7 @@ func (x *CatalogReq) String() string {
 func (*CatalogReq) ProtoMessage() {}
 
 func (x *CatalogReq) ProtoReflect() protoreflect.Message {
-	mi := &file_canvas_proto_msgTypes[22]
+	mi := &file_canvas_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1820,7 +1891,7 @@ func (x *CatalogReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CatalogReq.ProtoReflect.Descriptor instead.
 func (*CatalogReq) Descriptor() ([]byte, []int) {
-	return file_canvas_proto_rawDescGZIP(), []int{22}
+	return file_canvas_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *CatalogReq) GetUserId() int64 {
@@ -1841,7 +1912,7 @@ type CatalogPrice struct {
 
 func (x *CatalogPrice) Reset() {
 	*x = CatalogPrice{}
-	mi := &file_canvas_proto_msgTypes[23]
+	mi := &file_canvas_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1853,7 +1924,7 @@ func (x *CatalogPrice) String() string {
 func (*CatalogPrice) ProtoMessage() {}
 
 func (x *CatalogPrice) ProtoReflect() protoreflect.Message {
-	mi := &file_canvas_proto_msgTypes[23]
+	mi := &file_canvas_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1866,7 +1937,7 @@ func (x *CatalogPrice) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CatalogPrice.ProtoReflect.Descriptor instead.
 func (*CatalogPrice) Descriptor() ([]byte, []int) {
-	return file_canvas_proto_rawDescGZIP(), []int{23}
+	return file_canvas_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *CatalogPrice) GetSize() string {
@@ -1918,7 +1989,7 @@ type CatalogModel struct {
 
 func (x *CatalogModel) Reset() {
 	*x = CatalogModel{}
-	mi := &file_canvas_proto_msgTypes[24]
+	mi := &file_canvas_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1930,7 +2001,7 @@ func (x *CatalogModel) String() string {
 func (*CatalogModel) ProtoMessage() {}
 
 func (x *CatalogModel) ProtoReflect() protoreflect.Message {
-	mi := &file_canvas_proto_msgTypes[24]
+	mi := &file_canvas_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1943,7 +2014,7 @@ func (x *CatalogModel) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CatalogModel.ProtoReflect.Descriptor instead.
 func (*CatalogModel) Descriptor() ([]byte, []int) {
-	return file_canvas_proto_rawDescGZIP(), []int{24}
+	return file_canvas_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *CatalogModel) GetModel() string {
@@ -2100,7 +2171,7 @@ type CatalogTool struct {
 
 func (x *CatalogTool) Reset() {
 	*x = CatalogTool{}
-	mi := &file_canvas_proto_msgTypes[25]
+	mi := &file_canvas_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2112,7 +2183,7 @@ func (x *CatalogTool) String() string {
 func (*CatalogTool) ProtoMessage() {}
 
 func (x *CatalogTool) ProtoReflect() protoreflect.Message {
-	mi := &file_canvas_proto_msgTypes[25]
+	mi := &file_canvas_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2125,7 +2196,7 @@ func (x *CatalogTool) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CatalogTool.ProtoReflect.Descriptor instead.
 func (*CatalogTool) Descriptor() ([]byte, []int) {
-	return file_canvas_proto_rawDescGZIP(), []int{25}
+	return file_canvas_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *CatalogTool) GetTool() string {
@@ -2183,7 +2254,7 @@ type CatalogResp struct {
 
 func (x *CatalogResp) Reset() {
 	*x = CatalogResp{}
-	mi := &file_canvas_proto_msgTypes[26]
+	mi := &file_canvas_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2195,7 +2266,7 @@ func (x *CatalogResp) String() string {
 func (*CatalogResp) ProtoMessage() {}
 
 func (x *CatalogResp) ProtoReflect() protoreflect.Message {
-	mi := &file_canvas_proto_msgTypes[26]
+	mi := &file_canvas_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2208,7 +2279,7 @@ func (x *CatalogResp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CatalogResp.ProtoReflect.Descriptor instead.
 func (*CatalogResp) Descriptor() ([]byte, []int) {
-	return file_canvas_proto_rawDescGZIP(), []int{26}
+	return file_canvas_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *CatalogResp) GetImageModels() []*CatalogModel {
@@ -2267,7 +2338,7 @@ type TemplateInfo struct {
 
 func (x *TemplateInfo) Reset() {
 	*x = TemplateInfo{}
-	mi := &file_canvas_proto_msgTypes[27]
+	mi := &file_canvas_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2279,7 +2350,7 @@ func (x *TemplateInfo) String() string {
 func (*TemplateInfo) ProtoMessage() {}
 
 func (x *TemplateInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_canvas_proto_msgTypes[27]
+	mi := &file_canvas_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2292,7 +2363,7 @@ func (x *TemplateInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TemplateInfo.ProtoReflect.Descriptor instead.
 func (*TemplateInfo) Descriptor() ([]byte, []int) {
-	return file_canvas_proto_rawDescGZIP(), []int{27}
+	return file_canvas_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *TemplateInfo) GetId() int64 {
@@ -2396,7 +2467,7 @@ type ListTemplatesReq struct {
 
 func (x *ListTemplatesReq) Reset() {
 	*x = ListTemplatesReq{}
-	mi := &file_canvas_proto_msgTypes[28]
+	mi := &file_canvas_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2408,7 +2479,7 @@ func (x *ListTemplatesReq) String() string {
 func (*ListTemplatesReq) ProtoMessage() {}
 
 func (x *ListTemplatesReq) ProtoReflect() protoreflect.Message {
-	mi := &file_canvas_proto_msgTypes[28]
+	mi := &file_canvas_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2421,7 +2492,7 @@ func (x *ListTemplatesReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListTemplatesReq.ProtoReflect.Descriptor instead.
 func (*ListTemplatesReq) Descriptor() ([]byte, []int) {
-	return file_canvas_proto_rawDescGZIP(), []int{28}
+	return file_canvas_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *ListTemplatesReq) GetUserId() int64 {
@@ -2447,7 +2518,7 @@ type ListTemplatesResp struct {
 
 func (x *ListTemplatesResp) Reset() {
 	*x = ListTemplatesResp{}
-	mi := &file_canvas_proto_msgTypes[29]
+	mi := &file_canvas_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2459,7 +2530,7 @@ func (x *ListTemplatesResp) String() string {
 func (*ListTemplatesResp) ProtoMessage() {}
 
 func (x *ListTemplatesResp) ProtoReflect() protoreflect.Message {
-	mi := &file_canvas_proto_msgTypes[29]
+	mi := &file_canvas_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2472,7 +2543,7 @@ func (x *ListTemplatesResp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListTemplatesResp.ProtoReflect.Descriptor instead.
 func (*ListTemplatesResp) Descriptor() ([]byte, []int) {
-	return file_canvas_proto_rawDescGZIP(), []int{29}
+	return file_canvas_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *ListTemplatesResp) GetList() []*TemplateInfo {
@@ -2492,7 +2563,7 @@ type TemplateIdReq struct {
 
 func (x *TemplateIdReq) Reset() {
 	*x = TemplateIdReq{}
-	mi := &file_canvas_proto_msgTypes[30]
+	mi := &file_canvas_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2504,7 +2575,7 @@ func (x *TemplateIdReq) String() string {
 func (*TemplateIdReq) ProtoMessage() {}
 
 func (x *TemplateIdReq) ProtoReflect() protoreflect.Message {
-	mi := &file_canvas_proto_msgTypes[30]
+	mi := &file_canvas_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2517,7 +2588,7 @@ func (x *TemplateIdReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TemplateIdReq.ProtoReflect.Descriptor instead.
 func (*TemplateIdReq) Descriptor() ([]byte, []int) {
-	return file_canvas_proto_rawDescGZIP(), []int{30}
+	return file_canvas_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *TemplateIdReq) GetUserId() int64 {
@@ -2546,7 +2617,7 @@ type CreateTemplateFromCanvasReq struct {
 
 func (x *CreateTemplateFromCanvasReq) Reset() {
 	*x = CreateTemplateFromCanvasReq{}
-	mi := &file_canvas_proto_msgTypes[31]
+	mi := &file_canvas_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2558,7 +2629,7 @@ func (x *CreateTemplateFromCanvasReq) String() string {
 func (*CreateTemplateFromCanvasReq) ProtoMessage() {}
 
 func (x *CreateTemplateFromCanvasReq) ProtoReflect() protoreflect.Message {
-	mi := &file_canvas_proto_msgTypes[31]
+	mi := &file_canvas_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2571,7 +2642,7 @@ func (x *CreateTemplateFromCanvasReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateTemplateFromCanvasReq.ProtoReflect.Descriptor instead.
 func (*CreateTemplateFromCanvasReq) Descriptor() ([]byte, []int) {
-	return file_canvas_proto_rawDescGZIP(), []int{31}
+	return file_canvas_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *CreateTemplateFromCanvasReq) GetUserId() int64 {
@@ -2614,7 +2685,7 @@ type CreateCanvasFromTemplateReq struct {
 
 func (x *CreateCanvasFromTemplateReq) Reset() {
 	*x = CreateCanvasFromTemplateReq{}
-	mi := &file_canvas_proto_msgTypes[32]
+	mi := &file_canvas_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2626,7 +2697,7 @@ func (x *CreateCanvasFromTemplateReq) String() string {
 func (*CreateCanvasFromTemplateReq) ProtoMessage() {}
 
 func (x *CreateCanvasFromTemplateReq) ProtoReflect() protoreflect.Message {
-	mi := &file_canvas_proto_msgTypes[32]
+	mi := &file_canvas_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2639,7 +2710,7 @@ func (x *CreateCanvasFromTemplateReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateCanvasFromTemplateReq.ProtoReflect.Descriptor instead.
 func (*CreateCanvasFromTemplateReq) Descriptor() ([]byte, []int) {
-	return file_canvas_proto_rawDescGZIP(), []int{32}
+	return file_canvas_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *CreateCanvasFromTemplateReq) GetUserId() int64 {
@@ -2693,7 +2764,7 @@ type PromptItem struct {
 
 func (x *PromptItem) Reset() {
 	*x = PromptItem{}
-	mi := &file_canvas_proto_msgTypes[33]
+	mi := &file_canvas_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2705,7 +2776,7 @@ func (x *PromptItem) String() string {
 func (*PromptItem) ProtoMessage() {}
 
 func (x *PromptItem) ProtoReflect() protoreflect.Message {
-	mi := &file_canvas_proto_msgTypes[33]
+	mi := &file_canvas_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2718,7 +2789,7 @@ func (x *PromptItem) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PromptItem.ProtoReflect.Descriptor instead.
 func (*PromptItem) Descriptor() ([]byte, []int) {
-	return file_canvas_proto_rawDescGZIP(), []int{33}
+	return file_canvas_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *PromptItem) GetId() int64 {
@@ -2841,7 +2912,7 @@ type ListPromptsReq struct {
 
 func (x *ListPromptsReq) Reset() {
 	*x = ListPromptsReq{}
-	mi := &file_canvas_proto_msgTypes[34]
+	mi := &file_canvas_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2853,7 +2924,7 @@ func (x *ListPromptsReq) String() string {
 func (*ListPromptsReq) ProtoMessage() {}
 
 func (x *ListPromptsReq) ProtoReflect() protoreflect.Message {
-	mi := &file_canvas_proto_msgTypes[34]
+	mi := &file_canvas_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2866,7 +2937,7 @@ func (x *ListPromptsReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListPromptsReq.ProtoReflect.Descriptor instead.
 func (*ListPromptsReq) Descriptor() ([]byte, []int) {
-	return file_canvas_proto_rawDescGZIP(), []int{34}
+	return file_canvas_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *ListPromptsReq) GetUserId() int64 {
@@ -2930,7 +3001,7 @@ type PromptGroup struct {
 
 func (x *PromptGroup) Reset() {
 	*x = PromptGroup{}
-	mi := &file_canvas_proto_msgTypes[35]
+	mi := &file_canvas_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2942,7 +3013,7 @@ func (x *PromptGroup) String() string {
 func (*PromptGroup) ProtoMessage() {}
 
 func (x *PromptGroup) ProtoReflect() protoreflect.Message {
-	mi := &file_canvas_proto_msgTypes[35]
+	mi := &file_canvas_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2955,7 +3026,7 @@ func (x *PromptGroup) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PromptGroup.ProtoReflect.Descriptor instead.
 func (*PromptGroup) Descriptor() ([]byte, []int) {
-	return file_canvas_proto_rawDescGZIP(), []int{35}
+	return file_canvas_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *PromptGroup) GetVertical() string {
@@ -2999,7 +3070,7 @@ type PromptCounts struct {
 
 func (x *PromptCounts) Reset() {
 	*x = PromptCounts{}
-	mi := &file_canvas_proto_msgTypes[36]
+	mi := &file_canvas_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3011,7 +3082,7 @@ func (x *PromptCounts) String() string {
 func (*PromptCounts) ProtoMessage() {}
 
 func (x *PromptCounts) ProtoReflect() protoreflect.Message {
-	mi := &file_canvas_proto_msgTypes[36]
+	mi := &file_canvas_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3024,7 +3095,7 @@ func (x *PromptCounts) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PromptCounts.ProtoReflect.Descriptor instead.
 func (*PromptCounts) Descriptor() ([]byte, []int) {
-	return file_canvas_proto_rawDescGZIP(), []int{36}
+	return file_canvas_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *PromptCounts) GetEcommerce() int64 {
@@ -3074,7 +3145,7 @@ type ListPromptsResp struct {
 
 func (x *ListPromptsResp) Reset() {
 	*x = ListPromptsResp{}
-	mi := &file_canvas_proto_msgTypes[37]
+	mi := &file_canvas_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3086,7 +3157,7 @@ func (x *ListPromptsResp) String() string {
 func (*ListPromptsResp) ProtoMessage() {}
 
 func (x *ListPromptsResp) ProtoReflect() protoreflect.Message {
-	mi := &file_canvas_proto_msgTypes[37]
+	mi := &file_canvas_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3099,7 +3170,7 @@ func (x *ListPromptsResp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListPromptsResp.ProtoReflect.Descriptor instead.
 func (*ListPromptsResp) Descriptor() ([]byte, []int) {
-	return file_canvas_proto_rawDescGZIP(), []int{37}
+	return file_canvas_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *ListPromptsResp) GetList() []*PromptItem {
@@ -3145,7 +3216,7 @@ type UpsertPromptReq struct {
 
 func (x *UpsertPromptReq) Reset() {
 	*x = UpsertPromptReq{}
-	mi := &file_canvas_proto_msgTypes[38]
+	mi := &file_canvas_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3157,7 +3228,7 @@ func (x *UpsertPromptReq) String() string {
 func (*UpsertPromptReq) ProtoMessage() {}
 
 func (x *UpsertPromptReq) ProtoReflect() protoreflect.Message {
-	mi := &file_canvas_proto_msgTypes[38]
+	mi := &file_canvas_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3170,7 +3241,7 @@ func (x *UpsertPromptReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpsertPromptReq.ProtoReflect.Descriptor instead.
 func (*UpsertPromptReq) Descriptor() ([]byte, []int) {
-	return file_canvas_proto_rawDescGZIP(), []int{38}
+	return file_canvas_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *UpsertPromptReq) GetUserId() int64 {
@@ -3232,7 +3303,7 @@ type PromptIdReq struct {
 
 func (x *PromptIdReq) Reset() {
 	*x = PromptIdReq{}
-	mi := &file_canvas_proto_msgTypes[39]
+	mi := &file_canvas_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3244,7 +3315,7 @@ func (x *PromptIdReq) String() string {
 func (*PromptIdReq) ProtoMessage() {}
 
 func (x *PromptIdReq) ProtoReflect() protoreflect.Message {
-	mi := &file_canvas_proto_msgTypes[39]
+	mi := &file_canvas_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3257,7 +3328,7 @@ func (x *PromptIdReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PromptIdReq.ProtoReflect.Descriptor instead.
 func (*PromptIdReq) Descriptor() ([]byte, []int) {
-	return file_canvas_proto_rawDescGZIP(), []int{39}
+	return file_canvas_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *PromptIdReq) GetUserId() int64 {
@@ -3291,7 +3362,7 @@ type AdminListRunsReq struct {
 
 func (x *AdminListRunsReq) Reset() {
 	*x = AdminListRunsReq{}
-	mi := &file_canvas_proto_msgTypes[40]
+	mi := &file_canvas_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3303,7 +3374,7 @@ func (x *AdminListRunsReq) String() string {
 func (*AdminListRunsReq) ProtoMessage() {}
 
 func (x *AdminListRunsReq) ProtoReflect() protoreflect.Message {
-	mi := &file_canvas_proto_msgTypes[40]
+	mi := &file_canvas_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3316,7 +3387,7 @@ func (x *AdminListRunsReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AdminListRunsReq.ProtoReflect.Descriptor instead.
 func (*AdminListRunsReq) Descriptor() ([]byte, []int) {
-	return file_canvas_proto_rawDescGZIP(), []int{40}
+	return file_canvas_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *AdminListRunsReq) GetPage() int64 {
@@ -3402,7 +3473,7 @@ type AdminRun struct {
 
 func (x *AdminRun) Reset() {
 	*x = AdminRun{}
-	mi := &file_canvas_proto_msgTypes[41]
+	mi := &file_canvas_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3414,7 +3485,7 @@ func (x *AdminRun) String() string {
 func (*AdminRun) ProtoMessage() {}
 
 func (x *AdminRun) ProtoReflect() protoreflect.Message {
-	mi := &file_canvas_proto_msgTypes[41]
+	mi := &file_canvas_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3427,7 +3498,7 @@ func (x *AdminRun) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AdminRun.ProtoReflect.Descriptor instead.
 func (*AdminRun) Descriptor() ([]byte, []int) {
-	return file_canvas_proto_rawDescGZIP(), []int{41}
+	return file_canvas_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *AdminRun) GetRun() *RunResult {
@@ -3524,7 +3595,7 @@ type AdminListRunsResp struct {
 
 func (x *AdminListRunsResp) Reset() {
 	*x = AdminListRunsResp{}
-	mi := &file_canvas_proto_msgTypes[42]
+	mi := &file_canvas_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3536,7 +3607,7 @@ func (x *AdminListRunsResp) String() string {
 func (*AdminListRunsResp) ProtoMessage() {}
 
 func (x *AdminListRunsResp) ProtoReflect() protoreflect.Message {
-	mi := &file_canvas_proto_msgTypes[42]
+	mi := &file_canvas_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3549,7 +3620,7 @@ func (x *AdminListRunsResp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AdminListRunsResp.ProtoReflect.Descriptor instead.
 func (*AdminListRunsResp) Descriptor() ([]byte, []int) {
-	return file_canvas_proto_rawDescGZIP(), []int{42}
+	return file_canvas_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *AdminListRunsResp) GetList() []*AdminRun {
@@ -3577,7 +3648,7 @@ type AdminRunReq struct {
 
 func (x *AdminRunReq) Reset() {
 	*x = AdminRunReq{}
-	mi := &file_canvas_proto_msgTypes[43]
+	mi := &file_canvas_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3589,7 +3660,7 @@ func (x *AdminRunReq) String() string {
 func (*AdminRunReq) ProtoMessage() {}
 
 func (x *AdminRunReq) ProtoReflect() protoreflect.Message {
-	mi := &file_canvas_proto_msgTypes[43]
+	mi := &file_canvas_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3602,7 +3673,7 @@ func (x *AdminRunReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AdminRunReq.ProtoReflect.Descriptor instead.
 func (*AdminRunReq) Descriptor() ([]byte, []int) {
-	return file_canvas_proto_rawDescGZIP(), []int{43}
+	return file_canvas_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *AdminRunReq) GetId() int64 {
@@ -3639,7 +3710,7 @@ type AdminListTemplatesReq struct {
 
 func (x *AdminListTemplatesReq) Reset() {
 	*x = AdminListTemplatesReq{}
-	mi := &file_canvas_proto_msgTypes[44]
+	mi := &file_canvas_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3651,7 +3722,7 @@ func (x *AdminListTemplatesReq) String() string {
 func (*AdminListTemplatesReq) ProtoMessage() {}
 
 func (x *AdminListTemplatesReq) ProtoReflect() protoreflect.Message {
-	mi := &file_canvas_proto_msgTypes[44]
+	mi := &file_canvas_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3664,7 +3735,7 @@ func (x *AdminListTemplatesReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AdminListTemplatesReq.ProtoReflect.Descriptor instead.
 func (*AdminListTemplatesReq) Descriptor() ([]byte, []int) {
-	return file_canvas_proto_rawDescGZIP(), []int{44}
+	return file_canvas_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *AdminListTemplatesReq) GetPage() int64 {
@@ -3712,7 +3783,7 @@ type AdminListTemplatesResp struct {
 
 func (x *AdminListTemplatesResp) Reset() {
 	*x = AdminListTemplatesResp{}
-	mi := &file_canvas_proto_msgTypes[45]
+	mi := &file_canvas_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3724,7 +3795,7 @@ func (x *AdminListTemplatesResp) String() string {
 func (*AdminListTemplatesResp) ProtoMessage() {}
 
 func (x *AdminListTemplatesResp) ProtoReflect() protoreflect.Message {
-	mi := &file_canvas_proto_msgTypes[45]
+	mi := &file_canvas_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3737,7 +3808,7 @@ func (x *AdminListTemplatesResp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AdminListTemplatesResp.ProtoReflect.Descriptor instead.
 func (*AdminListTemplatesResp) Descriptor() ([]byte, []int) {
-	return file_canvas_proto_rawDescGZIP(), []int{45}
+	return file_canvas_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *AdminListTemplatesResp) GetList() []*TemplateInfo {
@@ -3769,7 +3840,7 @@ type AdminUpsertTemplateReq struct {
 
 func (x *AdminUpsertTemplateReq) Reset() {
 	*x = AdminUpsertTemplateReq{}
-	mi := &file_canvas_proto_msgTypes[46]
+	mi := &file_canvas_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3781,7 +3852,7 @@ func (x *AdminUpsertTemplateReq) String() string {
 func (*AdminUpsertTemplateReq) ProtoMessage() {}
 
 func (x *AdminUpsertTemplateReq) ProtoReflect() protoreflect.Message {
-	mi := &file_canvas_proto_msgTypes[46]
+	mi := &file_canvas_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3794,7 +3865,7 @@ func (x *AdminUpsertTemplateReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AdminUpsertTemplateReq.ProtoReflect.Descriptor instead.
 func (*AdminUpsertTemplateReq) Descriptor() ([]byte, []int) {
-	return file_canvas_proto_rawDescGZIP(), []int{46}
+	return file_canvas_proto_rawDescGZIP(), []int{47}
 }
 
 func (x *AdminUpsertTemplateReq) GetId() int64 {
@@ -3856,7 +3927,7 @@ type AdminToggleReq struct {
 
 func (x *AdminToggleReq) Reset() {
 	*x = AdminToggleReq{}
-	mi := &file_canvas_proto_msgTypes[47]
+	mi := &file_canvas_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3868,7 +3939,7 @@ func (x *AdminToggleReq) String() string {
 func (*AdminToggleReq) ProtoMessage() {}
 
 func (x *AdminToggleReq) ProtoReflect() protoreflect.Message {
-	mi := &file_canvas_proto_msgTypes[47]
+	mi := &file_canvas_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3881,7 +3952,7 @@ func (x *AdminToggleReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AdminToggleReq.ProtoReflect.Descriptor instead.
 func (*AdminToggleReq) Descriptor() ([]byte, []int) {
-	return file_canvas_proto_rawDescGZIP(), []int{47}
+	return file_canvas_proto_rawDescGZIP(), []int{48}
 }
 
 func (x *AdminToggleReq) GetId() int64 {
@@ -3913,7 +3984,7 @@ type AdminListPromptsReq struct {
 
 func (x *AdminListPromptsReq) Reset() {
 	*x = AdminListPromptsReq{}
-	mi := &file_canvas_proto_msgTypes[48]
+	mi := &file_canvas_proto_msgTypes[49]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3925,7 +3996,7 @@ func (x *AdminListPromptsReq) String() string {
 func (*AdminListPromptsReq) ProtoMessage() {}
 
 func (x *AdminListPromptsReq) ProtoReflect() protoreflect.Message {
-	mi := &file_canvas_proto_msgTypes[48]
+	mi := &file_canvas_proto_msgTypes[49]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3938,7 +4009,7 @@ func (x *AdminListPromptsReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AdminListPromptsReq.ProtoReflect.Descriptor instead.
 func (*AdminListPromptsReq) Descriptor() ([]byte, []int) {
-	return file_canvas_proto_rawDescGZIP(), []int{48}
+	return file_canvas_proto_rawDescGZIP(), []int{49}
 }
 
 func (x *AdminListPromptsReq) GetPage() int64 {
@@ -4000,7 +4071,7 @@ type AdminListPromptsResp struct {
 
 func (x *AdminListPromptsResp) Reset() {
 	*x = AdminListPromptsResp{}
-	mi := &file_canvas_proto_msgTypes[49]
+	mi := &file_canvas_proto_msgTypes[50]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4012,7 +4083,7 @@ func (x *AdminListPromptsResp) String() string {
 func (*AdminListPromptsResp) ProtoMessage() {}
 
 func (x *AdminListPromptsResp) ProtoReflect() protoreflect.Message {
-	mi := &file_canvas_proto_msgTypes[49]
+	mi := &file_canvas_proto_msgTypes[50]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4025,7 +4096,7 @@ func (x *AdminListPromptsResp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AdminListPromptsResp.ProtoReflect.Descriptor instead.
 func (*AdminListPromptsResp) Descriptor() ([]byte, []int) {
-	return file_canvas_proto_rawDescGZIP(), []int{49}
+	return file_canvas_proto_rawDescGZIP(), []int{50}
 }
 
 func (x *AdminListPromptsResp) GetList() []*PromptItem {
@@ -4060,7 +4131,7 @@ type AdminUpsertPromptReq struct {
 
 func (x *AdminUpsertPromptReq) Reset() {
 	*x = AdminUpsertPromptReq{}
-	mi := &file_canvas_proto_msgTypes[50]
+	mi := &file_canvas_proto_msgTypes[51]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4072,7 +4143,7 @@ func (x *AdminUpsertPromptReq) String() string {
 func (*AdminUpsertPromptReq) ProtoMessage() {}
 
 func (x *AdminUpsertPromptReq) ProtoReflect() protoreflect.Message {
-	mi := &file_canvas_proto_msgTypes[50]
+	mi := &file_canvas_proto_msgTypes[51]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4085,7 +4156,7 @@ func (x *AdminUpsertPromptReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AdminUpsertPromptReq.ProtoReflect.Descriptor instead.
 func (*AdminUpsertPromptReq) Descriptor() ([]byte, []int) {
-	return file_canvas_proto_rawDescGZIP(), []int{50}
+	return file_canvas_proto_rawDescGZIP(), []int{51}
 }
 
 func (x *AdminUpsertPromptReq) GetId() int64 {
@@ -4169,7 +4240,7 @@ type AdminCostSummaryReq struct {
 
 func (x *AdminCostSummaryReq) Reset() {
 	*x = AdminCostSummaryReq{}
-	mi := &file_canvas_proto_msgTypes[51]
+	mi := &file_canvas_proto_msgTypes[52]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4181,7 +4252,7 @@ func (x *AdminCostSummaryReq) String() string {
 func (*AdminCostSummaryReq) ProtoMessage() {}
 
 func (x *AdminCostSummaryReq) ProtoReflect() protoreflect.Message {
-	mi := &file_canvas_proto_msgTypes[51]
+	mi := &file_canvas_proto_msgTypes[52]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4194,7 +4265,7 @@ func (x *AdminCostSummaryReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AdminCostSummaryReq.ProtoReflect.Descriptor instead.
 func (*AdminCostSummaryReq) Descriptor() ([]byte, []int) {
-	return file_canvas_proto_rawDescGZIP(), []int{51}
+	return file_canvas_proto_rawDescGZIP(), []int{52}
 }
 
 func (x *AdminCostSummaryReq) GetStart() int64 {
@@ -4233,7 +4304,7 @@ type CostRow struct {
 
 func (x *CostRow) Reset() {
 	*x = CostRow{}
-	mi := &file_canvas_proto_msgTypes[52]
+	mi := &file_canvas_proto_msgTypes[53]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4245,7 +4316,7 @@ func (x *CostRow) String() string {
 func (*CostRow) ProtoMessage() {}
 
 func (x *CostRow) ProtoReflect() protoreflect.Message {
-	mi := &file_canvas_proto_msgTypes[52]
+	mi := &file_canvas_proto_msgTypes[53]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4258,7 +4329,7 @@ func (x *CostRow) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CostRow.ProtoReflect.Descriptor instead.
 func (*CostRow) Descriptor() ([]byte, []int) {
-	return file_canvas_proto_rawDescGZIP(), []int{52}
+	return file_canvas_proto_rawDescGZIP(), []int{53}
 }
 
 func (x *CostRow) GetKey() string {
@@ -4319,7 +4390,7 @@ type AdminCostSummaryResp struct {
 
 func (x *AdminCostSummaryResp) Reset() {
 	*x = AdminCostSummaryResp{}
-	mi := &file_canvas_proto_msgTypes[53]
+	mi := &file_canvas_proto_msgTypes[54]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4331,7 +4402,7 @@ func (x *AdminCostSummaryResp) String() string {
 func (*AdminCostSummaryResp) ProtoMessage() {}
 
 func (x *AdminCostSummaryResp) ProtoReflect() protoreflect.Message {
-	mi := &file_canvas_proto_msgTypes[53]
+	mi := &file_canvas_proto_msgTypes[54]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4344,7 +4415,7 @@ func (x *AdminCostSummaryResp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AdminCostSummaryResp.ProtoReflect.Descriptor instead.
 func (*AdminCostSummaryResp) Descriptor() ([]byte, []int) {
-	return file_canvas_proto_rawDescGZIP(), []int{53}
+	return file_canvas_proto_rawDescGZIP(), []int{54}
 }
 
 func (x *AdminCostSummaryResp) GetRows() []*CostRow {
@@ -4352,6 +4423,732 @@ func (x *AdminCostSummaryResp) GetRows() []*CostRow {
 		return x.Rows
 	}
 	return nil
+}
+
+type AgentCallReq struct {
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	UserId    int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	Tool      string                 `protobuf:"bytes,2,opt,name=tool,proto3" json:"tool,omitempty"`                         // 工具名（canvas_get / canvas_add_nodes …）
+	Arguments string                 `protobuf:"bytes,3,opt,name=arguments,proto3" json:"arguments,omitempty"`               // JSON 对象文本（按工具 inputSchema 校验）
+	CallId    string                 `protobuf:"bytes,4,opt,name=call_id,json=callId,proto3" json:"call_id,omitempty"`       // 幂等键（可空）：写 / 生成类工具同 key 同参数重放结果
+	Client    string                 `protobuf:"bytes,5,opt,name=client,proto3" json:"client,omitempty"`                     // mcp / function / grpc（审计）
+	Agent     string                 `protobuf:"bytes,6,opt,name=agent,proto3" json:"agent,omitempty"`                       // 客户端名（审计）
+	ClientIp  string                 `protobuf:"bytes,7,opt,name=client_ip,json=clientIp,proto3" json:"client_ip,omitempty"` // 调用方 IP（审计）
+	// 只增（2026-11-14）：鉴权来源 user（登录令牌）| mcp_token（MCP 访问令牌）| svc（服务间 HMAC）；空按 user。
+	// mcp_token 时 canvas-rpc 不借用用户 Bearer 缓存（需要 Java 令牌的操作回 MCP_TOKEN_JAVA_TOOL_UNSUPPORTED），并按 token_scope 二次校验生成类工具
+	AuthSource    string `protobuf:"bytes,8,opt,name=auth_source,json=authSource,proto3" json:"auth_source,omitempty"`
+	TokenScope    string `protobuf:"bytes,9,opt,name=token_scope,json=tokenScope,proto3" json:"token_scope,omitempty"` // auth_source=mcp_token 时的作用域：canvas_rw | canvas_rw_generate
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AgentCallReq) Reset() {
+	*x = AgentCallReq{}
+	mi := &file_canvas_proto_msgTypes[55]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AgentCallReq) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AgentCallReq) ProtoMessage() {}
+
+func (x *AgentCallReq) ProtoReflect() protoreflect.Message {
+	mi := &file_canvas_proto_msgTypes[55]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AgentCallReq.ProtoReflect.Descriptor instead.
+func (*AgentCallReq) Descriptor() ([]byte, []int) {
+	return file_canvas_proto_rawDescGZIP(), []int{55}
+}
+
+func (x *AgentCallReq) GetUserId() int64 {
+	if x != nil {
+		return x.UserId
+	}
+	return 0
+}
+
+func (x *AgentCallReq) GetTool() string {
+	if x != nil {
+		return x.Tool
+	}
+	return ""
+}
+
+func (x *AgentCallReq) GetArguments() string {
+	if x != nil {
+		return x.Arguments
+	}
+	return ""
+}
+
+func (x *AgentCallReq) GetCallId() string {
+	if x != nil {
+		return x.CallId
+	}
+	return ""
+}
+
+func (x *AgentCallReq) GetClient() string {
+	if x != nil {
+		return x.Client
+	}
+	return ""
+}
+
+func (x *AgentCallReq) GetAgent() string {
+	if x != nil {
+		return x.Agent
+	}
+	return ""
+}
+
+func (x *AgentCallReq) GetClientIp() string {
+	if x != nil {
+		return x.ClientIp
+	}
+	return ""
+}
+
+func (x *AgentCallReq) GetAuthSource() string {
+	if x != nil {
+		return x.AuthSource
+	}
+	return ""
+}
+
+func (x *AgentCallReq) GetTokenScope() string {
+	if x != nil {
+		return x.TokenScope
+	}
+	return ""
+}
+
+type AgentCallResp struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Result        string                 `protobuf:"bytes,1,opt,name=result,proto3" json:"result,omitempty"` // JSON 对象文本：成功为工具出参；失败为 {error_code,message,retryable,...}
+	IsError       bool                   `protobuf:"varint,2,opt,name=is_error,json=isError,proto3" json:"is_error,omitempty"`
+	Replayed      bool                   `protobuf:"varint,3,opt,name=replayed,proto3" json:"replayed,omitempty"` // 按 call_id 幂等重放
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AgentCallResp) Reset() {
+	*x = AgentCallResp{}
+	mi := &file_canvas_proto_msgTypes[56]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AgentCallResp) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AgentCallResp) ProtoMessage() {}
+
+func (x *AgentCallResp) ProtoReflect() protoreflect.Message {
+	mi := &file_canvas_proto_msgTypes[56]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AgentCallResp.ProtoReflect.Descriptor instead.
+func (*AgentCallResp) Descriptor() ([]byte, []int) {
+	return file_canvas_proto_rawDescGZIP(), []int{56}
+}
+
+func (x *AgentCallResp) GetResult() string {
+	if x != nil {
+		return x.Result
+	}
+	return ""
+}
+
+func (x *AgentCallResp) GetIsError() bool {
+	if x != nil {
+		return x.IsError
+	}
+	return false
+}
+
+func (x *AgentCallResp) GetReplayed() bool {
+	if x != nil {
+		return x.Replayed
+	}
+	return false
+}
+
+type McpTokenInfo struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	TokenPrefix   string                 `protobuf:"bytes,3,opt,name=token_prefix,json=tokenPrefix,proto3" json:"token_prefix,omitempty"` // 明文前若干位（mcp_xxxxxxxx），便于识别
+	Scope         string                 `protobuf:"bytes,4,opt,name=scope,proto3" json:"scope,omitempty"`                                // canvas_rw | canvas_rw_generate
+	ExpiresAt     int64                  `protobuf:"varint,5,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
+	LastUsedAt    int64                  `protobuf:"varint,6,opt,name=last_used_at,json=lastUsedAt,proto3" json:"last_used_at,omitempty"` // 0 = 从未使用
+	LastUsedIp    string                 `protobuf:"bytes,7,opt,name=last_used_ip,json=lastUsedIp,proto3" json:"last_used_ip,omitempty"`
+	CreatedAt     int64                  `protobuf:"varint,8,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	Expired       bool                   `protobuf:"varint,9,opt,name=expired,proto3" json:"expired,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *McpTokenInfo) Reset() {
+	*x = McpTokenInfo{}
+	mi := &file_canvas_proto_msgTypes[57]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *McpTokenInfo) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*McpTokenInfo) ProtoMessage() {}
+
+func (x *McpTokenInfo) ProtoReflect() protoreflect.Message {
+	mi := &file_canvas_proto_msgTypes[57]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use McpTokenInfo.ProtoReflect.Descriptor instead.
+func (*McpTokenInfo) Descriptor() ([]byte, []int) {
+	return file_canvas_proto_rawDescGZIP(), []int{57}
+}
+
+func (x *McpTokenInfo) GetId() int64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *McpTokenInfo) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *McpTokenInfo) GetTokenPrefix() string {
+	if x != nil {
+		return x.TokenPrefix
+	}
+	return ""
+}
+
+func (x *McpTokenInfo) GetScope() string {
+	if x != nil {
+		return x.Scope
+	}
+	return ""
+}
+
+func (x *McpTokenInfo) GetExpiresAt() int64 {
+	if x != nil {
+		return x.ExpiresAt
+	}
+	return 0
+}
+
+func (x *McpTokenInfo) GetLastUsedAt() int64 {
+	if x != nil {
+		return x.LastUsedAt
+	}
+	return 0
+}
+
+func (x *McpTokenInfo) GetLastUsedIp() string {
+	if x != nil {
+		return x.LastUsedIp
+	}
+	return ""
+}
+
+func (x *McpTokenInfo) GetCreatedAt() int64 {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return 0
+}
+
+func (x *McpTokenInfo) GetExpired() bool {
+	if x != nil {
+		return x.Expired
+	}
+	return false
+}
+
+type CreateMcpTokenReq struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	ExpiresInDays int32                  `protobuf:"varint,3,opt,name=expires_in_days,json=expiresInDays,proto3" json:"expires_in_days,omitempty"` // 7 / 30 / 90
+	Scope         string                 `protobuf:"bytes,4,opt,name=scope,proto3" json:"scope,omitempty"`
+	ClientIp      string                 `protobuf:"bytes,5,opt,name=client_ip,json=clientIp,proto3" json:"client_ip,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateMcpTokenReq) Reset() {
+	*x = CreateMcpTokenReq{}
+	mi := &file_canvas_proto_msgTypes[58]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateMcpTokenReq) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateMcpTokenReq) ProtoMessage() {}
+
+func (x *CreateMcpTokenReq) ProtoReflect() protoreflect.Message {
+	mi := &file_canvas_proto_msgTypes[58]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateMcpTokenReq.ProtoReflect.Descriptor instead.
+func (*CreateMcpTokenReq) Descriptor() ([]byte, []int) {
+	return file_canvas_proto_rawDescGZIP(), []int{58}
+}
+
+func (x *CreateMcpTokenReq) GetUserId() int64 {
+	if x != nil {
+		return x.UserId
+	}
+	return 0
+}
+
+func (x *CreateMcpTokenReq) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *CreateMcpTokenReq) GetExpiresInDays() int32 {
+	if x != nil {
+		return x.ExpiresInDays
+	}
+	return 0
+}
+
+func (x *CreateMcpTokenReq) GetScope() string {
+	if x != nil {
+		return x.Scope
+	}
+	return ""
+}
+
+func (x *CreateMcpTokenReq) GetClientIp() string {
+	if x != nil {
+		return x.ClientIp
+	}
+	return ""
+}
+
+type CreateMcpTokenResp struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Token         *McpTokenInfo          `protobuf:"bytes,1,opt,name=token,proto3" json:"token,omitempty"`
+	PlainToken    string                 `protobuf:"bytes,2,opt,name=plain_token,json=plainToken,proto3" json:"plain_token,omitempty"` // 明文，只此一次
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateMcpTokenResp) Reset() {
+	*x = CreateMcpTokenResp{}
+	mi := &file_canvas_proto_msgTypes[59]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateMcpTokenResp) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateMcpTokenResp) ProtoMessage() {}
+
+func (x *CreateMcpTokenResp) ProtoReflect() protoreflect.Message {
+	mi := &file_canvas_proto_msgTypes[59]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateMcpTokenResp.ProtoReflect.Descriptor instead.
+func (*CreateMcpTokenResp) Descriptor() ([]byte, []int) {
+	return file_canvas_proto_rawDescGZIP(), []int{59}
+}
+
+func (x *CreateMcpTokenResp) GetToken() *McpTokenInfo {
+	if x != nil {
+		return x.Token
+	}
+	return nil
+}
+
+func (x *CreateMcpTokenResp) GetPlainToken() string {
+	if x != nil {
+		return x.PlainToken
+	}
+	return ""
+}
+
+type ListMcpTokensReq struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListMcpTokensReq) Reset() {
+	*x = ListMcpTokensReq{}
+	mi := &file_canvas_proto_msgTypes[60]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListMcpTokensReq) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListMcpTokensReq) ProtoMessage() {}
+
+func (x *ListMcpTokensReq) ProtoReflect() protoreflect.Message {
+	mi := &file_canvas_proto_msgTypes[60]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListMcpTokensReq.ProtoReflect.Descriptor instead.
+func (*ListMcpTokensReq) Descriptor() ([]byte, []int) {
+	return file_canvas_proto_rawDescGZIP(), []int{60}
+}
+
+func (x *ListMcpTokensReq) GetUserId() int64 {
+	if x != nil {
+		return x.UserId
+	}
+	return 0
+}
+
+type ListMcpTokensResp struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Tokens        []*McpTokenInfo        `protobuf:"bytes,1,rep,name=tokens,proto3" json:"tokens,omitempty"`                               // 未吊销的（含已过期），新的在前
+	ActiveCount   int32                  `protobuf:"varint,2,opt,name=active_count,json=activeCount,proto3" json:"active_count,omitempty"` // 生效中（未过期）个数
+	MaxActive     int32                  `protobuf:"varint,3,opt,name=max_active,json=maxActive,proto3" json:"max_active,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListMcpTokensResp) Reset() {
+	*x = ListMcpTokensResp{}
+	mi := &file_canvas_proto_msgTypes[61]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListMcpTokensResp) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListMcpTokensResp) ProtoMessage() {}
+
+func (x *ListMcpTokensResp) ProtoReflect() protoreflect.Message {
+	mi := &file_canvas_proto_msgTypes[61]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListMcpTokensResp.ProtoReflect.Descriptor instead.
+func (*ListMcpTokensResp) Descriptor() ([]byte, []int) {
+	return file_canvas_proto_rawDescGZIP(), []int{61}
+}
+
+func (x *ListMcpTokensResp) GetTokens() []*McpTokenInfo {
+	if x != nil {
+		return x.Tokens
+	}
+	return nil
+}
+
+func (x *ListMcpTokensResp) GetActiveCount() int32 {
+	if x != nil {
+		return x.ActiveCount
+	}
+	return 0
+}
+
+func (x *ListMcpTokensResp) GetMaxActive() int32 {
+	if x != nil {
+		return x.MaxActive
+	}
+	return 0
+}
+
+type RevokeMcpTokenReq struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	Id            int64                  `protobuf:"varint,2,opt,name=id,proto3" json:"id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RevokeMcpTokenReq) Reset() {
+	*x = RevokeMcpTokenReq{}
+	mi := &file_canvas_proto_msgTypes[62]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RevokeMcpTokenReq) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RevokeMcpTokenReq) ProtoMessage() {}
+
+func (x *RevokeMcpTokenReq) ProtoReflect() protoreflect.Message {
+	mi := &file_canvas_proto_msgTypes[62]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RevokeMcpTokenReq.ProtoReflect.Descriptor instead.
+func (*RevokeMcpTokenReq) Descriptor() ([]byte, []int) {
+	return file_canvas_proto_rawDescGZIP(), []int{62}
+}
+
+func (x *RevokeMcpTokenReq) GetUserId() int64 {
+	if x != nil {
+		return x.UserId
+	}
+	return 0
+}
+
+func (x *RevokeMcpTokenReq) GetId() int64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+type RevokeMcpTokenResp struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TokenHash     string                 `protobuf:"bytes,1,opt,name=token_hash,json=tokenHash,proto3" json:"token_hash,omitempty"` // 网关据此删校验缓存
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RevokeMcpTokenResp) Reset() {
+	*x = RevokeMcpTokenResp{}
+	mi := &file_canvas_proto_msgTypes[63]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RevokeMcpTokenResp) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RevokeMcpTokenResp) ProtoMessage() {}
+
+func (x *RevokeMcpTokenResp) ProtoReflect() protoreflect.Message {
+	mi := &file_canvas_proto_msgTypes[63]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RevokeMcpTokenResp.ProtoReflect.Descriptor instead.
+func (*RevokeMcpTokenResp) Descriptor() ([]byte, []int) {
+	return file_canvas_proto_rawDescGZIP(), []int{63}
+}
+
+func (x *RevokeMcpTokenResp) GetTokenHash() string {
+	if x != nil {
+		return x.TokenHash
+	}
+	return ""
+}
+
+type VerifyMcpTokenReq struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TokenHash     string                 `protobuf:"bytes,1,opt,name=token_hash,json=tokenHash,proto3" json:"token_hash,omitempty"` // sha256(明文) 小写 hex；明文不出网关
+	ClientIp      string                 `protobuf:"bytes,2,opt,name=client_ip,json=clientIp,proto3" json:"client_ip,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *VerifyMcpTokenReq) Reset() {
+	*x = VerifyMcpTokenReq{}
+	mi := &file_canvas_proto_msgTypes[64]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *VerifyMcpTokenReq) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*VerifyMcpTokenReq) ProtoMessage() {}
+
+func (x *VerifyMcpTokenReq) ProtoReflect() protoreflect.Message {
+	mi := &file_canvas_proto_msgTypes[64]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use VerifyMcpTokenReq.ProtoReflect.Descriptor instead.
+func (*VerifyMcpTokenReq) Descriptor() ([]byte, []int) {
+	return file_canvas_proto_rawDescGZIP(), []int{64}
+}
+
+func (x *VerifyMcpTokenReq) GetTokenHash() string {
+	if x != nil {
+		return x.TokenHash
+	}
+	return ""
+}
+
+func (x *VerifyMcpTokenReq) GetClientIp() string {
+	if x != nil {
+		return x.ClientIp
+	}
+	return ""
+}
+
+type VerifyMcpTokenResp struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TokenId       int64                  `protobuf:"varint,1,opt,name=token_id,json=tokenId,proto3" json:"token_id,omitempty"`
+	UserId        int64                  `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	Scope         string                 `protobuf:"bytes,3,opt,name=scope,proto3" json:"scope,omitempty"`
+	ExpiresAt     int64                  `protobuf:"varint,4,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *VerifyMcpTokenResp) Reset() {
+	*x = VerifyMcpTokenResp{}
+	mi := &file_canvas_proto_msgTypes[65]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *VerifyMcpTokenResp) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*VerifyMcpTokenResp) ProtoMessage() {}
+
+func (x *VerifyMcpTokenResp) ProtoReflect() protoreflect.Message {
+	mi := &file_canvas_proto_msgTypes[65]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use VerifyMcpTokenResp.ProtoReflect.Descriptor instead.
+func (*VerifyMcpTokenResp) Descriptor() ([]byte, []int) {
+	return file_canvas_proto_rawDescGZIP(), []int{65}
+}
+
+func (x *VerifyMcpTokenResp) GetTokenId() int64 {
+	if x != nil {
+		return x.TokenId
+	}
+	return 0
+}
+
+func (x *VerifyMcpTokenResp) GetUserId() int64 {
+	if x != nil {
+		return x.UserId
+	}
+	return 0
+}
+
+func (x *VerifyMcpTokenResp) GetScope() string {
+	if x != nil {
+		return x.Scope
+	}
+	return ""
+}
+
+func (x *VerifyMcpTokenResp) GetExpiresAt() int64 {
+	if x != nil {
+		return x.ExpiresAt
+	}
+	return 0
 }
 
 var File_canvas_proto protoreflect.FileDescriptor
@@ -4393,10 +5190,17 @@ const file_canvas_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\a \x01(\x03R\tcreatedAt\x12\x1d\n" +
 	"\n" +
-	"updated_at\x18\b \x01(\x03R\tupdatedAt\"6\n" +
+	"updated_at\x18\b \x01(\x03R\tupdatedAt\"R\n" +
 	"\vCanvasIdReq\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x0e\n" +
-	"\x02id\x18\x02 \x01(\tR\x02id\"\xc9\x01\n" +
+	"\x02id\x18\x02 \x01(\tR\x02id\x12\x1a\n" +
+	"\brevision\x18\x03 \x01(\tR\brevision\"n\n" +
+	"\x12CanvasRevisionResp\x12\x1a\n" +
+	"\brevision\x18\x01 \x01(\tR\brevision\x12\x1d\n" +
+	"\n" +
+	"updated_at\x18\x02 \x01(\x03R\tupdatedAt\x12\x1d\n" +
+	"\n" +
+	"node_count\x18\x03 \x01(\x05R\tnodeCount\"\xc9\x01\n" +
 	"\rSaveCanvasReq\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x12\x1a\n" +
@@ -4757,7 +5561,70 @@ const file_canvas_proto_rawDesc = "" +
 	"\bcost_cny\x18\x06 \x01(\tR\acostCny\x12\x16\n" +
 	"\x06points\x18\a \x01(\x03R\x06points\";\n" +
 	"\x14AdminCostSummaryResp\x12#\n" +
-	"\x04rows\x18\x01 \x03(\v2\x0f.canvas.CostRowR\x04rows2\x93\x10\n" +
+	"\x04rows\x18\x01 \x03(\v2\x0f.canvas.CostRowR\x04rows\"\xff\x01\n" +
+	"\fAgentCallReq\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x12\n" +
+	"\x04tool\x18\x02 \x01(\tR\x04tool\x12\x1c\n" +
+	"\targuments\x18\x03 \x01(\tR\targuments\x12\x17\n" +
+	"\acall_id\x18\x04 \x01(\tR\x06callId\x12\x16\n" +
+	"\x06client\x18\x05 \x01(\tR\x06client\x12\x14\n" +
+	"\x05agent\x18\x06 \x01(\tR\x05agent\x12\x1b\n" +
+	"\tclient_ip\x18\a \x01(\tR\bclientIp\x12\x1f\n" +
+	"\vauth_source\x18\b \x01(\tR\n" +
+	"authSource\x12\x1f\n" +
+	"\vtoken_scope\x18\t \x01(\tR\n" +
+	"tokenScope\"^\n" +
+	"\rAgentCallResp\x12\x16\n" +
+	"\x06result\x18\x01 \x01(\tR\x06result\x12\x19\n" +
+	"\bis_error\x18\x02 \x01(\bR\aisError\x12\x1a\n" +
+	"\breplayed\x18\x03 \x01(\bR\breplayed\"\x87\x02\n" +
+	"\fMcpTokenInfo\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12!\n" +
+	"\ftoken_prefix\x18\x03 \x01(\tR\vtokenPrefix\x12\x14\n" +
+	"\x05scope\x18\x04 \x01(\tR\x05scope\x12\x1d\n" +
+	"\n" +
+	"expires_at\x18\x05 \x01(\x03R\texpiresAt\x12 \n" +
+	"\flast_used_at\x18\x06 \x01(\x03R\n" +
+	"lastUsedAt\x12 \n" +
+	"\flast_used_ip\x18\a \x01(\tR\n" +
+	"lastUsedIp\x12\x1d\n" +
+	"\n" +
+	"created_at\x18\b \x01(\x03R\tcreatedAt\x12\x18\n" +
+	"\aexpired\x18\t \x01(\bR\aexpired\"\x9b\x01\n" +
+	"\x11CreateMcpTokenReq\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12&\n" +
+	"\x0fexpires_in_days\x18\x03 \x01(\x05R\rexpiresInDays\x12\x14\n" +
+	"\x05scope\x18\x04 \x01(\tR\x05scope\x12\x1b\n" +
+	"\tclient_ip\x18\x05 \x01(\tR\bclientIp\"a\n" +
+	"\x12CreateMcpTokenResp\x12*\n" +
+	"\x05token\x18\x01 \x01(\v2\x14.canvas.McpTokenInfoR\x05token\x12\x1f\n" +
+	"\vplain_token\x18\x02 \x01(\tR\n" +
+	"plainToken\"+\n" +
+	"\x10ListMcpTokensReq\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\x03R\x06userId\"\x83\x01\n" +
+	"\x11ListMcpTokensResp\x12,\n" +
+	"\x06tokens\x18\x01 \x03(\v2\x14.canvas.McpTokenInfoR\x06tokens\x12!\n" +
+	"\factive_count\x18\x02 \x01(\x05R\vactiveCount\x12\x1d\n" +
+	"\n" +
+	"max_active\x18\x03 \x01(\x05R\tmaxActive\"<\n" +
+	"\x11RevokeMcpTokenReq\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x0e\n" +
+	"\x02id\x18\x02 \x01(\x03R\x02id\"3\n" +
+	"\x12RevokeMcpTokenResp\x12\x1d\n" +
+	"\n" +
+	"token_hash\x18\x01 \x01(\tR\ttokenHash\"O\n" +
+	"\x11VerifyMcpTokenReq\x12\x1d\n" +
+	"\n" +
+	"token_hash\x18\x01 \x01(\tR\ttokenHash\x12\x1b\n" +
+	"\tclient_ip\x18\x02 \x01(\tR\bclientIp\"}\n" +
+	"\x12VerifyMcpTokenResp\x12\x19\n" +
+	"\btoken_id\x18\x01 \x01(\x03R\atokenId\x12\x17\n" +
+	"\auser_id\x18\x02 \x01(\x03R\x06userId\x12\x14\n" +
+	"\x05scope\x18\x03 \x01(\tR\x05scope\x12\x1d\n" +
+	"\n" +
+	"expires_at\x18\x04 \x01(\x03R\texpiresAt2\xb4\x13\n" +
 	"\x06Canvas\x12A\n" +
 	"\fListCanvases\x12\x17.canvas.ListCanvasesReq\x1a\x18.canvas.ListCanvasesResp\x12:\n" +
 	"\fCreateCanvas\x12\x17.canvas.CreateCanvasReq\x1a\x11.canvas.CanvasDoc\x123\n" +
@@ -4791,7 +5658,13 @@ const file_canvas_proto_rawDesc = "" +
 	"\x10AdminListPrompts\x12\x1b.canvas.AdminListPromptsReq\x1a\x1c.canvas.AdminListPromptsResp\x12M\n" +
 	"\x19AdminUpsertOfficialPrompt\x12\x1c.canvas.AdminUpsertPromptReq\x1a\x12.canvas.PromptItem\x12:\n" +
 	"\x11AdminTogglePrompt\x12\x16.canvas.AdminToggleReq\x1a\r.canvas.Empty\x12M\n" +
-	"\x10AdminCostSummary\x12\x1b.canvas.AdminCostSummaryReq\x1a\x1c.canvas.AdminCostSummaryRespB\n" +
+	"\x10AdminCostSummary\x12\x1b.canvas.AdminCostSummaryReq\x1a\x1c.canvas.AdminCostSummaryResp\x128\n" +
+	"\tAgentCall\x12\x14.canvas.AgentCallReq\x1a\x15.canvas.AgentCallResp\x12D\n" +
+	"\x11GetCanvasRevision\x12\x13.canvas.CanvasIdReq\x1a\x1a.canvas.CanvasRevisionResp\x12G\n" +
+	"\x0eCreateMcpToken\x12\x19.canvas.CreateMcpTokenReq\x1a\x1a.canvas.CreateMcpTokenResp\x12D\n" +
+	"\rListMcpTokens\x12\x18.canvas.ListMcpTokensReq\x1a\x19.canvas.ListMcpTokensResp\x12G\n" +
+	"\x0eRevokeMcpToken\x12\x19.canvas.RevokeMcpTokenReq\x1a\x1a.canvas.RevokeMcpTokenResp\x12G\n" +
+	"\x0eVerifyMcpToken\x12\x19.canvas.VerifyMcpTokenReq\x1a\x1a.canvas.VerifyMcpTokenRespB\n" +
 	"Z\b./canvasb\x06proto3"
 
 var (
@@ -4806,7 +5679,7 @@ func file_canvas_proto_rawDescGZIP() []byte {
 	return file_canvas_proto_rawDescData
 }
 
-var file_canvas_proto_msgTypes = make([]protoimpl.MessageInfo, 54)
+var file_canvas_proto_msgTypes = make([]protoimpl.MessageInfo, 66)
 var file_canvas_proto_goTypes = []any{
 	(*Empty)(nil),                       // 0: canvas.Empty
 	(*CanvasSummary)(nil),               // 1: canvas.CanvasSummary
@@ -4815,142 +5688,168 @@ var file_canvas_proto_goTypes = []any{
 	(*CreateCanvasReq)(nil),             // 4: canvas.CreateCanvasReq
 	(*CanvasDoc)(nil),                   // 5: canvas.CanvasDoc
 	(*CanvasIdReq)(nil),                 // 6: canvas.CanvasIdReq
-	(*SaveCanvasReq)(nil),               // 7: canvas.SaveCanvasReq
-	(*SaveCanvasResp)(nil),              // 8: canvas.SaveCanvasResp
-	(*SaveAsCanvasReq)(nil),             // 9: canvas.SaveAsCanvasReq
-	(*RunReference)(nil),                // 10: canvas.RunReference
-	(*RunNodeRequest)(nil),              // 11: canvas.RunNodeRequest
-	(*RunNodeReq)(nil),                  // 12: canvas.RunNodeReq
-	(*RunNodeResp)(nil),                 // 13: canvas.RunNodeResp
-	(*Candidate)(nil),                   // 14: canvas.Candidate
-	(*RunResult)(nil),                   // 15: canvas.RunResult
-	(*RunIdReq)(nil),                    // 16: canvas.RunIdReq
-	(*SelectCandidateReq)(nil),          // 17: canvas.SelectCandidateReq
-	(*CandidateSourceReq)(nil),          // 18: canvas.CandidateSourceReq
-	(*CandidateSourceResp)(nil),         // 19: canvas.CandidateSourceResp
-	(*ListRunsReq)(nil),                 // 20: canvas.ListRunsReq
-	(*ListRunsResp)(nil),                // 21: canvas.ListRunsResp
-	(*CatalogReq)(nil),                  // 22: canvas.CatalogReq
-	(*CatalogPrice)(nil),                // 23: canvas.CatalogPrice
-	(*CatalogModel)(nil),                // 24: canvas.CatalogModel
-	(*CatalogTool)(nil),                 // 25: canvas.CatalogTool
-	(*CatalogResp)(nil),                 // 26: canvas.CatalogResp
-	(*TemplateInfo)(nil),                // 27: canvas.TemplateInfo
-	(*ListTemplatesReq)(nil),            // 28: canvas.ListTemplatesReq
-	(*ListTemplatesResp)(nil),           // 29: canvas.ListTemplatesResp
-	(*TemplateIdReq)(nil),               // 30: canvas.TemplateIdReq
-	(*CreateTemplateFromCanvasReq)(nil), // 31: canvas.CreateTemplateFromCanvasReq
-	(*CreateCanvasFromTemplateReq)(nil), // 32: canvas.CreateCanvasFromTemplateReq
-	(*PromptItem)(nil),                  // 33: canvas.PromptItem
-	(*ListPromptsReq)(nil),              // 34: canvas.ListPromptsReq
-	(*PromptGroup)(nil),                 // 35: canvas.PromptGroup
-	(*PromptCounts)(nil),                // 36: canvas.PromptCounts
-	(*ListPromptsResp)(nil),             // 37: canvas.ListPromptsResp
-	(*UpsertPromptReq)(nil),             // 38: canvas.UpsertPromptReq
-	(*PromptIdReq)(nil),                 // 39: canvas.PromptIdReq
-	(*AdminListRunsReq)(nil),            // 40: canvas.AdminListRunsReq
-	(*AdminRun)(nil),                    // 41: canvas.AdminRun
-	(*AdminListRunsResp)(nil),           // 42: canvas.AdminListRunsResp
-	(*AdminRunReq)(nil),                 // 43: canvas.AdminRunReq
-	(*AdminListTemplatesReq)(nil),       // 44: canvas.AdminListTemplatesReq
-	(*AdminListTemplatesResp)(nil),      // 45: canvas.AdminListTemplatesResp
-	(*AdminUpsertTemplateReq)(nil),      // 46: canvas.AdminUpsertTemplateReq
-	(*AdminToggleReq)(nil),              // 47: canvas.AdminToggleReq
-	(*AdminListPromptsReq)(nil),         // 48: canvas.AdminListPromptsReq
-	(*AdminListPromptsResp)(nil),        // 49: canvas.AdminListPromptsResp
-	(*AdminUpsertPromptReq)(nil),        // 50: canvas.AdminUpsertPromptReq
-	(*AdminCostSummaryReq)(nil),         // 51: canvas.AdminCostSummaryReq
-	(*CostRow)(nil),                     // 52: canvas.CostRow
-	(*AdminCostSummaryResp)(nil),        // 53: canvas.AdminCostSummaryResp
+	(*CanvasRevisionResp)(nil),          // 7: canvas.CanvasRevisionResp
+	(*SaveCanvasReq)(nil),               // 8: canvas.SaveCanvasReq
+	(*SaveCanvasResp)(nil),              // 9: canvas.SaveCanvasResp
+	(*SaveAsCanvasReq)(nil),             // 10: canvas.SaveAsCanvasReq
+	(*RunReference)(nil),                // 11: canvas.RunReference
+	(*RunNodeRequest)(nil),              // 12: canvas.RunNodeRequest
+	(*RunNodeReq)(nil),                  // 13: canvas.RunNodeReq
+	(*RunNodeResp)(nil),                 // 14: canvas.RunNodeResp
+	(*Candidate)(nil),                   // 15: canvas.Candidate
+	(*RunResult)(nil),                   // 16: canvas.RunResult
+	(*RunIdReq)(nil),                    // 17: canvas.RunIdReq
+	(*SelectCandidateReq)(nil),          // 18: canvas.SelectCandidateReq
+	(*CandidateSourceReq)(nil),          // 19: canvas.CandidateSourceReq
+	(*CandidateSourceResp)(nil),         // 20: canvas.CandidateSourceResp
+	(*ListRunsReq)(nil),                 // 21: canvas.ListRunsReq
+	(*ListRunsResp)(nil),                // 22: canvas.ListRunsResp
+	(*CatalogReq)(nil),                  // 23: canvas.CatalogReq
+	(*CatalogPrice)(nil),                // 24: canvas.CatalogPrice
+	(*CatalogModel)(nil),                // 25: canvas.CatalogModel
+	(*CatalogTool)(nil),                 // 26: canvas.CatalogTool
+	(*CatalogResp)(nil),                 // 27: canvas.CatalogResp
+	(*TemplateInfo)(nil),                // 28: canvas.TemplateInfo
+	(*ListTemplatesReq)(nil),            // 29: canvas.ListTemplatesReq
+	(*ListTemplatesResp)(nil),           // 30: canvas.ListTemplatesResp
+	(*TemplateIdReq)(nil),               // 31: canvas.TemplateIdReq
+	(*CreateTemplateFromCanvasReq)(nil), // 32: canvas.CreateTemplateFromCanvasReq
+	(*CreateCanvasFromTemplateReq)(nil), // 33: canvas.CreateCanvasFromTemplateReq
+	(*PromptItem)(nil),                  // 34: canvas.PromptItem
+	(*ListPromptsReq)(nil),              // 35: canvas.ListPromptsReq
+	(*PromptGroup)(nil),                 // 36: canvas.PromptGroup
+	(*PromptCounts)(nil),                // 37: canvas.PromptCounts
+	(*ListPromptsResp)(nil),             // 38: canvas.ListPromptsResp
+	(*UpsertPromptReq)(nil),             // 39: canvas.UpsertPromptReq
+	(*PromptIdReq)(nil),                 // 40: canvas.PromptIdReq
+	(*AdminListRunsReq)(nil),            // 41: canvas.AdminListRunsReq
+	(*AdminRun)(nil),                    // 42: canvas.AdminRun
+	(*AdminListRunsResp)(nil),           // 43: canvas.AdminListRunsResp
+	(*AdminRunReq)(nil),                 // 44: canvas.AdminRunReq
+	(*AdminListTemplatesReq)(nil),       // 45: canvas.AdminListTemplatesReq
+	(*AdminListTemplatesResp)(nil),      // 46: canvas.AdminListTemplatesResp
+	(*AdminUpsertTemplateReq)(nil),      // 47: canvas.AdminUpsertTemplateReq
+	(*AdminToggleReq)(nil),              // 48: canvas.AdminToggleReq
+	(*AdminListPromptsReq)(nil),         // 49: canvas.AdminListPromptsReq
+	(*AdminListPromptsResp)(nil),        // 50: canvas.AdminListPromptsResp
+	(*AdminUpsertPromptReq)(nil),        // 51: canvas.AdminUpsertPromptReq
+	(*AdminCostSummaryReq)(nil),         // 52: canvas.AdminCostSummaryReq
+	(*CostRow)(nil),                     // 53: canvas.CostRow
+	(*AdminCostSummaryResp)(nil),        // 54: canvas.AdminCostSummaryResp
+	(*AgentCallReq)(nil),                // 55: canvas.AgentCallReq
+	(*AgentCallResp)(nil),               // 56: canvas.AgentCallResp
+	(*McpTokenInfo)(nil),                // 57: canvas.McpTokenInfo
+	(*CreateMcpTokenReq)(nil),           // 58: canvas.CreateMcpTokenReq
+	(*CreateMcpTokenResp)(nil),          // 59: canvas.CreateMcpTokenResp
+	(*ListMcpTokensReq)(nil),            // 60: canvas.ListMcpTokensReq
+	(*ListMcpTokensResp)(nil),           // 61: canvas.ListMcpTokensResp
+	(*RevokeMcpTokenReq)(nil),           // 62: canvas.RevokeMcpTokenReq
+	(*RevokeMcpTokenResp)(nil),          // 63: canvas.RevokeMcpTokenResp
+	(*VerifyMcpTokenReq)(nil),           // 64: canvas.VerifyMcpTokenReq
+	(*VerifyMcpTokenResp)(nil),          // 65: canvas.VerifyMcpTokenResp
 }
 var file_canvas_proto_depIdxs = []int32{
 	1,  // 0: canvas.ListCanvasesResp.list:type_name -> canvas.CanvasSummary
-	10, // 1: canvas.RunNodeRequest.references:type_name -> canvas.RunReference
-	11, // 2: canvas.RunNodeReq.request:type_name -> canvas.RunNodeRequest
-	14, // 3: canvas.RunResult.candidates:type_name -> canvas.Candidate
-	15, // 4: canvas.ListRunsResp.list:type_name -> canvas.RunResult
-	23, // 5: canvas.CatalogModel.prices:type_name -> canvas.CatalogPrice
-	24, // 6: canvas.CatalogResp.image_models:type_name -> canvas.CatalogModel
-	24, // 7: canvas.CatalogResp.video_models:type_name -> canvas.CatalogModel
-	25, // 8: canvas.CatalogResp.tools:type_name -> canvas.CatalogTool
-	27, // 9: canvas.ListTemplatesResp.list:type_name -> canvas.TemplateInfo
-	33, // 10: canvas.ListPromptsResp.list:type_name -> canvas.PromptItem
-	35, // 11: canvas.ListPromptsResp.groups:type_name -> canvas.PromptGroup
-	36, // 12: canvas.ListPromptsResp.counts:type_name -> canvas.PromptCounts
-	15, // 13: canvas.AdminRun.run:type_name -> canvas.RunResult
-	41, // 14: canvas.AdminListRunsResp.list:type_name -> canvas.AdminRun
-	27, // 15: canvas.AdminListTemplatesResp.list:type_name -> canvas.TemplateInfo
-	33, // 16: canvas.AdminListPromptsResp.list:type_name -> canvas.PromptItem
-	52, // 17: canvas.AdminCostSummaryResp.rows:type_name -> canvas.CostRow
-	2,  // 18: canvas.Canvas.ListCanvases:input_type -> canvas.ListCanvasesReq
-	4,  // 19: canvas.Canvas.CreateCanvas:input_type -> canvas.CreateCanvasReq
-	6,  // 20: canvas.Canvas.GetCanvas:input_type -> canvas.CanvasIdReq
-	7,  // 21: canvas.Canvas.SaveCanvas:input_type -> canvas.SaveCanvasReq
-	6,  // 22: canvas.Canvas.DeleteCanvas:input_type -> canvas.CanvasIdReq
-	9,  // 23: canvas.Canvas.SaveAsCanvas:input_type -> canvas.SaveAsCanvasReq
-	12, // 24: canvas.Canvas.RunNode:input_type -> canvas.RunNodeReq
-	16, // 25: canvas.Canvas.GetRun:input_type -> canvas.RunIdReq
-	16, // 26: canvas.Canvas.CancelRun:input_type -> canvas.RunIdReq
-	20, // 27: canvas.Canvas.ListRuns:input_type -> canvas.ListRunsReq
-	17, // 28: canvas.Canvas.SelectCandidate:input_type -> canvas.SelectCandidateReq
-	16, // 29: canvas.Canvas.RetryLibraryCopy:input_type -> canvas.RunIdReq
-	18, // 30: canvas.Canvas.CandidateSource:input_type -> canvas.CandidateSourceReq
-	22, // 31: canvas.Canvas.Catalog:input_type -> canvas.CatalogReq
-	28, // 32: canvas.Canvas.ListTemplates:input_type -> canvas.ListTemplatesReq
-	30, // 33: canvas.Canvas.GetTemplate:input_type -> canvas.TemplateIdReq
-	31, // 34: canvas.Canvas.CreateTemplateFromCanvas:input_type -> canvas.CreateTemplateFromCanvasReq
-	32, // 35: canvas.Canvas.CreateCanvasFromTemplate:input_type -> canvas.CreateCanvasFromTemplateReq
-	30, // 36: canvas.Canvas.DeleteTemplate:input_type -> canvas.TemplateIdReq
-	34, // 37: canvas.Canvas.ListPrompts:input_type -> canvas.ListPromptsReq
-	38, // 38: canvas.Canvas.CreatePrompt:input_type -> canvas.UpsertPromptReq
-	38, // 39: canvas.Canvas.UpdatePrompt:input_type -> canvas.UpsertPromptReq
-	39, // 40: canvas.Canvas.DeletePrompt:input_type -> canvas.PromptIdReq
-	40, // 41: canvas.Canvas.AdminListRuns:input_type -> canvas.AdminListRunsReq
-	43, // 42: canvas.Canvas.AdminForceFailRun:input_type -> canvas.AdminRunReq
-	44, // 43: canvas.Canvas.AdminListTemplates:input_type -> canvas.AdminListTemplatesReq
-	46, // 44: canvas.Canvas.AdminUpsertOfficialTemplate:input_type -> canvas.AdminUpsertTemplateReq
-	47, // 45: canvas.Canvas.AdminToggleTemplate:input_type -> canvas.AdminToggleReq
-	48, // 46: canvas.Canvas.AdminListPrompts:input_type -> canvas.AdminListPromptsReq
-	50, // 47: canvas.Canvas.AdminUpsertOfficialPrompt:input_type -> canvas.AdminUpsertPromptReq
-	47, // 48: canvas.Canvas.AdminTogglePrompt:input_type -> canvas.AdminToggleReq
-	51, // 49: canvas.Canvas.AdminCostSummary:input_type -> canvas.AdminCostSummaryReq
-	3,  // 50: canvas.Canvas.ListCanvases:output_type -> canvas.ListCanvasesResp
-	5,  // 51: canvas.Canvas.CreateCanvas:output_type -> canvas.CanvasDoc
-	5,  // 52: canvas.Canvas.GetCanvas:output_type -> canvas.CanvasDoc
-	8,  // 53: canvas.Canvas.SaveCanvas:output_type -> canvas.SaveCanvasResp
-	0,  // 54: canvas.Canvas.DeleteCanvas:output_type -> canvas.Empty
-	5,  // 55: canvas.Canvas.SaveAsCanvas:output_type -> canvas.CanvasDoc
-	13, // 56: canvas.Canvas.RunNode:output_type -> canvas.RunNodeResp
-	15, // 57: canvas.Canvas.GetRun:output_type -> canvas.RunResult
-	15, // 58: canvas.Canvas.CancelRun:output_type -> canvas.RunResult
-	21, // 59: canvas.Canvas.ListRuns:output_type -> canvas.ListRunsResp
-	15, // 60: canvas.Canvas.SelectCandidate:output_type -> canvas.RunResult
-	15, // 61: canvas.Canvas.RetryLibraryCopy:output_type -> canvas.RunResult
-	19, // 62: canvas.Canvas.CandidateSource:output_type -> canvas.CandidateSourceResp
-	26, // 63: canvas.Canvas.Catalog:output_type -> canvas.CatalogResp
-	29, // 64: canvas.Canvas.ListTemplates:output_type -> canvas.ListTemplatesResp
-	27, // 65: canvas.Canvas.GetTemplate:output_type -> canvas.TemplateInfo
-	27, // 66: canvas.Canvas.CreateTemplateFromCanvas:output_type -> canvas.TemplateInfo
-	5,  // 67: canvas.Canvas.CreateCanvasFromTemplate:output_type -> canvas.CanvasDoc
-	0,  // 68: canvas.Canvas.DeleteTemplate:output_type -> canvas.Empty
-	37, // 69: canvas.Canvas.ListPrompts:output_type -> canvas.ListPromptsResp
-	33, // 70: canvas.Canvas.CreatePrompt:output_type -> canvas.PromptItem
-	33, // 71: canvas.Canvas.UpdatePrompt:output_type -> canvas.PromptItem
-	0,  // 72: canvas.Canvas.DeletePrompt:output_type -> canvas.Empty
-	42, // 73: canvas.Canvas.AdminListRuns:output_type -> canvas.AdminListRunsResp
-	0,  // 74: canvas.Canvas.AdminForceFailRun:output_type -> canvas.Empty
-	45, // 75: canvas.Canvas.AdminListTemplates:output_type -> canvas.AdminListTemplatesResp
-	27, // 76: canvas.Canvas.AdminUpsertOfficialTemplate:output_type -> canvas.TemplateInfo
-	0,  // 77: canvas.Canvas.AdminToggleTemplate:output_type -> canvas.Empty
-	49, // 78: canvas.Canvas.AdminListPrompts:output_type -> canvas.AdminListPromptsResp
-	33, // 79: canvas.Canvas.AdminUpsertOfficialPrompt:output_type -> canvas.PromptItem
-	0,  // 80: canvas.Canvas.AdminTogglePrompt:output_type -> canvas.Empty
-	53, // 81: canvas.Canvas.AdminCostSummary:output_type -> canvas.AdminCostSummaryResp
-	50, // [50:82] is the sub-list for method output_type
-	18, // [18:50] is the sub-list for method input_type
-	18, // [18:18] is the sub-list for extension type_name
-	18, // [18:18] is the sub-list for extension extendee
-	0,  // [0:18] is the sub-list for field type_name
+	11, // 1: canvas.RunNodeRequest.references:type_name -> canvas.RunReference
+	12, // 2: canvas.RunNodeReq.request:type_name -> canvas.RunNodeRequest
+	15, // 3: canvas.RunResult.candidates:type_name -> canvas.Candidate
+	16, // 4: canvas.ListRunsResp.list:type_name -> canvas.RunResult
+	24, // 5: canvas.CatalogModel.prices:type_name -> canvas.CatalogPrice
+	25, // 6: canvas.CatalogResp.image_models:type_name -> canvas.CatalogModel
+	25, // 7: canvas.CatalogResp.video_models:type_name -> canvas.CatalogModel
+	26, // 8: canvas.CatalogResp.tools:type_name -> canvas.CatalogTool
+	28, // 9: canvas.ListTemplatesResp.list:type_name -> canvas.TemplateInfo
+	34, // 10: canvas.ListPromptsResp.list:type_name -> canvas.PromptItem
+	36, // 11: canvas.ListPromptsResp.groups:type_name -> canvas.PromptGroup
+	37, // 12: canvas.ListPromptsResp.counts:type_name -> canvas.PromptCounts
+	16, // 13: canvas.AdminRun.run:type_name -> canvas.RunResult
+	42, // 14: canvas.AdminListRunsResp.list:type_name -> canvas.AdminRun
+	28, // 15: canvas.AdminListTemplatesResp.list:type_name -> canvas.TemplateInfo
+	34, // 16: canvas.AdminListPromptsResp.list:type_name -> canvas.PromptItem
+	53, // 17: canvas.AdminCostSummaryResp.rows:type_name -> canvas.CostRow
+	57, // 18: canvas.CreateMcpTokenResp.token:type_name -> canvas.McpTokenInfo
+	57, // 19: canvas.ListMcpTokensResp.tokens:type_name -> canvas.McpTokenInfo
+	2,  // 20: canvas.Canvas.ListCanvases:input_type -> canvas.ListCanvasesReq
+	4,  // 21: canvas.Canvas.CreateCanvas:input_type -> canvas.CreateCanvasReq
+	6,  // 22: canvas.Canvas.GetCanvas:input_type -> canvas.CanvasIdReq
+	8,  // 23: canvas.Canvas.SaveCanvas:input_type -> canvas.SaveCanvasReq
+	6,  // 24: canvas.Canvas.DeleteCanvas:input_type -> canvas.CanvasIdReq
+	10, // 25: canvas.Canvas.SaveAsCanvas:input_type -> canvas.SaveAsCanvasReq
+	13, // 26: canvas.Canvas.RunNode:input_type -> canvas.RunNodeReq
+	17, // 27: canvas.Canvas.GetRun:input_type -> canvas.RunIdReq
+	17, // 28: canvas.Canvas.CancelRun:input_type -> canvas.RunIdReq
+	21, // 29: canvas.Canvas.ListRuns:input_type -> canvas.ListRunsReq
+	18, // 30: canvas.Canvas.SelectCandidate:input_type -> canvas.SelectCandidateReq
+	17, // 31: canvas.Canvas.RetryLibraryCopy:input_type -> canvas.RunIdReq
+	19, // 32: canvas.Canvas.CandidateSource:input_type -> canvas.CandidateSourceReq
+	23, // 33: canvas.Canvas.Catalog:input_type -> canvas.CatalogReq
+	29, // 34: canvas.Canvas.ListTemplates:input_type -> canvas.ListTemplatesReq
+	31, // 35: canvas.Canvas.GetTemplate:input_type -> canvas.TemplateIdReq
+	32, // 36: canvas.Canvas.CreateTemplateFromCanvas:input_type -> canvas.CreateTemplateFromCanvasReq
+	33, // 37: canvas.Canvas.CreateCanvasFromTemplate:input_type -> canvas.CreateCanvasFromTemplateReq
+	31, // 38: canvas.Canvas.DeleteTemplate:input_type -> canvas.TemplateIdReq
+	35, // 39: canvas.Canvas.ListPrompts:input_type -> canvas.ListPromptsReq
+	39, // 40: canvas.Canvas.CreatePrompt:input_type -> canvas.UpsertPromptReq
+	39, // 41: canvas.Canvas.UpdatePrompt:input_type -> canvas.UpsertPromptReq
+	40, // 42: canvas.Canvas.DeletePrompt:input_type -> canvas.PromptIdReq
+	41, // 43: canvas.Canvas.AdminListRuns:input_type -> canvas.AdminListRunsReq
+	44, // 44: canvas.Canvas.AdminForceFailRun:input_type -> canvas.AdminRunReq
+	45, // 45: canvas.Canvas.AdminListTemplates:input_type -> canvas.AdminListTemplatesReq
+	47, // 46: canvas.Canvas.AdminUpsertOfficialTemplate:input_type -> canvas.AdminUpsertTemplateReq
+	48, // 47: canvas.Canvas.AdminToggleTemplate:input_type -> canvas.AdminToggleReq
+	49, // 48: canvas.Canvas.AdminListPrompts:input_type -> canvas.AdminListPromptsReq
+	51, // 49: canvas.Canvas.AdminUpsertOfficialPrompt:input_type -> canvas.AdminUpsertPromptReq
+	48, // 50: canvas.Canvas.AdminTogglePrompt:input_type -> canvas.AdminToggleReq
+	52, // 51: canvas.Canvas.AdminCostSummary:input_type -> canvas.AdminCostSummaryReq
+	55, // 52: canvas.Canvas.AgentCall:input_type -> canvas.AgentCallReq
+	6,  // 53: canvas.Canvas.GetCanvasRevision:input_type -> canvas.CanvasIdReq
+	58, // 54: canvas.Canvas.CreateMcpToken:input_type -> canvas.CreateMcpTokenReq
+	60, // 55: canvas.Canvas.ListMcpTokens:input_type -> canvas.ListMcpTokensReq
+	62, // 56: canvas.Canvas.RevokeMcpToken:input_type -> canvas.RevokeMcpTokenReq
+	64, // 57: canvas.Canvas.VerifyMcpToken:input_type -> canvas.VerifyMcpTokenReq
+	3,  // 58: canvas.Canvas.ListCanvases:output_type -> canvas.ListCanvasesResp
+	5,  // 59: canvas.Canvas.CreateCanvas:output_type -> canvas.CanvasDoc
+	5,  // 60: canvas.Canvas.GetCanvas:output_type -> canvas.CanvasDoc
+	9,  // 61: canvas.Canvas.SaveCanvas:output_type -> canvas.SaveCanvasResp
+	0,  // 62: canvas.Canvas.DeleteCanvas:output_type -> canvas.Empty
+	5,  // 63: canvas.Canvas.SaveAsCanvas:output_type -> canvas.CanvasDoc
+	14, // 64: canvas.Canvas.RunNode:output_type -> canvas.RunNodeResp
+	16, // 65: canvas.Canvas.GetRun:output_type -> canvas.RunResult
+	16, // 66: canvas.Canvas.CancelRun:output_type -> canvas.RunResult
+	22, // 67: canvas.Canvas.ListRuns:output_type -> canvas.ListRunsResp
+	16, // 68: canvas.Canvas.SelectCandidate:output_type -> canvas.RunResult
+	16, // 69: canvas.Canvas.RetryLibraryCopy:output_type -> canvas.RunResult
+	20, // 70: canvas.Canvas.CandidateSource:output_type -> canvas.CandidateSourceResp
+	27, // 71: canvas.Canvas.Catalog:output_type -> canvas.CatalogResp
+	30, // 72: canvas.Canvas.ListTemplates:output_type -> canvas.ListTemplatesResp
+	28, // 73: canvas.Canvas.GetTemplate:output_type -> canvas.TemplateInfo
+	28, // 74: canvas.Canvas.CreateTemplateFromCanvas:output_type -> canvas.TemplateInfo
+	5,  // 75: canvas.Canvas.CreateCanvasFromTemplate:output_type -> canvas.CanvasDoc
+	0,  // 76: canvas.Canvas.DeleteTemplate:output_type -> canvas.Empty
+	38, // 77: canvas.Canvas.ListPrompts:output_type -> canvas.ListPromptsResp
+	34, // 78: canvas.Canvas.CreatePrompt:output_type -> canvas.PromptItem
+	34, // 79: canvas.Canvas.UpdatePrompt:output_type -> canvas.PromptItem
+	0,  // 80: canvas.Canvas.DeletePrompt:output_type -> canvas.Empty
+	43, // 81: canvas.Canvas.AdminListRuns:output_type -> canvas.AdminListRunsResp
+	0,  // 82: canvas.Canvas.AdminForceFailRun:output_type -> canvas.Empty
+	46, // 83: canvas.Canvas.AdminListTemplates:output_type -> canvas.AdminListTemplatesResp
+	28, // 84: canvas.Canvas.AdminUpsertOfficialTemplate:output_type -> canvas.TemplateInfo
+	0,  // 85: canvas.Canvas.AdminToggleTemplate:output_type -> canvas.Empty
+	50, // 86: canvas.Canvas.AdminListPrompts:output_type -> canvas.AdminListPromptsResp
+	34, // 87: canvas.Canvas.AdminUpsertOfficialPrompt:output_type -> canvas.PromptItem
+	0,  // 88: canvas.Canvas.AdminTogglePrompt:output_type -> canvas.Empty
+	54, // 89: canvas.Canvas.AdminCostSummary:output_type -> canvas.AdminCostSummaryResp
+	56, // 90: canvas.Canvas.AgentCall:output_type -> canvas.AgentCallResp
+	7,  // 91: canvas.Canvas.GetCanvasRevision:output_type -> canvas.CanvasRevisionResp
+	59, // 92: canvas.Canvas.CreateMcpToken:output_type -> canvas.CreateMcpTokenResp
+	61, // 93: canvas.Canvas.ListMcpTokens:output_type -> canvas.ListMcpTokensResp
+	63, // 94: canvas.Canvas.RevokeMcpToken:output_type -> canvas.RevokeMcpTokenResp
+	65, // 95: canvas.Canvas.VerifyMcpToken:output_type -> canvas.VerifyMcpTokenResp
+	58, // [58:96] is the sub-list for method output_type
+	20, // [20:58] is the sub-list for method input_type
+	20, // [20:20] is the sub-list for extension type_name
+	20, // [20:20] is the sub-list for extension extendee
+	0,  // [0:20] is the sub-list for field type_name
 }
 
 func init() { file_canvas_proto_init() }
@@ -4958,15 +5857,15 @@ func file_canvas_proto_init() {
 	if File_canvas_proto != nil {
 		return
 	}
-	file_canvas_proto_msgTypes[10].OneofWrappers = []any{}
-	file_canvas_proto_msgTypes[18].OneofWrappers = []any{}
+	file_canvas_proto_msgTypes[11].OneofWrappers = []any{}
+	file_canvas_proto_msgTypes[19].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_canvas_proto_rawDesc), len(file_canvas_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   54,
+			NumMessages:   66,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

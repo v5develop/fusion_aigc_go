@@ -353,7 +353,7 @@ func TestCopyJobDeletedRunStillCopiesToLibrary(t *testing.T) {
 	amock.ExpectQuery("SELECT COUNT\\(1\\) FROM afv_asset").WithArgs("cv_t", int64(7)).WillReturnRows(sqlmock.NewRows([]string{"n"}).AddRow(0))
 	amock.ExpectQuery("FROM `afv_workspace`").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(3))
 	amock.ExpectExec("INSERT INTO afv_asset").WithArgs(int64(7), int64(3), "cv_t", "image", "canvas.image",
-		sqlmock.AnyArg(), "https://cdn/lib0", "https://cdn/lib0", sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
+		sqlmock.AnyArg(), "https://cdn/lib0", "https://cdn/lib0", sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(11, 1))
 	amock.ExpectCommit()
 
@@ -592,7 +592,7 @@ func TestCopyJobOrphanRunUsesSnapshot(t *testing.T) {
 	amock.ExpectQuery("FROM `afv_workspace`").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(3))
 	for _, u := range []string{"https://cdn/lib0", "https://cdn/lib1"} {
 		amock.ExpectExec("INSERT INTO afv_asset").WithArgs(int64(7), int64(3), "cv_t", "image", "canvas.image",
-			sqlmock.AnyArg(), u, u, "1:1", sqlmock.AnyArg(), "一只猫").WillReturnResult(sqlmock.NewResult(11, 1))
+			sqlmock.AnyArg(), u, u, "1:1", sqlmock.AnyArg(), "一只猫", `["画布","用途:其他"]`).WillReturnResult(sqlmock.NewResult(11, 1))
 	}
 	amock.ExpectCommit()
 

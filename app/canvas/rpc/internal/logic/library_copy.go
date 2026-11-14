@@ -36,6 +36,7 @@ import (
 
 	"aigc-local-life/app/canvas/model"
 	"aigc-local-life/app/canvas/rpc/internal/repo"
+	"aigc-local-life/pkg/asset"
 	"aigc-local-life/pkg/mediasvc"
 	"aigc-local-life/pkg/taskevent"
 
@@ -49,6 +50,8 @@ const (
 	copyKickGrace = 10
 	// copyFailedCheck 转存永久失败的告警判据。
 	copyFailedCheck = "canvas.library_copy_failed"
+	// copyAssetRetryCheck 同步路径入素材库失败、已登记 outbox 重试的告警判据。
+	copyAssetRetryCheck = "canvas.library_asset_retry"
 	// copyOrphanedCheck run 行已不存在、无从转存的告警判据（只有人工改库会走到）。
 	copyOrphanedCheck = "canvas.library_copy_orphaned"
 	// copyVideoIdx 视频成片的转存下标（与改造前同步转存一致）。
@@ -68,7 +71,7 @@ var (
 		Namespace: "canvas",
 		Subsystem: "library_copy",
 		Name:      "jobs_total",
-		Help:      "画布产物异步转存素材库的结局：done 完成 / retry 暂时失败待重试 / failed 永久失败 / void 作废 / fallback 落 outbox 失败退回同步转存",
+		Help:      "画布产物异步转存素材库的结局：done 完成 / retry 暂时失败待重试 / failed 永久失败 / void 作废 / fallback 落 outbox 失败退回同步转存 / asset_retry 同步路径入库失败登记 outbox / requeued 永久失败定时重投 / exhausted 重投用尽",
 		Labels:    []string{"result"},
 	})
 	copyLag = metric.NewHistogramVec(&metric.HistogramVecOpts{
@@ -158,11 +161,15 @@ func hasPendingRefs(cands []model.Candidate, videoURL string) bool {
 
 // libraryStatus 成功 run 的产物是否已在素材库：""（已在 / 不适用）、pending、failed。
 func libraryStatus(r *model.NodeRun) string {
-	if r == nil || r.Status != model.RunSucceeded || r.Backend == model.BackendStudio || !hasPendingRefs(r.CandidateList(), r.VideoURL.String) {
+	if r == nil || r.Status != model.RunSucceeded || r.Backend == model.BackendStudio {
 		return ""
 	}
+	// 失败标记优先：同步路径入库失败登记的 outbox（产物已是素材库地址、只差入库）永久失败时同样给 failed，用户可一键重试
 	if r.ErrorCode.Valid && r.ErrorCode.String == model.CopyFailedCode {
 		return LibraryFailed
+	}
+	if !hasPendingRefs(r.CandidateList(), r.VideoURL.String) {
+		return ""
 	}
 	return LibraryPending
 }
@@ -574,7 +581,7 @@ func (c *core) runCopyJob(ctx context.Context, j *model.CopyJob) {
 	if !stillMine() {
 		return
 	}
-	if err := c.insertAssetsOnce(wctx, run, cands, video); err != nil {
+	if _, err := c.insertAssetsOnce(wctx, run, cands, video); err != nil {
 		retry(fmt.Errorf("入素材库失败: %w", err))
 		return
 	}
@@ -598,6 +605,11 @@ func (c *core) copyGiveUp(ctx context.Context, j *model.CopyJob, attempt int32, 
 	copyJobs.Inc("failed")
 	log.Errorw(fmt.Sprintf("canvas: run %d 产物转存素材库永久失败（第 %d 次），产物仍以私有引用可看可下载，未进素材库 (check=%s)",
 		j.RunPK, repo.CopyRound(attempt), copyFailedCheck), logx.Field("task_id", j.TaskID), logx.Field("user_id", j.UserID), logx.Field("err", errText(err)))
+	if !c.autoRequeueLeft(attempt) {
+		copyJobs.Inc("exhausted")
+		log.Errorw(fmt.Sprintf("canvas: run %d 转存素材库自动重投已用尽（第 %d 代），需人工核对，用户仍可一键重试 (check=%s)",
+			j.RunPK, requeueGen(attempt)+1, asset.CheckLibraryRetryExhausted), logx.Field("task_id", j.TaskID), logx.Field("user_id", j.UserID))
+	}
 }
 
 func errText(err error) string {

@@ -21,6 +21,8 @@ type Config struct {
 	DataSource string
 	// DB 连接池上限（可选；不配用 pkg/dbpool 的服务默认值，见 docs/api/db-pool.md）
 	DB dbpool.Config `json:",optional"`
+	// Events 画布变更事件（Redis pub/sub，P0-8 实时同步）；不配不发
+	Events EventsConf `json:",optional"`
 	// Billing 计费：off 不计费（默认）/ shadow 只算价 / on 真扣。只有 gateway 后端（image / video / tool_i2p）由 Go 计费，
 	// 每个 node run 一张预留单（RequestID = canvas-<task_id>）；Java 兼容工具与 studio 试穿由对方计费，Go 不 Hold。
 	Billing billing.Conf
@@ -31,6 +33,8 @@ type Config struct {
 	FreeWatermark FreeWatermarkConf `json:",optional"`
 	// Asset 成品写进素材库（afv_asset）：每个候选一行。EntryCode 按 kind 取 EntryCodes
 	Asset asset.Conf
+	// AssetReconcile 付费产物入库对账：定时扫近 7 天成功且已确认扣费、素材库没有对应行的 run 并幂等补入（pkg/asset.Reconciler）
+	AssetReconcile asset.ReconcileConf
 	// EntryCodes 入口码：计费 offer、素材库分类、任务中心 entry_code 三处同名（Go_V1.0.25 seed，audit.go Targets 已登记）
 	EntryCodes struct {
 		Image string `json:",default=canvas_image"`
@@ -112,6 +116,14 @@ type Config struct {
 		SweepBatch int `json:",default=50"`
 		// RetryCooldownSeconds 用户「重新存入素材库」的冷却：转存任务进永久失败不足这么多秒时不允许再次重置（每 run 约每分钟至多一次）
 		RetryCooldownSeconds int `json:",default=60"`
+		// AutoRequeueMax 转存永久失败（library_status=failed）后自动重投的代数上限（0 = 不自动重投，只留用户一键重试）：
+		// 每重投一次进下一代（attempt 跳到下一个整千），本代再按 MaxAttempts / BackoffSeconds 跑满；用户一键重试同样进一代、计入上限。
+		// 用尽后打 ERROR check=ASSET_LIBRARY_RETRY_EXHAUSTED
+		AutoRequeueMax int `json:",default=5"`
+		// AutoRequeueBackoffSeconds 第 n 代永久失败后等第 n 项秒数再自动重投（超出取最后一项）。不配用 1800,3600,7200,21600,43200
+		AutoRequeueBackoffSeconds []int `json:",optional"`
+		// AutoRequeueBatch 每轮最多自动重投几行（重投扫描每分钟一次）
+		AutoRequeueBatch int `json:",default=20"`
 	}
 	// Timeouts 各类 run 的总时限（秒），超时置失败（gateway 后端退款并取消调用；studio 取消批次；Java 调取消接口由 Java 退款，无有效登录态时退化为停止跟踪）
 	//
@@ -134,6 +146,8 @@ type Config struct {
 		MaxPromptLen      int `json:",default=3000"`
 		MaxPromptsPerUser int `json:",default=500"`
 		MaxTitleLen       int `json:",default=100"`
+		// RevisionKeep 每张画布保留最近几个 revision 的快照（afv_canvas_revision，Go_V1.0.40；三方合并 base）；<=0 不记历史
+		RevisionKeep int `json:",default=20"`
 	}
 	// FrameModelGroup 带首尾帧（image1 / image2）的视频改用的模型组：vid.seedance-2.5 不支持首尾帧（gateway 审计 10 号文件）
 	FrameModelGroup string `json:",default=vid.seedance-2"`
@@ -353,4 +367,12 @@ func (c FreeWatermarkConf) SignedTTL() time.Duration {
 		s = 600
 	}
 	return time.Duration(max(60, s)) * time.Second
+}
+
+// EventsConf 画布变更事件（Redis pub/sub `canvas:{id}:events`，网关 SSE GET /api/v1/canvas/canvases/:id/events 订阅）。
+// RedisAddr 须与网关 Auth.Session 指向同一台 Redis（pub/sub 不分库，DB 号无关）；留空不发事件——网关 SSE 仍靠 15 秒心跳对账发现变化。
+type EventsConf struct {
+	RedisAddr string `json:",optional"`
+	RedisPass string `json:",optional"`
+	RedisDB   int    `json:",optional"`
 }

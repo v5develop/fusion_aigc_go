@@ -52,7 +52,11 @@ func BearerFrom(ctx context.Context) string {
 }
 
 // rememberBearer 记住用户的 Bearer，返回它（后台轮询 Java 任务时代用户查询）。
+// MCP 访问令牌请求一律返回空：既不记（网关本就不透传），也不借用缓存里该用户网页登录留下的令牌（见 agent_auth.go）。
 func (c *core) rememberBearer(ctx context.Context, userID int64) string {
+	if viaMcpToken(ctx) {
+		return ""
+	}
 	b := BearerFrom(ctx)
 	if b != "" {
 		c.s.Bearers.Put(userID, b)

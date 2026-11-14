@@ -30,7 +30,12 @@ func NewGetCanvasLogic(ctx context.Context, svcCtx *svc.ServiceContext) *GetCanv
 }
 
 func (l *GetCanvasLogic) GetCanvas(req *types.CanvasIdPath) (resp *types.CanvasDetail, err error) {
-	out, err := l.svcCtx.CanvasRpc.GetCanvas(rpcCtx(l.ctx), &canvas_client.CanvasIdReq{UserId: ctxdata.UserID(l.ctx), Id: req.Id})
+	return l.GetCanvasAt(req, "")
+}
+
+// GetCanvasAt revision 非空且不是当前版本时取历史快照（canvas-rpc 只保留最近 Limits.RevisionKeep 个）。
+func (l *GetCanvasLogic) GetCanvasAt(req *types.CanvasIdPath, revision string) (resp *types.CanvasDetail, err error) {
+	out, err := l.svcCtx.CanvasRpc.GetCanvas(rpcCtx(l.ctx), &canvas_client.CanvasIdReq{UserId: ctxdata.UserID(l.ctx), Id: req.Id, Revision: revision})
 	if err != nil {
 		return nil, err
 	}

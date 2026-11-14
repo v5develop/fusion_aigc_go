@@ -14,6 +14,18 @@ import (
 )
 
 type (
+	AgentCallReq                = canvas.AgentCallReq
+	AgentCallResp               = canvas.AgentCallResp
+	CanvasRevisionResp          = canvas.CanvasRevisionResp
+	McpTokenInfo                = canvas.McpTokenInfo
+	CreateMcpTokenReq           = canvas.CreateMcpTokenReq
+	CreateMcpTokenResp          = canvas.CreateMcpTokenResp
+	ListMcpTokensReq            = canvas.ListMcpTokensReq
+	ListMcpTokensResp           = canvas.ListMcpTokensResp
+	RevokeMcpTokenReq           = canvas.RevokeMcpTokenReq
+	RevokeMcpTokenResp          = canvas.RevokeMcpTokenResp
+	VerifyMcpTokenReq           = canvas.VerifyMcpTokenReq
+	VerifyMcpTokenResp          = canvas.VerifyMcpTokenResp
 	AdminCostSummaryReq         = canvas.AdminCostSummaryReq
 	AdminCostSummaryResp        = canvas.AdminCostSummaryResp
 	AdminListPromptsReq         = canvas.AdminListPromptsReq
@@ -111,6 +123,15 @@ type (
 		AdminUpsertOfficialPrompt(ctx context.Context, in *AdminUpsertPromptReq, opts ...grpc.CallOption) (*PromptItem, error)
 		AdminTogglePrompt(ctx context.Context, in *AdminToggleReq, opts ...grpc.CallOption) (*Empty, error)
 		AdminCostSummary(ctx context.Context, in *AdminCostSummaryReq, opts ...grpc.CallOption) (*AdminCostSummaryResp, error)
+		// 智能体工具（只增，2026-11-13）
+		AgentCall(ctx context.Context, in *AgentCallReq, opts ...grpc.CallOption) (*AgentCallResp, error)
+		// 画布当前 revision（只读元数据；网关 SSE / 轮询）
+		GetCanvasRevision(ctx context.Context, in *CanvasIdReq, opts ...grpc.CallOption) (*CanvasRevisionResp, error)
+		// MCP 访问令牌（Go_V1.0.42）
+		CreateMcpToken(ctx context.Context, in *CreateMcpTokenReq, opts ...grpc.CallOption) (*CreateMcpTokenResp, error)
+		ListMcpTokens(ctx context.Context, in *ListMcpTokensReq, opts ...grpc.CallOption) (*ListMcpTokensResp, error)
+		RevokeMcpToken(ctx context.Context, in *RevokeMcpTokenReq, opts ...grpc.CallOption) (*RevokeMcpTokenResp, error)
+		VerifyMcpToken(ctx context.Context, in *VerifyMcpTokenReq, opts ...grpc.CallOption) (*VerifyMcpTokenResp, error)
 	}
 
 	defaultCanvas struct {
@@ -293,4 +314,36 @@ func (m *defaultCanvas) AdminTogglePrompt(ctx context.Context, in *AdminToggleRe
 func (m *defaultCanvas) AdminCostSummary(ctx context.Context, in *AdminCostSummaryReq, opts ...grpc.CallOption) (*AdminCostSummaryResp, error) {
 	client := canvas.NewCanvasClient(m.cli.Conn())
 	return client.AdminCostSummary(ctx, in, opts...)
+}
+
+// 智能体工具（只增，2026-11-13）
+func (m *defaultCanvas) AgentCall(ctx context.Context, in *AgentCallReq, opts ...grpc.CallOption) (*AgentCallResp, error) {
+	client := canvas.NewCanvasClient(m.cli.Conn())
+	return client.AgentCall(ctx, in, opts...)
+}
+
+// 画布当前 revision（只读元数据；网关 SSE / 轮询）
+func (m *defaultCanvas) GetCanvasRevision(ctx context.Context, in *CanvasIdReq, opts ...grpc.CallOption) (*CanvasRevisionResp, error) {
+	client := canvas.NewCanvasClient(m.cli.Conn())
+	return client.GetCanvasRevision(ctx, in, opts...)
+}
+
+func (m *defaultCanvas) CreateMcpToken(ctx context.Context, in *CreateMcpTokenReq, opts ...grpc.CallOption) (*CreateMcpTokenResp, error) {
+	client := canvas.NewCanvasClient(m.cli.Conn())
+	return client.CreateMcpToken(ctx, in, opts...)
+}
+
+func (m *defaultCanvas) ListMcpTokens(ctx context.Context, in *ListMcpTokensReq, opts ...grpc.CallOption) (*ListMcpTokensResp, error) {
+	client := canvas.NewCanvasClient(m.cli.Conn())
+	return client.ListMcpTokens(ctx, in, opts...)
+}
+
+func (m *defaultCanvas) RevokeMcpToken(ctx context.Context, in *RevokeMcpTokenReq, opts ...grpc.CallOption) (*RevokeMcpTokenResp, error) {
+	client := canvas.NewCanvasClient(m.cli.Conn())
+	return client.RevokeMcpToken(ctx, in, opts...)
+}
+
+func (m *defaultCanvas) VerifyMcpToken(ctx context.Context, in *VerifyMcpTokenReq, opts ...grpc.CallOption) (*VerifyMcpTokenResp, error) {
+	client := canvas.NewCanvasClient(m.cli.Conn())
+	return client.VerifyMcpToken(ctx, in, opts...)
 }

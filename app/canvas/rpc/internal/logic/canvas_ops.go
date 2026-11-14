@@ -99,6 +99,7 @@ func (c *core) insertCanvas(ctx context.Context, userID, ws int64, title string,
 		return nil, nil, err
 	}
 	x.CreatedAt, x.UpdatedAt = now, now
+	c.afterWrite(ctx, x.ID, userID, x.Revision, snap, x.NodeCount, changedNodeIDs(nil, d))
 	return x, snap, nil
 }
 
@@ -130,7 +131,19 @@ func (c *core) GetCanvas(ctx context.Context, in *canvas.CanvasIdReq) (*canvas.C
 	if x == nil {
 		return nil, xerr.NotFoundf("画布")
 	}
-	d, err := ParseSnapshot(x.Snapshot, 0)
+	snapshot := x.Snapshot
+	if rev := strings.TrimSpace(in.Revision); rev != "" && rev != x.Revision {
+		// 历史版本（三方合并 base）：存储态快照 + 与当前同样的运行态回填（base / theirs 的运行态键一致，合并时自然抵消）
+		h, raw, err := c.historicalSnapshot(ctx, x, rev)
+		if err != nil {
+			return nil, err
+		}
+		snapshot = raw
+		hx := *x
+		hx.Revision, hx.NodeCount, hx.UpdatedAt = h.Revision, h.NodeCount, h.CreatedAt
+		x = &hx
+	}
+	d, err := ParseSnapshot(snapshot, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -223,6 +236,7 @@ func (c *core) SaveCanvas(ctx context.Context, in *canvas.SaveCanvasReq) (*canva
 		}
 		return conflict(now), nil
 	}
+	c.afterWrite(ctx, cur.ID, in.UserId, args.NewRevision, args.Snapshot, args.NodeCount, c.changedForEvent(cur.Snapshot, args.Snapshot))
 	return &canvas.SaveCanvasResp{Revision: args.NewRevision, UpdatedAt: c.now().UnixMilli(), NodeCount: args.NodeCount, CoverUrl: args.CoverURL}, nil
 }
 
