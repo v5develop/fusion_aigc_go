@@ -24,8 +24,10 @@ type Config struct {
 	// Storage 须与网关一致：素材只接受本存储签发的上传地址
 	Storage storage.Conf
 	// Asset 成品写进素材库；Type/EntryCode 按 kind 取下面 Poster / LongImage 的配置
-	Asset  asset.Conf
-	Poster KindConf
+	Asset asset.Conf
+	// AssetReconcile 付费产物入库对账：定时扫近 7 天成功且已扣费、素材库没有对应行的记录并幂等补入（pkg/asset.Reconciler）
+	AssetReconcile asset.ReconcileConf
+	Poster         KindConf
 	// ActionTransfer 动作迁移：人物图 + 动作视频 → 视频（执行面 9，seedance 2.0 会路由到 86）
 	ActionTransfer KindConf
 	// LongImage 长图：模板必选（76 的 template_url 必填），比例固定 1:3（产品定），Model 留空不传（76 没有 model 参数）

@@ -503,13 +503,29 @@ func (f *flow) finishDelivery(ctx context.Context, t *model.Task, b *model.Batch
 		extra["billing_status"] = model.BillingSettled
 	}
 	// 同步转存 / 免费档：先入素材库再置成功：批次收敛按子任务状态计数，置成功之后才写资产会出现「批次已终态、资产行还没有」的窗口，
-	// 前端在这个窗口里点「存为资产」拿到 asset_id=0。入库失败只记日志不拦交付（saveAsset 内部吞错）；
-	// 置成功失败留在交付中下一轮续做时，saveAsset 按 source_task_id 查重，不会重复写。
+	// 前端在这个窗口里点「存为资产」拿到 asset_id=0。置成功失败留在交付中下一轮续做时，saveAssetErr 按 source_task_id 查重，不会重复写。
+	// 入库失败（S1）：
+	//   - 付费同步转存（成品是素材库公开地址、已确认扣费）：不置成功，留在交付中下一轮续做（结算幂等，不重复扣费）；
+	//     超过 deliverGrace 仍入不了库则照常交付（入库失败不能拖住已付费的成品，更不能置失败），打 ERROR check=ASSET_RECONCILE_PENDING，
+	//     由对账扫描（asset_reconcile.go）补入；
+	//   - 免费档（mrw:// 水印视图，不扣费）：照常交付，但不吞错——打 ERROR check=studio.free_asset_failed。
 	// 付费先交付（成品是 mr://）：素材库只写公开地址，入库随后台转存完成（library_copy.go），接口在此期间给 library_status=pending。
 	t.ResultURL.String = res.URL
 	pending := isPendingRef(res.URL)
 	if !pending {
-		f.saveAsset(ctx, t, b, res.URL)
+		if aerr := f.saveAssetErr(ctx, t, b, res.URL); aerr != nil {
+			switch {
+			case isWatermarkRef(res.URL):
+				log.Errorw(fmt.Sprintf("studio: 子任务 %d 免费档成品入素材库失败（不扣费，照常交付） (check=%s)", t.ID, freeAssetFailedCheck),
+					logx.Field("task_id", t.TaskID.String), logx.Field("user_id", b.UserID), logx.Field("err", aerr.Error()))
+			case !overdue:
+				dfail = taskevent.Fail{Class: "TEMPORARY", Code: "ASSET_SAVE_FAILED", Check: "studio.deliver_asset", Message: "入素材库失败，留在交付中下一轮续做"}
+				log.Errorf("studio: 子任务 %d 入素材库失败，留在交付中下一轮续做: %v", t.ID, aerr)
+				return
+			default:
+				asset.LogPending(ctx, "studio", t.ID, t.TaskID.String, b.UserID, aerr)
+			}
+		}
 	}
 	ok, err := f.repo.Task.TransitStatus(ctx, t.ID, model.TaskDelivering, model.TaskSucceeded, extra)
 	if err != nil {
@@ -718,14 +734,11 @@ func buildTaskRequest(t *model.Task, b *model.Batch) (aigateway.CallRequest, err
 // kindNames 素材名。
 var kindNames = map[model.Kind]string{model.KindTryon: "商拍换装", model.KindPose: "姿态复刻", model.KindImageGen: "图片生成"}
 
-// saveAsset 成品写素材库（每张一行，source_task_id = 子任务号，entry_code 按 kind 取三个 studio 入口码）。失败只记日志。
-func (f *flow) saveAsset(ctx context.Context, t *model.Task, b *model.Batch, url string) {
-	if err := f.saveAssetErr(ctx, t, b, url); err != nil {
-		logx.WithContext(ctx).Errorf("studio: 子任务 %d 写素材库失败: %v", t.ID, err)
-	}
-}
+// freeAssetFailedCheck 免费档成品入素材库失败的告警判据（不扣费，照常交付，不进对账）。
+const freeAssetFailedCheck = "studio.free_asset_failed"
 
-// saveAssetErr 同 saveAsset，返回写入错误（后台转存据此重试）。url 只能是素材库公开地址或免费档 mrw://，不能是 mr://
+// saveAssetErr 成品写素材库（每张一行，source_task_id = 子任务号，entry_code 按 kind 取三个 studio 入口码），返回写入错误
+// （交付据此留在交付中续做、后台转存据此重试）。url 只能是素材库公开地址或免费档 mrw://，不能是 mr://
 // （Java 侧多个 afv_asset 读口不解析 mr://，见 library_copy.go）。
 //
 // 查重：交付在置成功前入库，置成功失败下一轮重来时这里已有一行，不再写第二条（查询失败照写，资产比去重要紧）。
@@ -760,9 +773,9 @@ func (f *flow) saveAssetErr(ctx context.Context, t *model.Task, b *model.Batch, 
 func (f *flow) assetRow(t *model.Task, b *model.Batch, url string, extra map[string]any) asset.Asset {
 	cfg := f.cfg.Asset
 	p, _ := parsePayload(b.Payload)
-	ar := ""
+	ar, res := "", ""
 	if p != nil {
-		ar = p.AspectRatio
+		ar, res = p.AspectRatio, p.Resolution
 	}
 	pm := map[string]any{
 		"batchId": b.ID, "kind": t.Kind, "modelIndex": t.ModelIndex, "shotIndex": t.ShotIndex,
@@ -772,10 +785,13 @@ func (f *flow) assetRow(t *model.Task, b *model.Batch, url string, extra map[str
 		pm[k] = v
 	}
 	props, _ := json.Marshal(pm)
+	typ, entry := orDefault(cfg.Type, "image"), svc.EntryCode(f.cfg, t.Kind)
 	return asset.Asset{
-		UserID: b.UserID, SourceTaskID: t.TaskID.String, Type: orDefault(cfg.Type, "image"),
-		EntryCode: svc.EntryCode(f.cfg, t.Kind), Name: kindNames[t.Kind], CoverURL: url, ResultURL: url,
+		UserID: b.UserID, SourceTaskID: t.TaskID.String, Type: typ,
+		EntryCode: entry, Name: kindNames[t.Kind], CoverURL: url, ResultURL: url,
 		AspectRatio: ar, AIPrompt: PromptSummary(t), Properties: string(props),
+		// 系统标签：功能名（商拍换装 / 姿态复刻 / 图片生成）+ 用途（按入口码，见 pkg/asset.EntryUsage）+ 清晰度
+		SysTags: asset.SysTags{Feature: kindNames[t.Kind], Usage: asset.UsageFor(entry, typ), Resolution: res}.List(),
 	}
 }
 

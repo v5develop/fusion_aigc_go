@@ -24,6 +24,8 @@ type (
 	AfvDigitalHumanPortraitModel interface {
 		afvDigitalHumanPortraitModel
 		withSession(session sqlx.Session) AfvDigitalHumanPortraitModel
+		// WithSession 同 withSession，导出给业务层：置完成与入素材库同一事务（pkg/asset.FinishWithAssets）。
+		WithSession(session sqlx.Session) AfvDigitalHumanPortraitModel
 		FindOwned(ctx context.Context, id, userID int64) (*AfvDigitalHumanPortrait, error)
 		FindByRequestID(ctx context.Context, userID int64, requestID string) (*AfvDigitalHumanPortrait, error)
 		// Finish 生成中 → 完成/失败，返回是否由本次调用完成。imageURLs 为 JSON 数组。
@@ -76,4 +78,8 @@ func (m *customAfvDigitalHumanPortraitModel) ListGenerating(ctx context.Context,
 	q := fmt.Sprintf("SELECT %s FROM %s WHERE `status` = ? AND `deleted` = 0 AND `update_time` < ? ORDER BY `id` LIMIT ?", afvDigitalHumanPortraitRows, m.table)
 	var list []*AfvDigitalHumanPortrait
 	return list, m.conn.QueryRowsCtx(ctx, &list, q, PortraitGenerating, before, limit)
+}
+
+func (m *customAfvDigitalHumanPortraitModel) WithSession(session sqlx.Session) AfvDigitalHumanPortraitModel {
+	return m.withSession(session)
 }

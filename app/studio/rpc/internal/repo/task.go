@@ -6,6 +6,7 @@ import (
 	"errors"
 	"sort"
 	"strings"
+	"time"
 
 	"aigc-local-life/app/studio/model"
 	"aigc-local-life/pkg/bundb"
@@ -357,4 +358,24 @@ func (r *TaskRepo) StatsByBatches(ctx context.Context, batchIDs []int64) (map[in
 		out[x.BatchID] = BatchStat{CostCNY: x.Cost, ModelGroup: x.ModelGroup}
 	}
 	return out, err
+}
+
+// ListSettledSucceeded 付费产物入库对账（logic/asset_reconcile.go）：成功且已确认扣费（billing_status=已结算）的子任务，
+// 附加键集分页条件 cond（pkg/asset.KeysetCond 生成，列为 t.updated_at / t.id），按 updated_at, id 升序（走 idx_sync_updated_id）。
+// 不看 deleted：用户删除批次不影响付费成品入素材库（与转存 outbox 同一口径）。
+func (r *TaskRepo) ListSettledSucceeded(ctx context.Context, cond string, args []any, limit int) ([]*model.Task, error) {
+	var list []*model.Task
+	err := r.db.NewSelect().Model(&list).Where("t.status = ?", model.TaskSucceeded).Where("t.billing_status = ?", model.BillingSettled).
+		Where(cond, args...).OrderExpr("t.updated_at ASC, t.id ASC").Limit(int64(max(1, limit))).Scan(ctx)
+	return list, err
+}
+
+// AcquireLease 抢子任务的行租约（不心跳；对账补入这类一次性短操作用，用完 ReleaseLease）。
+func (r *TaskRepo) AcquireLease(ctx context.Context, id int64, owner string, ttl time.Duration) (bool, error) {
+	return lease.Acquire(ctx, r.db, TableTask, id, owner, ttl)
+}
+
+// ReleaseLease 释放子任务的行租约（只对 owner 生效）。
+func (r *TaskRepo) ReleaseLease(ctx context.Context, id int64, owner string) error {
+	return lease.Release(ctx, r.db, TableTask, id, owner)
 }

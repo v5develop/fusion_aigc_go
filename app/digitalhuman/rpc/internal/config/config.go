@@ -2,6 +2,7 @@ package config
 
 import (
 	"aigc-local-life/pkg/aigc"
+	"aigc-local-life/pkg/asset"
 	"aigc-local-life/pkg/billing"
 	"aigc-local-life/pkg/dbpool"
 	"aigc-local-life/pkg/storage"
@@ -41,7 +42,10 @@ type Config struct {
 			EntryCode string `json:",default=digitalHuman"`
 		}
 	}
-	Agreement struct {
+	// AssetReconcile 付费产物入库对账：定时扫近 7 天已完成（已确认扣费）、素材库没有对应行的数字人口播视频并幂等补入（pkg/asset.Reconciler）。
+	// AI 定制形象不扣费，不在对账之列。
+	AssetReconcile asset.ReconcileConf
+	Agreement      struct {
 		// AigcVersion AIGC 功能使用约定的当前版本；条款改版后 +1，用户需重新同意
 		AigcVersion int `json:",default=1"`
 	}

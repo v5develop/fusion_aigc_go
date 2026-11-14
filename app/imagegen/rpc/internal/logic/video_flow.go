@@ -15,6 +15,7 @@ import (
 	"aigc-local-life/pkg/asset"
 
 	"github.com/zeromicro/go-zero/core/logx"
+	"github.com/zeromicro/go-zero/core/stores/sqlx"
 )
 
 // pollVideos 探店视频 / 带货短剧是两步：先等剧本（72 / 87），用户确认后再等成片（73 / 88）。
@@ -148,13 +149,13 @@ func (p *Poller) pollVideoGenerates(ctx context.Context) {
 			if c.Kind == model.KindVideoRemake && !hasCover(c) {
 				frame = remakeFrameCover(ctx, svcCtx, c, u)
 			}
-			ok, err := svcCtx.Video.FinishGenerate(ctx, c.Id, model.VideoDone, u, frame, "")
+			// 置完成与入素材库同一事务；入库失败退回只置完成、照常交付，由对账扫描补入
+			_, err := finishWithAssets(ctx, svcCtx, c.Id, c.UserId, videoAssetsOf(svcCtx, c, u, frame), func(ctx context.Context, s sqlx.Session) (bool, error) {
+				return svcCtx.Video.WithSession(s).FinishGenerate(ctx, c.Id, model.VideoDone, u, frame, "")
+			})
 			if err != nil {
 				logx.WithContext(ctx).Errorf("finish generate %s %d: %v", c.Kind, c.Id, err)
 				continue
-			}
-			if ok {
-				saveVideoAsset(ctx, svcCtx, c, u, frame)
 			}
 		case r != nil && r.Done():
 			aigc.LogOutcome(ctx, aigc.Trace{Service: "imagegen", Kind: c.Kind, Stage: "generate", RecordID: c.Id, UserID: c.UserId, TaskCenterID: taskcenter.Ref("vid", c.Id), ExecTaskID: c.GenTaskId.String}, r)
@@ -187,16 +188,22 @@ func remakeFrameCover(ctx context.Context, svcCtx *svc.ServiceContext, c *model.
 	return url
 }
 
-// saveVideoAsset 成品写进素材库，封面用出镜人物图；复刻没有源封面时用抽出的代表帧，都没有就用成片地址。
-func saveVideoAsset(ctx context.Context, svcCtx *svc.ServiceContext, c *model.AfvVideoCreation, url, frame string) {
-	if !svcCtx.Config.Asset.Enabled {
-		return
+// videoFeature 视频各 kind 的功能中文名（系统标签用，与 Java 计费 offer 的 name 一致）。
+var videoFeature = map[string]string{
+	model.KindExploreShop: "探店视频", model.KindShortDrama: "带货短剧", model.KindVideoRemake: "爆款视频复刻",
+}
+
+// 素材库行的封面用出镜人物图；复刻没有源封面时用抽出的代表帧，都没有就用成片地址。
+// videoAssetsOf 出片成品的素材库行（一行）；开关关 / 无成品 / kind 未配置时为空。
+func videoAssetsOf(svcCtx *svc.ServiceContext, c *model.AfvVideoCreation, url, frame string) []asset.Asset {
+	if !svcCtx.Config.Asset.Enabled || url == "" {
+		return nil
 	}
 	assetType, entryCode := svcCtx.Config.VideoRemake.AssetType, svcCtx.Config.VideoRemake.AssetEntryCode
 	if c.Kind != model.KindVideoRemake {
 		cfg, err := videoKindConf(svcCtx, c.Kind)
 		if err != nil {
-			return
+			return nil
 		}
 		assetType, entryCode = cfg.AssetType, cfg.AssetEntryCode
 	}
@@ -221,8 +228,7 @@ func saveVideoAsset(ctx context.Context, svcCtx *svc.ServiceContext, c *model.Af
 		UserID: c.UserId, SourceTaskID: c.GenTaskId.String, Type: assetType, EntryCode: entryCode,
 		Name: name, CoverURL: cover, ResultURL: url, AspectRatio: c.Size, AIPrompt: name,
 		Properties: string(props),
+		SysTags:    asset.SysTags{Feature: videoFeature[c.Kind], Usage: asset.UsageFor(entryCode, assetType)}.List(),
 	}
-	if err := svcCtx.Asset.InsertSet(ctx, []asset.Asset{a}); err != nil {
-		logx.WithContext(ctx).Errorf("save asset of %s %d: %v", c.Kind, c.Id, err)
-	}
+	return []asset.Asset{a}
 }

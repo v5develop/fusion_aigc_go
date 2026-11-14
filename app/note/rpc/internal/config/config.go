@@ -28,6 +28,8 @@ type Config struct {
 	CopywritingRpc zrpc.RpcClientConf
 	// Asset 成品写进素材库（afv_asset）：每张图一行，用 source_task_id 串起来
 	Asset asset.Conf
+	// AssetReconcile 付费产物入库对账：定时扫近 7 天已完成（已确认扣费）、素材库没有对应行的笔记并幂等补入（pkg/asset.Reconciler）
+	AssetReconcile asset.ReconcileConf
 	// TaskIDPrefix 提交执行面的 task_id 前缀，不能含下划线
 	TaskIDPrefix string `json:",default=AiCreationLife"`
 	Limits       struct {

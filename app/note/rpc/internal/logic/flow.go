@@ -13,6 +13,7 @@ import (
 	"aigc-local-life/pkg/taskcenter"
 
 	"github.com/zeromicro/go-zero/core/logx"
+	"github.com/zeromicro/go-zero/core/stores/sqlx"
 )
 
 func newTaskID(svcCtx *svc.ServiceContext) string {
@@ -94,10 +95,11 @@ type Poller struct {
 	svcCtx *svc.ServiceContext
 	cancel context.CancelFunc
 	done   chan struct{}
+	recon  *asset.Reconciler // 付费产物入库对账（asset_reconcile.go），按自己的间隔跑
 }
 
 func NewPoller(svcCtx *svc.ServiceContext) *Poller {
-	return &Poller{svcCtx: svcCtx, done: make(chan struct{})}
+	return &Poller{svcCtx: svcCtx, done: make(chan struct{}), recon: newAssetReconciler(svcCtx)}
 }
 
 func (p *Poller) Start() {
@@ -112,6 +114,7 @@ func (p *Poller) Start() {
 		p.pollPlans(ctx)
 		p.pollGenerates(ctx)
 		p.svcCtx.TaskCenter.Sync(ctx) // 本轮的状态变化同步进任务中心
+		p.recon.Tick(ctx)             // 付费产物入库对账（到间隔才扫）
 		select {
 		case <-ctx.Done():
 			return
@@ -221,10 +224,9 @@ func (p *Poller) pollGenerates(ctx context.Context) {
 				failGenerate(ctx, svcCtx, n.Id, billing.DeliverBlockedReason)
 				continue
 			}
-			if ok, err := svcCtx.Note.FinishGenerate(ctx, n.Id, model.StatusDone, jsonList(urls), ""); err != nil {
+			// 设计稿：成品自动存进素材库。置完成与入库同一事务（同生同灭）；入库失败退回只置完成、照常交付，由对账扫描补入
+			if _, err := finishWithAssets(ctx, svcCtx, n, urls); err != nil {
 				logx.WithContext(ctx).Errorf("finish generate %d: %v", n.Id, err)
-			} else if ok {
-				saveNoteAssets(ctx, svcCtx, n, urls) // 设计稿：成品自动存进素材库
 			}
 		case r != nil && r.Done():
 			aigc.LogOutcome(ctx, aigc.Trace{Service: "note", Stage: "generate", RecordID: n.Id, UserID: n.UserId, TaskCenterID: taskcenter.Ref("note", n.Id), ExecTaskID: n.GenTaskId.String}, r)
@@ -250,11 +252,35 @@ func (p *Poller) query(ctx context.Context, taskID string) *aigc.Result {
 	return r
 }
 
-// saveNoteAssets 笔记成品写进素材库：每张图一行，用 source_task_id 串成一组（同现有套图的存法）。
-func saveNoteAssets(ctx context.Context, svcCtx *svc.ServiceContext, n *model.AfvImageTextNote, urls []string) {
+// finishWithAssets 生成中 → 已完成（CAS）与入素材库同一事务；入库失败退回只置完成（不拦交付、不把已扣费的笔记置失败），
+// 打 ERROR check=ASSET_RECONCILE_PENDING 等对账补入。返回是否抢到置完成。
+func finishWithAssets(ctx context.Context, svcCtx *svc.ServiceContext, n *model.AfvImageTextNote, urls []string) (bool, error) {
+	list := noteAssets(svcCtx, n, urls)
+	var write func(ctx context.Context, s sqlx.Session) error
+	if len(list) > 0 {
+		write = func(ctx context.Context, s sqlx.Session) error {
+			_, err := asset.InsertSetOnceTx(ctx, s, list)
+			return err
+		}
+	}
+	res, err := svcCtx.Asset.FinishWithAssets(ctx, func(ctx context.Context, s sqlx.Session) (bool, error) {
+		return svcCtx.Note.WithSession(s).FinishGenerate(ctx, n.Id, model.StatusDone, jsonList(urls), "")
+	}, write)
+	if err != nil {
+		return false, err
+	}
+	if res.OK && res.AssetErr != nil {
+		asset.LogPending(ctx, "note", n.Id, n.GenTaskId.String, n.UserId, res.AssetErr)
+	}
+	return res.OK, nil
+}
+
+// noteAssets 笔记成品的素材库行：每张图一行，用 source_task_id 串成一组（同现有套图的存法），下标即产物序号。
+// 开关关 / 无产物时为空。
+func noteAssets(svcCtx *svc.ServiceContext, n *model.AfvImageTextNote, urls []string) []asset.Asset {
 	cfg := svcCtx.Config.Asset
-	if !cfg.Enabled {
-		return
+	if !cfg.Enabled || len(urls) == 0 {
+		return nil
 	}
 	var prompts []string
 	if s, err := parseScript([]byte(n.PlanScript.String)); err == nil {
@@ -264,20 +290,19 @@ func saveNoteAssets(ctx context.Context, svcCtx *svc.ServiceContext, n *model.Af
 	}
 	props, _ := json.Marshal(map[string]any{"noteId": n.Id, "noteType": n.NoteType, "tags": parseList(n.Tags)})
 	list := make([]asset.Asset, 0, len(urls))
+	sysTags := asset.SysTags{Feature: "AI图文笔记", Usage: asset.UsageFor(cfg.EntryCode, cfg.Type)}.List()
 	for i, u := range urls {
 		a := asset.Asset{
 			UserID: n.UserId, SourceTaskID: n.GenTaskId.String, Type: cfg.Type, EntryCode: cfg.EntryCode,
 			Name: n.Title, CoverURL: u, ResultURL: u, AspectRatio: svcCtx.Config.Generate.Size,
-			Properties: string(props),
+			Properties: string(props), SysTags: sysTags,
 		}
 		if i < len(prompts) {
 			a.AIPrompt = prompts[i]
 		}
 		list = append(list, a)
 	}
-	if err := svcCtx.Asset.InsertSet(ctx, list); err != nil {
-		logx.WithContext(ctx).Errorf("save note assets %d: %v", n.Id, err)
-	}
+	return list
 }
 
 // transferAll 把执行面产物转存到公有桶（上游私有桶不对外可读也不长期保留）。

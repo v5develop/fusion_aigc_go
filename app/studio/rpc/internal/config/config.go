@@ -30,6 +30,8 @@ type Config struct {
 	InputURLPrefixes []string `json:",optional"`
 	// Asset 成品写进素材库（afv_asset）：每张图一行。EntryCode 不在这里配，按 kind 取 EntryCodes
 	Asset asset.Conf
+	// AssetReconcile 付费产物入库对账：定时扫近 7 天成功且已确认扣费、素材库没有对应行的子任务并幂等补入（pkg/asset.Reconciler）
+	AssetReconcile asset.ReconcileConf
 	// Library 付费成品转存素材库（resources/copy）移出交付路径：成品先以私有引用 mr://{rid}.{ext} 进交付中、结算、置成功、
 	// 对用户可见（读时现签），转存在后台按 outbox（afv_studio_copy_job，Go_V1.0.30）完成：入素材库（只写公有地址）后把子任务成品
 	// 换成素材库公有地址。免费档（mrw:// 水印视图）不受影响。
@@ -48,6 +50,14 @@ type Config struct {
 		SweepBatch int `json:",default=50"`
 		// RetryCooldownSeconds 用户「重新存入素材库」的冷却：转存任务进永久失败不足这么多秒时不允许再次重置（每子任务约每分钟至多一次）
 		RetryCooldownSeconds int `json:",default=60"`
+		// AutoRequeueMax 转存永久失败（library_status=failed）后自动重投的代数上限（0 = 不自动重投，只留用户一键重试）：
+		// 每重投一次进下一代（attempt 跳到下一个整千），本代再按 MaxAttempts / BackoffSeconds 跑满；用户一键重试同样进一代、计入上限。
+		// 用尽后打 ERROR check=ASSET_LIBRARY_RETRY_EXHAUSTED
+		AutoRequeueMax int `json:",default=5"`
+		// AutoRequeueBackoffSeconds 第 n 代永久失败后等第 n 项秒数再自动重投（超出取最后一项）。不配用 1800,3600,7200,21600,43200
+		AutoRequeueBackoffSeconds []int `json:",optional"`
+		// AutoRequeueBatch 每轮最多自动重投几行（重投扫描每分钟一次）
+		AutoRequeueBatch int `json:",default=20"`
 	}
 	// EntryCodes 三个入口码：计费 offer、素材库分类归属（Go_V1.0.21 seed）、任务中心 entry_code 三处同名
 	EntryCodes struct {

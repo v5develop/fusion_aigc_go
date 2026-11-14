@@ -18,6 +18,7 @@ import (
 	"aigc-local-life/pkg/taskcenter"
 
 	"github.com/zeromicro/go-zero/core/logx"
+	"github.com/zeromicro/go-zero/core/stores/sqlx"
 )
 
 func pagexOffset(page, size int64) (int64, int64) { return pagex.Offset(page, size) }
@@ -120,10 +121,11 @@ type Poller struct {
 	svcCtx *svc.ServiceContext
 	cancel context.CancelFunc
 	done   chan struct{}
+	recon  []*asset.Reconciler // 付费产物入库对账（asset_reconcile.go），按自己的间隔跑
 }
 
 func NewPoller(svcCtx *svc.ServiceContext) *Poller {
-	return &Poller{svcCtx: svcCtx, done: make(chan struct{})}
+	return &Poller{svcCtx: svcCtx, done: make(chan struct{}), recon: newAssetReconcilers(svcCtx)}
 }
 
 func (p *Poller) Start() {
@@ -157,6 +159,11 @@ func (p *Poller) tick(ctx context.Context) {
 	svcCtx := p.svcCtx
 	p.pollVideos(ctx)                 // 探店视频 / 带货短剧（两步）
 	defer svcCtx.TaskCenter.Sync(ctx) // 本轮的状态变化同步进任务中心
+	defer func() {                    // 付费产物入库对账（到间隔才扫）
+		for _, r := range p.recon {
+			r.Tick(ctx)
+		}
+	}()
 	rows, err := svcCtx.Creation.ListGenerating(ctx, time.Now(), pollBatch)
 	if err != nil {
 		logx.WithContext(ctx).Errorf("list generating: %v", err)
@@ -244,7 +251,16 @@ func (p *Poller) pollOne(ctx context.Context, c *model.LocalLifeCreation, timeou
 			status, reason, urls = model.StatusFailed, billing.DeliverBlockedReason, nil
 		}
 	}
-	ok, err := svcCtx.Creation.UpdateTasks(ctx, c.Id, dumpTasks(tasks), status, jsonList(urls), reason)
+	var ok bool
+	var err error
+	if status == model.StatusDone {
+		// 置完成与入素材库同一事务（同生同灭）；入库失败退回只置完成、照常交付，由对账扫描补入（见 reconcileAssets）
+		ok, err = finishWithAssets(ctx, svcCtx, c.Id, c.UserId, assetsOf(svcCtx, c, groupOf(tasks), urls), func(ctx context.Context, s sqlx.Session) (bool, error) {
+			return svcCtx.Creation.WithSession(s).UpdateTasks(ctx, c.Id, dumpTasks(tasks), status, jsonList(urls), reason)
+		})
+	} else {
+		ok, err = svcCtx.Creation.UpdateTasks(ctx, c.Id, dumpTasks(tasks), status, jsonList(urls), reason)
+	}
 	if err != nil {
 		// 确认已成功但写库失败：下一轮会再进来，Settle 幂等，不会重复扣费
 		logx.WithContext(ctx).Errorf("finish %d: %v", c.Id, err)
@@ -253,11 +269,30 @@ func (p *Poller) pollOne(ctx context.Context, c *model.LocalLifeCreation, timeou
 	if !ok {
 		return // 别处已经收过尾了（不重复结算）
 	}
-	if status == model.StatusDone {
-		saveAssets(ctx, svcCtx, c, urls)
-	} else {
+	if status != model.StatusDone {
 		svcCtx.Billing.Fail(ctx, c.UserId, c.RequestId.String, reason)
 	}
+}
+
+// finishWithAssets 置完成（finish，事务内 CAS）与入素材库同一事务：list 为空（开关关 / 无产物）时只置完成。
+// 入库失败时退回只置完成（不拦交付、不把已扣费的记录置失败），打 ERROR check=ASSET_RECONCILE_PENDING 等对账补入。
+func finishWithAssets(ctx context.Context, svcCtx *svc.ServiceContext, id, userID int64, list []asset.Asset,
+	finish func(ctx context.Context, s sqlx.Session) (bool, error)) (bool, error) {
+	var write func(ctx context.Context, s sqlx.Session) error
+	if len(list) > 0 {
+		write = func(ctx context.Context, s sqlx.Session) error {
+			_, err := asset.InsertSetOnceTx(ctx, s, list)
+			return err
+		}
+	}
+	res, err := svcCtx.Asset.FinishWithAssets(ctx, finish, write)
+	if err != nil {
+		return false, err
+	}
+	if res.OK && res.AssetErr != nil {
+		asset.LogPending(ctx, "imagegen", id, list[0].SourceTaskID, userID, res.AssetErr)
+	}
+	return res.OK, nil
 }
 
 // query 查一次结果；网络抖动等查询失败返回 nil，下一轮再查。
@@ -275,14 +310,15 @@ func (p *Poller) query(ctx context.Context, taskID string) *aigc.Result {
 	return r
 }
 
-// saveAssets 成品写进素材库：每张图一行，用第一个任务 ID 串成一组。
-func saveAssets(ctx context.Context, svcCtx *svc.ServiceContext, c *model.LocalLifeCreation, urls []string) {
-	if !svcCtx.Config.Asset.Enabled {
-		return
+// assetsOf 成品的素材库行：每张图一行，用第一个任务 ID（group）串成一组；开关关 / 无产物 / kind 未配置时为空。
+// 下标即产物序号（pkg/asset.InsertSetOnceTx 按 source_task_id + 序号幂等）。
+func assetsOf(svcCtx *svc.ServiceContext, c *model.LocalLifeCreation, group string, urls []string) []asset.Asset {
+	if !svcCtx.Config.Asset.Enabled || len(urls) == 0 {
+		return nil
 	}
 	cfg, err := kindConf(svcCtx, c.Kind)
 	if err != nil {
-		return
+		return nil
 	}
 	props, _ := json.Marshal(map[string]any{"creationId": c.Id, "kind": c.Kind, "posterType": c.PosterType.String})
 	name := c.Content
@@ -292,23 +328,30 @@ func saveAssets(ctx context.Context, svcCtx *svc.ServiceContext, c *model.LocalL
 	case model.KindVoiceover:
 		name = "数字人口播"
 	}
-	group := groupTaskID(c)
+	sysTags := asset.SysTags{Feature: localLifeFeature[c.Kind], Usage: asset.UsageFor(cfg.AssetEntryCode, cfg.AssetType)}.List()
 	list := make([]asset.Asset, 0, len(urls))
 	for _, u := range urls {
 		list = append(list, asset.Asset{
 			UserID: c.UserId, SourceTaskID: group, Type: cfg.AssetType, EntryCode: cfg.AssetEntryCode,
 			Name: name, CoverURL: coverOf(c, u), ResultURL: u, AspectRatio: c.Size, AIPrompt: c.Content,
-			Properties: string(props),
+			Properties: string(props), SysTags: sysTags,
 		})
 	}
-	if err := svcCtx.Asset.InsertSet(ctx, list); err != nil {
-		logx.WithContext(ctx).Errorf("save assets of %s %d: %v", c.Kind, c.Id, err)
-	}
+	return list
+}
+
+// localLifeFeature 本地生活各 kind 的功能中文名（系统标签用，与 Java 计费 offer 的 name 一致）。
+var localLifeFeature = map[string]string{
+	model.KindPoster: "AI海报", model.KindLongImage: "AI长图", model.KindActionTransfer: "动作迁移", model.KindVoiceover: "数字人口播",
 }
 
 // groupTaskID 一次生成的多张图在素材库里用同一个 source_task_id 成组（取第一个任务 ID）。
 func groupTaskID(c *model.LocalLifeCreation) string {
-	if t := parseTasks(c.Tasks.String); len(t) > 0 {
+	return groupOf(parseTasks(c.Tasks.String))
+}
+
+func groupOf(t []imageTask) string {
+	if len(t) > 0 {
 		return t[0].TaskID
 	}
 	return ""

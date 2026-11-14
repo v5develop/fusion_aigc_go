@@ -38,6 +38,11 @@ type (
 	AfvVideoCreationModel interface {
 		afvVideoCreationModel
 		withSession(session sqlx.Session) AfvVideoCreationModel
+		// WithSession 同 withSession，导出给业务层：置完成与入素材库同一事务（pkg/asset.FinishWithAssets）。
+		WithSession(session sqlx.Session) AfvVideoCreationModel
+		// ListFinished 付费产物入库对账用：某状态、未删除，附加键集分页条件 cond（pkg/asset.KeysetCond 生成，列为 `update_time` / `id`），
+		// 按 update_time, id 升序（走 idx_sync_update_id）。
+		ListFinished(ctx context.Context, status int64, cond string, args []any, limit int) ([]*AfvVideoCreation, error)
 		// ForceFail 运营强制失败：出片失败态记录置 admin_locked=1，之后运营重做一律拒绝。
 		ForceFail(ctx context.Context, id int64) (bool, error)
 		// AdminLocked 是否已被运营强制失败（封禁运营重做）。
@@ -211,4 +216,14 @@ func (m *customAfvVideoCreationModel) AdminLocked(ctx context.Context, id int64)
 	q := fmt.Sprintf("SELECT `admin_locked` FROM %s WHERE `id` = ? AND `deleted` = 0 LIMIT 1", m.table)
 	err := m.conn.QueryRowCtx(ctx, &locked, q, id)
 	return locked == 1, err
+}
+
+func (m *customAfvVideoCreationModel) WithSession(session sqlx.Session) AfvVideoCreationModel {
+	return m.withSession(session)
+}
+
+func (m *customAfvVideoCreationModel) ListFinished(ctx context.Context, status int64, cond string, args []any, limit int) ([]*AfvVideoCreation, error) {
+	q := fmt.Sprintf("SELECT %s FROM %s WHERE `status` = ? AND `deleted` = 0 AND %s ORDER BY `update_time`, `id` LIMIT ?", afvVideoCreationRows, m.table, cond)
+	var list []*AfvVideoCreation
+	return list, m.conn.QueryRowsCtx(ctx, &list, q, append(append([]any{status}, args...), limit)...)
 }

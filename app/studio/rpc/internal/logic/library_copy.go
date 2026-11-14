@@ -50,6 +50,7 @@ import (
 	"aigc-local-life/app/studio/model"
 	"aigc-local-life/app/studio/rpc/internal/repo"
 	"aigc-local-life/app/studio/rpc/internal/svc"
+	"aigc-local-life/pkg/asset"
 	"aigc-local-life/pkg/billing"
 	"aigc-local-life/pkg/mediasvc"
 
@@ -84,7 +85,7 @@ var (
 		Namespace: "studio",
 		Subsystem: "library_copy",
 		Name:      "jobs_total",
-		Help:      "studio 付费成品异步转存素材库的结局：done 完成 / retry 暂时失败待重试 / failed 永久失败 / void 作废 / fallback 落 outbox 失败退回同步转存",
+		Help:      "studio 付费成品异步转存素材库的结局：done 完成 / retry 暂时失败待重试 / failed 永久失败 / void 作废 / fallback 落 outbox 失败退回同步转存 / requeued 永久失败定时重投 / exhausted 重投用尽",
 		Labels:    []string{"result"},
 	})
 	copyLag = metric.NewHistogramVec(&metric.HistogramVecOpts{
@@ -459,6 +460,11 @@ func (f *flow) runCopyJob(ctx context.Context, j *model.CopyJob) {
 		if finish(model.CopyFailed, copyErrText(err), "failed") {
 			log.Errorw(fmt.Sprintf("studio: 子任务 %d 成品转存素材库永久失败（第 %d 次），成品仍以私有引用可看可下载，未进素材库 (check=%s)",
 				j.TaskPK, round, copyFailedCheck), logx.Field("task_id", j.TaskID), logx.Field("user_id", j.UserID), logx.Field("err", copyErrText(err)))
+			if !f.autoRequeueLeft(attempt) {
+				copyJobs.Inc("exhausted")
+				log.Errorw(fmt.Sprintf("studio: 子任务 %d 转存素材库自动重投已用尽（第 %d 代），需人工核对，用户仍可一键重试 (check=%s)",
+					j.TaskPK, requeueGen(attempt)+1, asset.CheckLibraryRetryExhausted), logx.Field("task_id", j.TaskID), logx.Field("user_id", j.UserID))
+			}
 			// 蒙版是成功后的可选步骤：转存不成也照补（maskSourceURL 给网关签一条干净短期地址）
 			f.maskAfterCopy(wctx, t, j.Ref)
 		}

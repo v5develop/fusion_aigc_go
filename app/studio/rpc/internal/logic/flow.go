@@ -54,11 +54,14 @@ type Poller struct {
 	done   chan struct{}
 	// cp 转存池（Start 里建好后发布）：svc.KickCopy 经它把请求路径上的转存交给池；还没启动时为 nil，等扫描接手
 	cp atomic.Pointer[copier]
+	// recon 付费产物入库对账（asset_reconcile.go，到间隔才扫）
+	recon *asset.Reconciler
 }
 
 func NewPoller(svcCtx *svc.ServiceContext) *Poller {
 	logFreeWatermark(svcCtx.Config.FreeWatermark)
 	p := &Poller{f: newFlow(svcCtx), svcCtx: svcCtx, done: make(chan struct{})}
+	p.recon = p.f.newAssetReconciler(svcCtx.Asset)
 	svcCtx.KickCopy = func(taskPK int64) {
 		if cp := p.cp.Load(); cp != nil {
 			cp.Kick(taskPK)
@@ -84,6 +87,8 @@ func (p *Poller) Start() {
 	logx.Info("studio poller started")
 	for {
 		p.f.tick(ctx)
+		p.f.requeueTick(ctx) // 转存永久失败按代退避自动重投（library_requeue.go）
+		p.recon.Tick(ctx)    // 付费产物入库对账（asset_reconcile.go）
 		select {
 		case <-ctx.Done():
 			// 先等转存池收尾（它会起蒙版协程，计入 f.wg），再等其它协程；轮询协程之后再 Kick 会被已关闭的池拒绝，留给扫描
@@ -170,6 +175,8 @@ type flow struct {
 
 	// cp 付费成品转存素材库的执行池（Poller 启动时挂上；后台接口的 flow 没有，等 Poller 扫描接手）
 	cp *copier
+	// requeueAt 上次转存永久失败定时重投扫描的时间（library_requeue.go；只在 Poller 协程里读写）
+	requeueAt time.Time
 }
 
 // semaphore.Group 的 key：批次编排按 kind 各一个名额池（商拍切图 + 反推要几分钟，不能饿住几秒就编排完的图片生成），

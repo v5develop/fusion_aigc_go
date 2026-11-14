@@ -189,3 +189,23 @@ func (r *CopyJobRepo) ResetFailed(ctx context.Context, id int64, cooldownSec int
 		Where("(finished_at IS NULL OR finished_at <= NOW(3) - INTERVAL ? SECOND)", cooldownSec).Exec(ctx))
 	return n > 0, err
 }
+
+// ListRequeueable 定时重投的候选：永久失败（不含作废——作废是「成品没付费 / 不再是它」，不该自动重做）、代数未到 maxGen
+// （attempt < maxGen * CopyAttemptEpoch）、且已过本代重投等待（dueCond / dueArgs 由 pkg/asset.RequeueDueCond 生成），finished_at 升序。
+func (r *CopyJobRepo) ListRequeueable(ctx context.Context, maxGen int, dueCond string, dueArgs []any, limit int) ([]*model.CopyJob, error) {
+	var list []*model.CopyJob
+	err := r.db.NewSelect().Model(&list).Where("j.status = ?", model.CopyFailed).
+		Where("j.attempt < ?", int64(maxGen)*int64(CopyAttemptEpoch)).Where(dueCond, dueArgs...).
+		OrderExpr("j.finished_at ASC, j.id ASC").Limit(int64(max(1, limit))).Scan(ctx)
+	return list, err
+}
+
+// Requeue 定时重投一行永久失败：同 ResetFailed（attempt 进下一代、next_at=NOW(3)、清 finished_at），但只认永久失败、
+// 以列出时的 attempt 做 CAS——与用户一键重试 / 别的实例的重投并发时只有一个改到。返回是否改到。
+func (r *CopyJobRepo) Requeue(ctx context.Context, id int64, attempt int32) (bool, error) {
+	n, err := affected(r.db.NewUpdate().Table(TableCopyJob).
+		Set("status = ?", model.CopyPending).Set("attempt = (attempt DIV ? + 1) * ?", CopyAttemptEpoch, CopyAttemptEpoch).
+		Set("next_at = NOW(3)").Set("finished_at = NULL").
+		Where("id = ?", id).Where("status = ?", model.CopyFailed).Where("attempt = ?", attempt).Exec(ctx))
+	return n > 0, err
+}
