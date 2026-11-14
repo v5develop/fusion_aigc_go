@@ -97,6 +97,9 @@ docker compose ps                   # prepare 为 Exited (0)，6 个服务为 he
 |---|---|
 | `/api/v1/local-life` | Go 网关 `127.0.0.1:18888` |
 | `/api/v1/local-life/admin` | Go 后台（与 Java 后台共用登录令牌，按 RBAC 校验权限） |
+| `/api/v1/plaza/`、`/api/v1/replicate/` | Go 网关（智能体模板页、视频做同款；结尾斜杠不可省，避免吞掉 Java 的 `/api/v1/plaza-templates`） |
+| `/api/v1/plaza/admin/`、`/api/v1/replicate/admin/` | Go 后台 |
+| `/internal/` | 404（服务间入口只给内网 Java 直连网关端口） |
 | `/api/v1/admin` | 404（Java 运营后台不走公网；确需公网访问时删掉模板里这一段） |
 | `/api/v1/`（其余） | Java `JAVA_UPSTREAM` |
 | `/swagger-ui`、`/v3/api-docs`、`/actuator`、其它 | 404 |

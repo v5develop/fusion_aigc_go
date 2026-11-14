@@ -1,6 +1,9 @@
 package config
 
 import (
+	"aigc-local-life/app/plaza/core"
+	"aigc-local-life/app/plaza/headline/service"
+	"aigc-local-life/pkg/billing"
 	"aigc-local-life/pkg/dbpool"
 	"aigc-local-life/pkg/session"
 	"aigc-local-life/pkg/token"
@@ -38,4 +41,17 @@ type Config struct {
 	AssetLibRpc zrpc.RpcClientConf
 	// CanvasRpc 画布 / 提示词库后台（/api/v1/canvas/admin、/api/v1/prompt-library/admin）
 	CanvasRpc zrpc.RpcClientConf
+	// Plaza 广场模板域后台（/api/v1/plaza/admin）：行业、模板、渠道、示例素材、行业建议、搜索缺口。库用上面的 DataSource。
+	Plaza core.Config `json:",optional"`
+	// PlazaHeadline 本周头条运营端（/api/v1/plaza/admin/headlines/**）与后台任务（摄入 / 刷新 / 校准 / 清理）。
+	// 后台任务只在 admin-api 跑，PlazaHeadline.Jobs 默认 false，上线时打开（多副本靠行租约选主）。库用上面的 DataSource。
+	PlazaHeadline service.Conf `json:",optional"`
+
+	// ReplicateAdmin 视频做同款后台（/api/v1/replicate/admin/**）。库用上面的 DataSource。
+	// Billing 必须与 gateway-api 的 Replicate.Billing 一致（同为 on），否则人工退点 / 强制收尾拒绝（避免把真实冻结的单误判为不计费）。
+	ReplicateAdmin struct {
+		Billing billing.Conf `json:",optional"`
+		// TaskCenterEnabled 强制收尾后触发任务中心同步（须与 gateway-api 的 Replicate.TaskCenterEnabled 一致，默认同为 true）
+		TaskCenterEnabled bool `json:",default=true"`
+	} `json:",optional"`
 }

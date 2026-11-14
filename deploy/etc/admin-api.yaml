@@ -38,3 +38,12 @@ AssetLibRpc:            # 资产库后台（/api/v1/asset-library/admin）：标
 CanvasRpc:              # 画布 / 提示词库后台（/api/v1/canvas/admin、/api/v1/prompt-library/admin）
   Etcd: {Hosts: [127.0.0.1:2379], Key: canvas.rpc}
   NonBlock: true
+PlazaHeadline:          # 本周头条运营端（/api/v1/plaza/admin/headlines/**）；库用 DataSource，计数 Redis 复用 Auth.Session
+  Jobs: false           # 头条后台任务（摄入 / 刷新 / 校准 / 清理）只在 admin-api 跑；上线时改 true（多副本靠行租约选主）
+
+ReplicateAdmin:         # 视频做同款后台（/api/v1/replicate/admin/**）；库用 DataSource
+  Billing:
+    # 上线须与 gateway-api 的 Replicate.Billing.Mode 同为 "on"，否则人工退点 / 强制收尾返回 BILLING_OFF（避免把真实冻结的预留单误判为不计费）。
+    # 加引号：YAML 1.1 会把裸 off / on 解析成布尔值，Mode 是字符串（off / shadow / on）。
+    Mode: "off"
+  TaskCenterEnabled: true # 强制收尾后触发任务中心同步；须与 gateway-api 的 Replicate.TaskCenterEnabled 一致

@@ -29,6 +29,67 @@ var prefixPerms = []struct{ prefix, view, update string }{
 	{"/api/v1/studio/admin", "studio:view", "studio:update"},                      // Go_V1.0.22（GET 列表/详情/依赖/成本 = view；POST 重做/强制失败 = update）
 	{"/api/v1/canvas/admin", "canvas:view", "canvas:update"},                      // Go_V1.0.26（GET = view；POST/PUT 强制失败、模板 / 提示词维护 = update）
 	{"/api/v1/prompt-library/admin", "canvas:view", "canvas:update"},              // Go_V1.0.26（提示词库与画布共用一组权限）
+	{"/api/v1/plaza/admin", "creaft_catalog:view", "creaft_catalog:edit"},         // 复用 Java 后台已有权限码（角色已授权）；高风险路由见 routePerm
+	{"/api/v1/replicate/admin", "replicate:view", "replicate:force"},              // Go_V1.0.39（GET = view；退点 / 收尾见 replicateRoutePerm）
+}
+
+const plazaAdminPrefix = "/api/v1/plaza/admin/"
+
+// permIndustryRelation 改模板行业关系的路由（PUT /templates/{id}/industries、POST /templates/batch/{assign|unassign|replaceIndustries|setOrder}）
+// 在中间件这一层要编辑权限；对已发布或已有行业的模板，改关系还要 plaza:publish——这取决于模板数据，
+// 由 handler 查 Allowed("plaza:publish") 填 core.Operator.CanPublish、core 在事务内按模板状态判定（未发布且未归类的草稿不受影响）。
+const permIndustryRelation = "creaft_catalog:edit"
+
+// IndustryRelationAction 会改变模板行业关系的批量动作（handler 据此为请求补查发布权限）。
+func IndustryRelationAction(action string) bool {
+	switch action {
+	case "assign", "unassign", "replaceIndustries", "setOrder":
+		return true
+	}
+	return false
+}
+
+// routePerm 广场后台的路由级权限覆盖（Go_V1.0.36）：发布 / 下线、删除 / 恢复 / 彻底删除、审计查看比普通读写风险高。
+// 先于前缀映射匹配；没命中返回 ""。p 必须是 path.Clean 之后的路径（批量按动作拆成独立路由，所以不用读 body）。
+func routePerm(method, p string) string {
+	if code := replicateRoutePerm(method, p); code != "" {
+		return code
+	}
+	if !strings.HasPrefix(p, plazaAdminPrefix) {
+		return ""
+	}
+	seg := strings.Split(strings.TrimPrefix(p, plazaAdminPrefix), "/")
+	switch {
+	case seg[0] == "audit" && len(seg) == 1 && method == http.MethodGet:
+		return "plaza:audit"
+	case seg[0] != "templates":
+		return ""
+	}
+	switch {
+	case len(seg) == 3 && seg[1] == "batch" && method == http.MethodPost: // /templates/batch/{action}
+		switch seg[2] {
+		case "publish", "offline":
+			return "plaza:publish"
+		case "delete", "restore":
+			return "plaza:delete"
+		}
+		if IndustryRelationAction(seg[2]) {
+			return permIndustryRelation
+		}
+	case len(seg) == 3 && method == http.MethodPut && seg[1] != "batch" && seg[2] == "industries": // PUT /templates/{id}/industries
+		return permIndustryRelation
+	case len(seg) == 3 && method == http.MethodGet && seg[2] == "audit": // /templates/{id}/audit
+		return "plaza:audit"
+	case len(seg) == 3 && method == http.MethodPost && (seg[2] == "publish" || seg[2] == "offline"):
+		return "plaza:publish"
+	case len(seg) == 3 && method == http.MethodPost && seg[2] == "restore":
+		return "plaza:delete"
+	case len(seg) == 3 && method == http.MethodDelete && seg[2] == "purge":
+		return "plaza:delete"
+	case len(seg) == 2 && method == http.MethodDelete && seg[1] != "batch": // DELETE /templates/{id}
+		return "plaza:delete"
+	}
+	return ""
 }
 
 // permFor 当前请求需要的权限码：GET / HEAD 要 view，其它要 update。
@@ -37,6 +98,9 @@ var prefixPerms = []struct{ prefix, view, update string }{
 func permFor(r *http.Request) string {
 	view, update := permView, permUpdate
 	p := cleanPath(r.URL.Path)
+	if code := routePerm(r.Method, p); code != "" {
+		return code
+	}
 	for _, x := range prefixPerms {
 		if p == x.prefix || strings.HasPrefix(p, x.prefix+"/") {
 			view, update = x.view, x.update
@@ -176,4 +240,32 @@ func bearer(r *http.Request) string {
 		return strings.TrimSpace(v[7:])
 	}
 	return v
+}
+
+const replicateAdminPrefix = "/api/v1/replicate/admin/"
+
+// replicateRoutePerm 视频做同款后台的路由级权限（Go_V1.0.39）：POST /jobs/{id}/refund 要 replicate:refund，
+// POST /jobs/{id}/force-finish 要 replicate:force；示例管理 /samples/** 的写（POST / PUT / DELETE，Go_V1.0.41）要 replicate:sample；
+// 其余走前缀映射（GET = replicate:view，其它写 = replicate:force，从严）。
+func replicateRoutePerm(method, p string) string {
+	if !strings.HasPrefix(p, replicateAdminPrefix) {
+		return ""
+	}
+	seg := strings.Split(strings.TrimPrefix(p, replicateAdminPrefix), "/")
+	if seg[0] == "samples" && method != http.MethodGet && method != http.MethodHead {
+		return "replicate:sample"
+	}
+	if method != http.MethodPost {
+		return ""
+	}
+	if len(seg) != 3 || seg[0] != "jobs" {
+		return ""
+	}
+	switch seg[2] {
+	case "refund":
+		return "replicate:refund"
+	case "force-finish":
+		return "replicate:force"
+	}
+	return ""
 }

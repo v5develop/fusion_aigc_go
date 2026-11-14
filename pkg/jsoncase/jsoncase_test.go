@@ -321,3 +321,93 @@ func TestRequestLargeSnapshotSaveStillMapped(t *testing.T) {
 		t.Errorf("large snapshot bytes changed")
 	}
 }
+
+// verbatim 前缀白名单：/api/v1/plaza/ 下的响应由 v1wire 手写，不得被补 snake 别名；后台前缀与其它路径行为不变。
+func TestVerbatimPrefix(t *testing.T) {
+	h := Middleware(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"put_url":"u","data":[{"task_id":"t"}]}`))
+	})
+	call := func(path string) string {
+		rec := httptest.NewRecorder()
+		h(rec, httptest.NewRequest("GET", path, nil))
+		return rec.Body.String()
+	}
+	if got := call("/api/v1/plaza/templates"); got != `{"put_url":"u","data":[{"task_id":"t"}]}` {
+		t.Fatalf("plaza 用户端响应必须原样: %s", got)
+	}
+	if got := call("/api/v1/plaza/admin/templates"); !strings.Contains(got, "putUrl") {
+		t.Fatalf("plaza 后台沿用双写别名: %s", got)
+	}
+	if got := call("/api/v1/studio/batches"); !strings.Contains(got, "putUrl") {
+		t.Fatalf("其它路径行为不变: %s", got)
+	}
+	for _, p := range []string{"/api/v1/plaza-templates/list", "/api/v1/plaza", "/api/v1/plazax/a"} {
+		if isVerbatimPath(p) {
+			t.Errorf("%s 不应被放行", p)
+		}
+	}
+}
+
+func TestSkipHeaderPassesJSONThrough(t *testing.T) {
+	body := `{"jsonrpc":"2.0","result":{"inputSchema":{"properties":{"canvas_id":{"type":"string"}}}}}`
+	h := func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set(SkipHeader, "off")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, body)
+	}
+	rec := run(t, h, "POST", "", "")
+	if rec.Body.String() != body {
+		t.Errorf("X-Jsoncase: off 的响应被改写: %q", rec.Body.String())
+	}
+	if rec.Header().Get(SkipHeader) != "" {
+		t.Errorf("X-Jsoncase 头不应发给客户端")
+	}
+}
+
+// 画布智能体入口（MCP 与 Function Call）请求、响应都原样放行：键名是协议本身，补别名会破坏
+// additionalProperties:false 的入参校验与 MCP JSON-RPC 结构。其它画布路径行为不变。
+func TestCanvasAgentPathsVerbatim(t *testing.T) {
+	const reqBody = `{"name":"canvas_get","arguments":{"canvasId":"c1"},"ifMatchRevision":"r"}`
+	const respBody = `{"jsonrpc":"2.0","result":{"call_id":"x","is_error":false}}`
+	var seenBody, seenQuery string
+	h := Middleware(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		seenBody, seenQuery = string(b), r.URL.RawQuery
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(respBody))
+	})
+	call := func(path string) string {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest("POST", path+"?pageSize=1", strings.NewReader(reqBody))
+		req.Header.Set("Content-Type", "application/json")
+		h(rec, req)
+		return rec.Body.String()
+	}
+	for _, p := range []string{"/api/v1/canvas/mcp", "/api/v1/canvas/agent/call", "/api/v1/canvas/agent/tools"} {
+		if got := call(p); got != respBody {
+			t.Errorf("%s 响应被改写: %s", p, got)
+		}
+		if seenBody != reqBody {
+			t.Errorf("%s 请求体被改写: %s", p, seenBody)
+		}
+		if seenQuery != "pageSize=1" {
+			t.Errorf("%s query 被改写: %s", p, seenQuery)
+		}
+	}
+	// 其它画布路径照旧双写
+	if got := call("/api/v1/canvas/list"); !strings.Contains(got, "callId") {
+		t.Errorf("其它画布路径应补别名: %s", got)
+	}
+	if !strings.Contains(seenBody, "if_match_revision") {
+		t.Errorf("其它画布路径请求应补 snake 别名: %s", seenBody)
+	}
+	for _, p := range []string{"/api/v1/canvas/mcpx", "/api/v1/canvas/agent", "/api/v1/canvas/agents/x"} {
+		if isVerbatimPath(p) {
+			t.Errorf("%s 不应被放行", p)
+		}
+	}
+	if !isVerbatimPath("/api/v1/canvas/mcp/") {
+		t.Errorf("/api/v1/canvas/mcp/ 应放行")
+	}
+}

@@ -29,9 +29,16 @@ const (
 	maxRespBytes = 4 << 20 // 响应体超过 4MB 不改写
 )
 
+// SkipHeader 处理器在写响应前设置 "X-Jsoncase: off"，本响应不补驼峰别名（头本身不会发给客户端）。
+const SkipHeader = "X-Jsoncase"
+
 // Middleware 可直接传给 rest.Server.Use。
 func Middleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if verbatim(r) { // 原样放行：请求与响应都不做 snake / camel 别名改写
+			next(w, r)
+			return
+		}
 		rewriteRequest(r)
 		rw := &respWriter{ResponseWriter: w}
 		next(rw, r)
@@ -135,6 +142,12 @@ func (w *respWriter) decide() {
 		return
 	}
 	w.decided = true
+	// 响应头 X-Jsoncase: off：协议性 JSON（MCP JSON-RPC、工具的 JSON Schema 定义）键名不能被补别名，原样透传
+	if strings.EqualFold(w.ResponseWriter.Header().Get(SkipHeader), "off") {
+		w.ResponseWriter.Header().Del(SkipHeader)
+		w.passthrough = true
+		return
+	}
 	ct := w.ResponseWriter.Header().Get("Content-Type")
 	if isJSON(ct) {
 		w.buffering = true
@@ -339,4 +352,44 @@ func toCamel(s string) string {
 		}
 	}
 	return strings.Join(parts, "")
+}
+
+// verbatimPrefixes 原样放行的路径前缀（请求体不补 snake 别名、响应不补 camel 别名）：
+//   - /api/v1/plaza/：响应由 pkg/v1wire 手写（camelCase、与 Java CommonResult 同形），
+//     不能再被补别名键（DESIGN 1.4：给 jsoncase 加一个 verbatim 前缀白名单）；
+//   - /api/v1/canvas/agent/：Function Call 定义与执行——工具名、入参键、JSON Schema 都是协议本身，
+//     入参校验是 additionalProperties:false，补出来的 snake 别名会让合法调用被判「多余字段」；
+//
+// 后台前缀 /api/v1/plaza/admin 除外：后台沿用 Go 默认信封与双写别名（前端有现成适配）。
+var verbatimPrefixes = []string{"/api/v1/plaza/", "/api/v1/canvas/agent/"}
+
+// verbatimExact 原样放行的精确路径（含其子路径）：MCP JSON-RPC 端点，请求 params / 响应 result 键名都由 MCP 规范定死。
+var verbatimExact = []string{"/api/v1/canvas/mcp"}
+
+var verbatimExcluded = []string{"/api/v1/plaza/admin"}
+
+func verbatim(r *http.Request) bool {
+	if r == nil || r.URL == nil {
+		return false
+	}
+	return isVerbatimPath(r.URL.Path)
+}
+
+func isVerbatimPath(p string) bool {
+	for _, ex := range verbatimExcluded {
+		if p == ex || strings.HasPrefix(p, ex+"/") {
+			return false
+		}
+	}
+	for _, e := range verbatimExact {
+		if p == e || strings.HasPrefix(p, e+"/") {
+			return true
+		}
+	}
+	for _, pre := range verbatimPrefixes {
+		if strings.HasPrefix(p, pre) {
+			return true
+		}
+	}
+	return false
 }

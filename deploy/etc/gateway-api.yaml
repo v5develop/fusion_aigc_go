@@ -70,6 +70,15 @@ Studio:                 # 工作室接口的网关侧限制
   DetailsPerDay: 200        # 每用户每天上限；计数同上
   ColorFixAutoPerMinute: 6  # 参考图自动校色（POST /api/v1/studio/colorfix/auto）每用户每分钟上限（超出 4002 · COLORFIX_AUTO_TOO_FREQUENT；<=0 不限）
   ColorFixAutoPerDay: 200   # 每用户每天上限；计数同上
+CanvasAgent:            # 画布智能体工具（MCP：POST /api/v1/canvas/mcp；Function Call：GET /api/v1/canvas/agent/tools、POST /api/v1/canvas/agent/call）
+  Enabled: true
+  CallsPerMinute: 120     # 每用户工具调用次数上限（计数在 Auth.Session 的 Redis；<=0 不限）
+  CallsPerDay: 5000
+  GeneratePerMinute: 10   # 每用户生成类调用（canvas_run_node）上限，另计入上面的总数
+  GeneratePerDay: 300
+  McpTokenCallsPerMinute: 60     # 每个 mcp_ 访问令牌独立的每分钟调用上限（在按用户限速之外；<=0 不限）
+  McpTokenGeneratePerMinute: 10  # 每个 mcp_ 访问令牌独立的每分钟生成上限（另计入上面的总数）
+  AllowedOrigins: []      # MCP 接受的浏览器 Origin；空 = 只接受不带 Origin 的服务端 / 桌面客户端
 AssetLibRpc:            # 资产库增强（/api/v1/asset-library）
   Etcd: {Hosts: [127.0.0.1:2379], Key: assetlib.rpc}
   Timeout: 10000
@@ -77,3 +86,12 @@ CanvasRpc:              # 画布 + 提示词库（/api/v1/canvas、/api/v1/promp
   Etcd: {Hosts: [127.0.0.1:2379], Key: canvas.rpc}
   Timeout: 60000        # 执行节点内联提交（拉入参考图 / 提交 gateway·Java·studio / 裁剪同步完成）
   NonBlock: true
+Replicate:              # 视频做同款（/api/v1/replicate/**，docs/api/api-replicate.md）；默认关，运行参数见 afv_system_config 的 replicate.*
+  Enabled: false        # 打开后装配内核并启动轮询器（行租约，多实例安全）；另需 afv_system_config.replicate.enabled=true 才接新请求
+  Billing: {Mode: "off"} # off / shadow / on（加引号：YAML 里裸 off 是布尔）
+  AiGateway: {BaseURL: "", KeyID: "", Secret: ""}
+  Media: {BaseURL: "", Token: ""}
+CanvasInternal:         # 服务间内部入口（Java 画布助手 → /internal/v1/canvas/agent/*，签名契约 docs/design/canvas-agent-tools.md §12）；Keys 为空则不注册
+  Keys: []              # 例：[{KeyId: "fusion-java", Secret: "<≥32 字节随机串，与 Java APP_FUSION_GO_SECRET 相同>"}]；轮换时新旧并存。nginx 须对公网屏蔽 /internal/
+CanvasEvents:           # 画布实时同步 SSE（/api/v1/canvas/canvases/:id/events），订阅 Auth.Session 的 Redis
+  MaxConnsPerUser: 5
