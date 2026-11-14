@@ -30,10 +30,11 @@ func NewBatchTagLogic(ctx context.Context, svcCtx *svc.ServiceContext) *BatchTag
 }
 
 func (l *BatchTagLogic) BatchTag(req *types.AssetLibBatchTagReq) (resp *types.AssetLibBatchTagResp, err error) {
-	out, err := l.svcCtx.AssetLibRpc.BatchTag(l.ctx, &assetlib_client.BatchTagReq{UserId: ctxdata.UserID(l.ctx), AssetIds: req.AssetIds, TagIds: req.TagIds})
+	out, err := l.svcCtx.AssetLibRpc.BatchTag(l.ctx, &assetlib_client.BatchTagReq{UserId: ctxdata.UserID(l.ctx), AssetIds: req.AssetIds, TagIds: req.TagIds,
+		RemoveTagIds: req.RemoveTagIds})
 	if err != nil {
 		return nil, err
 	}
-	return &types.AssetLibBatchTagResp{Added: out.Added}, nil
+	return &types.AssetLibBatchTagResp{Added: out.Added, Removed: out.Removed}, nil
 
 }

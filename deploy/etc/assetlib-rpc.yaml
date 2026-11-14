@@ -36,10 +36,10 @@ FreeWatermark:
 # 服务端校验上限（改了要同步 docs/api/api-asset-library.md）
 Limits:
   TitleLen: 100
-  TagNameLen: 20
-  TagsPerUser: 200
-  TagsPerAsset: 10
+  TagNameLen: 32       # 与 afv_asset_tag.name varchar(32) 同宽
+  TagsPerUser: 500
+  TagsPerAsset: 20
   VersionsPerAsset: 100
   MetadataLen: 50
   PromptLen: 5000
-  BatchAssets: 100
+  BatchAssets: 200     # 批量打 / 移除标签、批量删除一次最多资产数

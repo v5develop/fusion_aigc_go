@@ -23,10 +23,13 @@ func toAsset(a *assetlib_client.Asset) types.AssetLibAsset {
 		Id: a.Id, Kind: a.Kind, Title: a.Title, Prompt: a.Prompt, Image: a.Image, Media: a.Media, VideoUrl: a.VideoUrl,
 		Source: a.Source, Tags: a.Tags, CreatedAt: a.CreatedAt, Favorite: a.Favorite, License: a.License,
 		Versions: toVersions(a.Versions), CurrentVersionId: a.CurrentVersionId, RelatedIds: a.RelatedIds,
-		EntryCode: a.EntryCode, Width: a.Width, Height: a.Height,
+		EntryCode: a.EntryCode, Width: a.Width, Height: a.Height, KindSource: a.KindSource, SysTags: a.SysTags,
 	}
 	if out.Tags == nil {
 		out.Tags = []string{}
+	}
+	if out.SysTags == nil {
+		out.SysTags = []string{}
 	}
 	if out.RelatedIds == nil {
 		out.RelatedIds = []int64{}

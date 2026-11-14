@@ -1,7 +1,9 @@
 package logic
 
 import (
+	"aigc-local-life/app/assetlib/rpc/internal/repo"
 	"aigc-local-life/pkg/pagex"
+	"aigc-local-life/pkg/xerr"
 	"context"
 
 	"aigc-local-life/app/assetlib/rpc/assetlib"
@@ -24,12 +26,17 @@ func NewListTagsLogic(ctx context.Context, svcCtx *svc.ServiceContext) *ListTags
 	}
 }
 
-// 标签字典
-func (l *ListTagsLogic) ListTags(in *assetlib.UserReq) (*assetlib.ListTagsResp, error) {
+// 标签字典（默认按使用次数倒序，sort=name 按名字）
+func (l *ListTagsLogic) ListTags(in *assetlib.ListTagsReq) (*assetlib.ListTagsResp, error) {
 	if err := needUser(in.UserId); err != nil {
 		return nil, err
 	}
-	rows, err := l.svcCtx.Repo.Tag.List(l.ctx, in.UserId)
+	switch in.Sort {
+	case "", repo.TagSortCount, repo.TagSortName:
+	default:
+		return nil, xerr.Param("sort 只能是 count / name")
+	}
+	rows, err := l.svcCtx.Repo.Tag.List(l.ctx, in.UserId, in.Sort)
 	if err != nil {
 		return nil, err
 	}

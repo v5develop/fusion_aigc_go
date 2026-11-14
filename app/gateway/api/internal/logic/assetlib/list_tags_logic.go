@@ -29,8 +29,8 @@ func NewListTagsLogic(ctx context.Context, svcCtx *svc.ServiceContext) *ListTags
 	}
 }
 
-func (l *ListTagsLogic) ListTags() (resp *types.AssetLibTagListResp, err error) {
-	out, err := l.svcCtx.AssetLibRpc.ListTags(l.ctx, &assetlib_client.UserReq{UserId: ctxdata.UserID(l.ctx)})
+func (l *ListTagsLogic) ListTags(req *types.AssetLibTagListReq) (resp *types.AssetLibTagListResp, err error) {
+	out, err := l.svcCtx.AssetLibRpc.ListTags(l.ctx, &assetlib_client.ListTagsReq{UserId: ctxdata.UserID(l.ctx), Sort: req.Sort})
 	if err != nil {
 		return nil, err
 	}

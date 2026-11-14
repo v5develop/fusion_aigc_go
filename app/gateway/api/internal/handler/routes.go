@@ -97,10 +97,16 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 					Handler: assetlib.CategoriesHandler(serverCtx),
 				},
 				{
-					// 我的标签字典（含每个标签的资产数）
+					// 我的标签字典（含每个标签的资产数；默认按使用次数倒序，sort=name 按名字）
 					Method:  http.MethodGet,
 					Path:    "/tags",
 					Handler: assetlib.ListTagsHandler(serverCtx),
+				},
+				{
+					// 系统标签字典：本人资产里出现过的系统标签及资产数（按数量倒序，最多 500 个）
+					Method:  http.MethodGet,
+					Path:    "/sys-tags",
+					Handler: assetlib.ListSysTagsHandler(serverCtx),
 				},
 				{
 					// 新建标签

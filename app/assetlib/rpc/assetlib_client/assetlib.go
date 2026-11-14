@@ -38,7 +38,10 @@ type (
 	KindStat           = assetlib.KindStat
 	ListReq            = assetlib.ListReq
 	ListResp           = assetlib.ListResp
+	ListTagsReq        = assetlib.ListTagsReq
 	ListTagsResp       = assetlib.ListTagsResp
+	ListSysTagsResp    = assetlib.ListSysTagsResp
+	SysTag             = assetlib.SysTag
 	Metadata           = assetlib.Metadata
 	Provenance         = assetlib.Provenance
 	RelationReq        = assetlib.RelationReq
@@ -65,7 +68,8 @@ type (
 		AddRelation(ctx context.Context, in *RelationReq, opts ...grpc.CallOption) (*Empty, error)
 		RemoveRelation(ctx context.Context, in *RelationReq, opts ...grpc.CallOption) (*Empty, error)
 		// 标签字典
-		ListTags(ctx context.Context, in *UserReq, opts ...grpc.CallOption) (*ListTagsResp, error)
+		ListTags(ctx context.Context, in *ListTagsReq, opts ...grpc.CallOption) (*ListTagsResp, error)
+		ListSysTags(ctx context.Context, in *UserReq, opts ...grpc.CallOption) (*ListSysTagsResp, error)
 		CreateTag(ctx context.Context, in *CreateTagReq, opts ...grpc.CallOption) (*Tag, error)
 		DeleteTag(ctx context.Context, in *TagIdReq, opts ...grpc.CallOption) (*Empty, error)
 		RenameTag(ctx context.Context, in *RenameTagReq, opts ...grpc.CallOption) (*Tag, error)
@@ -133,7 +137,7 @@ func (m *defaultAssetlib) RemoveRelation(ctx context.Context, in *RelationReq, o
 }
 
 // 标签字典
-func (m *defaultAssetlib) ListTags(ctx context.Context, in *UserReq, opts ...grpc.CallOption) (*ListTagsResp, error) {
+func (m *defaultAssetlib) ListTags(ctx context.Context, in *ListTagsReq, opts ...grpc.CallOption) (*ListTagsResp, error) {
 	client := assetlib.NewAssetlibClient(m.cli.Conn())
 	return client.ListTags(ctx, in, opts...)
 }
@@ -181,4 +185,10 @@ func (m *defaultAssetlib) AdminListTags(ctx context.Context, in *AdminListTagsRe
 func (m *defaultAssetlib) AdminKindStats(ctx context.Context, in *AdminKindStatsReq, opts ...grpc.CallOption) (*AdminKindStatsResp, error) {
 	client := assetlib.NewAssetlibClient(m.cli.Conn())
 	return client.AdminKindStats(ctx, in, opts...)
+}
+
+// 系统标签字典：本人资产里出现过的系统标签及资产数（按数量倒序）
+func (m *defaultAssetlib) ListSysTags(ctx context.Context, in *UserReq, opts ...grpc.CallOption) (*ListSysTagsResp, error) {
+	client := assetlib.NewAssetlibClient(m.cli.Conn())
+	return client.ListSysTags(ctx, in, opts...)
 }

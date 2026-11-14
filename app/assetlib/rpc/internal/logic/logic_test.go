@@ -16,9 +16,14 @@ import (
 
 func TestCategoryItemsNullIsUncategorized(t *testing.T) {
 	got := categoryItems([]repo.KindCount{{N: 5}, {Kind: sql.NullString{String: "model", Valid: true}, N: 2}, {Kind: sql.NullString{String: "hair", Valid: true}, N: 1}})
-	want := map[string]int64{"all": 8, "model": 2, "scene": 0, "makeup": 0, "hair": 1, "accessory": 0, "uncategorized": 5}
-	if len(got) != 7 || got[0].Key != "all" || got[6].Key != "uncategorized" {
+	want := map[string]int64{"all": 8, "model": 2, "hair": 1, "uncategorized": 5}
+	if n := len(model.Kinds) + 2; len(got) != n || got[0].Key != "all" || got[n-1].Key != "uncategorized" {
 		t.Fatalf("顺序不对：%v", got)
+	}
+	for _, c := range got[1 : len(got)-1] {
+		if c.Group == "" {
+			t.Errorf("kind %s 没有所属大类", c.Key)
+		}
 	}
 	for _, c := range got {
 		if c.Count != want[c.Key] || c.Label == "" {
@@ -62,15 +67,19 @@ func TestValidators(t *testing.T) {
 	if code, _, _ := xerr.Parse(func() error { _, err := cleanTagName(" ", 20); return err }()); code != xerr.ParamMissing {
 		t.Fatalf("空名应 1002，got %d", code)
 	}
-	for _, k := range []string{"", "uncategorized", "model", "accessory", "viral_video", "video_other"} {
+	for _, k := range []string{"", "uncategorized", "model", "accessory", "product", "storefront", "dish", "logo", "poster",
+		"video_final", "video_segment", "reference", "other"} {
 		if checkListKind(k) != nil {
 			t.Errorf("kind %q 应合法", k)
 		}
 	}
+	if checkListKind("viral_video") == nil || checkListKind("person") == nil {
+		t.Fatal("旧视频二级键 / person 已不是分类（person 并入 model）")
+	}
 	if checkListKind("shoes") == nil || checkSource("mine") == nil || checkMedia("audio") == nil {
 		t.Fatal("非法枚举应被拒")
 	}
-	for _, g := range []string{"", "image", "video"} {
+	for _, g := range []string{"", "image", "marketing", "video"} {
 		if checkKindGroup(g) != nil {
 			t.Errorf("kind_group %q 应合法", g)
 		}
@@ -88,11 +97,24 @@ func TestValidators(t *testing.T) {
 			t.Errorf("aspect_ratio %q 应被拒", bad)
 		}
 	}
-	if got := model.KindGroupKinds("image"); len(got) != len(model.Kinds) || got[0] != "model" {
-		t.Fatalf("image 大类 = 5 个图片 kind：%v", got)
+	if got := model.KindGroupKinds("image"); len(got) != 5 || got[0] != "model" {
+		t.Fatalf("image 大类 = 5 个商拍 kind：%v", got)
 	}
-	if got := model.KindGroupKinds("video"); len(got) != len(model.VideoKinds) {
+	if got := model.KindGroupKinds("video"); len(got) != 2 || got[0] != "video_final" || got[1] != "video_segment" {
 		t.Fatalf("video 大类：%v", got)
+	}
+	// 三个大类不重叠且覆盖全部 kind
+	seen := map[string]string{}
+	for _, g := range model.KindGroups {
+		for _, k := range model.KindGroupKinds(g) {
+			if prev, dup := seen[k]; dup {
+				t.Fatalf("kind %s 同时属于 %s 与 %s", k, prev, g)
+			}
+			seen[k] = g
+		}
+	}
+	if len(seen) != len(model.Kinds) {
+		t.Fatalf("大类没覆盖全部 kind：%d / %d", len(seen), len(model.Kinds))
 	}
 	if model.KindGroupKinds("") != nil || model.KindGroupKinds("x") != nil {
 		t.Fatal("未知大类应为 nil")

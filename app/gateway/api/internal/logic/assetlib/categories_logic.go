@@ -36,7 +36,7 @@ func (l *CategoriesLogic) Categories(req *types.AssetLibCategoriesReq) (resp *ty
 	}
 	resp = &types.AssetLibCategoriesResp{Items: make([]types.AssetLibCategory, 0, len(out.Items))}
 	for _, c := range out.Items {
-		resp.Items = append(resp.Items, types.AssetLibCategory{Key: c.Key, Label: c.Label, Count: c.Count})
+		resp.Items = append(resp.Items, types.AssetLibCategory{Key: c.Key, Label: c.Label, Count: c.Count, Group: c.Group})
 	}
 	return resp, nil
 }

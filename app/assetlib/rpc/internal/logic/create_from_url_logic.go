@@ -17,6 +17,7 @@ import (
 	"aigc-local-life/app/assetlib/rpc/internal/config"
 	"aigc-local-life/app/assetlib/rpc/internal/repo"
 	"aigc-local-life/app/assetlib/rpc/internal/svc"
+	"aigc-local-life/pkg/asset"
 	"aigc-local-life/pkg/mediasvc"
 	"aigc-local-life/pkg/xerr"
 
@@ -223,6 +224,8 @@ func (d *fromURLDeps) run(ctx context.Context, in *assetlib.CreateFromUrlReq) (*
 		id, err := tx.Asset.InsertUpload(ctx, repo.NewUpload{
 			UserID: in.UserId, SourceTaskID: key, Name: title, URL: libURL, EntryCode: d.cfg.FromURLEntryCode,
 			Width: int32(res.Width), Height: int32(res.Height), AspectRatio: aspectRatioOf(res.Width, res.Height), Properties: string(props),
+			// 系统标签：来源「画布存为资产」+ 用途参考图（用户自己的图，与 Java 回填对上传素材的口径一致）
+			SysTags: asset.SysTags{Feature: "画布存为资产", Usage: asset.UsageReference}.List(),
 		})
 		if err != nil {
 			return 0, err

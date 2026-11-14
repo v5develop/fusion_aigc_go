@@ -31,6 +31,7 @@ const (
 	Assetlib_DeleteTag_FullMethodName      = "/assetlib.Assetlib/DeleteTag"
 	Assetlib_RenameTag_FullMethodName      = "/assetlib.Assetlib/RenameTag"
 	Assetlib_BatchTag_FullMethodName       = "/assetlib.Assetlib/BatchTag"
+	Assetlib_ListSysTags_FullMethodName    = "/assetlib.Assetlib/ListSysTags"
 	Assetlib_Delete_FullMethodName         = "/assetlib.Assetlib/Delete"
 	Assetlib_CreateFromUrl_FullMethodName  = "/assetlib.Assetlib/CreateFromUrl"
 	Assetlib_AdminListTags_FullMethodName  = "/assetlib.Assetlib/AdminListTags"
@@ -50,7 +51,7 @@ type AssetlibClient interface {
 	// ---- 用户侧 ----
 	// 资产列表：kind / source / media / tag / 收藏 / 关键字筛选，page 分页
 	List(ctx context.Context, in *ListReq, opts ...grpc.CallOption) (*ListResp, error)
-	// 分类条计数：all + 5 个 kind + uncategorized（kind 为空），随 source / media 条件
+	// 分类条计数：all + 各 kind（按有效分类 = 用户分类 > 推算的默认分类）+ uncategorized，随 source / media 条件
 	Categories(ctx context.Context, in *CategoriesReq, opts ...grpc.CallOption) (*CategoriesResp, error)
 	// 详情：资产 + 版本 + 相关资产 + 生成结果（各自分页，默认每页 6）
 	Get(ctx context.Context, in *GetReq, opts ...grpc.CallOption) (*GetResp, error)
@@ -61,12 +62,14 @@ type AssetlibClient interface {
 	AddRelation(ctx context.Context, in *RelationReq, opts ...grpc.CallOption) (*Empty, error)
 	RemoveRelation(ctx context.Context, in *RelationReq, opts ...grpc.CallOption) (*Empty, error)
 	// 标签字典
-	ListTags(ctx context.Context, in *UserReq, opts ...grpc.CallOption) (*ListTagsResp, error)
+	ListTags(ctx context.Context, in *ListTagsReq, opts ...grpc.CallOption) (*ListTagsResp, error)
 	CreateTag(ctx context.Context, in *CreateTagReq, opts ...grpc.CallOption) (*Tag, error)
 	DeleteTag(ctx context.Context, in *TagIdReq, opts ...grpc.CallOption) (*Empty, error)
 	RenameTag(ctx context.Context, in *RenameTagReq, opts ...grpc.CallOption) (*Tag, error)
-	// 批量给资产加标签（追加，不删已有）
+	// 批量给资产加 / 移除标签（tag_ids 追加，remove_tag_ids 移除；同一请求里先移除再追加）
 	BatchTag(ctx context.Context, in *BatchTagReq, opts ...grpc.CallOption) (*BatchTagResp, error)
+	// 系统标签字典：本人资产里出现过的系统标签及资产数（按数量倒序）
+	ListSysTags(ctx context.Context, in *UserReq, opts ...grpc.CallOption) (*ListSysTagsResp, error)
 	// 删除资产（逻辑删除 afv_asset.deleted=1，并解除本人标签关联）：只删本人的上传 / 生成资产，官方素材不删；
 	// 不删存储对象、不动任务结果与版本 / 关系旁表（列表与详情只认未删除资产）。
 	Delete(ctx context.Context, in *DeleteReq, opts ...grpc.CallOption) (*DeleteResp, error)
@@ -156,7 +159,7 @@ func (c *assetlibClient) RemoveRelation(ctx context.Context, in *RelationReq, op
 	return out, nil
 }
 
-func (c *assetlibClient) ListTags(ctx context.Context, in *UserReq, opts ...grpc.CallOption) (*ListTagsResp, error) {
+func (c *assetlibClient) ListTags(ctx context.Context, in *ListTagsReq, opts ...grpc.CallOption) (*ListTagsResp, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ListTagsResp)
 	err := c.cc.Invoke(ctx, Assetlib_ListTags_FullMethodName, in, out, cOpts...)
@@ -200,6 +203,16 @@ func (c *assetlibClient) BatchTag(ctx context.Context, in *BatchTagReq, opts ...
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(BatchTagResp)
 	err := c.cc.Invoke(ctx, Assetlib_BatchTag_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *assetlibClient) ListSysTags(ctx context.Context, in *UserReq, opts ...grpc.CallOption) (*ListSysTagsResp, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListSysTagsResp)
+	err := c.cc.Invoke(ctx, Assetlib_ListSysTags_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -259,7 +272,7 @@ type AssetlibServer interface {
 	// ---- 用户侧 ----
 	// 资产列表：kind / source / media / tag / 收藏 / 关键字筛选，page 分页
 	List(context.Context, *ListReq) (*ListResp, error)
-	// 分类条计数：all + 5 个 kind + uncategorized（kind 为空），随 source / media 条件
+	// 分类条计数：all + 各 kind（按有效分类 = 用户分类 > 推算的默认分类）+ uncategorized，随 source / media 条件
 	Categories(context.Context, *CategoriesReq) (*CategoriesResp, error)
 	// 详情：资产 + 版本 + 相关资产 + 生成结果（各自分页，默认每页 6）
 	Get(context.Context, *GetReq) (*GetResp, error)
@@ -270,12 +283,14 @@ type AssetlibServer interface {
 	AddRelation(context.Context, *RelationReq) (*Empty, error)
 	RemoveRelation(context.Context, *RelationReq) (*Empty, error)
 	// 标签字典
-	ListTags(context.Context, *UserReq) (*ListTagsResp, error)
+	ListTags(context.Context, *ListTagsReq) (*ListTagsResp, error)
 	CreateTag(context.Context, *CreateTagReq) (*Tag, error)
 	DeleteTag(context.Context, *TagIdReq) (*Empty, error)
 	RenameTag(context.Context, *RenameTagReq) (*Tag, error)
-	// 批量给资产加标签（追加，不删已有）
+	// 批量给资产加 / 移除标签（tag_ids 追加，remove_tag_ids 移除；同一请求里先移除再追加）
 	BatchTag(context.Context, *BatchTagReq) (*BatchTagResp, error)
+	// 系统标签字典：本人资产里出现过的系统标签及资产数（按数量倒序）
+	ListSysTags(context.Context, *UserReq) (*ListSysTagsResp, error)
 	// 删除资产（逻辑删除 afv_asset.deleted=1，并解除本人标签关联）：只删本人的上传 / 生成资产，官方素材不删；
 	// 不删存储对象、不动任务结果与版本 / 关系旁表（列表与详情只认未删除资产）。
 	Delete(context.Context, *DeleteReq) (*DeleteResp, error)
@@ -316,7 +331,7 @@ func (UnimplementedAssetlibServer) AddRelation(context.Context, *RelationReq) (*
 func (UnimplementedAssetlibServer) RemoveRelation(context.Context, *RelationReq) (*Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method RemoveRelation not implemented")
 }
-func (UnimplementedAssetlibServer) ListTags(context.Context, *UserReq) (*ListTagsResp, error) {
+func (UnimplementedAssetlibServer) ListTags(context.Context, *ListTagsReq) (*ListTagsResp, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListTags not implemented")
 }
 func (UnimplementedAssetlibServer) CreateTag(context.Context, *CreateTagReq) (*Tag, error) {
@@ -330,6 +345,9 @@ func (UnimplementedAssetlibServer) RenameTag(context.Context, *RenameTagReq) (*T
 }
 func (UnimplementedAssetlibServer) BatchTag(context.Context, *BatchTagReq) (*BatchTagResp, error) {
 	return nil, status.Error(codes.Unimplemented, "method BatchTag not implemented")
+}
+func (UnimplementedAssetlibServer) ListSysTags(context.Context, *UserReq) (*ListSysTagsResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListSysTags not implemented")
 }
 func (UnimplementedAssetlibServer) Delete(context.Context, *DeleteReq) (*DeleteResp, error) {
 	return nil, status.Error(codes.Unimplemented, "method Delete not implemented")
@@ -491,7 +509,7 @@ func _Assetlib_RemoveRelation_Handler(srv interface{}, ctx context.Context, dec 
 }
 
 func _Assetlib_ListTags_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(UserReq)
+	in := new(ListTagsReq)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -503,7 +521,7 @@ func _Assetlib_ListTags_Handler(srv interface{}, ctx context.Context, dec func(i
 		FullMethod: Assetlib_ListTags_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(AssetlibServer).ListTags(ctx, req.(*UserReq))
+		return srv.(AssetlibServer).ListTags(ctx, req.(*ListTagsReq))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -576,6 +594,24 @@ func _Assetlib_BatchTag_Handler(srv interface{}, ctx context.Context, dec func(i
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(AssetlibServer).BatchTag(ctx, req.(*BatchTagReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Assetlib_ListSysTags_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UserReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AssetlibServer).ListSysTags(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Assetlib_ListSysTags_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AssetlibServer).ListSysTags(ctx, req.(*UserReq))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -706,6 +742,10 @@ var Assetlib_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "BatchTag",
 			Handler:    _Assetlib_BatchTag_Handler,
+		},
+		{
+			MethodName: "ListSysTags",
+			Handler:    _Assetlib_ListSysTags_Handler,
 		},
 		{
 			MethodName: "Delete",

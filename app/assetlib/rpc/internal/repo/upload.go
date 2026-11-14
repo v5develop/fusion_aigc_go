@@ -6,11 +6,13 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"strconv"
 	"time"
 
 	"aigc-local-life/app/assetlib/model"
+	"aigc-local-life/pkg/asset"
 	"aigc-local-life/pkg/workspace"
 
 	"github.com/uptrace/bun"
@@ -30,7 +32,8 @@ type NewUpload struct {
 	Width        int32
 	Height       int32
 	AspectRatio  string
-	Properties   string // JSON 文本，可空
+	Properties   string   // JSON 文本，可空
+	SysTags      []string // 系统标签（规整同 pkg/asset：去重、截断、≤20 个）；空写 NULL
 }
 
 // bunSession 让 bun 的事务 / 连接满足 workspace.DB（与 sqlx.Session 同形）。
@@ -45,7 +48,7 @@ func (s bunSession) QueryRowCtx(ctx context.Context, v any, q string, args ...an
 }
 
 const insertUploadSQL = "INSERT INTO afv_asset (user_id, workspace_id, source_task_id, type, entry_code, name, cover_url, result_url, " +
-	"width, height, aspect_ratio, properties, source_type, status) VALUES (?, ?, ?, 'image', ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)"
+	"width, height, aspect_ratio, properties, sys_tags, source_type, status) VALUES (?, ?, ?, 'image', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)"
 
 // InsertUpload 写一行用户上传（个人空间不存在时顺手建，口径同 pkg/asset）。应在事务里调。
 func (r *AssetRepo) InsertUpload(ctx context.Context, a NewUpload) (int64, error) {
@@ -57,8 +60,13 @@ func (r *AssetRepo) InsertUpload(ctx context.Context, a NewUpload) (int64, error
 	if a.Properties != "" {
 		props = a.Properties
 	}
+	var sysTags any
+	if tags := asset.NormalizeSysTags(a.SysTags); len(tags) > 0 {
+		b, _ := json.Marshal(tags)
+		sysTags = string(b)
+	}
 	res, err := r.db.ExecContext(ctx, insertUploadSQL, a.UserID, ws, a.SourceTaskID, a.EntryCode, a.Name, a.URL, a.URL,
-		a.Width, a.Height, a.AspectRatio, props, model.SourceTypeUpload)
+		a.Width, a.Height, a.AspectRatio, props, sysTags, model.SourceTypeUpload)
 	if err != nil {
 		return 0, err
 	}

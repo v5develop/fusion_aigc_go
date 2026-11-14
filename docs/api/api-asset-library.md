@@ -35,7 +35,9 @@
 | 原型字段 | 本接口字段 | 说明 |
 |---|---|---|
 | `id` | `id` | 数字 |
-| `kind` | `kind` | `model` / `scene` / `makeup` / `hair` / `accessory`；**空串 = 未分类** |
+| `kind` | `kind` | **有效分类**（见 8.2）：用户改过的分类，否则系统推算的默认分类；取值见 8.1；**空串 = 未分类** |
+| — | `kind_source` | `user` = 用户改过分类；`auto` = 系统推算（含推算不出的未分类） |
+| — | `sys_tags` | 系统标签数组（来源功能、`用途:xxx`、`行业:xxx`、`模板:xxx`、清晰度、`第N段` 等，见 8.3），进库时写，用户不可改；没有为 `[]` |
 | `title` | `title` | 素材库里的名称 |
 | `prompt` | `prompt` | 生成时的提示词（上传的为空） |
 | `image` | `image` | 展示图：设了当前版本时为该版本的图，否则为原图；视频为封面 |
@@ -55,7 +57,7 @@
 
 原型里的两处行为改成了服务端口径：
 
-1. **「未分类」= `kind` 为空**，不是「没有标签」。计数由服务端给（`GET /assets/categories`）。
+1. **「未分类」= 有效分类为空**（用户没改过且系统推算不出），不是「没有标签」。计数由服务端给（`GET /assets/categories`）。
 2. **版本不再整数组 PATCH**：追加用 `POST /assets/:id/versions`，切换当前版本用 `PATCH current_version_id`。
 3. **相关资产不再前端启发式**（同 kind + 同 style / industry），只认显式建立的关系（第 5 章）。
 
@@ -96,16 +98,18 @@
 | 项 | 限制 |
 |---|---|
 | 标题 `title` | 去首尾空白后 1–100 字 |
-| 标签名 | 去首尾空白后 1–20 字；同一用户内不重名（不分大小写） |
-| 每个用户的标签数 | ≤200 |
-| 每个资产的标签数 | ≤10 |
+| 标签名 | 去首尾空白后 1–32 字（与 `afv_asset_tag.name` 列宽一致；表注释里的「≤20 字」已过时）；同一用户内不重名（不分大小写） |
+| 每个用户的标签数 | ≤500 |
+| 每个资产的标签数 | ≤20 |
+| 列表 `tags` / `sys_tags` 筛选 | 各 ≤20 个 |
 | `metadata` 每项 | ≤50 字 |
 | 关键字 `q` | ≤100 字，匹配标题与提示词 |
 | 版本图片 `image_url` | 必须是 http(s) 地址，≤1024 字符；`blob:` / `data:` 拒绝（先上传再传地址）；还必须是本服务上传接口签发的地址（或配置白名单 `InputURLPrefixes` 内的素材库公有桶地址），外链返回 1003「image_url 不是本服务上传的地址」 |
 | 版本提示词 | ≤5000 字 |
 | 每个资产的版本数 | ≤100 |
 | `params` | 合法 JSON 文本，≤16KB |
-| 批量打标签 | 一次 ≤100 个资产、≤10 个标签 |
+| 批量打 / 移除标签 | 一次 ≤200 个资产，追加、移除各 ≤20 个标签 |
+| 批量删除 | 一次 ≤200 个资产 |
 
 ### 1.5 来源 `source` 与媒体 `media`
 
@@ -138,24 +142,23 @@
 
 | 参数 | 说明 |
 |---|---|
-| `kind` | 空 = 全部；`uncategorized` = 未分类；或 5 个 kind 之一；或视频二级分类键之一（见下，只读筛选） |
-| `kind_group` | 空 = 不限；`image` = 5 个图片 kind（`kind IN (model, scene, makeup, hair, accessory)`）；`video` = 视频二级分类键。与 `kind` 同传时两者同时生效 |
+| `kind` | 空 = 全部；`uncategorized` = 未分类；或 8.1 的任一 kind。**按有效分类筛**（用户分类 > 系统推算），与返回的 `kind` 同口径 |
+| `kind_group` | 空 = 不限；`image` = 商拍类、`marketing` = 营销素材类、`video` = 视频类（成员见 8.1）。与 `kind` 同传时两者同时生效 |
 | `entry_codes` | 空 = 不限；逗号分隔的创作入口码，按素材的 `entry_code IN (...)` 筛选（列表与 `total` 同口径）。每项须匹配 `[A-Za-z0-9_.-]{1,64}`，最多 200 个；空段忽略、重复去重；格式不对或超量返回参数错误。前端分类条传所选分类节点的入口码（见 2.3） |
 | `source` | 空 = 全部；`input` / `generated` / `official` / `upload` |
 | `media` | 空 = 全部；`image` / `video` |
 | `aspect_ratio` | 空 = 不限；比例 `宽:高`（各 1~2 位数字，如 `1:1` / `3:4` / `4:3` / `9:16` / `16:9`），按素材的 `aspect_ratio` 精确匹配；格式不对返回参数错误 |
-| `tag` | 标签名（精确匹配） |
-| `untagged` | `true` 只看没挂任何标签的资产（「未分类」，口径同 `GET /tags` 的 `untagged_count`）；不能与 `tag` 同传（`1003`） |
+| `tag` | 标签名（精确匹配；单个，兼容旧调用，与 `tags` 合并） |
+| `tags` | 标签名，逗号分隔，**全部包含**才命中（≤20 个，每个 ≤32 字） |
+| `sys_tags` | 系统标签，逗号分隔，**全部包含**才命中（≤20 个，取值见 `GET /sys-tags`） |
+| `untagged` | `true` 只看没挂任何标签的资产（「未分类」，口径同 `GET /tags` 的 `untagged_count`）；不能与 `tag` / `tags` 同传（`1003`） |
 | `favorite_only` | `true` 只看收藏 |
 | `q` | 关键字（标题 / 提示词，模糊） |
 | `page` / `page_size` | 见 1.3 |
 
 按创建时间倒序。
 
-视频二级分类键（`kind_group=video` 包含的全部 kind，前端「AI生视频」二级分类按这个顺序展示）：
-`viral_video` 爆款视频、`video_remake` 视频复刻、`promo_video` 带货视频、`digital_human` 数字人、`digital_human_talk` 数字人口播、`store_visit` 探店视频、`promo_drama` 带货短剧、`motion_transfer` 动作迁移、`canvas_video` 画布视频、`video_other` 其他。
-
-> **待定**：视频资产如何归入这些二级分类（数据来源）尚未确定，这些键目前不能写入资产的 `kind`，`/assets/categories` 也不返回它们。定下来之前 `kind_group=video` 与这些 `kind` 都查不到资产。
+> 原「视频二级分类键」（`viral_video` 等 10 个，从未有数据来源）已删除，视频统一用 `video_final` / `video_segment`，传旧键返回 `1003`。
 
 ```json
 {
@@ -169,7 +172,8 @@
       "metadata": {"industry": "服装", "style": "日系", "shot": "", "color": ""},
       "provenance": {"run_id": "tyo_…", "workflow_id": "", "node_id": "", "operator": "", "model": "", "params": "", "created_at": 1761840000000},
       "versions": [], "current_version_id": 0, "related_ids": [],
-      "entry_code": "studio_tryon", "width": 1024, "height": 1365
+      "entry_code": "studio_tryon", "width": 1024, "height": 1365,
+      "kind_source": "auto", "sys_tags": ["商拍换装", "用途:模特", "2K"]
     }],
     "total": 274
   }
@@ -178,23 +182,20 @@
 
 ### 2.2 分类条计数 `GET /assets/categories`
 
-参数：`source`、`media`（同列表）。计数**随这两个条件变化**，固定返回 7 项、固定顺序：
+参数：`source`、`media`（同列表）。计数**随这两个条件变化**，按**有效分类**计（与列表 `kind` 筛选同一条 SQL 表达式），固定返回 `all` + 8.1 全部 kind（顺序同 8.1）+ `uncategorized`，没有的计 0；每个 kind 项带所属大类 `group`：
 
 ```json
 {"code": 0, "msg": "ok", "data": {"items": [
-  {"key": "all", "label": "全部", "count": 274},
-  {"key": "model", "label": "模特", "count": 3},
-  {"key": "scene", "label": "场景", "count": 0},
-  {"key": "makeup", "label": "妆容", "count": 0},
-  {"key": "hair", "label": "发型", "count": 1},
-  {"key": "accessory", "label": "配饰", "count": 0},
-  {"key": "uncategorized", "label": "未分类", "count": 270}
+  {"key": "all", "label": "全部", "count": 274, "group": ""},
+  {"key": "model", "label": "模特", "count": 3, "group": "image"},
+  {"key": "product", "label": "商品", "count": 120, "group": "marketing"},
+  {"key": "video_final", "label": "成片", "count": 9, "group": "video"},
+  "…",
+  {"key": "uncategorized", "label": "未分类", "count": 40, "group": ""}
 ]}}
 ```
 
-点某个分类时，把 `key` 作为列表的 `kind` 传（`all` 不传 `kind`），两边计数一致。
-
-前端分类条按大类分两级：一级「全部 / 创作素材（`kind_group=image`）/ AI生视频（`kind_group=video`）/ 其他分类（`kind=uncategorized`）」，选中大类且未选二级时列表传 `kind_group`；选中二级时传该二级的 `kind`。大类计数由前端把二级计数相加（本接口不变；`aspect_ratio` 不影响分类计数）。
+点某个分类时，把 `key` 作为列表的 `kind` 传（`all` 不传 `kind`），两边计数一致。大类计数由前端把同 `group` 的二级计数相加（一个资产只有一个有效分类，不重叠），选中大类且未选二级时列表传 `kind_group`；`aspect_ratio` 不影响分类计数。
 
 ### 2.3 我的资产分类条（Creaft v1）
 
@@ -240,9 +241,9 @@
 | 字段 | 说明 |
 |---|---|
 | `title` | 1–100 字。写回素材库名称，Java 素材库里也会看到新名字 |
-| `kind` | 5 个 kind 之一；**传空串 = 改回未分类** |
+| `kind` | 8.1 的任一 kind，写入后 `kind_source=user`；**传空串 = 恢复系统推算**（`kind_source=auto`，推算不出才是未分类） |
 | `favorite` | `true` / `false` |
-| `tags` | 标签名数组，**整组替换**（传 `[]` 清空）。字典里没有的名字会自动建标签（受每用户 200 个上限约束），≤10 个，重名去重 |
+| `tags` | 标签名数组，**整组替换**（传 `[]` 清空）。字典里没有的名字会自动建标签（受每用户 500 个上限约束），≤20 个，重名去重 |
 | `metadata` | `{industry, style, shot, color}`，**整体替换**（没带的子字段视为空） |
 | `license` | `cleared` / `internal` / `unknown`，空串 = 清除 |
 | `current_version_id` | 该资产的某个版本 id；`0` = 回到原图。别的资产的版本 → `1003` |
@@ -261,7 +262,7 @@ PATCH /api/v1/asset-library/assets/1351
 - 只删**本人的上传 / AI 生成**资产（`source` 为 `upload` / `generated`）；**官方素材不可删除**。
 - 逻辑删除（`afv_asset.deleted = 1`，与 Java 删除同口径），同一事务解除该资产与本人标签的关联；**不删存储对象**、不动任务结果（免费档原图 / 水印副本挂在任务与存储上，不受影响）、不删版本 / 关系 / 分类旁表（读侧只认未删除资产）。删除后列表、各计数、详情都看不到它。
 - 单删：不存在 / 不是自己的 → `4001`；官方素材 → `2005`「官方素材不可删除」。
-- 批量 body `{"asset_ids": [1351, 1352]}`（≤100）：官方素材与不存在的 id **静默跳过**并分别计数，不算错误。
+- 批量 body `{"asset_ids": [1351, 1352]}`（≤200）：官方素材与不存在的 id **静默跳过**并分别计数，不算错误。
 
 两者返回同形：
 
@@ -284,7 +285,7 @@ POST /api/v1/asset-library/assets/from-url
 | `title` | 否 | 1–100 字，缺省「画布图片」 |
 | `source` | 否 | 空或 `canvas`，其它 `1003` |
 | `canvas_id` / `node_id` | 否 | 各 ≤64 字，写进资产溯源（`provenance.workflow_id` / `node_id`，`operator=canvas`），详情里可见 |
-| `tags` | 否 | 标签名，规则同 `PATCH tags`（≤10 个，≤20 字，字典里没有的自动建） |
+| `tags` | 否 | 标签名，规则同 `PATCH tags`（≤20 个，≤32 字，字典里没有的自动建） |
 
 返回（`existing` 区分新建与已存在，其余是完整 `Asset`，`image` 即展示地址）：
 
@@ -302,6 +303,7 @@ POST /api/v1/asset-library/assets/from-url
 
 - 通过归属后交给媒体服务 ingest 到素材库公有桶（`purpose=asset_library`，幂等键 `assetlib-fromurl:{userID}:{地址哈希}`，重试得到同一个对象）。落桶时媒体服务探测并**完整解码**图片，返回 `sha256` / 类型 / 尺寸 / 字节数；这里不信任地址后缀与前端声明。
 - 类型必须是 `image/*`（否则 `1003`「只能存图片」）；大小 ≤10MB（`Limits.FromURLBytes`，超出 `1003`「图片不能超过 10 MB」）；媒体服务判定图片损坏 / 无法读取 → `1003`「这张图无法读取或不是有效的图片」；媒体服务暂时不可用 → `5001`；媒体服务未配置 → `7003`。
+- 系统标签 `["画布存为资产", "用途:参考图"]`（有效分类因此默认「参考图」）。
 - `afv_asset` 只写素材库**公开地址**（`cover_url` = `result_url`），绝不写 `mr://`。`source_type=1`（用户上传，`source=upload`）、`type=image`、`status=1`，`entry_code` 取配置 `FromURLEntryCode`（默认空，归「未分类」兜底）；个人空间不存在时顺手建。用户上传的原图按用户自己的上传处理，**不**加免费档水印（水印只作用于 AI 生成成品的交付）。
 
 **幂等（重复点击不会建重复资产）**
@@ -357,32 +359,44 @@ POST /api/v1/asset-library/assets/from-url
 
 ## 6. 标签
 
+用户标签以本模块为**唯一来源**（`afv_asset_tag` + `afv_asset_tag_link`）；Java 的 `afv_asset.tags` JSON 列不启用。
+
 ### 6.1 我的标签 `GET /tags`
+
+查询参数 `sort`：空 / `count` = 按使用次数（`asset_count`）倒序、同数按名字；`name` = 按名字。
 
 ```json
 {"code": 0, "msg": "ok", "data": {"items": [{"id": 5, "name": "夏季", "asset_count": 12, "created_at": 1761840000000}], "untagged_count": 30}}
 ```
 
-按名字排序；`asset_count` 只数未删除的资产。
+`asset_count` 只数未删除、非草稿的资产。
 `untagged_count`：本人没挂任何标签的资产数（标签弹层「未分类」的计数），归属 / 删除 / 草稿口径同 `GET /assets`。
 
 ### 6.2 新建 / 重命名 / 删除
 
 | 方法 | 路径 | body | 说明 |
 |---|---|---|---|
-| POST | `/tags` | `{"name": "夏季"}` | 返回新标签。重名 `4002`；超过 200 个 `1003` |
+| POST | `/tags` | `{"name": "夏季"}` | 返回新标签。重名 `4002`；超过 500 个 `1003` |
 | PUT | `/tags/:id` | `{"name": "盛夏"}` | 返回改名后的标签。资产上的标签名随之变化 |
 | DELETE | `/tags/:id` | — | 同时从所有资产上摘掉这个标签 |
 
-### 6.3 批量打标签 `POST /assets/batch-tag`
+### 6.3 批量打 / 移除标签 `POST /assets/batch-tag`
 
 ```json
-{"asset_ids": [1351, 1352], "tag_ids": [5, 6]}
+{"asset_ids": [1351, 1352], "tag_ids": [5, 6], "remove_tag_ids": [7]}
 ```
 
-- **追加**，不删资产已有的标签；已经有的跳过。返回 `{"added": 3}`（新增的关联数）。
-- 任一资产不是自己的 → `4001`；任一标签不是自己的 → `4001`；任一资产追加后会超过 10 个标签 → `1003`，整批不生效。
-- 要从多个资产上摘掉标签：逐个 `PATCH tags`，或直接删标签。
+- `tag_ids` **追加**（已有的跳过），`remove_tag_ids` **移除**（没挂的忽略），两者至少给一个；同一请求先移除再追加，一个事务。
+- 返回 `{"added": 3, "removed": 1}`（新增 / 删除的关联数）。
+- 一次 ≤200 个资产，追加、移除各 ≤20 个标签。任一资产不是自己的 → `4001`；任一标签不是自己的 → `4001`；任一资产追加后会超过 20 个标签 → `1003`，整批不生效。
+
+### 6.4 系统标签字典 `GET /sys-tags`
+
+```json
+{"code": 0, "msg": "ok", "data": {"items": [{"name": "用途:商品", "asset_count": 120}, {"name": "商品套图", "asset_count": 87}]}}
+```
+
+本人资产（未删除、非草稿）里出现过的系统标签及资产数，按数量倒序、同数按名字，最多 500 个；点某个标签时作为列表的 `sys_tags` 传。系统标签只读，用户不能增删改。
 
 ---
 
@@ -393,4 +407,61 @@ POST /api/v1/asset-library/assets/from-url
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/tags` | 全部用户的标签字典。查询参数：`page`、`page_size`、`user_id`（0 = 全部）、`q`（标签名模糊）。返回 `list` + `total`，每项 `id`、`user_id`、`name`、`asset_count`、`created_at`，新建的在前 |
-| GET | `/kind-stats` | 分类统计。查询参数：`user_id`（0 = 全部用户）、`media`（`image` / `video`）。返回 `rows`（kind × source 的计数，kind 为 `uncategorized` 表示未分类）、`kinds`（按 kind 汇总，含 `all`，固定 7 项）、`sources`（按来源汇总：`upload` / `generated` / `official`）。只排除已删除的资产 |
+| GET | `/kind-stats` | 分类统计（按有效分类）。查询参数：`user_id`（0 = 全部用户）、`media`（`image` / `video`）。返回 `rows`（kind × source 的计数，kind 为 `uncategorized` 表示未分类）、`kinds`（按 kind 汇总，含 `all` 与 `uncategorized`，项数 = 8.1 kind 数 + 2）、`sources`（按来源汇总：`upload` / `generated` / `official`）。只排除已删除的资产 |
+
+---
+
+## 8. 系统标签与默认分类（与 Java 对照）
+
+### 8.1 分类（kind）= 用途
+
+`afv_asset_ext.kind` 与「用途」是同一组取值，Go 唯一口径在 `pkg/asset/usage.go`（`Usages`、中文名），Java 对应 `AssetSysTags.Usage`；两边的用途标签文本必须逐字一致。
+
+| kind | 中文名 | 用途标签 | 大类 `kind_group` |
+|---|---|---|---|
+| `model` | 模特 | `用途:模特` | `image`（商拍） |
+| `scene` | 场景 | `用途:场景` | `image` |
+| `makeup` | 妆容 | `用途:妆容` | `image` |
+| `hair` | 发型 | `用途:发型` | `image` |
+| `accessory` | 配饰 | `用途:配饰` | `image` |
+| `product` | 商品 | `用途:商品` | `marketing`（营销素材） |
+| `storefront` | 门头门店 | `用途:门头门店` | `marketing` |
+| `dish` | 菜品 | `用途:菜品` | `marketing` |
+| `logo` | Logo | `用途:Logo` | `marketing` |
+| `poster` | 海报 | `用途:海报` | `marketing` |
+| `reference` | 参考图 | `用途:参考图` | `marketing` |
+| `other` | 其他 | `用途:其他` | `marketing` |
+| `video_final` | 成片 | `用途:成片` | `video` |
+| `video_segment` | 视频片段 | `用途:视频片段` | `video` |
+
+人物统一并入 `model`（没有 `person`）。迁移 `Go_V1.0.47` 扩展了 ENUM。
+
+### 8.2 有效分类（读时推算，不回填）
+
+`kind` = `afv_asset_ext.kind`（用户改过，`kind_source=user`）→ 否则按顺序推算（`kind_source=auto`）：
+
+1. `sys_tags` 里的用途标签（`Usages` 顺序第一个命中的）；
+2. `entry_code` 查 `pkg/asset.EntryUsage`；
+3. `type` 查 `pkg/asset.TypeUsage`（`customizedModel` / `realPersonModel` → 模特）；
+4. 媒体形态是视频 → `video_final`；
+5. 都不中 → 未分类。
+
+推算是一条 SQL 表达式（`app/assetlib/model/kind.go` 的 `EffectiveKindExpr`），列表筛选、分类计数、后台统计、返回值共用。
+
+### 8.3 系统标签（`afv_asset.sys_tags`，Java 迁移 `V1.0.236` 建列，Go `Go_V1.0.47` 判存在兜底）
+
+JSON 字符串数组，进库时写入，单个 ≤32 字、每条 ≤20 个，去重。固定写法：
+
+| 内容 | 写法 | 例 |
+|---|---|---|
+| 来源功能 | 中文名原样 | `商拍换装`、`商品套图`、`画布`、`视频做同款` |
+| 用途 | `用途:<中文名>` | `用途:门头门店` |
+| 行业 | `行业:<名>` | `行业:餐饮` |
+| 模板 / 方案 | `模板:<名>` | `模板:夏日上新` |
+| 清晰度 | `1K`~`8K` / `720P` / `1080P`（大写，其它写法不写） | `2K` |
+| 分段 | `第N段` | `第3段` |
+| 状态 / 版本 | `部分完成`、`叠字版`、`无字版` | |
+
+**谁写什么（Go）**：note「AI图文笔记」；studio 按 kind「商拍换装 / 姿态复刻 / 图片生成」+ 清晰度；画布「画布」+ 清晰度；数字人形象「AI数字人形象」+ `用途:模特`、口播「AI数字人」+ `用途:成片`；本地生活「AI海报 / AI长图 / 动作迁移 / 数字人口播」；视频「探店视频 / 带货短剧 / 爆款视频复刻」；视频做同款「视频做同款」+ 方案标题（`模板:`）+ 清晰度，分段 `用途:视频片段` + `第N段`，预览版 `部分完成`；模板叠字：无字版补 `无字版`，叠字版沿用无字版标签再加 `叠字版`；「存为资产」`画布存为资产` + `用途:参考图`。用途没有更具体语义时一律 `asset.UsageFor(entry_code, type)`（查 `EntryUsage`）。
+
+**谁写什么（Java，fusion-aigc `AssetSysTags`）**：创作任务入库与智能体出图入库（`AssetService.syncFromCreationTask*`）写来源功能（入口目录中文名）、用途（Java `ENTRY_USAGE`，与上面 `EntryUsage` 对 Java 入口的取值一致）、清晰度；智能体按广场模板做同款时加 `模板:<模板名>` 与 `行业:<行业名>`。模板图片位 label → 用途的映射也在 Java 那一份（门头/门店→门头门店、商品→商品、人物/模特→模特、菜品→菜品、Logo→Logo、环境/场景→场景，其余参考图）。存量由 Java 一次性回填 `sys_tags`（`scripts/backfill-asset-sys-tags.sh`，分批、可 dry-run、幂等）；`kind` 不回填。

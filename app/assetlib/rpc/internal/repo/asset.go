@@ -3,6 +3,7 @@ package repo
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 
 	"aigc-local-life/app/assetlib/model"
 
@@ -21,18 +22,41 @@ type AssetRow struct {
 	CurrentVersionID sql.NullInt64  `bun:"e_current_version_id,scanonly"`
 	CurrentImage     sql.NullString `bun:"v_image_url,scanonly"`
 	IsVideo          bool           `bun:"is_video,scanonly"` // 按 videoCond 在 SQL 里算出的媒体形态
+	// EffKind 有效分类 = ext.kind（用户改过）或推算的默认分类（model.EffectiveKindExpr）；NULL = 未分类
+	EffKind sql.NullString `bun:"eff_kind,scanonly"`
+}
+
+// KindSource 分类来源：ext.kind 有值为 user，否则 auto（含推算不出的未分类）。
+func (a *AssetRow) KindSource() string {
+	if a.ExtKind.Valid && a.ExtKind.String != "" {
+		return model.KindSourceUser
+	}
+	return model.KindSourceAuto
+}
+
+// SysTagList 系统标签（sys_tags JSON 数组；NULL / 非法为空）。
+func (a *AssetRow) SysTagList() []string {
+	if !a.SysTags.Valid || a.SysTags.String == "" {
+		return []string{}
+	}
+	var out []string
+	if json.Unmarshal([]byte(a.SysTags.String), &out) != nil || out == nil {
+		return []string{}
+	}
+	return out
 }
 
 // Filter 列表 / 计数的筛选条件（空值不筛）。
 type Filter struct {
 	UserID       int64    // 必填：归属
-	Kind         string   // 空=全部；uncategorized=kind 为空；其余为 model.Kinds
+	Kind         string   // 空=全部；uncategorized=有效分类为空；其余为 model.Kinds（按有效分类 = 用户分类 > 推算）
 	Source       string   // 空 / input / generated / official / upload
-	KindGroup    string   // 空 / image / video：按 model.KindGroupKinds 取 e.kind IN (...)
+	KindGroup    string   // 空 / image / marketing / video：按 model.KindGroupKinds 取有效分类 IN (...)
 	Media        string   // 空 / image / video
 	AspectRatio  string   // 空 / afv_asset.aspect_ratio 精确匹配
 	EntryCodes   []string // 空=不限；a.entry_code IN (...)（素材库聚合分类节点的成员入口码）
-	Tag          string   // 标签名
+	Tags         []string // 用户标签名，全部包含才算命中（AND）
+	SysTags      []string // 系统标签，全部包含才算命中（AND）
 	Untagged     bool     // 只要没挂本人任何标签的资产（口径同 TagRepo.UntaggedCount）
 	FavoriteOnly bool
 	Q            string
@@ -68,6 +92,12 @@ func (r *AssetRepo) videoCond() (string, []any) {
 		"(a.type NOT IN (" + offerSQL + "o.category IS NOT NULL AND o.category <> '') AND " + tail + "))))", args
 }
 
+// kindExpr 有效分类表达式及其参数（视频判据的配置类型）。
+func (r *AssetRepo) kindExpr() (string, []any) {
+	vc, args := r.videoCond()
+	return model.EffectiveKindExpr(vc), args
+}
+
 // sourceCond 来源筛选（Java source_type：1 上传 2 生成；NULL / 其它 = official）。
 func sourceCond(source string) string {
 	switch source {
@@ -97,15 +127,18 @@ func owned(q *bun.SelectQuery, userID int64) *bun.SelectQuery {
 // apply 把 Filter 拼到查询上（不含 JOIN）。
 func (r *AssetRepo) apply(q *bun.SelectQuery, f Filter) *bun.SelectQuery {
 	q = owned(q, f.UserID)
-	switch f.Kind {
-	case "":
-	case "uncategorized":
-		q = q.Where("e.kind IS NULL")
-	default:
-		q = q.Where("e.kind = ?", f.Kind)
-	}
-	if f.KindGroup != "" {
-		q = q.Where("e.kind IN (?)", bun.In(model.KindGroupKinds(f.KindGroup)))
+	if f.Kind != "" || f.KindGroup != "" {
+		ke, kargs := r.kindExpr()
+		switch f.Kind {
+		case "":
+		case "uncategorized":
+			q = q.Where(ke+" IS NULL", kargs...)
+		default:
+			q = q.Where(ke+" = ?", append(append([]any{}, kargs...), f.Kind)...)
+		}
+		if f.KindGroup != "" {
+			q = q.Where(ke+" IN (?)", append(append([]any{}, kargs...), bun.In(model.KindGroupKinds(f.KindGroup)))...)
+		}
 	}
 	if f.AspectRatio != "" {
 		q = q.Where("a.aspect_ratio = ?", f.AspectRatio)
@@ -127,9 +160,12 @@ func (r *AssetRepo) apply(q *bun.SelectQuery, f Filter) *bun.SelectQuery {
 	if f.FavoriteOnly {
 		q = q.Where("e.favorite = 1")
 	}
-	if f.Tag != "" {
+	for _, tag := range f.Tags {
 		q = q.Where("EXISTS (SELECT 1 FROM afv_asset_tag_link AS l JOIN afv_asset_tag AS t ON t.id = l.tag_id "+
-			"WHERE l.asset_id = a.id AND t.user_id = ? AND t.name = ?)", f.UserID, f.Tag)
+			"WHERE l.asset_id = a.id AND t.user_id = ? AND t.name = ?)", f.UserID, tag)
+	}
+	for _, tag := range f.SysTags {
+		q = q.Where("JSON_CONTAINS(a.sys_tags, JSON_QUOTE(?))", tag)
 	}
 	if f.Untagged {
 		q = q.Where(untaggedCond, f.UserID)
@@ -152,12 +188,14 @@ func (r *AssetRepo) apply(q *bun.SelectQuery, f Filter) *bun.SelectQuery {
 
 func (r *AssetRepo) selectRows(rows *[]*AssetRow) *bun.SelectQuery {
 	vc, vargs := r.videoCond()
+	ke, kargs := r.kindExpr()
 	return joinExt(r.db.NewSelect().Model(rows).
 		ColumnExpr("a.id, a.user_id, a.workspace_id, a.source_task_id, a.type, a.entry_code, a.name, a.cover_url, a.result_url, "+
-			"a.watermark_url, a.width, a.height, a.aspect_ratio, a.source_type, a.ai_prompt, a.status, a.deleted, a.create_time").
+			"a.watermark_url, a.width, a.height, a.aspect_ratio, a.source_type, a.ai_prompt, a.sys_tags, a.status, a.deleted, a.create_time").
 		ColumnExpr("e.kind AS e_kind, e.favorite AS e_favorite, e.license AS e_license, e.metadata AS e_metadata, "+
 			"e.provenance AS e_provenance, e.current_version_id AS e_current_version_id, v.image_url AS v_image_url").
-		ColumnExpr("COALESCE("+vc+", FALSE) AS is_video", vargs...))
+		ColumnExpr("COALESCE("+vc+", FALSE) AS is_video", vargs...).
+		ColumnExpr(ke+" AS eff_kind", kargs...))
 }
 
 // List 分页列表（create_time 倒序）。total=0 时不查第二条。
@@ -222,31 +260,51 @@ func (r *AssetRepo) SoftDelete(ctx context.Context, userID int64, ids []int64) (
 		Exec(ctx))
 }
 
-// KindCount 分类计数的一行；Kind 为 NULL 即未分类。
+// KindCount 分类计数的一行（按有效分类）；Kind 为 NULL 即未分类。
+// 列别名用 eff_kind：MySQL 的 GROUP BY 先在 FROM 里找名字，叫 kind 会被解析成 e.kind。
 type KindCount struct {
-	Kind   sql.NullString `bun:"kind"`
+	Kind   sql.NullString `bun:"eff_kind"`
 	Source string         `bun:"source"`
 	N      int64          `bun:"n"`
 }
 
-// Categories 一条 GROUP BY e.kind（NULL = 未分类），计数随 source / media（Filter 里其它条件也生效）。
+// Categories 按有效分类 GROUP BY（NULL = 未分类），计数随 source / media（Filter 里其它条件也生效）。
 func (r *AssetRepo) Categories(ctx context.Context, f Filter) ([]KindCount, error) {
 	var out []KindCount
+	ke, kargs := r.kindExpr()
 	q := r.db.NewSelect().TableExpr("afv_asset AS a").
 		Join("LEFT JOIN afv_asset_ext AS e ON e.asset_id = a.id").
-		ColumnExpr("e.kind AS kind, COUNT(*) AS n")
+		ColumnExpr(ke+" AS eff_kind", kargs...).ColumnExpr("COUNT(*) AS n")
 	f.Kind = ""
 	f.KindGroup = ""
-	err := r.apply(q, f).GroupExpr("e.kind").Scan(ctx, &out)
+	err := r.apply(q, f).GroupExpr("eff_kind").Scan(ctx, &out)
 	return out, err
 }
 
-// AdminKindStats 后台：按 kind × 来源计数。userID=0 为全部用户；只排除已删除。
+// SysTagCount 系统标签字典的一行。
+type SysTagCount struct {
+	Name string `bun:"name"`
+	N    int64  `bun:"n"`
+}
+
+// SysTagCounts 本人资产（未删除、非草稿）里出现过的系统标签及资产数，按数量倒序、名字升序，最多 limit 个。
+func (r *AssetRepo) SysTagCounts(ctx context.Context, userID int64, limit int64) ([]SysTagCount, error) {
+	var out []SysTagCount
+	q := r.db.NewSelect().TableExpr("afv_asset AS a").
+		Join("JOIN JSON_TABLE(a.sys_tags, '$[*]' COLUMNS (tag VARCHAR(64) PATH '$')) AS jt").
+		ColumnExpr("jt.tag AS name, COUNT(*) AS n")
+	err := owned(q, userID).Where("jt.tag IS NOT NULL AND jt.tag <> ''").
+		GroupExpr("jt.tag").OrderExpr("n DESC, name ASC").Limit(limit).Scan(ctx, &out)
+	return out, err
+}
+
+// AdminKindStats 后台：按有效分类 × 来源计数。userID=0 为全部用户；只排除已删除。
 func (r *AssetRepo) AdminKindStats(ctx context.Context, userID int64, media string) ([]KindCount, error) {
 	var out []KindCount
+	ke, kargs := r.kindExpr()
 	q := r.db.NewSelect().TableExpr("afv_asset AS a").
 		Join("LEFT JOIN afv_asset_ext AS e ON e.asset_id = a.id").
-		ColumnExpr("e.kind AS kind").
+		ColumnExpr(ke+" AS eff_kind", kargs...).
 		ColumnExpr("CASE a.source_type WHEN 1 THEN 'upload' WHEN 2 THEN 'generated' ELSE 'official' END AS source").
 		ColumnExpr("COUNT(*) AS n").
 		Where("a.deleted = 0")
@@ -260,7 +318,7 @@ func (r *AssetRepo) AdminKindStats(ctx context.Context, userID int64, media stri
 	case "image":
 		q = q.Where("(a.type IS NULL OR NOT "+c+")", args...)
 	}
-	err := q.GroupExpr("e.kind, source").Scan(ctx, &out)
+	err := q.GroupExpr("eff_kind, source").Scan(ctx, &out)
 	return out, err
 }
 

@@ -43,6 +43,9 @@ func vc(tail string) string {
 		tail + "))))"
 }
 
+// ek 有效分类表达式（与 AssetRepo.kindExpr 一致）。
+func ek(tail string) string { return model.EffectiveKindExpr(vc(tail)) }
+
 const ownedSQL = "WHERE (a.user_id = 7) AND (a.deleted = 0) AND ((a.status IS NULL OR a.status <> 0))"
 
 func q(s string) string { return regexp.QuoteMeta(s) }
@@ -57,18 +60,23 @@ func TestListFilters(t *testing.T) {
 	}{
 		{"无筛选", Filter{UserID: 7}, nil, ownedSQL},
 		{"未分类+input+图片", Filter{UserID: 7, Kind: "uncategorized", Source: "input", Media: "image"}, nil,
-			ownedSQL + " AND (e.kind IS NULL) AND ((a.source_type IS NULL OR a.source_type <> 2)) AND ((a.type IS NULL OR NOT " + vc("a.type LIKE '%video%'") + "))"},
+			ownedSQL + " AND (" + ek("a.type LIKE '%video%'") + " IS NULL) AND ((a.source_type IS NULL OR a.source_type <> 2)) AND ((a.type IS NULL OR NOT " + vc("a.type LIKE '%video%'") + "))"},
 		{"kind+generated+视频(含配置类型)", Filter{UserID: 7, Kind: "model", Source: "generated", Media: "video"}, []string{"lipSync"},
-			ownedSQL + " AND (e.kind = 'model') AND (a.source_type = 2) AND (" + vc("(a.type LIKE '%video%' OR a.type IN ('lipSync'))") + ")"},
+			ownedSQL + " AND (" + ek("(a.type LIKE '%video%' OR a.type IN ('lipSync'))") + " = 'model') AND (a.source_type = 2) AND (" + vc("(a.type LIKE '%video%' OR a.type IN ('lipSync'))") + ")"},
 		{"图片大类+比例", Filter{UserID: 7, KindGroup: "image", AspectRatio: "3:4"}, nil,
-			ownedSQL + " AND (e.kind IN ('model', 'scene', 'makeup', 'hair', 'accessory')) AND (a.aspect_ratio = '3:4')"},
+			ownedSQL + " AND (" + ek("a.type LIKE '%video%'") + " IN ('model', 'scene', 'makeup', 'hair', 'accessory')) AND (a.aspect_ratio = '3:4')"},
+		{"营销大类", Filter{UserID: 7, KindGroup: "marketing"}, nil,
+			ownedSQL + " AND (" + ek("a.type LIKE '%video%'") + " IN ('product', 'storefront', 'dish', 'logo', 'poster', 'reference', 'other'))"},
+		{"多标签+系统标签（全部包含）", Filter{UserID: 7, Tags: []string{"红", "夏"}, SysTags: []string{"用途:商品", "2K"}}, nil,
+			ownedSQL + " AND (EXISTS (SELECT 1 FROM afv_asset_tag_link AS l JOIN afv_asset_tag AS t ON t.id = l.tag_id WHERE l.asset_id = a.id AND t.user_id = 7 AND t.name = '红'))" +
+				" AND (EXISTS (SELECT 1 FROM afv_asset_tag_link AS l JOIN afv_asset_tag AS t ON t.id = l.tag_id WHERE l.asset_id = a.id AND t.user_id = 7 AND t.name = '夏'))" +
+				" AND (JSON_CONTAINS(a.sys_tags, JSON_QUOTE('用途:商品'))) AND (JSON_CONTAINS(a.sys_tags, JSON_QUOTE('2K')))"},
 		{"视频大类", Filter{UserID: 7, KindGroup: "video"}, nil,
-			ownedSQL + " AND (e.kind IN ('viral_video', 'video_remake', 'promo_video', 'digital_human', 'digital_human_talk', " +
-				"'store_visit', 'promo_drama', 'motion_transfer', 'canvas_video', 'video_other'))"},
+			ownedSQL + " AND (" + ek("a.type LIKE '%video%'") + " IN ('video_final', 'video_segment'))"},
 		{"入口码+比例", Filter{UserID: 7, EntryCodes: []string{"txt2img", "img.edit_v2"}, AspectRatio: "1:1"}, nil,
 			ownedSQL + " AND (a.aspect_ratio = '1:1') AND (a.entry_code IN ('txt2img', 'img.edit_v2'))"},
 		{"official", Filter{UserID: 7, Source: "official"}, nil, ownedSQL + " AND ((a.source_type IS NULL OR a.source_type NOT IN (1, 2)))"},
-		{"upload+收藏+标签+关键字(转义)", Filter{UserID: 7, Source: "upload", FavoriteOnly: true, Tag: "红", Q: "a_%"}, nil,
+		{"upload+收藏+标签+关键字(转义)", Filter{UserID: 7, Source: "upload", FavoriteOnly: true, Tags: []string{"红"}, Q: "a_%"}, nil,
 			ownedSQL + " AND (a.source_type = 1) AND (e.favorite = 1) AND (EXISTS (SELECT 1 FROM afv_asset_tag_link AS l JOIN afv_asset_tag AS t ON t.id = l.tag_id " +
 				"WHERE l.asset_id = a.id AND t.user_id = 7 AND t.name = '红')) AND ((a.name LIKE '%a\\\\_\\\\%%' OR a.ai_prompt LIKE '%a\\\\_\\\\%%'))"},
 		{"未分类(无标签)", Filter{UserID: 7, Untagged: true}, nil,
@@ -111,12 +119,12 @@ func TestListEmptySkipsSelect(t *testing.T) {
 	done(t, mock)
 }
 
-// Categories：一条 GROUP BY e.kind，NULL 行即未分类；kind 条件不参与计数。
+// Categories：按有效分类 GROUP BY（别名 eff_kind，避开 e.kind），NULL 行即未分类；kind 条件不参与计数。
 func TestCategoriesNullIsUncategorized(t *testing.T) {
 	r, mock := newMock(t)
-	mock.ExpectQuery(q("SELECT e.kind AS kind, COUNT(*) AS n FROM afv_asset AS a LEFT JOIN afv_asset_ext AS e ON e.asset_id = a.id "+
-		ownedSQL+" AND (a.source_type = 2) AND ("+vc("a.type LIKE '%video%'")+") GROUP BY e.kind") + "$").
-		WillReturnRows(sqlmock.NewRows([]string{"kind", "n"}).AddRow(nil, 5).AddRow("model", 2).AddRow("hair", 1))
+	mock.ExpectQuery(q("SELECT "+ek("a.type LIKE '%video%'")+" AS eff_kind, COUNT(*) AS n FROM afv_asset AS a LEFT JOIN afv_asset_ext AS e ON e.asset_id = a.id "+
+		ownedSQL+" AND (a.source_type = 2) AND ("+vc("a.type LIKE '%video%'")+") GROUP BY eff_kind") + "$").
+		WillReturnRows(sqlmock.NewRows([]string{"eff_kind", "n"}).AddRow(nil, 5).AddRow("model", 2).AddRow("hair", 1))
 	got, err := r.Asset.Categories(ctx, Filter{UserID: 7, Kind: "model", Source: "generated", Media: "video"})
 	if err != nil || len(got) != 3 {
 		t.Fatalf("got=%v err=%v", got, err)
@@ -293,8 +301,37 @@ func TestTagCountExcludesDrafts(t *testing.T) {
 	r, mock := newMock(t)
 	mock.ExpectQuery(q("a.deleted = 0 AND (a.status IS NULL OR a.status <> 0) WHERE l.tag_id = t.id")).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}))
-	if _, err := r.Tag.List(ctx, 7); err != nil {
+	if _, err := r.Tag.List(ctx, 7, ""); err != nil {
 		t.Fatal(err)
+	}
+	done(t, mock)
+}
+
+// 标签列表排序：默认按使用次数倒序，sort=name 按名字。
+func TestTagListSort(t *testing.T) {
+	r, mock := newMock(t)
+	mock.ExpectQuery(q("ORDER BY asset_count DESC, t.name ASC, t.id ASC")).WillReturnRows(sqlmock.NewRows([]string{"id"}))
+	mock.ExpectQuery(q("WHERE (t.user_id = 7) ORDER BY t.name ASC, t.id ASC")).WillReturnRows(sqlmock.NewRows([]string{"id"}))
+	if _, err := r.Tag.List(ctx, 7, TagSortCount); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Tag.List(ctx, 7, TagSortName); err != nil {
+		t.Fatal(err)
+	}
+	done(t, mock)
+}
+
+// 批量移除：只删本人标签的关联（tag_id 子查询带 user_id）。
+func TestRemoveLinks(t *testing.T) {
+	r, mock := newMock(t)
+	mock.ExpectExec(q("DELETE FROM `afv_asset_tag_link` WHERE (asset_id IN (1, 2)) AND (tag_id IN (5)) AND (tag_id IN (SELECT id FROM afv_asset_tag WHERE user_id = 7))")).
+		WillReturnResult(sqlmock.NewResult(0, 2))
+	n, err := r.Tag.RemoveLinks(ctx, 7, []int64{1, 2}, []int64{5})
+	if err != nil || n != 2 {
+		t.Fatalf("n=%d err=%v", n, err)
+	}
+	if n, _ := r.Tag.RemoveLinks(ctx, 7, nil, []int64{5}); n != 0 {
+		t.Fatal("空资产不应发 SQL")
 	}
 	done(t, mock)
 }

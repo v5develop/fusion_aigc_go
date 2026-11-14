@@ -38,20 +38,56 @@ func needUser(uid int64) error {
 
 func runeLen(s string) int { return utf8.RuneCountInString(s) }
 
-// checkListKind List 的 kind：空 / uncategorized / 5 个 kind / 视频二级分类键（只读筛选，不可写入）。
-func checkListKind(k string) error {
-	if k == "" || k == "uncategorized" || model.Kind(k).Valid() || slices.Contains(model.VideoKinds, k) {
-		return nil
+// kindNames 全部分类键（报错文案用）。
+func kindNames() string {
+	out := make([]string, len(model.Kinds))
+	for i, k := range model.Kinds {
+		out[i] = string(k)
 	}
-	return xerr.Param("kind 只能是 model / scene / makeup / hair / accessory / uncategorized 或视频二级分类")
+	return strings.Join(out, " / ")
 }
 
-// checkKindGroup 大类：空 / image / video。
+// checkListKind List 的 kind：空 / uncategorized / model.Kinds。
+func checkListKind(k string) error {
+	if k == "" || k == "uncategorized" || model.Kind(k).Valid() {
+		return nil
+	}
+	return xerr.Param("kind 只能是 " + kindNames() + " / uncategorized")
+}
+
+// checkKindGroup 大类：空 / image / marketing / video。
 func checkKindGroup(g string) error {
 	if g == "" || model.KindGroupKinds(g) != nil {
 		return nil
 	}
-	return xerr.Param("kind_group 只能是 image / video")
+	return xerr.Param("kind_group 只能是 " + strings.Join(model.KindGroups, " / "))
+}
+
+// maxFilterTags tags / sys_tags 筛选最多几个。
+const maxFilterTags = 20
+
+// parseNameList 逗号分隔的名字列表：各段去首尾空白、跳过空段、去重保序；单个 ≤maxLen 字，最多 maxFilterTags 个。
+func parseNameList(field, s string, maxLen int) ([]string, error) {
+	if strings.TrimSpace(s) == "" {
+		return nil, nil
+	}
+	var out []string
+	seen := map[string]bool{}
+	for _, n := range strings.Split(s, ",") {
+		n = strings.TrimSpace(n)
+		if n == "" || seen[strings.ToLower(n)] {
+			continue
+		}
+		if runeLen(n) > maxLen {
+			return nil, xerr.Newf(xerr.ParamError, "%s 每项最多 %d 字", field, maxLen)
+		}
+		seen[strings.ToLower(n)] = true
+		out = append(out, n)
+		if len(out) > maxFilterTags {
+			return nil, xerr.Newf(xerr.ParamError, "%s 最多 %d 个", field, maxFilterTags)
+		}
+	}
+	return out, nil
 }
 
 // aspectRatioRe 比例 宽:高，各 1~2 位数字（1:1 / 3:4 / 16:9 …）。
@@ -125,6 +161,15 @@ func cleanTagName(name string, limit int) (string, error) {
 		return "", xerr.Param("标签名含非法字符")
 	}
 	return name, nil
+}
+
+// rejectComma 新建 / 改名的标签名不许含英文逗号：列表 tags 参数按逗号分隔，含逗号的名字没法放进多选。
+// 存量含逗号的标签照常可用（单个 tag 参数整串精确匹配）。
+func rejectComma(name string) error {
+	if strings.Contains(name, ",") {
+		return xerr.Param("标签名不能包含逗号")
+	}
+	return nil
 }
 
 // checkJSON 可空的 JSON 文本：必须合法、≤16KB。
@@ -294,7 +339,9 @@ func toAssets(ctx context.Context, s *svc.ServiceContext, uid int64, rows []*rep
 func toAsset(r *repo.AssetRow, tags []string) *assetlib.Asset {
 	a := &assetlib.Asset{
 		Id:               r.ID,
-		Kind:             r.ExtKind.String,
+		Kind:             r.EffKind.String,
+		KindSource:       r.KindSource(),
+		SysTags:          r.SysTagList(),
 		Title:            r.Name,
 		Prompt:           r.AIPrompt.String,
 		Media:            "image",
@@ -356,7 +403,17 @@ func first(vals ...string) string {
 	return ""
 }
 
-// categoryItems all + 5 个 kind + uncategorized，固定顺序，没有的计 0。
+// kindGroupOf kind → 所属大类。
+func kindGroupOf(kind string) string {
+	for _, g := range model.KindGroups {
+		if slices.Contains(model.KindGroupKinds(g), kind) {
+			return g
+		}
+	}
+	return ""
+}
+
+// categoryItems all + 各 kind（model.Kinds 顺序，带所属大类）+ uncategorized，固定顺序，没有的计 0。
 func categoryItems(rows []repo.KindCount) []*assetlib.Category {
 	counts := map[string]int64{}
 	var all int64
@@ -370,7 +427,7 @@ func categoryItems(rows []repo.KindCount) []*assetlib.Category {
 	}
 	out := []*assetlib.Category{{Key: "all", Label: model.KindLabels["all"], Count: all}}
 	for _, k := range model.Kinds {
-		out = append(out, &assetlib.Category{Key: string(k), Label: model.KindLabels[string(k)], Count: counts[string(k)]})
+		out = append(out, &assetlib.Category{Key: string(k), Label: model.KindLabels[string(k)], Count: counts[string(k)], Group: kindGroupOf(string(k))})
 	}
 	return append(out, &assetlib.Category{Key: "uncategorized", Label: model.KindLabels["uncategorized"], Count: counts["uncategorized"]})
 }
@@ -424,6 +481,10 @@ func ensureTags(ctx context.Context, tx *repo.Repo, uid int64, names []string, p
 	var missing []string
 	for _, n := range names {
 		if _, ok := byName[strings.ToLower(n)]; !ok {
+			// 自动新建的名字同样不许含逗号；字典里已有的（存量）照常挂
+			if err := rejectComma(n); err != nil {
+				return nil, err
+			}
 			missing = append(missing, n)
 		}
 	}

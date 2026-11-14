@@ -34,6 +34,9 @@ func (l *RenameTagLogic) RenameTag(in *assetlib.RenameTagReq) (*assetlib.Tag, er
 	if err != nil {
 		return nil, err
 	}
+	if err := rejectComma(name); err != nil {
+		return nil, err
+	}
 	t, err := l.svcCtx.Repo.Tag.GetOwned(l.ctx, in.Id, in.UserId)
 	if err != nil {
 		return nil, err

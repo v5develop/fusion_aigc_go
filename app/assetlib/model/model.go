@@ -13,6 +13,8 @@ import (
 	"encoding/json"
 	"time"
 
+	"aigc-local-life/pkg/asset"
+
 	"github.com/uptrace/bun"
 )
 
@@ -27,62 +29,70 @@ const (
 )
 
 // Kind 资产分类（afv_asset_ext.kind 的 ENUM）；空 = 未分类。
+// 取值与 pkg/asset.Usage（进库时的默认用途）是同一组，中文名也取自 pkg/asset（Go 唯一一份口径）。
 type Kind string
 
 const (
-	KindModel     Kind = "model"
-	KindScene     Kind = "scene"
-	KindMakeup    Kind = "makeup"
-	KindHair      Kind = "hair"
-	KindAccessory Kind = "accessory"
+	KindModel     Kind = Kind(asset.UsageModel)
+	KindScene     Kind = Kind(asset.UsageScene)
+	KindMakeup    Kind = Kind(asset.UsageMakeup)
+	KindHair      Kind = Kind(asset.UsageHair)
+	KindAccessory Kind = Kind(asset.UsageAccessory)
 )
 
-// Kinds 全部分类（固定顺序，分类条、后台统计都按它展开）。
-var Kinds = []Kind{KindModel, KindScene, KindMakeup, KindHair, KindAccessory}
+// Kinds 全部分类（固定顺序，分类条、后台统计都按它展开）= pkg/asset.Usages。
+var Kinds = func() []Kind {
+	out := make([]Kind, len(asset.Usages))
+	for i, u := range asset.Usages {
+		out[i] = Kind(u)
+	}
+	return out
+}()
 
-// VideoKinds 「AI生视频」大类下的二级分类键（与前端 VIDEO_KINDS 一一对应）。
-// 只用于列表 kind_group=video 的筛选，不是可写入的 kind（afv_asset_ext.kind 的 ENUM 里没有它们）：
-// 视频资产怎么归到这些二级分类还没定数据来源，定之前 kind_group=video 查不到任何资产。
-var VideoKinds = []string{
-	"viral_video", "video_remake", "promo_video", "digital_human", "digital_human_talk",
-	"store_visit", "promo_drama", "motion_transfer", "canvas_video", "video_other",
+// 分类大类（kind_group）：image = 商拍类（沿用旧键，与 Java /asset/categories 的「创作素材」组一致）、
+// marketing = 营销素材类、video = 视频类。一个 kind 只属于一个大类。
+var kindGroups = map[string][]asset.Usage{
+	"image":     {asset.UsageModel, asset.UsageScene, asset.UsageMakeup, asset.UsageHair, asset.UsageAccessory},
+	"marketing": {asset.UsageProduct, asset.UsageStorefront, asset.UsageDish, asset.UsageLogo, asset.UsagePoster, asset.UsageReference, asset.UsageOther},
+	"video":     {asset.UsageVideoFinal, asset.UsageVideoSegment},
 }
+
+// KindGroups 大类键（固定顺序）。
+var KindGroups = []string{"image", "marketing", "video"}
+
+// KindGroupLabels 大类中文名。
+var KindGroupLabels = map[string]string{"image": "商拍素材", "marketing": "营销素材", "video": "视频素材"}
 
 // KindGroupKinds 大类 → 包含的 kind 键；未知大类返回 nil。
 func KindGroupKinds(group string) []string {
-	switch group {
-	case "image":
-		out := make([]string, len(Kinds))
-		for i, k := range Kinds {
-			out[i] = string(k)
-		}
-		return out
-	case "video":
-		return append([]string(nil), VideoKinds...)
+	us, ok := kindGroups[group]
+	if !ok {
+		return nil
 	}
-	return nil
+	out := make([]string, len(us))
+	for i, u := range us {
+		out[i] = string(u)
+	}
+	return out
 }
 
-// KindLabels 分类中文名（分类条展示用）。
-var KindLabels = map[string]string{
-	"all":                 "全部",
-	string(KindModel):     "模特",
-	string(KindScene):     "场景",
-	string(KindMakeup):    "妆容",
-	string(KindHair):      "发型",
-	string(KindAccessory): "配饰",
-	"uncategorized":       "未分类",
-}
+// KindLabels 分类中文名（分类条展示用）：全部 / 各 kind（取 pkg/asset 用途中文名）/ 未分类。
+var KindLabels = func() map[string]string {
+	m := map[string]string{"all": "全部", "uncategorized": "未分类"}
+	for _, u := range asset.Usages {
+		m[string(u)] = u.Label()
+	}
+	return m
+}()
+
+// 分类来源（Asset.kind_source）：user = 用户在资产库改过（afv_asset_ext.kind 有值）；auto = 系统按用途标签 / 入口 / 类型推算。
+const (
+	KindSourceUser = "user"
+	KindSourceAuto = "auto"
+)
 
 // Valid 是否是已知分类（不含空）。
-func (k Kind) Valid() bool {
-	for _, v := range Kinds {
-		if v == k {
-			return true
-		}
-	}
-	return false
-}
+func (k Kind) Valid() bool { return asset.Usage(k).Valid() }
 
 // 关系类型（afv_asset_relation.relation_type）。
 const (
@@ -129,7 +139,7 @@ func SourceOf(t sql.NullInt64) string {
 //
 // 只读为主：不用 bun 的 Update(Model) 改它；受控写入只有 repo.AssetRepo.Rename（name 列）、SoftDelete（deleted 列）
 // 与 repo.AssetRepo.InsertUpload（「存为资产」新增一行用户上传，见 repo/upload.go）。
-// 未映射的 Java 列：project_id、description、properties、tags（Java 自己的标签 JSON，本模块不读写）、
+// 未映射的 Java 列：project_id、description、properties、tags（Java 的标签 JSON，未启用；用户标签以本模块 afv_asset_tag 为唯一来源）、
 // integration_delivery_id、integration_access_policy、update_time。
 type JavaAsset struct {
 	bun.BaseModel `bun:"table:afv_asset,alias:a"`
@@ -149,7 +159,8 @@ type JavaAsset struct {
 	AspectRatio  string         `bun:"aspect_ratio"`
 	SourceType   sql.NullInt64  `bun:"source_type"` // 1-用户上传 2-AI生成
 	AIPrompt     sql.NullString `bun:"ai_prompt"`
-	Status       sql.NullInt64  `bun:"status"` // 0-草稿 1-正常
+	SysTags      sql.NullString `bun:"sys_tags"` // 系统标签 JSON 数组（Java V1.0.236；pkg/asset 与 Java 入库时写，用户不可改）
+	Status       sql.NullInt64  `bun:"status"`   // 0-草稿 1-正常
 	Deleted      int8           `bun:"deleted"`
 	CreateTime   time.Time      `bun:"create_time"`
 }

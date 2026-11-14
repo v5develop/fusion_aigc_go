@@ -53,7 +53,7 @@ func (l *UpdateLogic) Update(in *assetlib.UpdateReq) (*assetlib.Asset, error) {
 		}
 	}
 	if in.Kind != nil && *in.Kind != "" && !model.Kind(*in.Kind).Valid() {
-		return nil, xerr.Param("kind 只能是 model / scene / makeup / hair / accessory，空串表示未分类")
+		return nil, xerr.Param("kind 只能是 " + kindNames() + "，空串表示恢复系统推算")
 	}
 	if in.License != nil && *in.License != "" && !slices.Contains(model.Licenses, *in.License) {
 		return nil, xerr.Param("license 只能是 cleared / internal / unknown")

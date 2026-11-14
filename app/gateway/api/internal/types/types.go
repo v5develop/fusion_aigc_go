@@ -60,7 +60,8 @@ type AssetLibFromUrlResp struct {
 
 type AssetLibAsset struct {
 	Id               int64              `json:"id"`
-	Kind             string             `json:"kind"` // model / scene / makeup / hair / accessory；空=未分类
+	Kind             string             `json:"kind"`        // 有效分类：用户改过的分类，否则按系统标签 / 入口 / 类型推算；空=未分类
+	KindSource       string             `json:"kind_source"` // user = 用户改过；auto = 系统推算
 	Title            string             `json:"title"`
 	Prompt           string             `json:"prompt"`
 	Image            string             `json:"image"` // 当前版本图 > 原图（视频为封面）
@@ -79,6 +80,7 @@ type AssetLibAsset struct {
 	EntryCode        string             `json:"entry_code"`
 	Width            int32              `json:"width"`
 	Height           int32              `json:"height"`
+	SysTags          []string           `json:"sys_tags"` // 系统标签（来源功能、用途:xxx、行业:xxx、模板:xxx、清晰度…），用户不可改
 }
 
 type AssetLibAssetPage struct {
@@ -87,16 +89,18 @@ type AssetLibAssetPage struct {
 }
 
 type AssetLibBatchDeleteReq struct {
-	AssetIds []int64 `json:"asset_ids"` // ≤100；官方素材与不存在的 id 静默跳过（分别计数）
+	AssetIds []int64 `json:"asset_ids"` // ≤200；官方素材与不存在的 id 静默跳过（分别计数）
 }
 
 type AssetLibBatchTagReq struct {
-	AssetIds []int64 `json:"asset_ids"` // ≤100
-	TagIds   []int64 `json:"tag_ids"`   // ≤10
+	AssetIds     []int64 `json:"asset_ids"`               // ≤200
+	TagIds       []int64 `json:"tag_ids,optional"`        // 追加，≤20
+	RemoveTagIds []int64 `json:"remove_tag_ids,optional"` // 移除，≤20；与 tag_ids 至少给一个（同一请求先移除再追加）
 }
 
 type AssetLibBatchTagResp struct {
-	Added int64 `json:"added"` // 新增的关联条数
+	Added   int64 `json:"added"`   // 新增的关联条数
+	Removed int64 `json:"removed"` // 删除的关联条数
 }
 
 type AssetLibCategoriesReq struct {
@@ -109,9 +113,10 @@ type AssetLibCategoriesResp struct {
 }
 
 type AssetLibCategory struct {
-	Key   string `json:"key"` // all / model / scene / makeup / hair / accessory / uncategorized
+	Key   string `json:"key"` // all / 各 kind / uncategorized
 	Label string `json:"label"`
 	Count int64  `json:"count"`
+	Group string `json:"group"` // kind 所属大类：image（商拍）/ marketing（营销素材）/ video（视频）；all / uncategorized 为空
 }
 
 type AssetLibDeleteResp struct {
@@ -137,18 +142,20 @@ type AssetLibGetReq struct {
 }
 
 type AssetLibListReq struct {
-	Kind         string `form:"kind,optional,options=|model|scene|makeup|hair|accessory|uncategorized|viral_video|video_remake|promo_video|digital_human|digital_human_talk|store_visit|promo_drama|motion_transfer|canvas_video|video_other"`
-	Source       string `form:"source,optional,options=|input|generated|official|upload"` // input = official + upload
+	Kind         string `form:"kind,optional,options=|model|scene|makeup|hair|accessory|product|storefront|dish|logo|poster|reference|other|video_final|video_segment|uncategorized"` // 按有效分类筛（用户分类 > 系统推算）
+	Source       string `form:"source,optional,options=|input|generated|official|upload"`                                                                                             // input = official + upload
 	Media        string `form:"media,optional,options=|image|video"`
-	Tag          string `form:"tag,optional"` // 标签名
+	Tag          string `form:"tag,optional"` // 标签名（单个，兼容；与 tags 合并）
 	FavoriteOnly bool   `form:"favorite_only,optional"`
 	Q            string `form:"q,optional"` // 标题 / 提示词模糊
 	Page         int64  `form:"page,optional,default=1"`
-	PageSize     int64  `form:"page_size,optional,default=20"`            // 上限 100
-	KindGroup    string `form:"kind_group,optional,options=|image|video"` // 大类：image = 5 个图片 kind；video = 视频 kind
-	AspectRatio  string `form:"aspect_ratio,optional"`                    // 比例，如 1:1 / 3:4 / 9:16
-	EntryCodes   string `form:"entry_codes,optional"`                     // 入口码，逗号分隔（每项 [A-Za-z0-9_.-]{1,64}，最多 200 个），按 entry_code IN (...)
-	Untagged     bool   `form:"untagged,optional"`                        // true=只要没挂任何标签的资产（「未分类」，口径同 GET /tags 的 untagged_count）；不能与 tag 同时传
+	PageSize     int64  `form:"page_size,optional,default=20"`                      // 上限 100
+	KindGroup    string `form:"kind_group,optional,options=|image|marketing|video"` // 大类：image = 商拍；marketing = 营销素材；video = 视频
+	AspectRatio  string `form:"aspect_ratio,optional"`                              // 比例，如 1:1 / 3:4 / 9:16
+	EntryCodes   string `form:"entry_codes,optional"`                               // 入口码，逗号分隔（每项 [A-Za-z0-9_.-]{1,64}，最多 200 个），按 entry_code IN (...)
+	Untagged     bool   `form:"untagged,optional"`                                  // true=只要没挂任何标签的资产（「未分类」，口径同 GET /tags 的 untagged_count）；不能与 tag / tags 同时传
+	Tags         string `form:"tags,optional"`                                      // 标签名，逗号分隔，全部包含才命中（≤20 个）
+	SysTags      string `form:"sys_tags,optional"`                                  // 系统标签，逗号分隔，全部包含才命中（≤20 个）
 }
 
 type AssetLibListResp struct {
@@ -193,7 +200,20 @@ type AssetLibTag struct {
 }
 
 type AssetLibTagCreateReq struct {
-	Name string `json:"name"` // ≤20 字，每用户 ≤200 个
+	Name string `json:"name"` // ≤32 字，每用户 ≤500 个
+}
+
+type AssetLibSysTag struct {
+	Name       string `json:"name"`
+	AssetCount int64  `json:"asset_count"`
+}
+
+type AssetLibSysTagListResp struct {
+	Items []AssetLibSysTag `json:"items"` // 按资产数倒序，最多 500 个
+}
+
+type AssetLibTagListReq struct {
+	Sort string `form:"sort,optional,options=|count|name"` // 空 / count = 按使用次数倒序；name = 按名字
 }
 
 type AssetLibTagListResp struct {
@@ -209,9 +229,9 @@ type AssetLibTagRenameReq struct {
 type AssetLibUpdateReq struct {
 	Id               int64             `path:"id"`
 	Title            *string           `json:"title,optional"` // ≤100 字
-	Kind             *string           `json:"kind,optional"`  // 空串=改回未分类
+	Kind             *string           `json:"kind,optional"`  // 改分类（kind_source 变 user）；空串=恢复系统推算
 	Favorite         *bool             `json:"favorite,optional"`
-	Tags             *[]string         `json:"tags,optional"`               // 整组替换，≤10 个；字典里没有的自动建
+	Tags             *[]string         `json:"tags,optional"`               // 整组替换，≤20 个；字典里没有的自动建
 	Metadata         *AssetLibMetadata `json:"metadata,optional"`           // 整体替换
 	CurrentVersionId *int64            `json:"current_version_id,optional"` // 0=回到原图
 	License          *string           `json:"license,optional"`            // cleared / internal / unknown / 空

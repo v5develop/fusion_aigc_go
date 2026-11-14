@@ -22,12 +22,31 @@ type TagRow struct {
 // assetCountExpr 每个标签挂着的未删除资产数。
 const assetCountExpr = "(SELECT COUNT(*) FROM afv_asset_tag_link AS l JOIN afv_asset AS a ON a.id = l.asset_id AND a.deleted = 0 AND (a.status IS NULL OR a.status <> 0) WHERE l.tag_id = t.id) AS asset_count"
 
-// List 用户的全部标签（按名字排序）。
-func (r *TagRepo) List(ctx context.Context, userID int64) ([]*TagRow, error) {
+// 标签列表排序。
+const (
+	TagSortCount = "count" // 按使用次数（挂着的有效资产数）倒序，同数按名字（默认）
+	TagSortName  = "name"  // 按名字
+)
+
+// List 用户的全部标签；sort 为 TagSortName 按名字，其余按使用次数倒序。
+func (r *TagRepo) List(ctx context.Context, userID int64, sort string) ([]*TagRow, error) {
+	order := "asset_count DESC, t.name ASC, t.id ASC"
+	if sort == TagSortName {
+		order = "t.name ASC, t.id ASC"
+	}
 	var out []*TagRow
 	err := r.db.NewSelect().Model(&out).ColumnExpr("t.id, t.user_id, t.name, t.created_at").ColumnExpr(assetCountExpr).
-		Where("t.user_id = ?", userID).OrderExpr("t.name ASC, t.id ASC").Scan(ctx)
+		Where("t.user_id = ?", userID).OrderExpr(order).Scan(ctx)
 	return out, err
+}
+
+// RemoveLinks 解除一批资产与若干本人标签的关联（批量移除），返回删除条数。
+func (r *TagRepo) RemoveLinks(ctx context.Context, userID int64, assetIDs, tagIDs []int64) (int64, error) {
+	if len(assetIDs) == 0 || len(tagIDs) == 0 {
+		return 0, nil
+	}
+	return affected(r.db.NewDelete().Model((*model.TagLink)(nil)).Where("asset_id IN (?)", bun.In(assetIDs)).
+		Where("tag_id IN (?)", bun.In(tagIDs)).Where(ownedTagSub, userID).Exec(ctx))
 }
 
 // untaggedCond 没挂本人字典里任何标签（参数：userID）。

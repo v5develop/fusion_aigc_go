@@ -64,7 +64,7 @@ func (s *AssetlibServer) RemoveRelation(ctx context.Context, in *assetlib.Relati
 }
 
 // 标签字典
-func (s *AssetlibServer) ListTags(ctx context.Context, in *assetlib.UserReq) (*assetlib.ListTagsResp, error) {
+func (s *AssetlibServer) ListTags(ctx context.Context, in *assetlib.ListTagsReq) (*assetlib.ListTagsResp, error) {
 	l := logic.NewListTagsLogic(ctx, s.svcCtx)
 	return l.ListTags(in)
 }
@@ -112,4 +112,10 @@ func (s *AssetlibServer) AdminListTags(ctx context.Context, in *assetlib.AdminLi
 func (s *AssetlibServer) AdminKindStats(ctx context.Context, in *assetlib.AdminKindStatsReq) (*assetlib.AdminKindStatsResp, error) {
 	l := logic.NewAdminKindStatsLogic(ctx, s.svcCtx)
 	return l.AdminKindStats(in)
+}
+
+// 系统标签字典：本人资产里出现过的系统标签及资产数（按数量倒序）
+func (s *AssetlibServer) ListSysTags(ctx context.Context, in *assetlib.UserReq) (*assetlib.ListSysTagsResp, error) {
+	l := logic.NewListSysTagsLogic(ctx, s.svcCtx)
+	return l.ListSysTags(in)
 }

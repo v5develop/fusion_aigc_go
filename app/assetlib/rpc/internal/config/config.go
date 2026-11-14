@@ -47,13 +47,13 @@ type Config struct {
 	// Limits 服务端校验上限（与前端一致，改了要同步 docs/api/api-asset-library.md）
 	Limits struct {
 		TitleLen         int   `json:",default=100"`      // 标题字数（afv_asset.name 是 varchar(128)）
-		TagNameLen       int   `json:",default=20"`       // 标签名字数
-		TagsPerUser      int   `json:",default=200"`      // 每用户标签数
-		TagsPerAsset     int   `json:",default=10"`       // 每资产标签数
+		TagNameLen       int   `json:",default=32"`       // 标签名字数（afv_asset_tag.name 是 varchar(32)；表注释「≤20 字」已过时，以此为准）
+		TagsPerUser      int   `json:",default=500"`      // 每用户标签数
+		TagsPerAsset     int   `json:",default=20"`       // 每资产标签数
 		VersionsPerAsset int   `json:",default=100"`      // 每资产版本数
 		MetadataLen      int   `json:",default=50"`       // metadata 每个字段字数
 		PromptLen        int   `json:",default=5000"`     // 版本提示词字数
-		BatchAssets      int   `json:",default=100"`      // 批量打标签一次最多资产数
+		BatchAssets      int   `json:",default=200"`      // 批量打 / 移除标签、批量删除一次最多资产数
 		FromURLBytes     int64 `json:",default=10485760"` // 「存为资产」单张图片字节上限（10MB，PRD 口径）
 	}
 }

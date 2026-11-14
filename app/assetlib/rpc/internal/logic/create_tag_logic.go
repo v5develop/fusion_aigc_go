@@ -36,6 +36,9 @@ func (l *CreateTagLogic) CreateTag(in *assetlib.CreateTagReq) (*assetlib.Tag, er
 	if err != nil {
 		return nil, err
 	}
+	if err := rejectComma(name); err != nil {
+		return nil, err
+	}
 	n, err := l.svcCtx.Repo.Tag.Count(l.ctx, in.UserId)
 	if err != nil {
 		return nil, err
