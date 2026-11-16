@@ -481,6 +481,13 @@ Go 网关的登录态只解析出 `userId`（共用会话的 `currentWorkspaceId
 `analysisStatus`：有正在跑的一轮 → `queued` / `running`（`analysisStage` 为当前阶段）；否则有已发布分析 → `ready`（上一轮失败时 `analysisError` 仍给出原因）；否则上一轮失败 → `failed`；从没分析过 → `none`。
 预分析由 gateway-api 的视频做同款轮询器推进（装配即运行，与总开关无关）。
 
+### 11.x 示例素材上传 / 解析（`Go_V1.0.50`）
+
+- `POST /samples/media/upload`（multipart，字段 `file`，≤200MB，落媒体服务 `asset_library` 桶）→ 返回 `MediaPreview`。权限 `replicate:sample`。
+- `POST /samples/media/resolve`，`{rid}`（裸 rid 或 `mr://rid`）→ 校验存在并返回 `MediaPreview`。权限 `replicate:view`。
+- `MediaPreview`：`{rid, kind: video|image|other, mime, bytes, durationS, width, height, previewUrl}`；`previewUrl` 是短时效签名地址，只用于页面预览，不要存库。
+- 配置：admin-api `ReplicateAdmin.Media`（`BaseURL` / `Token`，部署变量 `MEDIA_SVC_BASE_URL` / `MEDIA_SVC_TOKEN`）；未配置时两个接口回「媒体服务未配置」。
+
 ## 12 模型选择 / 方言 / 写手 / 取消剩余段
 
 ### 12.1 接口

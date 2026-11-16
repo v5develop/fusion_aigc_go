@@ -24,6 +24,9 @@ func TestPermForReplicate(t *testing.T) {
 		{"DELETE", "/api/v1/replicate/admin/samples/7", "replicate:sample"},
 		{"POST", "/api/v1/replicate/admin/samples/7/analyze", "replicate:sample"},
 		{"PUT", "/api/v1/replicate/admin/jobs/42", "replicate:force"}, // 非示例的其它写仍从严
+		// 示例素材：上传 = sample；解析预览只读 = view
+		{"POST", "/api/v1/replicate/admin/samples/media/upload", "replicate:sample"},
+		{"POST", "/api/v1/replicate/admin/samples/media/resolve", "replicate:view"},
 		// 总开关（Go_V1.0.50）：读 = view，写 = switch
 		{"GET", "/api/v1/replicate/admin/switch", "replicate:view"},
 		{"PUT", "/api/v1/replicate/admin/switch", "replicate:switch"},

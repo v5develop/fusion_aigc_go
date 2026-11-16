@@ -252,6 +252,17 @@ func (e editor) apply(root *yaml.Node) error {
 			set(b, "Mode", quoted(e.billingMode))
 		}
 	}
+	if e.name == "admin" && e.mediaBaseURL != "" { // 示例素材上传 / 预览走媒体服务（与网关同一个地址与 token）
+		if ra := get(root, "ReplicateAdmin"); ra != nil {
+			m := get(ra, "Media")
+			if m == nil {
+				m = mapping()
+				set(ra, "Media", m)
+			}
+			set(m, "BaseURL", scalar(e.mediaBaseURL))
+			set(m, "Token", quoted(e.mediaToken))
+		}
+	}
 	if e.name == "admin" { // 总开关部署默认值与网关 Replicate.Enabled 同一个（后台开关页「跟随部署配置」时显示它）
 		if ra := get(root, "ReplicateAdmin"); ra != nil {
 			if v, ok := replicateEnabledValue(e.replicateEnabled); ok {

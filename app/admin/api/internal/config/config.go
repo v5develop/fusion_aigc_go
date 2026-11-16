@@ -56,5 +56,10 @@ type Config struct {
 		// EnabledDefault 视频做同款总开关的部署默认值（须与 gateway-api 的 Replicate.Enabled 一致，部署工具同时写两处）。
 		// 后台开关页据此显示「跟随部署配置」时的实际状态；库里 replicate.enabled 存在时以库为准。
 		EnabledDefault bool `json:",default=false"`
+		// Media 示例素材的上传 / 预览（媒体服务）。没配 BaseURL 时上传与解析接口回「媒体服务未配置」，粘贴编号的老路径不受影响。
+		Media struct {
+			BaseURL string `json:",optional"`
+			Token   string `json:",optional"`
+		} `json:",optional"`
 	} `json:",optional"`
 }

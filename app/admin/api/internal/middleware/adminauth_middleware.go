@@ -253,6 +253,9 @@ func replicateRoutePerm(method, p string) string {
 		return ""
 	}
 	seg := strings.Split(strings.TrimPrefix(p, replicateAdminPrefix), "/")
+	if seg[0] == "samples" && len(seg) == 3 && seg[1] == "media" && seg[2] == "resolve" { // 解析只读预览，查看即可（Go_V1.0.50）
+		return "replicate:view"
+	}
 	if seg[0] == "samples" && method != http.MethodGet && method != http.MethodHead {
 		return "replicate:sample"
 	}
