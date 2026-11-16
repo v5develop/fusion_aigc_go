@@ -371,7 +371,7 @@ gen_conf() {
     -ai-gateway-url "$AI_GATEWAY_URL" -ai-gateway-key-id "$AI_GATEWAY_KEY_ID" -ai-gateway-secret "$AI_GATEWAY_SECRET" \
     -reverse-url "$REVERSE_SIDECAR_URL" -colorfix-solver-url "$COLORFIX_SOLVER_URL" -colorfix-solver-token "$COLORFIX_SOLVER_TOKEN" -studio-input-url-prefixes "$STUDIO_INPUT_URL_PREFIXES" \
     -free-watermark-enabled "${FREE_WATERMARK_ENABLED:-}" -free-watermark-process "${FREE_WATERMARK_OSS_PROCESS:-}" \
-    -canvas-java-base-url "$CANVAS_JAVA_BASE_URL" -plaza-ip-salt "${PLAZA_IP_HASH_SALT:-}" \
+    -canvas-java-base-url "$CANVAS_JAVA_BASE_URL" -plaza-ip-salt "${PLAZA_IP_HASH_SALT:-}" -replicate-enabled "${REPLICATE_ENABLED:-}" \
     -session-redis "$SESSION_REDIS_ADDR" -session-redis-pass "$SESSION_REDIS_PASS" \
     -session-redis-db "$SESSION_REDIS_DB" -session-max "$SESSION_MAX_CONCURRENT" \
     -token-access-hours "$TOKEN_ACCESS_HOURS" -token-refresh-days "$TOKEN_REFRESH_DAYS" \

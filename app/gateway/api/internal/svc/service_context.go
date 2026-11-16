@@ -48,7 +48,7 @@ type ServiceContext struct {
 	Plaza *core.Service
 	// Headline 本周头条用户端（不带后台任务）；没配 DataSource 时接口回「功能暂未开放」
 	Headline *httpapi.Headline
-	// Replicate 视频做同款；Replicate.Enabled=false 或没配 DataSource 时为 nil（接口回 7003，不启动轮询器）
+	// Replicate 视频做同款；没配 DataSource 时为 nil（接口回 7003，不启动轮询器）。Replicate.Enabled 只是总开关默认值，库里 replicate.enabled 优先
 	Replicate *replicate.Module
 	Union     *unionauth.Client
 	AppUser   *appuser.Model

@@ -87,7 +87,7 @@ CanvasRpc:              # 画布 + 提示词库（/api/v1/canvas、/api/v1/promp
   Timeout: 60000        # 执行节点内联提交（拉入参考图 / 提交 gateway·Java·studio / 裁剪同步完成）
   NonBlock: true
 Replicate:              # 视频做同款（/api/v1/replicate/**，docs/api/api-replicate.md）；默认关，运行参数见 afv_system_config 的 replicate.*
-  Enabled: false        # 打开后装配内核并启动轮询器（行租约，多实例安全）；另需 afv_system_config.replicate.enabled=true 才接新请求
+  Enabled: false        # 总开关默认值：afv_system_config.replicate.enabled 存在时以库为准（数据库 > 文件配置）；关着只拦新提交，读接口 / 轮询器照常
   Billing: {Mode: "off"} # off / shadow / on（加引号：YAML 里裸 off 是布尔）
   AiGateway: {BaseURL: "", KeyID: "", Secret: ""}
   Media: {BaseURL: "", Token: ""}

@@ -3,8 +3,8 @@
 状态：**内核（`app/replicate/core`）+ gateway-api 接线（`app/replicate/httpapi`）已完成，默认关**。路由 `/api/v1/replicate/**` 全部挂 `Auth`（用户 id 取登录态），
 响应体就是 `core` 里对应 View 结构的 JSON（字段名以代码 `json` tag 为准，本页与代码不一致时以代码为准并回改本页）。迁移 `Go_V1.0.37__replicate.sql`。
 
-开关：yaml `Replicate.Enabled`（默认 false：不装配，所有接口回 `7003 FEATURE_NOT_READY`，不启动轮询器）；
-运行时总开关 `afv_system_config.replicate.enabled`（默认 false，60 秒内生效）：关着时写接口回 7003，读接口（limits / 分析 / job）与轮询器照常，在途任务能收尾、退点。
+开关（数据库 > 文件配置）：总开关 `afv_system_config.replicate.enabled` 存在且合法时以库为准（60 秒内生效，不用重启）；库里没有 / 值非法 / 读库失败时用 yaml `Replicate.Enabled`（默认 false；部署变量 `REPLICATE_ENABLED`）。
+配了 DataSource 就装配、启动轮询器；总开关关着时写接口回 7003，读接口（limits / 分析 / job / 历史 / 我的方案）与轮询器照常，在途任务能收尾、退点。`GET /limits` 带 `enabled` 告诉前端当前是否接新提交。没配 DataSource 时不装配，所有接口回 `7003 FEATURE_NOT_READY`。
 轮询器在 gateway-api 进程内（每 `PollIntervalMs` 一轮，每轮 ≤`BatchSize` 条），每条分析 / job 推进前用 `pkg/lease` 抢行租约（`afv_replicate_analysis` / `afv_replicate_job`，TTL `LeaseSeconds`，每 TTL/3 续），多实例同时跑安全。
 取数按 `next_run_at` 升序（NULL 最先）：每推进一行写回 `next_run_at`（在途 3 秒；终态补退点 / 补合成按「结束多久了」退避 30 秒 ~ 30 分钟；出错 30 秒），不动 `updated_at`，`BatchSize` 再小也不会饿死后面的行。
 job 的取数口径（四条各走索引的查询，内存合并按 `next_run_at` 排序）：在途（排队 / 执行中 / 提交中 / 继续中，`idx_status_next_run`）；待继续只在 `continue_deadline` 已到时（`idx_status_deadline`）；
@@ -468,7 +468,7 @@ Go 网关的登录态只解析出 `userId`（共用会话的 `currentWorkspaceId
 ```
 
 `analysisStatus`：有正在跑的一轮 → `queued` / `running`（`analysisStage` 为当前阶段）；否则有已发布分析 → `ready`（上一轮失败时 `analysisError` 仍给出原因）；否则上一轮失败 → `failed`；从没分析过 → `none`。
-预分析由 gateway-api 的视频做同款轮询器推进（`Replicate.Enabled=true` 才会跑）。
+预分析由 gateway-api 的视频做同款轮询器推进（装配即运行，与总开关无关）。
 
 ## 12 模型选择 / 方言 / 写手 / 取消剩余段
 

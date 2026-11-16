@@ -85,6 +85,7 @@ func main() {
 	studioInputPrefixes := flag.String("studio-input-url-prefixes", "", "studio / assetlib 额外允许的输入图地址前缀（逗号分隔，如素材库公有桶域名 https://cdn.example.com/），写进 InputURLPrefixes；留空不改")
 	freeWatermarkEnabled := flag.String("free-watermark-enabled", "", "studio 免费档读时参数水印开关 true / false（= Java FREE_WATERMARK_ENABLED），写进 studio FreeWatermark.Enabled；留空不改")
 	freeWatermarkProcess := flag.String("free-watermark-process", "", "免费水印 OSS 处理串（= Java FREE_WATERMARK_OSS_PROCESS / 启动日志 check=free_watermark.process），写进 studio / assetlib / canvas 的 FreeWatermark.Process；留空不改")
+	replicateEnabled := flag.String("replicate-enabled", "", "视频做同款总开关默认值 true / false（写进网关 Replicate.Enabled；afv_system_config.replicate.enabled 存在时以库为准），留空保持模板（关）")
 	plazaIPSalt := flag.String("plaza-ip-salt", "", "广场 IP 加盐哈希的盐（写进网关 Plaza.IPHashSalt）；留空 = 由 -dsn 派生一串稳定的私密盐（含库口令，不公开、重装不变）")
 	canvasJavaURL := flag.String("canvas-java-base-url", "", "Java 主项目内网地址（canvas 调 creaft v1 兼容工具 / 任务查询 / 价目，透传用户 Bearer）；留空 = 放大 / 扩图 / 重绘返回「暂未开放」")
 	flag.Parse()
@@ -132,6 +133,7 @@ func main() {
 			mediaToken: *mediaToken, mediaNacosAddr: *mediaNacosAddr, mediaNacosUser: *mediaNacosUser, mediaNacosPass: *mediaNacosPass, mediaBaseURL: *mediaBaseURL,
 			aiGatewayURL: *aiGatewayURL, aiGatewayKeyID: *aiGatewayKeyID, aiGatewaySecret: *aiGatewaySecret, reverseURL: *reverseURL, colorfixURL: strings.TrimSpace(*colorfixURL), colorfixToken: *colorfixToken,
 			studioInputPrefixes: splitList(*studioInputPrefixes), canvasJavaURL: *canvasJavaURL, plazaIPSalt: plazaSalt(*plazaIPSalt, *dsn),
+			replicateEnabled:     strings.ToLower(strings.TrimSpace(*replicateEnabled)),
 			freeWatermarkEnabled: strings.TrimSpace(*freeWatermarkEnabled), freeWatermarkProcess: strings.TrimSpace(*freeWatermarkProcess)}
 		if err := e.apply(root); err != nil {
 			log.Fatalf("%s: %v", file, err)
@@ -209,6 +211,8 @@ type editor struct {
 	// freeWatermarkEnabled / freeWatermarkProcess 免费档读时参数水印（空 = 不改模板）
 	freeWatermarkEnabled string
 	freeWatermarkProcess string
+	// replicateEnabled 网关 Replicate.Enabled（true / false / 1 / 0；空 = 不改模板）
+	replicateEnabled string
 	// plazaIPSalt 网关 Plaza.IPHashSalt（Mode=pro 下空盐 / 默认盐网关拒绝启动）
 	plazaIPSalt string
 }
@@ -237,6 +241,16 @@ func (e editor) apply(root *yaml.Node) error {
 	set(root, "Mode", scalar("pro"))
 	if e.name == "note" || e.name == "digitalhuman" || e.name == "imagegen" { // 执行面 task_id 前缀
 		set(root, "TaskIDPrefix", scalar(e.taskIDPrefix))
+	}
+	if e.name == "gateway" { // 视频做同款：总开关默认值 + 与 studio / canvas 同一组 ai-gateway、媒体服务凭据、同一计费档位
+		if err := e.applyReplicate(get(root, "Replicate")); err != nil {
+			return err
+		}
+	}
+	if e.name == "admin" && e.billingMode != "" { // 视频做同款后台计费档位必须与网关 Replicate.Billing 同一个，否则人工退点 / 强制收尾回 BILLING_OFF
+		if b := get(get(root, "ReplicateAdmin"), "Billing"); b != nil {
+			set(b, "Mode", quoted(e.billingMode))
+		}
 	}
 	if e.name == "gateway" { // 广场 IP 加盐哈希：正式模式下空盐 / 默认盐网关拒绝启动（app/plaza/core.CheckIPHashSalt）
 		p := get(root, "Plaza")
@@ -429,6 +443,49 @@ func (e editor) apply(root *yaml.Node) error {
 		del(v, "Etcd")
 		set(v, "Endpoints", &yaml.Node{Kind: yaml.SequenceNode, Style: yaml.FlowStyle,
 			Content: []*yaml.Node{scalar(fmt.Sprintf("127.0.0.1:%d", p))}})
+	}
+	return nil
+}
+
+// applyReplicate 网关的 Replicate 段。Enabled 只是默认值：afv_system_config.replicate.enabled 存在时以库为准（数据库 > 文件配置）。
+// ai-gateway / 媒体服务 / 计费始终跟着部署变量写，不留开发配置里的值（与 studio / canvas 同一组）。
+func (e editor) applyReplicate(rp *yaml.Node) error {
+	if rp == nil {
+		return nil
+	}
+	switch e.replicateEnabled {
+	case "":
+	case "true", "1", "on", "yes":
+		set(rp, "Enabled", scalar("true"))
+	case "false", "0", "off", "no":
+		set(rp, "Enabled", scalar("false"))
+	default:
+		return fmt.Errorf("-replicate-enabled 只能是 true / false / 1 / 0，收到 %q", e.replicateEnabled)
+	}
+	if ms := get(rp, "Media"); ms != nil {
+		e.applyMedia(ms)
+	}
+	if g := get(rp, "AiGateway"); g != nil {
+		set(g, "BaseURL", scalar(e.aiGatewayURL))
+		set(g, "Secret", quoted(e.aiGatewaySecret))
+		if e.aiGatewayKeyID != "" {
+			set(g, "KeyID", quoted(e.aiGatewayKeyID))
+		}
+	}
+	if b := get(rp, "Billing"); b != nil && e.billingMode != "" {
+		switch e.billingMode {
+		case "off", "shadow", "on":
+			set(b, "Mode", quoted(e.billingMode))
+		default:
+			return fmt.Errorf("-billing-mode 只能是 off / shadow / on，收到 %q", e.billingMode)
+		}
+	}
+	if len(e.studioInputPrefixes) > 0 { // 素材库公有桶等自有域名：参考图从资产库选来时要认
+		seq := &yaml.Node{Kind: yaml.SequenceNode}
+		for _, p := range e.studioInputPrefixes {
+			seq.Content = append(seq.Content, scalar(p))
+		}
+		set(rp, "InputURLPrefixes", seq)
 	}
 	return nil
 }

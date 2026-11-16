@@ -4,7 +4,7 @@
 //
 // 挂载（gateway-api main）：
 //
-//	rp := httpapi.MustBuild(c.Replicate, conn, httpapi.WithStorage(store)) // conn 为 DataSource 的 sqlx 连接；Replicate.Enabled=false 返回 nil；
+//	rp := httpapi.MustBuild(c.Replicate, conn, httpapi.WithStorage(store)) // conn 为 DataSource 的 sqlx 连接；conn 为 nil 返回 nil；
 //	                                                                       // store 为 gateway 的 storage.Store（校验 http(s) 输入归属，不传则用 Replicate.Storage）
 //	httpapi.Register(server, ctx.Auth, rp)               // rp 为 nil 时所有接口回 7003「功能暂未开放」
 //	go rp.Poller.Start(); defer rp.Poller.Stop()
@@ -15,11 +15,10 @@ import (
 	"aigc-local-life/pkg/storage"
 )
 
-// Conf gateway-api 配置 Replicate（全部可选；Enabled 默认 false = 不装配，接口回「功能暂未开放」，轮询器不启动）。
+// Conf gateway-api 配置 Replicate（全部可选）。配了 DataSource 就装配、启动轮询器；Enabled 只决定默认是否接新提交。
 type Conf struct {
-	// Enabled 进程级开关（默认关）：打开后装配内核、注册可用的接口、启动轮询器。
-	// 另有运行时总开关 afv_system_config.replicate.enabled（默认 false，60 秒内生效）：关着时写接口回 7003，
-	// 只读接口与轮询器照常（在途任务要能收尾、退点）。
+	// Enabled 总开关的默认值（默认关）。数据库 > 文件配置：afv_system_config.replicate.enabled 存在且合法时以库为准（60 秒内生效），
+	// 库里没有 / 值非法 / 读库失败才用这里。关着时写接口回 7003，只读接口与轮询器照常（在途任务要能收尾、退点）。
 	Enabled bool `json:",default=false"`
 	// LongformEnabled 多段视频（> 单段上限）是否开放：装配媒体服务区间切段（mediasvc.Client.Cut）。默认开（配了 Media 才生效）；
 	// 运行时 afv_system_config.replicate.longform_enabled 存在时以它为准（应急关闭用）。

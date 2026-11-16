@@ -60,15 +60,13 @@ type Module struct {
 	taskSync *taskcenter.AsyncSync
 }
 
-// MustBuild 由配置与库连接装配。c.Enabled=false 或 conn 为 nil（没配 DataSource）返回 nil：接口回「功能暂未开放」，不启动轮询器。
+// MustBuild 由配置与库连接装配。conn 为 nil（没配 DataSource）返回 nil：接口回「功能暂未开放」，不启动轮询器。
+// c.Enabled 只是运行时总开关的默认值（afv_system_config.replicate.enabled 存在时以库为准，数据库 > 文件配置）：
+// 不论开关如何都装配，关着时只拦写接口，历史 / 我的方案照常可读、在途任务照常收尾。
 func MustBuild(c Conf, conn sqlx.SqlConn, opts ...BuildOption) *Module {
 	var bo buildOpts
 	for _, o := range opts {
 		o(&bo)
-	}
-	if !c.Enabled {
-		logx.Info("replicate: Replicate.Enabled=false，视频做同款不装配（接口回「功能暂未开放」）")
-		return nil
 	}
 	if conn == nil {
 		logx.Error("replicate: 已开启但没配 DataSource，视频做同款不装配")
@@ -152,6 +150,7 @@ func MustBuild(c Conf, conn sqlx.SqlConn, opts ...BuildOption) *Module {
 		return core.New(cfg, store, ledger, opts...)
 	}
 	rt := newRuntime(base, c.LongformEnabled, systemConfigLoader(conn), build)
+	rt.enabledYAML = c.Enabled
 	ttl := time.Duration(c.LeaseSeconds) * time.Second
 	if ttl < 30*time.Second {
 		ttl = 120 * time.Second

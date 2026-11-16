@@ -17,7 +17,7 @@ import (
 // 运行参数（afv_system_config，DESIGN §14.2）。读法同 studio 的运行时开关：单表、deleted=0、60 秒缓存，
 // 查库失败沿用上一次的值（首次失败用 yaml / 内核默认），值非法的键忽略并告警（带键名与原值）。
 const (
-	KeyEnabled           = "replicate.enabled"                 // bool，总开关，默认 false：关着时写接口回 7003
+	KeyEnabled           = "replicate.enabled"                 // bool，总开关：库里没有（或值非法）时用 Replicate.Enabled（数据库 > 文件配置）；关着时写接口回 7003
 	KeyLongformEnabled   = "replicate.longform_enabled"        // bool，多段视频（装配区间切段）
 	KeyAutoRetryMax      = "replicate.auto_retry_max"          // int 0~3
 	KeyRedoMaxPerSegment = "replicate.redo_max_per_segment"    // int 1~10
@@ -279,9 +279,11 @@ func applyParams(base core.Config, longformYAML bool, kv map[string]string) Para
 type Runtime struct {
 	base         core.Config
 	longformYAML bool
-	build        func(cfg core.Config, longform bool) *core.Service
-	load         loader
-	now          func() time.Time
+	// enabledYAML 总开关的文件默认值（Replicate.Enabled）：库里 replicate.enabled 缺省或非法时用它
+	enabledYAML bool
+	build       func(cfg core.Config, longform bool) *core.Service
+	load        loader
+	now         func() time.Time
 
 	mu      sync.Mutex
 	at      time.Time
@@ -323,6 +325,9 @@ func (r *Runtime) Service(ctx context.Context) (*core.Service, bool) {
 		}
 	}
 	p := applyParams(r.base, r.longformYAML, kv)
+	if !validBool(kv[KeyEnabled]) { // 库里没配（或读库失败 / 值非法）：用文件配置
+		p.Enabled = r.enabledYAML
+	}
 	sig := signature(p)
 	if r.svc == nil || sig != r.sig {
 		r.svc, r.sig = r.build(p.Cfg, *p.Longform), sig
@@ -337,6 +342,15 @@ func (r *Runtime) Service(ctx context.Context) (*core.Service, bool) {
 	r.enabled = p.Enabled
 	r.rate = p.Rate
 	return r.svc, r.enabled
+}
+
+// validBool 库里的布尔值能否识别（与 applyParams 的 boolOf 同一套写法；空串缺省按「没配」）。
+func validBool(raw string) bool {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "true", "1", "on", "yes", "false", "0", "off", "no":
+		return true
+	}
+	return false
 }
 
 // Loaded 是否至少成功读过一次 afv_system_config（没有 loader 时视为已读）。

@@ -143,8 +143,16 @@ func pathStr(r *http.Request, name string) (string, error) {
 	return v, nil
 }
 
-func (h *handlers) limits(_ http.ResponseWriter, _ *http.Request, s *core.Service, _ int64) (any, error) {
-	return s.Limits(), nil
+// limitsView limits 加上运行时总开关：前端据此在页头说清「暂停新提交」，而不是等用户点了才报 7003。
+type limitsView struct {
+	core.LimitsView
+	// Enabled 当前是否接新提交（afv_system_config.replicate.enabled，库里没有时取 Replicate.Enabled）
+	Enabled bool `json:"enabled"`
+}
+
+func (h *handlers) limits(_ http.ResponseWriter, r *http.Request, s *core.Service, _ int64) (any, error) {
+	_, enabled := h.m.rt.Service(r.Context()) // 与 wrap 同一份缓存（60 秒），不多查库
+	return limitsView{LimitsView: s.Limits(), Enabled: enabled}, nil
 }
 
 func (h *handlers) createAnalysis(_ http.ResponseWriter, r *http.Request, s *core.Service, uid int64) (any, error) {
