@@ -87,6 +87,8 @@ func main() {
 	freeWatermarkProcess := flag.String("free-watermark-process", "", "免费水印 OSS 处理串（= Java FREE_WATERMARK_OSS_PROCESS / 启动日志 check=free_watermark.process），写进 studio / assetlib / canvas 的 FreeWatermark.Process；留空不改")
 	replicateEnabled := flag.String("replicate-enabled", "", "视频做同款总开关默认值 true / false（写进网关 Replicate.Enabled；afv_system_config.replicate.enabled 存在时以库为准），留空保持模板（关）")
 	plazaIPSalt := flag.String("plaza-ip-salt", "", "广场 IP 加盐哈希的盐（写进网关 Plaza.IPHashSalt）；留空 = 由 -dsn 派生一串稳定的私密盐（含库口令，不公开、重装不变）")
+	canvasInternalKeyID := flag.String("canvas-internal-key-id", "", "画布内部入口（Java 智能体 → 网关 /internal/v1/canvas/agent/*）的 key id，写进网关 CanvasInternal.Keys；与 Java APP_FUSION_GO_KEY_ID 一致。须与 -canvas-internal-secret 同时给，留空 = 不注册入口")
+	canvasInternalSecret := flag.String("canvas-internal-secret", "", "画布内部入口的 HMAC 密钥（≥32 字节），写进网关 CanvasInternal.Keys；与 Java APP_FUSION_GO_SECRET 一致，不要改动已用中的值")
 	canvasJavaURL := flag.String("canvas-java-base-url", "", "Java 主项目内网地址（canvas 调 creaft v1 兼容工具 / 任务查询 / 价目，透传用户 Bearer）；留空 = 放大 / 扩图 / 重绘返回「暂未开放」")
 	flag.Parse()
 	for _, r := range *taskIDPrefix {
@@ -133,6 +135,7 @@ func main() {
 			mediaToken: *mediaToken, mediaNacosAddr: *mediaNacosAddr, mediaNacosUser: *mediaNacosUser, mediaNacosPass: *mediaNacosPass, mediaBaseURL: *mediaBaseURL,
 			aiGatewayURL: *aiGatewayURL, aiGatewayKeyID: *aiGatewayKeyID, aiGatewaySecret: *aiGatewaySecret, reverseURL: *reverseURL, colorfixURL: strings.TrimSpace(*colorfixURL), colorfixToken: *colorfixToken,
 			studioInputPrefixes: splitList(*studioInputPrefixes), canvasJavaURL: *canvasJavaURL, plazaIPSalt: plazaSalt(*plazaIPSalt, *dsn),
+			canvasInternalKeyID: strings.TrimSpace(*canvasInternalKeyID), canvasInternalSecret: strings.TrimSpace(*canvasInternalSecret),
 			replicateEnabled:     strings.ToLower(strings.TrimSpace(*replicateEnabled)),
 			freeWatermarkEnabled: strings.TrimSpace(*freeWatermarkEnabled), freeWatermarkProcess: strings.TrimSpace(*freeWatermarkProcess)}
 		if err := e.apply(root); err != nil {
@@ -213,6 +216,8 @@ type editor struct {
 	freeWatermarkProcess string
 	// replicateEnabled 网关 Replicate.Enabled（true / false / 1 / 0；空 = 不改模板）
 	replicateEnabled string
+	// canvasInternalKeyID / canvasInternalSecret 网关 CanvasInternal.Keys（两者都给才写；Secret ≥32 字节）
+	canvasInternalKeyID, canvasInternalSecret string
 	// plazaIPSalt 网关 Plaza.IPHashSalt（Mode=pro 下空盐 / 默认盐网关拒绝启动）
 	plazaIPSalt string
 }
@@ -241,6 +246,24 @@ func (e editor) apply(root *yaml.Node) error {
 	set(root, "Mode", scalar("pro"))
 	if e.name == "note" || e.name == "digitalhuman" || e.name == "imagegen" { // 执行面 task_id 前缀
 		set(root, "TaskIDPrefix", scalar(e.taskIDPrefix))
+	}
+	if e.name == "gateway" && e.canvasInternalKeyID != "" { // 画布内部入口：密钥从部署变量来，重新生成配置也不丢
+		if e.canvasInternalSecret == "" {
+			return fmt.Errorf("-canvas-internal-key-id 已设置，必须同时设置 -canvas-internal-secret")
+		}
+		if len(e.canvasInternalSecret) < 32 {
+			return fmt.Errorf("-canvas-internal-secret 至少 32 字节")
+		}
+		ci := get(root, "CanvasInternal")
+		if ci == nil {
+			ci = mapping()
+			set(root, "CanvasInternal", ci)
+		}
+		keys := &yaml.Node{Kind: yaml.SequenceNode, Content: []*yaml.Node{mapping(
+			"KeyId", quoted(e.canvasInternalKeyID),
+			"Secret", quoted(e.canvasInternalSecret),
+		)}}
+		set(ci, "Keys", keys)
 	}
 	if e.name == "gateway" { // 视频做同款：总开关默认值 + 与 studio / canvas 同一组 ai-gateway、媒体服务凭据、同一计费档位
 		if err := e.applyReplicate(get(root, "Replicate")); err != nil {
