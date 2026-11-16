@@ -131,6 +131,15 @@ make -f Makefile_x gateway-api TAG=v1.0.1                   # 只构建这一个
 curl -X GET "https://<hook域名>/hook?access_key=<key>&param=aigc-local-life"   # 只触发部署
 ```
 
+### 画布助手内部入口：依赖新的 ops 镜像
+
+`.env` 里的 `CANVAS_INTERNAL_KEY_ID`、`CANVAS_INTERNAL_SECRET` 不是服务镜像直接读取的，而是由 `prepare` 容器（`aigc-local-life-ops` 镜像）生成网关配置时读取，写入 `gateway-api.yaml` 的 `CanvasInternal.Keys`。因此：
+
+- 只改 `.env` 不发布新 ops 镜像，**不会生效**：旧 ops 镜像不认识这两个参数，生成的配置里 `Keys` 仍是空列表。
+- 发布顺序：先 `make -f Makefile_x deploy TAG=<新版本>`（或 `push-all`，会一并推送 `aigc-local-life-ops:<新版本>`），再把服务器 `.env` 里的 `AIGC_TAG` 改成该版本，最后 `docker compose -f docker-compose.registry.yml up -d`。`prepare` 会用新 ops 镜像重新生成配置。
+- 验证：`grep -A3 CanvasInternal ./etc/gateway-api.yaml` 应能看到 `KeyId: "fusion-java"`；网关日志里不应有 `CanvasInternal` 相关的 WARN。
+- 两个变量要和 Java 的 `APP_FUSION_GO_KEY_ID` / `APP_FUSION_GO_SECRET` 一致，secret 至少 32 字节。改 secret 必须 Java 与网关同时更新，否则画布工具调用会签名失败。
+
 ## 四、验证
 
 ```bash
