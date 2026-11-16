@@ -130,8 +130,10 @@ func nodeSpec() Schema {
 		"text":      strMax("文字节点内容", 5000),
 		"image_url": strMax("图片素材地址（http/https，必须是已上传的地址，不能是 dataURL）", 2048),
 		"video_url": strMax("视频素材地址（http/https）", 2048),
-		"tool":      enum("工具类型（type=tool 时必填）", ToolKinds...),
-		"data":      free("可选：额外写入节点 data 的键（前端 camelCase 原样）；运行态键会被忽略"),
+		"tool": enum("工具类型（type=tool 时必填，其它类型不要给）。crop 裁剪；upscale 高清放大；outpaint 扩图（改比例补画面）；"+
+			"mask 局部重绘；i2p 反推提示词（图片 → 文字）；tryon 模特试穿 / 换装（服装图连到它的 garment 口，模特图连到 models 口，"+
+			"一件服装可配多张模特）。前四个与 i2p 的输入图都连到 image 口", ToolKinds...),
+		"data": free("可选：额外写入节点 data 的键（前端 camelCase 原样）；运行态键会被忽略"),
 	}
 	s := obj("要新建的节点", modelProps(p), "type")
 	// 条件约束：type=tool 必须给 tool；给了 tool 必须是 type=tool（与执行器校验一致，让模型在调用前就知道）
@@ -389,9 +391,11 @@ func buildRegistry() []Tool {
 		},
 		{
 			Name: ToolBatchEdit, Title: "批量编辑", Destructive: true,
-			Description: "把多种编辑一次原子执行（最多 100 步，全部成功才保存，产生一个 revision）。每步 {op, args}：" +
-				"add_node（args 同 canvas_add_nodes 的单个节点，可带 ref）、update_node、delete_node（{node_id}）、move_node、resize_node、" +
-				"connect（args 同单条连线，source/target 可写本批的 ref）、disconnect（{edge_id} 或 {source,target,target_handle}）、auto_layout（args 同 canvas_auto_layout 去掉 canvas_id）。",
+			Description: "把多种编辑一次原子执行（最多 100 步，全部成功才保存，产生一个 revision）。每步 {op, args}，args 的字段、取值与规则和对应单工具完全相同：" +
+				"add_node 的 args = canvas_add_nodes 参数 nodes 里的一个元素（可带 ref，工具节点要同时给 type=tool 与 tool）；" +
+				"update_node = canvas_update_nodes 的 updates 里一个元素；delete_node = {node_id}；move_node = canvas_move_nodes 的 moves 里一个元素；" +
+				"resize_node = canvas_resize_nodes 的 sizes 里一个元素；connect = canvas_connect 的 edges 里一个元素（source/target 可写本批的 ref）；" +
+				"disconnect = {edge_id} 或 {source,target,target_handle}；auto_layout = canvas_auto_layout 去掉 canvas_id。",
 			Input: obj("", Props{
 				"canvas_id":     canvasID(),
 				"base_revision": baseRevision(),
