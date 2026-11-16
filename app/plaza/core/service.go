@@ -34,6 +34,8 @@ type Service struct {
 	src Source
 	rep *Repo
 	now func() time.Time
+	// industry 行业功能总开关（数据库 > 配置文件）；无库（单测）时为 nil，退回配置文件
+	industry *IndustrySwitch
 
 	mu         sync.Mutex
 	cat        *Catalog
@@ -67,6 +69,9 @@ func New(db *bun.DB, rd redis.UniversalClient, cfg Config) *Service {
 	rep := NewRepo(db)
 	rep.requireEnabled = !cfg.AdminWriteEnabled
 	s := &Service{cfg: cfg, db: db, rd: rd, src: rep, rep: rep, now: time.Now, quoteC: map[string]quoteCacheEntry{}}
+	if db != nil {
+		s.industry = newIndustrySwitch(db.DB, cfg.Industry.Enabled)
+	}
 	s.initLimiters()
 	return s
 }
@@ -171,7 +176,7 @@ type Directory struct {
 }
 
 func (s *Service) Industries(ctx context.Context) (*Directory, error) {
-	if !s.cfg.Industry.Enabled {
+	if !s.IndustryEnabled(ctx) {
 		return &Directory{Industries: []DirectoryItem{}}, nil
 	}
 	c, err := s.catalog(ctx)

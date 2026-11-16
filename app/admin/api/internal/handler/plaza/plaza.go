@@ -39,6 +39,10 @@ func Register(server *rest.Server, c *svc.ServiceContext) {
 	}
 	g, po, pu, de := http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete
 	server.AddRoutes(rest.WithMiddlewares([]rest.Middleware{c.AdminAuth},
+		// 行业总开关（数据库 > 配置文件）：查看 = view，改 = edit
+		r(g, "/industry-switch", h.industrySwitchGet),
+		r(pu, "/industry-switch", h.industrySwitchSet),
+		r(de, "/industry-switch", h.industrySwitchReset),
 		// 行业
 		r(g, "/industries", h.industryTree),
 		r(po, "/industries", h.industryCreate),
@@ -818,5 +822,42 @@ func (h *handlers) channelDelete(w http.ResponseWriter, r *http.Request) {
 			return nil, err
 		}
 		return map[string]any{"id": id}, s.AdminDeleteChannel(r.Context(), op, id)
+	})(w, r)
+}
+
+// industrySwitchGet 行业功能总开关（数据库 > 配置文件）。
+func (h *handlers) industrySwitchGet(w http.ResponseWriter, r *http.Request) {
+	h.wrap(func(w http.ResponseWriter, r *http.Request, s *core.Service, _ core.Operator) (any, error) {
+		return s.IndustrySwitchView(r.Context())
+	})(w, r)
+}
+
+// industrySwitchSet PUT {enabled, reason}：写库，之后以库为准。
+func (h *handlers) industrySwitchSet(w http.ResponseWriter, r *http.Request) {
+	h.wrap(func(w http.ResponseWriter, r *http.Request, s *core.Service, op core.Operator) (any, error) {
+		var body struct {
+			Enabled *bool  `json:"enabled"`
+			Reason  string `json:"reason"`
+		}
+		if err := decode(r, &body); err != nil {
+			return nil, err
+		}
+		if body.Enabled == nil {
+			return nil, xerr.New(xerr.ParamMissing, "缺少 enabled")
+		}
+		return s.SetIndustrySwitch(r.Context(), op, *body.Enabled, body.Reason)
+	})(w, r)
+}
+
+// industrySwitchReset DELETE {reason}：恢复跟随配置文件。
+func (h *handlers) industrySwitchReset(w http.ResponseWriter, r *http.Request) {
+	h.wrap(func(w http.ResponseWriter, r *http.Request, s *core.Service, op core.Operator) (any, error) {
+		var body struct {
+			Reason string `json:"reason"`
+		}
+		if err := decode(r, &body); err != nil {
+			return nil, err
+		}
+		return s.ResetIndustrySwitch(r.Context(), op, body.Reason)
 	})(w, r)
 }
