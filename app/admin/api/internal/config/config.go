@@ -53,5 +53,8 @@ type Config struct {
 		Billing billing.Conf `json:",optional"`
 		// TaskCenterEnabled 强制收尾后触发任务中心同步（须与 gateway-api 的 Replicate.TaskCenterEnabled 一致，默认同为 true）
 		TaskCenterEnabled bool `json:",default=true"`
+		// EnabledDefault 视频做同款总开关的部署默认值（须与 gateway-api 的 Replicate.Enabled 一致，部署工具同时写两处）。
+		// 后台开关页据此显示「跟随部署配置」时的实际状态；库里 replicate.enabled 存在时以库为准。
+		EnabledDefault bool `json:",default=false"`
 	} `json:",optional"`
 }

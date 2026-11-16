@@ -50,6 +50,8 @@ type ServiceContext struct {
 
 	// ReplicateAdmin 视频做同款后台（检索 / 详情 / 人工退点 / 强制收尾）；没配 DataSource 时为 nil（接口回 7003）
 	ReplicateAdmin *replicateadmin.Service
+	// ReplicateSwitch 视频做同款总开关读写（afv_system_config.replicate.enabled）；没配 DataSource 时为 nil（接口回 7003）
+	ReplicateSwitch *replicatehttp.Switch
 }
 
 func NewServiceContext(c config.Config) *ServiceContext {
@@ -64,6 +66,7 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	wireHeadline(plaza, hl)
 	return &ServiceContext{
 		ReplicateAdmin:  newReplicateAdmin(c, conn),
+		ReplicateSwitch: replicatehttp.NewSwitch(conn, c.ReplicateAdmin.EnabledDefault),
 		Plaza:           plaza,
 		Headline:        hl,
 		Config:          c,

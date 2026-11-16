@@ -442,6 +442,17 @@ Go 网关的登录态只解析出 `userId`（共用会话的 `currentWorkspaceId
 - 用示例出的方案 `afv_replicate_plan.analysis_id` = 当时已发布的分析行、`sample_id` = 示例 id：示例之后重新分析 / 下线都不影响已建方案与在途 job（输入已冻结）。
 - 出片时示例原片 rid（运营登记的任意合法 rid）只被读取（切段 / 参考视频），产物是用户自己的中间 rid。
 
+### 9.x 总开关（`/api/v1/replicate/admin/switch`，`Go_V1.0.50`）
+
+数据库 > 文件配置：`afv_system_config.replicate.enabled` 存在且合法时以库为准，否则用部署配置（gateway `Replicate.Enabled`；admin-api 读不到网关配置，部署工具把同一个值写进 `ReplicateAdmin.EnabledDefault`）。改动 60 秒内在网关生效；关着只拦新提交，历史 / 我的方案 / 在途任务照常。
+权限：`GET` → `replicate:view`；`PUT` / `DELETE` → `replicate:switch`（只授 super_admin）。审计：改动人、时间、目标状态、原因写进该行 `remark` 并打日志。
+
+| 方法 路径 | 请求 | 响应 |
+|---|---|---|
+| `GET /switch` | — | `{enabled, source: db\|config, configDefault, dbValue?, remark?, updatedAt?, effectSeconds}`（库值非法时 `source=config` 并带 `dbValue` 原值） |
+| `PUT /switch` | `{enabled: bool, reason}`（原因必填，≤200 字） | 同上，`source=db` |
+| `DELETE /switch` | `{reason}` | 逻辑删除库里这一行，恢复跟随部署配置；同上，`source=config` |
+
 ## 11 后台：示例管理（admin-api `/api/v1/replicate/admin/samples/**`）
 
 权限：`GET` → `replicate:view`；写（新建 / 修改 / 删除 / 触发预分析）→ handler 内再要求 **`replicate:sample`**（迁移 `Go_V1.0.41` 插入，授 super_admin 与 operator）。

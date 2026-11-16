@@ -246,6 +246,7 @@ const replicateAdminPrefix = "/api/v1/replicate/admin/"
 
 // replicateRoutePerm 视频做同款后台的路由级权限（Go_V1.0.39）：POST /jobs/{id}/refund 要 replicate:refund，
 // POST /jobs/{id}/force-finish 要 replicate:force；示例管理 /samples/** 的写（POST / PUT / DELETE，Go_V1.0.41）要 replicate:sample；
+// 总开关 /switch 的写（PUT / DELETE，Go_V1.0.50）要 replicate:switch；
 // 其余走前缀映射（GET = replicate:view，其它写 = replicate:force，从严）。
 func replicateRoutePerm(method, p string) string {
 	if !strings.HasPrefix(p, replicateAdminPrefix) {
@@ -254,6 +255,9 @@ func replicateRoutePerm(method, p string) string {
 	seg := strings.Split(strings.TrimPrefix(p, replicateAdminPrefix), "/")
 	if seg[0] == "samples" && method != http.MethodGet && method != http.MethodHead {
 		return "replicate:sample"
+	}
+	if seg[0] == "switch" && method != http.MethodGet && method != http.MethodHead { // 总开关写（Go_V1.0.50）：暂停 / 恢复全站新提交
+		return "replicate:switch"
 	}
 	if method != http.MethodPost {
 		return ""

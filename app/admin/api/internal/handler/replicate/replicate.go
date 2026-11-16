@@ -1,4 +1,4 @@
-// Package replicate 视频做同款后台接口（/api/v1/replicate/admin/**）：任务检索、详情、按段人工退点、强制收尾。
+// Package replicate 视频做同款后台接口（/api/v1/replicate/admin/**）：任务检索、详情、按段人工退点、强制收尾、总开关。
 //
 // 手写路由（不走 admin.api 的 goctl 生成），响应沿用 Go 默认信封（pkg/result）。业务在 app/replicate/admin。
 // 权限：前缀映射 replicate:view（GET）；退点 replicate:refund、强制收尾 replicate:force、示例写 replicate:sample 走路由级覆盖
@@ -17,6 +17,7 @@ import (
 	"aigc-local-life/app/admin/api/internal/middleware"
 	"aigc-local-life/app/admin/api/internal/svc"
 	radmin "aigc-local-life/app/replicate/admin"
+	replicatehttp "aigc-local-life/app/replicate/httpapi"
 	"aigc-local-life/pkg/ctxdata"
 	"aigc-local-life/pkg/result"
 	"aigc-local-life/pkg/xerr"
@@ -37,6 +38,7 @@ func Register(server *rest.Server, c *svc.ServiceContext) {
 		rest.Route{Method: http.MethodPost, Path: prefix + "/jobs/:id/refund", Handler: h.wrap(h.refund)},
 		rest.Route{Method: http.MethodPost, Path: prefix + "/jobs/:id/force-finish", Handler: h.wrap(h.force)},
 	))
+	registerSwitch(server, c)
 	registerSamples(server, c, h)
 }
 
@@ -312,4 +314,55 @@ func (h *handlers) sampleAnalyze(r *http.Request) (any, error) {
 		return nil, err
 	}
 	return h.s.AnalyzeSample(r.Context(), id, ctxdata.AdminID(r.Context()))
+}
+
+// ---------------------------------------------------------------- 总开关（afv_system_config.replicate.enabled，数据库 > 文件配置）
+//
+// GET    /switch  当前开关（replicate:view）
+// PUT    /switch  {enabled, reason} 写库，从此以库为准（replicate:switch）
+// DELETE /switch  {reason} 恢复跟随部署配置（replicate:switch）
+
+func registerSwitch(server *rest.Server, c *svc.ServiceContext) {
+	sw := c.ReplicateSwitch
+	wrap := func(fn func(r *http.Request) (any, error)) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			if sw == nil {
+				httpx.ErrorCtx(r.Context(), w, xerr.New(xerr.NotReady, "功能暂未开放"))
+				return
+			}
+			out, err := fn(r)
+			if err != nil {
+				httpx.ErrorCtx(r.Context(), w, err)
+				return
+			}
+			httpx.OkJsonCtx(r.Context(), w, out)
+		}
+	}
+	server.AddRoutes(rest.WithMiddlewares([]rest.Middleware{c.AdminAuth},
+		rest.Route{Method: http.MethodGet, Path: prefix + "/switch", Handler: wrap(func(r *http.Request) (any, error) {
+			return sw.Get(r.Context())
+		})},
+		rest.Route{Method: http.MethodPut, Path: prefix + "/switch", Handler: wrap(func(r *http.Request) (any, error) {
+			var body struct {
+				Enabled *bool  `json:"enabled"`
+				Reason  string `json:"reason"`
+			}
+			if err := decode(r, &body); err != nil {
+				return nil, err
+			}
+			if body.Enabled == nil {
+				return nil, xerr.New(xerr.ParamMissing, "缺少 enabled")
+			}
+			return sw.Set(r.Context(), replicatehttp.SwitchReq{AdminID: ctxdata.AdminID(r.Context()), Enabled: *body.Enabled, Reason: body.Reason})
+		})},
+		rest.Route{Method: http.MethodDelete, Path: prefix + "/switch", Handler: wrap(func(r *http.Request) (any, error) {
+			var body struct {
+				Reason string `json:"reason"`
+			}
+			if err := decode(r, &body); err != nil {
+				return nil, err
+			}
+			return sw.Reset(r.Context(), ctxdata.AdminID(r.Context()), body.Reason)
+		})},
+	))
 }

@@ -252,6 +252,13 @@ func (e editor) apply(root *yaml.Node) error {
 			set(b, "Mode", quoted(e.billingMode))
 		}
 	}
+	if e.name == "admin" { // 总开关部署默认值与网关 Replicate.Enabled 同一个（后台开关页「跟随部署配置」时显示它）
+		if ra := get(root, "ReplicateAdmin"); ra != nil {
+			if v, ok := replicateEnabledValue(e.replicateEnabled); ok {
+				set(ra, "EnabledDefault", scalar(v))
+			}
+		}
+	}
 	if e.name == "gateway" { // 广场 IP 加盐哈希：正式模式下空盐 / 默认盐网关拒绝启动（app/plaza/core.CheckIPHashSalt）
 		p := get(root, "Plaza")
 		if p == nil {
@@ -453,13 +460,9 @@ func (e editor) applyReplicate(rp *yaml.Node) error {
 	if rp == nil {
 		return nil
 	}
-	switch e.replicateEnabled {
-	case "":
-	case "true", "1", "on", "yes":
-		set(rp, "Enabled", scalar("true"))
-	case "false", "0", "off", "no":
-		set(rp, "Enabled", scalar("false"))
-	default:
+	if v, ok := replicateEnabledValue(e.replicateEnabled); ok {
+		set(rp, "Enabled", scalar(v))
+	} else if e.replicateEnabled != "" {
 		return fmt.Errorf("-replicate-enabled 只能是 true / false / 1 / 0，收到 %q", e.replicateEnabled)
 	}
 	if ms := get(rp, "Media"); ms != nil {
@@ -488,6 +491,17 @@ func (e editor) applyReplicate(rp *yaml.Node) error {
 		set(rp, "InputURLPrefixes", seq)
 	}
 	return nil
+}
+
+// replicateEnabledValue -replicate-enabled 归一成 yaml 布尔；空或非法返回 false（调用方区分）。
+func replicateEnabledValue(raw string) (string, bool) {
+	switch raw {
+	case "true", "1", "on", "yes":
+		return "true", true
+	case "false", "0", "off", "no":
+		return "false", true
+	}
+	return "", false
 }
 
 // applyMedia 共享媒体服务段：token 必须与 media-svc / Java 一致。
