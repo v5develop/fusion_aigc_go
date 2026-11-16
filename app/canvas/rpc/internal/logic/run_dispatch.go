@@ -31,6 +31,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"aigc-local-life/app/canvas/model"
 	"aigc-local-life/app/canvas/rpc/canvas"
@@ -131,9 +132,14 @@ func runLabels(run *model.NodeRun) map[string]string {
 	}
 }
 
+// trunc 按字节截到不超过 n，并退到 UTF-8 字符边界：直接 s[:n] 会把中文切成半个字符，
+// MySQL utf8mb4 列拒收（Error 1366 Incorrect string value），素材库转存就此反复失败。
 func trunc(s string, n int) string {
 	if len(s) <= n {
 		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
 	}
 	return s[:n]
 }
