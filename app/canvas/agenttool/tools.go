@@ -133,7 +133,19 @@ func nodeSpec() Schema {
 		"tool":      enum("工具类型（type=tool 时必填）", ToolKinds...),
 		"data":      free("可选：额外写入节点 data 的键（前端 camelCase 原样）；运行态键会被忽略"),
 	}
-	return obj("要新建的节点", modelProps(p), "type")
+	s := obj("要新建的节点", modelProps(p), "type")
+	// 条件约束：type=tool 必须给 tool；给了 tool 必须是 type=tool（与执行器校验一致，让模型在调用前就知道）
+	s["allOf"] = []any{
+		map[string]any{
+			"if":   map[string]any{"properties": map[string]any{"type": map[string]any{"const": "tool"}}, "required": []any{"type"}},
+			"then": map[string]any{"required": []any{"tool"}},
+		},
+		map[string]any{
+			"if":   map[string]any{"required": []any{"tool"}},
+			"then": map[string]any{"properties": map[string]any{"type": map[string]any{"const": "tool"}}},
+		},
+	}
+	return s
 }
 
 func nodePatch() Schema {
