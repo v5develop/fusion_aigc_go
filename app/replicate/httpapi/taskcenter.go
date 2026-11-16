@@ -19,7 +19,7 @@ import (
 //   - result_url / cover_url：已入素材库（afv_replicate_delivery，公有桶）的产物地址，优先级 完整成片 > 预览版 > 第 1 个已入库的段；
 //     都没入库前为空（私有桶 rid 不进共享表）；封面缺省回退成品地址。
 //   - request_params：进度与跳转标识——progress（已完成段 / 总段，0~100）、segDone / segTotal / segFailed、
-//     points（已扣除 + 预留中 + 扣费确认中，已退回不算，与历史列表同口径）、jobId、planNo、link（/video/replicate?job=<id>）、title。
+//     points（已扣除 + 预留中 + 扣费确认中，已退回不算，与历史列表同口径）、jobId、planNo、link（/local-life/video-replicate?job=<id>）、title。
 //   - 计费字段（billing_status / price_points）不同步：一个 job 有多张预留单（每段一张），Source.BillingRequest 只能关联一张，
 //     关联第 1 段会把单段价格当成整单价格显示，所以写 NONE，点数走 request_params.points。
 //   - 同步水位 tc_updated_at（Go_V1.0.39）：job 行任何变化自动刷新；预留镜像 / 入库变化时显式刷新。
@@ -39,7 +39,7 @@ func TaskSource() taskcenter.Source {
 		Cover:   cover,
 		Fail:    "error_reason",
 		RequestPairs: "'title', COALESCE(JSON_UNQUOTE(JSON_EXTRACT(s.input, '$.title')), '视频做同款'), " +
-			"'jobId', s.id, 'planNo', s.plan_no, 'link', CONCAT('/video/replicate?job=', s.id), " +
+			"'jobId', s.id, 'planNo', s.plan_no, 'link', CONCAT('/local-life/video-replicate?job=', s.id), " +
 			"'segTotal', s.seg_total, 'segDone', s.seg_done, 'segFailed', s.seg_failed, " +
 			"'progress', IF(s.seg_total > 0, FLOOR(100 * s.seg_done / s.seg_total), 0), " +
 			"'points', (SELECT CAST(COALESCE(SUM(c.points), 0) AS SIGNED) FROM afv_replicate_charge c WHERE c.job_id = s.id " +

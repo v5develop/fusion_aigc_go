@@ -259,7 +259,7 @@ Replicate:                  # gateway-api
 | `status` | 成功 2、失败 3、已取消 4、部分成功 5；提交中 / 排队 / 执行中 / 待继续 / 继续中 → 1 处理中 |
 | `result_url` / `cover_url` | 已入素材库的**公有桶**地址（§8.2），按 完整成片（`final`）> 预览版（`preview`）> 第 1 个已入库的段（段号最小）取一条——部分成功的任务也有可点开的成品；封面取同一条，没有回退该条地址；都没入库前为空（私有 rid 不进共享表） |
 | `error_msg` | `job.error_reason` |
-| `request_params` | `{entryCode, title, jobId, planNo, link:"/video/replicate?job=<id>", segTotal, segDone, segFailed, progress, points}`：`progress` = 已完成段 / 总段（0~100），`points` = 已扣除 + 预留中 + 扣费确认中（与历史列表同口径） |
+| `request_params` | `{entryCode, title, jobId, planNo, link:"/local-life/video-replicate?job=<id>", segTotal, segDone, segFailed, progress, points}`：`progress` = 已完成段 / 总段（0~100），`points` = 已扣除 + 预留中 + 扣费确认中（与历史列表同口径） |
 | ↳「已完成 N/M 段」 | 读 `request_params.segDone`（N，已成功的段数）/ `request_params.segTotal`（M，总段数），两个都是整数、键名区分大小写（camelCase）；`segFailed` 为最终失败段数。展示文案由读方拼（Go 不写文案进共享表） |
 | `billing_status` | 恒 `NONE`：一个 job 多张预留单（每段一张），`Source.BillingRequest` 只能关联一张，关联第 1 段会把单段价当整单价；点数走 `request_params.points` |
 
@@ -315,7 +315,7 @@ Go 网关的登录态只解析出 `userId`（共用会话的 `currentWorkspaceId
 | `replicate.done` | 成功 / 部分成功（用户自己点「不继续」不发；到期结束发「已结束」；后台强制收尾发「做好了 X 段，Y 段没做成，没有收费」） | 视频做同款已完成 / N 段全部成功，点击查看；部分：做好了 2 段，1 段没成功，已退回 150 点。点击查看 |
 | `replicate.seg_failed` | 某段最终失败（或被后台收尾取消）且**退点已成功**（退点还在处理中不发，补扫退成功后的那一轮再发；退回点数按计费请求号去重，自动重试共用的预留单只算一次） | 第 k 段没生成出来 / 视频做同款：第 k 段这次没生成出来，已退回 N 点。可以重做这一段；全部失败：这次没有生成成功，已全部退回 N 点 |
 
-`link=/video/replicate?job=<id>`、`biz_type=replicate_job`、`biz_id=<job id>`。由轮询器每次推进后按状态推导补发（幂等），通知失败只打日志。用户按类关闭本期不做。
+`link=/local-life/video-replicate?job=<id>`、`biz_type=replicate_job`、`biz_id=<job id>`。由轮询器每次推进后按状态推导补发（幂等），通知失败只打日志。用户按类关闭本期不做。
 
 ### 8.6 运行参数（`afv_system_config`，60 秒生效；非法值告警并用默认）
 

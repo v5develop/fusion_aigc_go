@@ -14,7 +14,7 @@ Go 侧只有一件事：业务（目前是视频做同款）给某个用户发�
 n := notify.New(conn) // conn 为业务库 sqlx 连接；nil 返回 nil
 out, err := n.Send(ctx, notify.Message{
     UserID: 7, Title: "视频做同款已完成", Body: "3 段全部成功，点击查看",
-    Link: "/video/replicate?job=42", BizType: "replicate_job", BizID: "42",
+    Link: "/local-life/video-replicate?job=42", BizType: "replicate_job", BizID: "42",
     DedupeKey: "replicate:42:replicate.done",
 })
 // out: notify.Sent（新写一条）/ notify.Duplicate（同去重键已发过）/ notify.Skipped（参数不合法，err=ErrInvalid）

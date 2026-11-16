@@ -114,7 +114,7 @@ func TestIntegrationTaskSource(t *testing.T) {
 			r.Result.Valid || r.Billing.String != "NONE" {
 			t.Fatalf("%s 待继续应同步为处理中、未入库不带地址：%+v", mode, r)
 		}
-		if p["progress"].(float64) != 33 || p["points"].(float64) != 230 || p["link"] != "/video/replicate?job="+itoa(id) ||
+		if p["progress"].(float64) != 33 || p["points"].(float64) != 230 || p["link"] != "/local-life/video-replicate?job="+itoa(id) ||
 			p["title"] != "3 个镜头：模特展示外套" || p["segTotal"].(float64) != 3 || p["entryCode"] != "video_replicate" {
 			t.Fatalf("%s 进度 / 点数 / 跳转：%v", mode, p)
 		}

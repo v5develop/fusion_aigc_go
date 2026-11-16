@@ -60,7 +60,9 @@ func (c *sentCache) add(k string) {
 }
 
 // JobLink 用户端任务页（EXPERIENCE：用 ?job= 回到任务）。
-func JobLink(jobID int64) string { return "/video/replicate?job=" + strconv.FormatInt(jobID, 10) }
+func JobLink(jobID int64) string {
+	return "/local-life/video-replicate?job=" + strconv.FormatInt(jobID, 10)
+}
 
 func dedupeKey(jobID int64, kind string) string { return fmt.Sprintf("replicate:%d:%s", jobID, kind) }
 
