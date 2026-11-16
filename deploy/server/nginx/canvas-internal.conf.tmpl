@@ -1,0 +1,32 @@
+# ============================================================
+# 画布内部入口代理（智能体画布助手 Java 容器 → 网关 /internal/v1/canvas/agent/*）
+#
+# 网关只监听 127.0.0.1（看不到 Docker 网桥），Java 容器又不能用宿主机回环地址。
+# 这个站点只监听网桥网关地址（__BRIDGE_IP__:__INTERNAL_PORT__），把内部路径转给本机网关，其它路径一律 404。
+# 不写 server_name，也不在公网接口上监听；公网站点（aigc-local-life.conf）里 /internal/ 仍是 404。
+#
+# 放行的只有 /internal/v1/canvas/agent/*（HMAC 鉴权在网关里做）。
+# 加载：在宿主机 nginx 的 conf.d / sites 里 include 本文件，然后 nginx -t && nginx -s reload。
+# ============================================================
+server {
+    listen __BRIDGE_IP__:__INTERNAL_PORT__;
+    server_name _;
+
+    # 画布运行最长 60s（网关内联提交），读超时放到 90s 以上
+    proxy_connect_timeout 5s;
+    proxy_send_timeout    90s;
+    proxy_read_timeout    90s;
+
+    location ^~ /internal/v1/canvas/agent/ {
+        # 不写 URI 部分：原始路径（含签名规范串里的 path）原样透传
+        proxy_pass http://127.0.0.1:__GATEWAY_PORT__;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
+    location / {
+        return 404;
+    }
+}

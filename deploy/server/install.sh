@@ -390,6 +390,19 @@ render_nginx() {
   check_nginx_site "$INSTALL_DIR/nginx/aigc-local-life.conf"
 }
 
+# render_canvas_internal：渲染画布内部入口代理（只监听网桥地址，供 Java 容器访问网关的 /internal/v1/canvas/agent/*）
+render_canvas_internal() {
+  mkdir -p "$INSTALL_DIR/nginx"
+  if [[ -z ${CANVAS_INTERNAL_BIND:-} ]]; then
+    yellow "  ! 未设置 CANVAS_INTERNAL_BIND（Docker 网桥网关地址，如 172.17.0.1）：跳过画布内部入口代理，Java 将无法访问网关的内部入口"
+    return 0
+  fi
+  sed -e "s|__BRIDGE_IP__|$CANVAS_INTERNAL_BIND|g" -e "s|__INTERNAL_PORT__|${CANVAS_INTERNAL_PORT:-18890}|g" \
+    -e "s|__GATEWAY_PORT__|$GATEWAY_PORT|g" \
+    "$PKG/nginx/canvas-internal.conf.tmpl" > "$INSTALL_DIR/nginx/canvas-internal.conf"
+  check_nginx_site "$INSTALL_DIR/nginx/canvas-internal.conf"
+}
+
 # check_nginx_site 站点文件：用宿主机的 nginx 检查语法（包进最小的 http 块里）。没有 nginx 只提醒，有语法错就中止。
 check_nginx_site() {
   local site=$1 d
@@ -617,6 +630,7 @@ cmd_install() {
   fi
   chmod +x "$INSTALL_DIR"/bin/*
   render_nginx
+  render_canvas_internal
   [[ $ENV_FILE == "$INSTALL_DIR/deploy.env" ]] || cp -f "$ENV_FILE" "$INSTALL_DIR/deploy.env"
   chmod 600 "$INSTALL_DIR/deploy.env"
   cp -rf "$PKG"/sql "$PKG"/scripts "$PKG"/docs "$PKG"/install.sh "$PKG"/deploy.env.example "$PKG"/VERSION "$INSTALL_DIR/" 2>/dev/null || true
@@ -689,6 +703,7 @@ cmd_prepare() {
 
   step "5/6 渲染 nginx → $INSTALL_DIR/nginx/aigc-local-life.conf"
   render_nginx
+  render_canvas_internal
 
   step "6/6 计费配置检查"
   cmd_check_billing || die "计费配置有问题（见上）：补齐后重新部署。正式环境不允许带着计费缺口启动"
