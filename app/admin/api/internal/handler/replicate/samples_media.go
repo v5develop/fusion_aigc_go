@@ -6,6 +6,7 @@ package replicate
 // 两个接口都只读业务表、不计费，写示例仍由保存接口（replicate:sample）完成。
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"strings"
@@ -15,6 +16,7 @@ import (
 	"aigc-local-life/pkg/mediasvc"
 	"aigc-local-life/pkg/xerr"
 
+	"github.com/zeromicro/go-zero/core/logx"
 	"github.com/zeromicro/go-zero/rest"
 )
 
@@ -34,7 +36,7 @@ type MediaPreview struct {
 }
 
 func registerSampleMedia(server *rest.Server, c *svc.ServiceContext, h *handlers) {
-	m := newSampleMedia(c.Config.ReplicateAdmin.Media.BaseURL, c.Config.ReplicateAdmin.Media.Token)
+	m := h.media
 	server.AddRoutes(rest.WithMiddlewares([]rest.Middleware{c.AdminAuth},
 		rest.Route{Method: http.MethodPost, Path: prefix + "/samples/media/upload", Handler: h.wrap(needSample(m.upload))},
 		rest.Route{Method: http.MethodPost, Path: prefix + "/samples/media/resolve", Handler: h.wrap(m.resolve)},
@@ -48,6 +50,38 @@ func newSampleMedia(baseURL, token string) *sampleMedia {
 		return &sampleMedia{}
 	}
 	return &sampleMedia{c: mediasvc.New([]string{baseURL}, token)}
+}
+
+// previewURLs 批量签预览地址（一次请求）。媒体服务没配 / 签名失败返回空 map：列表照常展示，前端显示「预览不可用」。
+func (m *sampleMedia) previewURLs(ctx context.Context, raw []string) map[string]string {
+	out := map[string]string{}
+	if m == nil || m.c == nil {
+		return out
+	}
+	seen := map[string]bool{}
+	rids := make([]string, 0, len(raw))
+	for _, v := range raw {
+		rid := strings.TrimPrefix(strings.TrimSpace(v), "mr://")
+		if rid == "" || seen[rid] {
+			continue
+		}
+		seen[rid] = true
+		rids = append(rids, rid)
+	}
+	if len(rids) == 0 {
+		return out
+	}
+	urls, err := m.c.ResourceURLs(ctx, rids, 10*time.Minute)
+	if err != nil {
+		logx.WithContext(ctx).Errorf("replicate-admin: 示例素材预览签名失败 判据=media.resource_urls 数量=%d err=%v", len(rids), err)
+		return out
+	}
+	for k, v := range urls {
+		if v != "" {
+			out[k] = v
+		}
+	}
+	return out
 }
 
 var errMediaOff = xerr.New(xerr.NotReady, "媒体服务未配置，暂不能上传示例素材")

@@ -12,3 +12,15 @@ func TestSampleMediaOffWithoutBaseURL(t *testing.T) {
 		t.Fatal("未配置时应报错")
 	}
 }
+
+// 没配媒体服务：列表的预览签名返回空 map（列表照常展示，不报错）
+func TestPreviewURLsEmptyWithoutMedia(t *testing.T) {
+	m := newSampleMedia("", "")
+	if got := m.previewURLs(t.Context(), []string{"mr://a", "b", ""}); len(got) != 0 {
+		t.Fatalf("got %v", got)
+	}
+	var nilMedia *sampleMedia
+	if got := nilMedia.previewURLs(t.Context(), []string{"a"}); len(got) != 0 {
+		t.Fatalf("nil media got %v", got)
+	}
+}

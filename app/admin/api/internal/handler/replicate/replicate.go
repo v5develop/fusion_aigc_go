@@ -31,7 +31,7 @@ const prefix = "/api/v1/replicate/admin"
 
 // Register 注册后台路由（全部挂 AdminAuth）。
 func Register(server *rest.Server, c *svc.ServiceContext) {
-	h := &handlers{s: c.ReplicateAdmin}
+	h := &handlers{s: c.ReplicateAdmin, media: newSampleMedia(c.Config.ReplicateAdmin.Media.BaseURL, c.Config.ReplicateAdmin.Media.Token)}
 	server.AddRoutes(rest.WithMiddlewares([]rest.Middleware{c.AdminAuth},
 		rest.Route{Method: http.MethodGet, Path: prefix + "/jobs", Handler: h.wrap(h.list)},
 		rest.Route{Method: http.MethodGet, Path: prefix + "/jobs/:id", Handler: h.wrap(h.detail)},
@@ -43,7 +43,11 @@ func Register(server *rest.Server, c *svc.ServiceContext) {
 	registerSampleMedia(server, c, h)
 }
 
-type handlers struct{ s *radmin.Service }
+type handlers struct {
+	s *radmin.Service
+	// media 示例素材的上传 / 解析 / 预览签名（媒体服务）；没配时各接口按「未配置」处理，列表照常
+	media *sampleMedia
+}
 
 func (h *handlers) wrap(fn func(r *http.Request) (any, error)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -250,7 +254,22 @@ func (h *handlers) sampleList(r *http.Request) (any, error) {
 		return nil, xerr.Param("size 不合法")
 	}
 	req.Page, req.Size = int(page), int(size)
-	return h.s.ListSamples(r.Context(), req)
+	list, err := h.s.ListSamples(r.Context(), req)
+	if err != nil {
+		return nil, err
+	}
+	rids := make([]string, 0, len(list.Items)*3)
+	for _, it := range list.Items {
+		rids = append(rids, it.SourceRid, it.CoverRid, it.ResultRid)
+	}
+	// 运营看素材本身而不是编号：整页批量签一次预览地址（新增字段，旧前端忽略即可）
+	return sampleListView{SampleList: list, Previews: h.media.previewURLs(r.Context(), rids)}, nil
+}
+
+// sampleListView 列表 + 每个素材编号（去掉 mr:// 前缀）→ 短时效预览地址；签不出的编号不在 map 里。
+type sampleListView struct {
+	*radmin.SampleList
+	Previews map[string]string `json:"previews"`
 }
 
 func (h *handlers) sampleDetail(r *http.Request) (any, error) {
