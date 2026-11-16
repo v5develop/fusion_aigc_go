@@ -17,6 +17,8 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"log"
@@ -83,6 +85,7 @@ func main() {
 	studioInputPrefixes := flag.String("studio-input-url-prefixes", "", "studio / assetlib 额外允许的输入图地址前缀（逗号分隔，如素材库公有桶域名 https://cdn.example.com/），写进 InputURLPrefixes；留空不改")
 	freeWatermarkEnabled := flag.String("free-watermark-enabled", "", "studio 免费档读时参数水印开关 true / false（= Java FREE_WATERMARK_ENABLED），写进 studio FreeWatermark.Enabled；留空不改")
 	freeWatermarkProcess := flag.String("free-watermark-process", "", "免费水印 OSS 处理串（= Java FREE_WATERMARK_OSS_PROCESS / 启动日志 check=free_watermark.process），写进 studio / assetlib / canvas 的 FreeWatermark.Process；留空不改")
+	plazaIPSalt := flag.String("plaza-ip-salt", "", "广场 IP 加盐哈希的盐（写进网关 Plaza.IPHashSalt）；留空 = 由 -dsn 派生一串稳定的私密盐（含库口令，不公开、重装不变）")
 	canvasJavaURL := flag.String("canvas-java-base-url", "", "Java 主项目内网地址（canvas 调 creaft v1 兼容工具 / 任务查询 / 价目，透传用户 Bearer）；留空 = 放大 / 扩图 / 重绘返回「暂未开放」")
 	flag.Parse()
 	for _, r := range *taskIDPrefix {
@@ -128,7 +131,7 @@ func main() {
 			listenHost: *listenHost, accessHours: *accessHours, refreshDays: *refreshDays, sessionMax: *sessionMax,
 			mediaToken: *mediaToken, mediaNacosAddr: *mediaNacosAddr, mediaNacosUser: *mediaNacosUser, mediaNacosPass: *mediaNacosPass, mediaBaseURL: *mediaBaseURL,
 			aiGatewayURL: *aiGatewayURL, aiGatewayKeyID: *aiGatewayKeyID, aiGatewaySecret: *aiGatewaySecret, reverseURL: *reverseURL, colorfixURL: strings.TrimSpace(*colorfixURL), colorfixToken: *colorfixToken,
-			studioInputPrefixes: splitList(*studioInputPrefixes), canvasJavaURL: *canvasJavaURL,
+			studioInputPrefixes: splitList(*studioInputPrefixes), canvasJavaURL: *canvasJavaURL, plazaIPSalt: plazaSalt(*plazaIPSalt, *dsn),
 			freeWatermarkEnabled: strings.TrimSpace(*freeWatermarkEnabled), freeWatermarkProcess: strings.TrimSpace(*freeWatermarkProcess)}
 		if err := e.apply(root); err != nil {
 			log.Fatalf("%s: %v", file, err)
@@ -206,6 +209,17 @@ type editor struct {
 	// freeWatermarkEnabled / freeWatermarkProcess 免费档读时参数水印（空 = 不改模板）
 	freeWatermarkEnabled string
 	freeWatermarkProcess string
+	// plazaIPSalt 网关 Plaza.IPHashSalt（Mode=pro 下空盐 / 默认盐网关拒绝启动）
+	plazaIPSalt string
+}
+
+// plazaSalt 显式给了就用；否则由 DSN（含库口令）派生：稳定（重建容器、升级不变，IP 哈希的限频 / 去重不断档）且不公开，运维不必多录一个密钥。
+func plazaSalt(explicit, dsn string) string {
+	if v := strings.TrimSpace(explicit); v != "" {
+		return v
+	}
+	sum := sha256.Sum256([]byte("plaza-ip-hash-salt|" + dsn))
+	return hex.EncodeToString(sum[:])
 }
 
 // splitList 逗号 / 空白分隔的列表，去空项。
@@ -223,6 +237,14 @@ func (e editor) apply(root *yaml.Node) error {
 	set(root, "Mode", scalar("pro"))
 	if e.name == "note" || e.name == "digitalhuman" || e.name == "imagegen" { // 执行面 task_id 前缀
 		set(root, "TaskIDPrefix", scalar(e.taskIDPrefix))
+	}
+	if e.name == "gateway" { // 广场 IP 加盐哈希：正式模式下空盐 / 默认盐网关拒绝启动（app/plaza/core.CheckIPHashSalt）
+		p := get(root, "Plaza")
+		if p == nil {
+			p = mapping()
+			set(root, "Plaza", p)
+		}
+		set(p, "IPHashSalt", quoted(e.plazaIPSalt))
 	}
 	if e.name == "gateway" || e.name == "admin" { // 接口文档默认关；只有显式 -swagger 才开
 		set(root, "Swagger", scalar(strconv.FormatBool(e.swagger)))
