@@ -48,6 +48,17 @@ type ProbeInfo struct {
 	HasAudio  bool    `json:"has_audio"`
 }
 
+// VideoInspect 坏片检测结果（POST /v1/mediasvc/video/inspect）。占比 = 命中区间合并后的秒数 / 视频时长（0~1）。
+// Decodable=false 表示文件损坏 / 解不开（此时占比为 0）。
+type VideoInspect struct {
+	Decodable     bool    `json:"decodable"`
+	DurationS     float64 `json:"duration_s"`
+	BlackRatio    float64 `json:"black_ratio"`
+	FreezeRatio   float64 `json:"freeze_ratio"`
+	BlackSeconds  float64 `json:"black_seconds"`
+	FreezeSeconds float64 `json:"freeze_seconds"`
+}
+
 // 服务端 purpose 取值。
 const (
 	PurposeUserInput    = "user_input"    // 用户输入，落 user 类别私有桶
@@ -156,6 +167,21 @@ func (c *Client) Probe(ctx context.Context, rid string) (ProbeInfo, error) {
 		return ProbeInfo{}, fmt.Errorf("媒体服务返回无法解析: %w", err)
 	}
 	return p, nil
+}
+
+// InspectVideo 对 rid 的视频整段做黑屏 / 定格 / 可解码检测（POST /v1/mediasvc/video/inspect，只读不落桶，不带幂等键）。
+// 解不开不是错误（Decodable=false）；来源取不到 / 超时 / 服务不可用才返回 error，调用方应当按「检测不可用」处理。
+func (c *Client) InspectVideo(ctx context.Context, rid string) (VideoInspect, error) {
+	body, _ := json.Marshal(map[string]any{"source": map[string]string{"rid": rid}})
+	raw, err := c.post(ctx, rid, "/v1/mediasvc/video/inspect", body, "application/json", "")
+	if err != nil {
+		return VideoInspect{}, err
+	}
+	var v VideoInspect
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return VideoInspect{}, fmt.Errorf("媒体服务返回无法解析: %w", err)
+	}
+	return v, nil
 }
 
 // CopyToLibrary 把 rid 复制成新 rid（POST /v1/mediasvc/resources/copy）。purpose 只接受 asset_library / third_party

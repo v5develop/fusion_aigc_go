@@ -6,6 +6,11 @@
 # 构建上下文是仓库根目录。配置直接打进镜像（deploy/docker/media/media-svc.yaml），
 # 里面的 Token、Listen 由环境变量注入（go-zero 会展开 ${VAR}）；水印 logo 用挂载提供。
 ARG GO_VERSION=1.27.3
+# FFmpeg 固定 9.0.2，与开发机一致（检测算子 blackdetect / freezedetect 的输出解析按 9.0 验证）。
+# debian 源只有 7.1，改从固定版本的静态构建拷可执行文件（含 libx264 / zimg(zscale) / freetype / fontconfig / libass）。
+ARG FFMPEG_VERSION=9.0.2
+
+FROM mwader/static-ffmpeg:${FFMPEG_VERSION} AS ffmpeg
 
 # 编译阶段跑在构建机本机架构，用 GOOS/GOARCH 交叉编译到目标平台（CGO_ENABLED=0）；运行时阶段仍是目标平台。
 FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-bookworm AS build
@@ -21,14 +26,22 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
     CGO_ENABLED=0 GOOS="$TARGETOS" GOARCH="$TARGETARCH" go build -trimpath -ldflags '-s -w' -o /out/media ./app/media/cmd
 
 FROM debian:trixie-slim
-# 运行时基础镜像 debian trixie（ffmpeg 7.1.5，自带 zscale / tonemap，用于 HDR 转 SDR）。
-# ffmpeg 包内自带 ffprobe；curl 给健康检查用
-# fonts-noto-cjk：烧录字幕用的中文字体（字幕样式默认 Noto Sans CJK SC）
+ARG FFMPEG_VERSION
+# 运行时基础镜像 debian trixie；ffmpeg / ffprobe 来自上面的静态构建（不再用 apt 的 7.1）。curl 给健康检查用
+# fonts-noto-cjk：烧录字幕 / 叠字用的中文字体（字幕样式默认 Noto Sans CJK SC）；fontconfig 提供 /etc/fonts 配置给静态 ffmpeg 找字体
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ffmpeg fonts-noto-cjk ca-certificates tzdata curl \
+ && apt-get install -y --no-install-recommends fontconfig fonts-noto-cjk ca-certificates tzdata curl \
  && rm -rf /var/lib/apt/lists/* \
- && ffmpeg -version >/dev/null && ffprobe -version >/dev/null \
- || (echo "ffmpeg / ffprobe 未装好" && exit 1)
+ && fc-cache -f
+COPY --from=ffmpeg /ffmpeg /ffprobe /usr/local/bin/
+# 构建期自检：版本必须是固定的那个，媒体服务用到的编码器 / 滤镜缺一个就构建失败（不留到上线才发现）
+RUN ffmpeg -hide_banner -version | head -1 | grep -q "ffmpeg version ${FFMPEG_VERSION}" \
+ && ffprobe -hide_banner -version >/dev/null \
+ && for e in libx264 aac libmp3lame png mjpeg; do \
+      ffmpeg -hide_banner -encoders 2>/dev/null | grep -qw "$e" || { echo "缺少编码器 $e"; exit 1; }; done \
+ && for f in zscale tonemap subtitles drawtext overlay blackdetect freezedetect amix concat crop pad scale; do \
+      ffmpeg -hide_banner -filters 2>/dev/null | grep -qw "$f" || { echo "缺少滤镜 $f"; exit 1; }; done \
+ || (echo "ffmpeg / ffprobe 未装好或缺能力" && exit 1)
 ENV TZ=Asia/Shanghai \
     MEDIA_LISTEN=127.0.0.1:18090 \
     MEDIA_LOGO_PATH=/app/logo.png

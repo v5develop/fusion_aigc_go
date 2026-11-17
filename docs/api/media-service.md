@@ -149,6 +149,7 @@ Content-Type: <可选，仅作提示>
 | GET | `/v1/mediasvc/capabilities` | 能力声明（是否配置了水印 logo 等） | `200 JSON` |
 | POST | `/v1/mediasvc/ingest` | 读取来源、按用途落桶：字体（TTF/OTF/TTC/WOFF/WOFF2）按文件头识别后直接落桶；其余完整解码校验。`url` 来源可带 `headers`（见"来源"） | `MediaResult` |
 | POST | `/v1/mediasvc/probe` | 取元数据，不落桶 | `MediaMeta` |
+| POST | `/v1/mediasvc/video/inspect` | 坏片检测（只读，不落桶，不需要 `Idempotency-Key`，同 probe）：整段 ffmpeg blackdetect + freezedetect + 完整解码，返回 `VideoInspect`：`{decodable, duration_s, black_ratio, freeze_ratio, black_seconds, freeze_seconds}`。占比 = 命中区间合并去重后的秒数 / 视频时长（0~1；片尾仍未结束的区间按到片尾算）。参数 `blackdetect=d=0.2:pix_th=0.10:pic_th=0.98`、`freezedetect=n=-55dB:d=0.5`。**解不开（容器损坏 / 无视频流 / 解码失败）不是错误**，返回 `decodable=false`、占比 0；来源取不到 / 被中断 / 超时才走常规错误码（`503 unavailable` 可重试等），调用方应按「检测不可用」处理。`source` 同 probe（rid / url / key，不接受下载头）。能力声明 `video_inspect: true` | `VideoInspect` |
 | POST | `/v1/mediasvc/frames` | 抽帧，返回每帧的对象 | `FramesResp` |
 | POST | `/v1/mediasvc/cover` | 代表帧封面 | `MediaResult` |
 | POST | `/v1/mediasvc/watermark` | 右下角叠加 logo | `MediaResult` |
