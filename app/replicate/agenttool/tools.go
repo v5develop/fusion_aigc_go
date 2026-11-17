@@ -30,9 +30,12 @@ const (
 	ToolTrending       = "replicate_trending"
 	ToolShareSample    = "replicate_share_sample"
 	ToolWithdrawSample = "replicate_withdraw_sample"
+	ToolFeedback       = "replicate_feedback"
 	NoteMaxRunes       = 200
 	maxRefImages       = 9
 	maxOutfits         = 20 // 一项逐套换装最多列几套
+	maxSubjectEdits    = 10 // 一项按人物点名最多列几个人
+	maxSubjectIDRunes  = 32 // 人物 id 最长字数
 	maxBatchVariants   = 10
 	maxTexts           = 4
 	maxTextRunes       = 30
@@ -114,6 +117,11 @@ func aspectRatio() Schema {
 	return enum("画幅：16:9 / 9:16 / 1:1 / 4:3 / 3:4 / 21:9；不填跟随原片", "16:9", "9:16", "1:1", "4:3", "3:4", "21:9")
 }
 
+func continuitySchema() Schema {
+	return enum("画面连贯度（只对多段方案有意义，单段忽略）：fast 更快（默认，各段同时做）/ smooth 更连贯（按段顺序做，上一段的最后一帧作为下一段的开场参考，段与段衔接更自然，但等待更久，价格不变）。"+
+		"多段方案出方案时简短告诉用户两种方式各自的等待时间（PlanView.eta.fast / eta.smooth），默认更快、不要追问；用户说「要连贯 / 接缝自然一点」才设 smooth，说「快一点」设 fast", "fast", "smooth")
+}
+
 func refImagesFrom(action string) Schema {
 	return arr("参考图：用户消息里的图片附件序号数组，如 [\"图1\",\"图2\"]，最多 9 张，顺序即图号。"+action+
 		"系统会把序号换成真实地址；你只写序号，不要写地址。dims 里的 refs 指的是这个数组里的位置（从 1 起）：[\"图3\",\"图1\"] 时 refs:[1] 是图3、refs:[2] 是图1",
@@ -137,6 +145,14 @@ func dimEdit() Schema {
 				"index": integer("第几套（从 1 起，与分析结果 outfits 的 index 一致）", 1, maxOutfits),
 				"refs":  arr("这一套用哪几张参考图（ref_images_from 数组里的位置，从 1 起）", integer("位置序号", 1, maxRefImages), 1, maxRefImages),
 			}, "index", "refs"), 0, maxOutfits),
+		"subjects": arr("按人物点名（CONTRACT §X）：视频里有 2 个人以上、只换其中某几个人的脸 / 衣服时用（只对 model 人物与 garment 服装有效；人物 id 取自分析结果 subjects）。"+
+			"只列要改的人，没列出的人保持原样；用了它就不要再写 refs。视频里只有 1 个人、或要把所有人都换成同一张图时不要用它，直接写 refs。用户没说清换哪一位时先问，不要猜",
+			obj("某一个人的换法", Props{
+				"id":   strMax("人物 id（分析结果 subjects[].id，如 p1）", maxSubjectIDRunes),
+				"refs": arr("换成哪几张参考图（ref_images_from 数组里的位置，从 1 起）；换人 / 换装（mode=replace）时必填", integer("位置序号", 1, maxRefImages), 0, maxRefImages),
+				"mode": enum("这个人的处理方式：replace 换成参考图 / describe 按文字改 / keep 保持不变；不写 = 同这一项的 mode", "replace", "describe", "keep"),
+				"note": strMax("describe 时写要改成什么；replace 时可补充说明", maxDimNoteRunes),
+			}, "id"), 0, maxSubjectEdits),
 	}, "mode")
 }
 
@@ -252,6 +268,25 @@ func buildRegistry() []Tool {
 			Output:     out("WithdrawView：submissionId、status、statusLabel、unpublished、replay、text", Props{}),
 			Idempotent: true,
 		},
+		{
+			Name:  ToolFeedback,
+			Title: "记录用户对成片的满意度",
+			Description: "用户对做好的成片（或其中某一段）说满意 / 不满意时，记录下来。【免费，不扣点，不需要同意卡】暂停新提交时也能用。" +
+				"rating：up 满意 / down 不满意；reasons 只在 down 时有效，可多选：face_mismatch 人不像 / product_deformed 商品变形 / motion_weird 动作奇怪 / " +
+				"seam_jump 接缝跳变 / text_garbled 画面有乱码 / other 其他；seg_index 是具体哪一段（从 1 起，不填 = 整条成片）；note 是用户补充的话（≤200 字，会过审核）。" +
+				"用户口头表达了明确的满意 / 不满意才调用，不要自己替用户评价，也不要追问着让用户打分。同一任务同一段再次调用会覆盖之前的评价。" +
+				"记录之后：用户不满意时给出可操作建议（重做那一段 replicate_redo_segment、带备注精修、换模型、或下次选更连贯），涉及扣点的操作仍要先征得用户同意；满意时简短致谢即可。" +
+				"成片还没做好返回 JOB_NOT_FINISHED。",
+			Input: obj("", Props{
+				"job_id":    Schema{"type": "integer", "description": "任务编号（replicate_confirm / replicate_get_job 返回的 jobId）", "minimum": 1},
+				"rating":    enum("满意 up / 不满意 down", "up", "down"),
+				"reasons":   arr("不满意的原因（仅 rating=down，可多选）", enum("原因", "face_mismatch", "product_deformed", "motion_weird", "seam_jump", "text_garbled", "other"), 0, 6),
+				"seg_index": Schema{"type": "integer", "description": "具体哪一段（从 1 起）；不填 = 整条成片", "minimum": 1},
+				"note":      strMax("用户补充的话（≤200 字）", NoteMaxRunes),
+			}, "job_id", "rating"),
+			Output:     out("FeedbackView：jobId、segIndex、rating、reasons、note、continuity、updated、noteDropped、message", Props{}),
+			Idempotent: true,
+		},
 		readOnly(Tool{
 			Name:  ToolLimits,
 			Title: "复刻限制与开关",
@@ -323,6 +358,7 @@ func buildRegistry() []Tool {
 				"model_group":     modelGroup(),
 				"resolution":      resolution(),
 				"aspect_ratio":    aspectRatio(),
+				"continuity":      continuitySchema(),
 			}),
 			Output: viewOut("PlanView：planNo、planHash、cost、stageQuotes、eta、policy、moderation…"),
 		},
@@ -341,6 +377,7 @@ func buildRegistry() []Tool {
 				"model_group":     modelGroup(),
 				"resolution":      resolution(),
 				"aspect_ratio":    aspectRatio(),
+				"continuity":      continuitySchema(),
 			}, "plan_no"),
 			Output: viewOut("PlanView（新 planNo，旧方案 STALE）"),
 		},

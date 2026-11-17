@@ -64,8 +64,17 @@ func outfitsView(r *AnalysisResult) *OutfitsView {
 	return v
 }
 
-// editRefs 一项用到的全部图号（去重、升序）：维度级 Refs ∪ 各套的 Refs。
+// editRefs 一项用到的全部图号（去重、升序）：维度级 Refs ∪ 各套的 Refs ∪ 按人点名换成图的 Refs（CONTRACT §X）。
 func editRefs(e DimEdit) []int {
+	return refsUnion(e, true)
+}
+
+// outfitRefs 不含按人点名的那部分图号（定妆图里「未点名的部分」用）。
+func outfitRefs(e DimEdit) []int {
+	return refsUnion(e, false)
+}
+
+func refsUnion(e DimEdit, withSubjects bool) []int {
 	seen := map[int]bool{}
 	var out []int
 	add := func(rs []int) {
@@ -80,12 +89,17 @@ func editRefs(e DimEdit) []int {
 	for _, o := range e.Occurrences {
 		add(o.Refs)
 	}
+	if withSubjects {
+		add(subjectRefs(e))
+	}
 	sort.Ints(out)
 	return out
 }
 
 // hasReplaceRefs 这一项是否是「换成我的图」且确有图（批量、预览用）。
-func hasReplaceRefs(e DimEdit) bool { return e.Mode == ModeReplace && len(editRefs(e)) > 0 }
+func hasReplaceRefs(e DimEdit) bool {
+	return len(editRefs(e)) > 0 && (e.Mode == ModeReplace || hasSubjectReplace(e))
+}
 
 // occRefsOf 第 index 套被指定的图号；没指定返回 nil（保持原样）。
 func occRefsOf(e DimEdit, index int) []int {
@@ -119,7 +133,8 @@ type outfitSlice struct {
 	N        int
 	From, To float64
 	Desc     string
-	Refs     []int // 空 = 这套保持原样
+	Subject  string // 这套服装属于哪个人物（分析给了才有；按人点名与逐套并存时用来排除被点名的人）
+	Refs     []int  // 空 = 这套保持原样
 }
 
 // outfitsInSegment 与本段生成窗口 [GenT0, GenT1) 有时间重叠的各套（按套号升序），带这套是否被换。
@@ -130,7 +145,7 @@ func outfitsInSegment(dim Dim, e DimEdit, seg segment.Segment) []outfitSlice {
 			continue
 		}
 		out = append(out, outfitSlice{N: i + 1, From: maxF(o.T0, seg.GenT0) - seg.GenT0, To: minF(o.T1, seg.GenT1) - seg.GenT0,
-			Desc: o.Desc, Refs: occRefsOf(e, i+1)})
+			Desc: o.Desc, Subject: o.Subject, Refs: occRefsOf(e, i+1)})
 	}
 	return out
 }

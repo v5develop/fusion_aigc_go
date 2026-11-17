@@ -44,6 +44,7 @@ type Session interface {
 	Trending(ctx context.Context, industry string) (*core.TrendingView, error)
 	ShareSample(ctx context.Context, jobID int64, portraitConsent bool) (*core.ShareView, error)
 	WithdrawSample(ctx context.Context, submissionID int64) (*core.WithdrawView, error)
+	SubmitFeedback(ctx context.Context, req core.FeedbackReq) (*core.FeedbackView, error)
 }
 
 // Backend 取调用上下文（模块在 / 已登录 / 写工具另查总开关）。
@@ -345,7 +346,7 @@ var handlers = map[string]tool{
 		}
 		sid, _ := a.int("sample_id")
 		return s.CreatePlan(ctx, core.PlanReq{AnalysisNo: a.str("analysis_no"), SampleID: sid, Annotations: ann, RefImages: refs,
-			ModelGroup: a.str("model_group"), Resolution: a.str("resolution"), AspectRatio: a.str("aspect_ratio")})
+			ModelGroup: a.str("model_group"), Resolution: a.str("resolution"), AspectRatio: a.str("aspect_ratio"), Continuity: a.str("continuity")})
 	}},
 	agenttool.ToolUpdatePlan: {write: true, run: updatePlan},
 	agenttool.ToolGetPlan: {run: func(ctx context.Context, s Session, a args, _ string) (any, error) {
@@ -409,6 +410,20 @@ var handlers = map[string]tool{
 		id, _ := a.int("submission_id")
 		return s.WithdrawSample(ctx, id)
 	}},
+	// 反馈：免费、不动账，不受运行时总开关影响（write=false）：暂停新提交时用户仍能评价已做好的成片
+	agenttool.ToolFeedback: {run: func(ctx context.Context, s Session, a args, _ string) (any, error) {
+		id, _ := a.int("job_id")
+		seg, _ := a.int("seg_index")
+		var reasons []string
+		if raw, ok := a["reasons"].([]any); ok {
+			for _, r := range raw {
+				if str, ok := r.(string); ok {
+					reasons = append(reasons, str)
+				}
+			}
+		}
+		return s.SubmitFeedback(ctx, core.FeedbackReq{JobID: id, Rating: a.str("rating"), Reasons: reasons, SegIndex: int(seg), Note: a.str("note")})
+	}},
 	agenttool.ToolGetJob: {run: func(ctx context.Context, s Session, a args, _ string) (any, error) {
 		id, _ := a.int("job_id")
 		return s.JobView(ctx, id)
@@ -454,14 +469,14 @@ func updatePlan(ctx context.Context, s Session, a args, _ string) (any, error) {
 	if hasRefs {
 		req.RefImages = &refs
 	}
-	for k, dst := range map[string]**string{"model_group": &req.ModelGroup, "resolution": &req.Resolution, "aspect_ratio": &req.AspectRatio} {
+	for k, dst := range map[string]**string{"model_group": &req.ModelGroup, "resolution": &req.Resolution, "aspect_ratio": &req.AspectRatio, "continuity": &req.Continuity} {
 		if a.has(k) {
 			v := a.str(k)
 			*dst = &v
 		}
 	}
-	if !hasAnn && !hasRefs && req.ModelGroup == nil && req.Resolution == nil && req.AspectRatio == nil {
-		return nil, paramErr("没有要修改的内容：请给出要改的维度、参考图、模型、分辨率或画幅")
+	if !hasAnn && !hasRefs && req.ModelGroup == nil && req.Resolution == nil && req.AspectRatio == nil && req.Continuity == nil {
+		return nil, paramErr("没有要修改的内容：请给出要改的维度、参考图、模型、分辨率、画幅或连贯度")
 	}
 	cur, err := s.GetPlan(ctx, no)
 	if err != nil {

@@ -143,15 +143,17 @@ const TableFunnel = "afv_replicate_funnel"
 type FunnelEvent struct {
 	bun.BaseModel `bun:"table:afv_replicate_funnel,alias:fe"`
 
-	ID          int64     `bun:"id,pk,autoincrement"`
-	Stage       string    `bun:"stage"`
-	Channel     string    `bun:"channel"` // agent / web / system
-	UserID      int64     `bun:"user_id"`
-	AnalysisID  int64     `bun:"analysis_id"`
-	PlanID      int64     `bun:"plan_id"`
-	JobID       int64     `bun:"job_id"`
-	SegIndex    int       `bun:"seg_index"`
-	MultiPerson int8      `bun:"multi_person"` // 原片拆解主体 ≥ 2（分析成功 / 方案事件上有值）
-	DedupeKey   string    `bun:"dedupe_key"`
-	CreatedAt   time.Time `bun:"created_at,nullzero,default:current_timestamp"`
+	ID          int64  `bun:"id,pk,autoincrement"`
+	Stage       string `bun:"stage"`
+	Channel     string `bun:"channel"` // agent / web / system
+	UserID      int64  `bun:"user_id"`
+	AnalysisID  int64  `bun:"analysis_id"`
+	PlanID      int64  `bun:"plan_id"`
+	JobID       int64  `bun:"job_id"`
+	SegIndex    int    `bun:"seg_index"`
+	MultiPerson int8   `bun:"multi_person"` // 原片拆解主体 ≥ 2（分析成功 / 方案事件上有值）
+	// Continuity 画面连贯度 fast / smooth（Go_V1.0.60；确认类事件有值，其余默认 fast）
+	Continuity string    `bun:"continuity"`
+	DedupeKey  string    `bun:"dedupe_key"`
+	CreatedAt  time.Time `bun:"created_at,nullzero,default:current_timestamp"`
 }

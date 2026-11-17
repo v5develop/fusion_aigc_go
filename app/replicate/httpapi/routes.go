@@ -44,6 +44,7 @@ func Register(server *rest.Server, auth rest.Middleware, m *Module) {
 		r(g, "/models", h.models, false),
 		r(g, "/voices", h.voices, false), // 换声音的音色列表（只读；CONTRACT §P，?gender=&style=）
 		r(po, "/jobs/:id/segments/:k/redo", h.redo, true),
+		r(po, "/jobs/:id/feedback", h.feedback, false), // 成片反馈（CONTRACT §Z）：免费、不动账，不受运行时总开关影响，有轻量限频
 		r(po, "/jobs/:id/segments/:k/save", h.saveSegment, true),
 		r(pu, "/pref", h.pref, true),
 		// 示例 / 改标注 / 我的方案（library.go，Go_V1.0.41）：示例列表与试看只读，不计限频
@@ -175,13 +176,14 @@ func (h *handlers) createPlan(_ http.ResponseWriter, r *http.Request, sc *Scope)
 		ModelGroup  string           `json:"modelGroup"`
 		Resolution  string           `json:"resolution"`
 		AspectRatio string           `json:"aspectRatio"`
+		Continuity  string           `json:"continuity"`
 	}
 	if err := decode(r, &body); err != nil {
 		return nil, err
 	}
 	return sc.CreatePlan(r.Context(), core.PlanReq{AnalysisNo: body.AnalysisNo, Annotations: body.Annotations,
 		RefImages: body.RefImages, ModelGroup: body.ModelGroup, Resolution: body.Resolution, AspectRatio: body.AspectRatio,
-		SampleID: body.SampleID})
+		SampleID: body.SampleID, Continuity: body.Continuity})
 }
 
 func (h *handlers) quotePlan(_ http.ResponseWriter, r *http.Request, sc *Scope) (any, error) {
@@ -344,4 +346,22 @@ func (h *handlers) saveSegment(_ http.ResponseWriter, r *http.Request, sc *Scope
 		return nil, err
 	}
 	return sc.SaveSegment(r.Context(), id, k)
+}
+
+// feedback POST /jobs/:id/feedback：成片反馈（CONTRACT §Z）。segIndex 不填 = 整条成片；reasons 只在 rating=down 时收。
+func (h *handlers) feedback(_ http.ResponseWriter, r *http.Request, sc *Scope) (any, error) {
+	id, err := pathInt(r, "id")
+	if err != nil {
+		return nil, err
+	}
+	var body struct {
+		Rating   string   `json:"rating"`
+		Reasons  []string `json:"reasons"`
+		SegIndex int      `json:"segIndex"`
+		Note     string   `json:"note"`
+	}
+	if err := decode(r, &body); err != nil {
+		return nil, err
+	}
+	return sc.SubmitFeedback(r.Context(), core.FeedbackReq{JobID: id, Rating: body.Rating, Reasons: body.Reasons, SegIndex: body.SegIndex, Note: body.Note})
 }

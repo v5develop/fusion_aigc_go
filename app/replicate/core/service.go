@@ -54,6 +54,8 @@ type Service struct {
 	trend      *TrendingCache
 	// shares 成片分享投稿（share.go，可选；不装配时分享 / 撤回回 7003）
 	shares ShareStore
+	// feedback 成片反馈（feedback.go，可选；不装配时反馈回 7003）
+	feedback FeedbackStore
 }
 
 // Option 装配可选依赖。

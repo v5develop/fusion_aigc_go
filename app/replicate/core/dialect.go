@@ -27,11 +27,41 @@ type Dialect struct {
 	VideoTag string
 	ImageFmt string // 参考图标签（%d = 本地图号）
 	MaxChars int    // 网关 prompt_max 5000，留余量
+	// BridgeFmt 连贯模式的衔接句（CONTRACT §Y；%s = 衔接帧的图标签，如 @图片3）：出片时追加在提示词末尾。
+	BridgeFmt string
 	// WriterStyle 写手按方言写作的要点（写手系统提示词里引用）。
 	WriterStyle string
 	// RiskTerms 写手产出里出现即判不合格（v4 writer._check 风控词）。
 	RiskTerms []string
 	tmpl      *template.Template
+}
+
+// 连贯模式的衔接句（各方言措辞）。图号 = 衔接帧在 reference_images 里的实际位置（方案参考图之后的下一张）。
+const (
+	bridgeZh = "以 %s（上一段的最后一帧）作为本段开场的人物与场景状态，自然衔接上一段。"
+	bridgeEn = "Use %s (the last frame of the previous segment) as the opening state of the person and scene in this clip, continuing naturally from it."
+)
+
+// bridgeLine 第 n 张参考图作衔接帧时的提示词句子。
+func bridgeLine(d *Dialect, n int) string {
+	f := d.BridgeFmt
+	if f == "" {
+		f = bridgeZh
+	}
+	return fmt.Sprintf(f, fmt.Sprintf(d.ImageFmt, n))
+}
+
+// dialectOfInput 冻结输入对应的方言（确认时冻结的 Dialect 码优先，旧 job 按模型组）。
+func dialectOfInput(in *JobInput) *Dialect {
+	if in.Dialect != "" {
+		if x, ok := dialects[in.Dialect]; ok {
+			return x
+		}
+		if in.Dialect == dialectBase.Code {
+			return dialectBase
+		}
+	}
+	return DialectFor(in.ModelGroup)
 }
 
 var riskTerms = []string{"紧身", "贴身", "曲线", "肌肤", "裸露", "身材", "丝袜", "黑丝", "渔网"}
@@ -50,16 +80,16 @@ func mustDialect(d Dialect) *Dialect {
 }
 
 var (
-	dialectBase = mustDialect(Dialect{Code: "base", Version: "base-1", VideoTag: "@视频1", ImageFmt: "@图片%d",
+	dialectBase = mustDialect(Dialect{Code: "base", Version: "base-1", VideoTag: "@视频1", ImageFmt: "@图片%d", BridgeFmt: bridgeZh,
 		WriterStyle: "中文，参考式改写：@视频1 是原片该段，参考图按 @图片n 引用。"})
 	dialects = map[string]*Dialect{
-		"seedance-2.5": mustDialect(Dialect{Code: "seedance-2.5", Version: "seedance-2.5-1", VideoTag: "@视频1", ImageFmt: "@图片%d",
+		"seedance-2.5": mustDialect(Dialect{Code: "seedance-2.5", Version: "seedance-2.5-1", VideoTag: "@视频1", ImageFmt: "@图片%d", BridgeFmt: bridgeZh,
 			WriterStyle: "中文自然段 + 整数秒分镜；先总述「以 @视频1 的动作、走位、运镜和剪辑节奏为参考」，再逐项写替换（标签 + 只参考哪些属性），时间锚点写整数秒；强调同一主体全片外观一致；结尾写声音与负面约束。"}),
-		"seedance-2": mustDialect(Dialect{Code: "seedance-2", Version: "seedance-2-1", VideoTag: "@视频1", ImageFmt: "@图片%d",
+		"seedance-2": mustDialect(Dialect{Code: "seedance-2", Version: "seedance-2-1", VideoTag: "@视频1", ImageFmt: "@图片%d", BridgeFmt: bridgeZh,
 			WriterStyle: "中文；先用「将 @图片n 中的X定义为<主体k>」逐个定义主体，再写「参考 @视频1 中的动作、走位、运镜和剪辑节奏，顺序保持一致，生成含上述主体的视频」；镜头顺序用短句，避免长段落。"}),
-		"minimax-h3": mustDialect(Dialect{Code: "minimax-h3", Version: "minimax-h3-1", VideoTag: "<Video 1>", ImageFmt: "<Picture %d>", MaxChars: 4000,
+		"minimax-h3": mustDialect(Dialect{Code: "minimax-h3", Version: "minimax-h3-1", VideoTag: "<Video 1>", ImageFmt: "<Picture %d>", MaxChars: 4000, BridgeFmt: bridgeEn,
 			WriterStyle: "English, sectioned: subject_definitions / summary / retention_analysis / detailed_description / overall_soundscape / negative. Pictures are <Picture n>, the source clip is <Video 1>. Define each replaced subject as <Subject k> and state which attributes are referenced."}),
-		"wan-3.0": mustDialect(Dialect{Code: "wan-3.0", Version: "wan-3.0-1", VideoTag: "视频1", ImageFmt: "图%d", MaxChars: 2400,
+		"wan-3.0": mustDialect(Dialect{Code: "wan-3.0", Version: "wan-3.0-1", VideoTag: "视频1", ImageFmt: "图%d", MaxChars: 2400, BridgeFmt: bridgeZh,
 			WriterStyle: "中文万相公式：总体描述 + 参考素材引用（视频1 / 图n）+ 分镜N（起-止秒）逐镜写机位、动作与替换 + 风格情绪 + 负向清单；每个分镜各写一遍场景。"}),
 	}
 )
@@ -87,6 +117,8 @@ type changeView struct {
 	// ShotText 分镜尾注里这一项的写法；Retain 保持一致性的主体描述（minimax）。
 	OccText, ShotText, Retain string
 	SubjNo                    int
+	// PerSubject 按人物点名（CONTRACT §X）：OccText 里是逐人写法（可能还拼着未点名部分的逐套写法）
+	PerSubject bool
 }
 
 type keepView struct{ Label, Desc string }
@@ -135,6 +167,23 @@ func buildPromptView(d *Dialect, an *AnalysisResult, ann Annotations, refCount i
 		dim := an.Dims[k]
 		e := ann.Dims[k]
 		label := DimLabel[k]
+		if len(e.Subjects) > 0 && (e.Mode == ModeReplace || e.Mode == ModeDescribe) {
+			// 按人物点名：只写本段出镜的人；本段一个被点名的人都没出现（也没有要换的套）这一项按「不改」
+			cv := changeView{Key: k, Label: label, Noun: dimNounEn[k], Attrs: orText(dimAttrsEn[k], "appearance"), Current: orText(dim.Desc, label),
+				Note: strings.TrimSpace(e.Note), Hint: orText(refHint[k], "按参考图重建"), SubjNo: subjNo}
+			n := fillSubjects(d, &cv, an, dim, e, seg, refCount)
+			if n == 0 {
+				if dim.Present && dim.Desc != "" {
+					v.Keep = append(v.Keep, keepView{Label: label, Desc: dim.Desc})
+					keepNames = append(keepNames, label)
+				}
+				continue
+			}
+			subjNo += n
+			v.Replace = append(v.Replace, cv)
+			changed = append(changed, label)
+			continue
+		}
 		switch e.Mode {
 		case ModeReplace:
 			tags := make([]string, 0, len(e.Refs))

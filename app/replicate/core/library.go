@@ -180,6 +180,8 @@ type PatchReq struct {
 	ModelGroup  *string
 	Resolution  *string
 	AspectRatio *string
+	// Continuity nil = 沿用原方案的连贯度；"fast" / "smooth" 覆盖
+	Continuity *string
 }
 
 // PatchAnnotations 在同一份分析上用新标注出新方案（新 plan_hash、新报价、重新审核），原方案 READY → STALE。
@@ -224,6 +226,16 @@ func (s *Service) patchAnnotations(ctx context.Context, req PatchReq) (*PlanView
 	}
 	if req.AspectRatio != nil {
 		pr.AspectRatio = *req.AspectRatio
+	}
+	if req.Continuity != nil {
+		pr.Continuity = *req.Continuity
+		if strings.TrimSpace(pr.Continuity) == "" {
+			pr.Continuity = ContinuityFast
+		}
+	} else {
+		var pa Annotations
+		_ = json.Unmarshal(parent.Annotations, &pa)
+		pr.Continuity = pa.Continuity
 	}
 	o := planOpts{sampleID: parent.SampleID, parentID: &parent.ID, salt: "patch:" + parent.PlanNo}
 	if req.RefImages != nil {

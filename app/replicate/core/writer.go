@@ -100,14 +100,23 @@ func writerBrief(d *Dialect, an *AnalysisResult, ann Annotations, refCount int, 
 		fmt.Fprintf(&b, "【本段台词】%s\n", strings.Join(lines, " / "))
 	}
 	if len(an.Subjects) > 0 {
+		// 只列本段出镜的人（分析给了出镜时段才能判断，没给 = 每段都在）
 		var ss []string
 		for _, s := range an.Subjects {
-			ss = append(ss, s.Name+"："+s.Desc)
+			if subjectPresentIn(s, seg.GenT0, seg.GenT1) {
+				ss = append(ss, s.Name+"："+s.Desc)
+			}
 		}
-		fmt.Fprintf(&b, "【出镜主体】%s\n", strings.Join(ss, "；"))
+		if len(ss) > 0 {
+			fmt.Fprintf(&b, "【出镜主体】%s\n", strings.Join(ss, "；"))
+		}
 	}
 	b.WriteString("【用户改动】\n")
 	for _, c := range v.Replace {
+		if c.PerSubject { // 按人物点名：模板稿里已逐人写好，原样给出，要求写手保持逐人对应
+			fmt.Fprintf(&b, "- 按人物逐个处理%s（只改点名的人，没点名的人保持原样；本段没出现的人不用写）：%s\n", c.Label, strings.ReplaceAll(c.OccText, "\n", " "))
+			continue
+		}
 		if c.OccText != "" { // 逐套换装：模板稿里已逐套写好，这里原样给出，要求写手保持逐套对应
 			fmt.Fprintf(&b, "- 逐套替换%s（只换指定的套，其余套保持原样）：%s\n", c.Label, strings.ReplaceAll(c.OccText, "\n", " "))
 			continue
@@ -286,14 +295,7 @@ func (s *Service) advanceWriter(ctx context.Context, j *model.Job, in *JobInput,
 		s.finishWriter(ctx, j, st, sg.Prompt, "template", "call_failed", state.Attempt, nil)
 		return
 	}
-	dl := DialectFor(in.ModelGroup)
-	if in.Dialect != "" {
-		if x, ok := dialects[in.Dialect]; ok {
-			dl = x
-		} else if in.Dialect == dialectBase.Code {
-			dl = dialectBase
-		}
-	}
+	dl := dialectOfInput(in)
 	issues := CheckWritten(dl, text, sg.Prompt, len(in.RefImages))
 	if len(issues) == 0 {
 		s.finishWriter(ctx, j, st, text, "writer", "", state.Attempt, nil)

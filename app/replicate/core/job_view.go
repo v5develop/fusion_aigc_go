@@ -34,6 +34,10 @@ type JobView struct {
 	Message         string    `json:"message,omitempty"`
 	Error           string    `json:"error,omitempty"`
 	ConcurrencyText string    `json:"concurrencyText,omitempty"`
+	// Continuity 本任务的画面连贯度 fast | smooth（确认时冻结，CONTRACT §Y）
+	Continuity string `json:"continuity"`
+	// ETA 还没到终态的任务才有，按本任务所选连贯度计算（按全部段估算，与方案卡同口径）
+	ETA *ETAView `json:"eta,omitempty"`
 	// Result 整条成片（多段拼接 / 失败段占位预览版 / 叠字）；还没到终态为空
 	Result *ResultView `json:"result,omitempty"`
 	// URLExpiresAt 本视图里所有 *Url 字段的签名到期时间（默认签 1 小时）；过期后重新 GET 这个 job 即可拿到新地址。
@@ -65,6 +69,8 @@ type SegView struct {
 	// 失败段的重做仍是 Redoable / RedoLabel，两者不会同时为真。
 	Refinable   bool   `json:"refinable"`
 	RefineLabel string `json:"refineLabel,omitempty"`
+	// Bridge 连贯模式下本段衔接帧情况：used / skipped_prev_failed / skipped_no_frame / skipped_refs_full；fast 模式或第 1 段省略
+	Bridge string `json:"bridge,omitempty"`
 	// Library 这一段的素材库状态（收尾时已扣费的段自动入库；手动 POST /jobs/{id}/segments/{k}/save 同一行）
 	Library *LibraryView `json:"library,omitempty"`
 }
@@ -152,6 +158,9 @@ func (s *Service) JobView(ctx context.Context, userID, jobID int64) (*JobView, e
 			continue
 		}
 		sv := s.segView(j, chain, charges, gateWaiting && k > 1)
+		if in.smooth() && k > 1 {
+			sv.Bridge = bridgeLabel(chain[len(chain)-1].Output)
+		}
 		if sv.Refinable {
 			sv.RefineLabel = s.refineLabel(ctx, j, &in, sv)
 		}
@@ -165,8 +174,25 @@ func (s *Service) JobView(ctx context.Context, userID, jobID int64) (*JobView, e
 		v.Segments = append(v.Segments, sv)
 	}
 	v.Overview = fmt.Sprintf("已完成 %d/%d 段", v.SegDone, j.SegTotal)
+	v.Continuity = ContinuityFast
+	if in.smooth() && j.SegTotal > 1 {
+		v.Continuity = ContinuitySmooth
+	}
 	if j.SegTotal > 1 {
-		v.ConcurrencyText = fmt.Sprintf("最多同时做 %d 段，其余排队", s.cfg.MaxInFlight)
+		if v.Continuity == ContinuitySmooth {
+			v.ConcurrencyText = "连贯模式：按顺序一段一段做，上一段做好才开始下一段"
+		} else {
+			v.ConcurrencyText = fmt.Sprintf("最多同时做 %d 段，其余排队", s.cfg.MaxInFlight)
+		}
+	}
+	switch j.Status {
+	case model.JobSubmitting, model.JobQueued, model.JobRunning, model.JobContinuing, model.JobWaiting:
+		segsView := make([]PlanSegmentView, len(in.Segments))
+		for i, sg := range in.Segments {
+			segsView[i] = PlanSegmentView{Segment: sg.Segment}
+		}
+		e := s.eta(in.ModelGroup, segsView, v.Continuity == ContinuitySmooth)
+		v.ETA = &e
 	}
 	switch {
 	case v.Money.RefundPending > 0:

@@ -121,3 +121,66 @@ LEFT JOIN (SELECT DISTINCT plan_id FROM afv_replicate_funnel WHERE stage = 'prev
 LEFT JOIN (SELECT DISTINCT plan_id FROM afv_replicate_funnel WHERE (stage = 'confirm_first' OR (stage = 'confirm_all' AND job_id NOT IN (SELECT job_id FROM afv_replicate_batch_job)))) cf ON cf.plan_id = pc.plan_id
 WHERE pc.stage IN ('plan_create', 'plan_edit') AND pc.created_at >= CURDATE() - INTERVAL 30 DAY
 GROUP BY (pv.plan_id IS NOT NULL);
+
+-- 7. 画面连贯度（CONTRACT §Y）：确认量按 continuity 对比（continuity 列 Go_V1.0.60；之前的历史行默认 fast）
+SELECT DATE(created_at) AS day, continuity,
+       COUNT(*) AS confirms
+FROM afv_replicate_funnel
+WHERE stage IN ('confirm_first', 'confirm_all') AND created_at >= CURDATE() - INTERVAL 30 DAY
+GROUP BY DATE(created_at), continuity
+ORDER BY day, continuity;
+
+-- 8. 成片反馈（CONTRACT §Z）：按天、按连贯度的满意率（只算整条成片 seg_index = 0，段级反馈另看 8c）
+SELECT DATE(created_at) AS day, continuity,
+       COUNT(*)                                  AS feedbacks,
+       SUM(rating = 'up')                        AS up_cnt,
+       SUM(rating = 'down')                      AS down_cnt,
+       ROUND(SUM(rating = 'up') / COUNT(*), 4)   AS up_rate
+FROM afv_replicate_feedback
+WHERE seg_index = 0 AND created_at >= CURDATE() - INTERVAL 30 DAY
+GROUP BY DATE(created_at), continuity
+ORDER BY day, continuity;
+
+-- 8b. 不满意原因占比，按连贯度对比：share = 该原因出现次数 / 该天该连贯度的不满意反馈条数（可多选，所以同一组的占比之和可大于 1）。
+--     seam_jump（接缝跳变）在 smooth 组是否明显低于 fast 组，就是「更连贯」是否真的有用的直接证据
+SELECT t.day, t.continuity, t.reason, t.n AS cnt, ROUND(t.n / d.downs, 4) AS share
+FROM (SELECT DATE(f.created_at) AS day, f.continuity, r.reason, COUNT(*) AS n
+      FROM afv_replicate_feedback f
+      JOIN JSON_TABLE(f.reasons, '$[*]' COLUMNS (reason varchar(32) PATH '$')) r
+      WHERE f.rating = 'down' AND f.created_at >= CURDATE() - INTERVAL 30 DAY
+      GROUP BY DATE(f.created_at), f.continuity, r.reason) t
+JOIN (SELECT DATE(created_at) AS day, continuity, COUNT(*) AS downs
+      FROM afv_replicate_feedback
+      WHERE rating = 'down' AND created_at >= CURDATE() - INTERVAL 30 DAY
+      GROUP BY DATE(created_at), continuity) d ON d.day = t.day AND d.continuity = t.continuity
+ORDER BY t.day, t.continuity, t.n DESC;
+
+-- 8c. 段级反馈：哪一段最常被点不满意（seg_index >= 1），按连贯度
+SELECT continuity, seg_index,
+       COUNT(*) AS feedbacks, SUM(rating = 'down') AS down_cnt,
+       ROUND(SUM(rating = 'down') / COUNT(*), 4) AS down_rate
+FROM afv_replicate_feedback
+WHERE seg_index >= 1 AND created_at >= CURDATE() - INTERVAL 30 DAY
+GROUP BY continuity, seg_index
+ORDER BY continuity, seg_index;
+
+-- 9. 每秒实际供应商成本，按连贯度对比（上线后核实「参考图不计费、价格不变」）。
+--    成本 = 出片步骤成功时记在 afv_replicate_step.output.costCny 的网关实际成本（元，网关 call.cost.amount_cny）；
+--    秒数 = 冻结在 afv_replicate_job.input.segments[seg_index-1].genDuration 的生成秒数（也是计费秒数）；
+--    连贯度 = job.input.continuity（缺省 fast）。bridged = 该段是否真的带了衔接帧（output.bridgeRid 有值）：
+--    若 smooth 且 bridged=1 的每秒成本与 fast 基本持平，就证明追加参考图没有增加成本。
+--    精修 / 重做步骤同样计入（它们也是真实调用）；没有记录成本的步骤（costCny 缺失）不进分子分母。
+SELECT DATE(s.finished_at) AS day,
+       COALESCE(JSON_UNQUOTE(JSON_EXTRACT(j.input, '$.continuity')), 'fast') AS continuity,
+       (JSON_EXTRACT(s.output, '$.bridgeRid') IS NOT NULL) AS bridged,
+       COUNT(*)                                   AS steps,
+       ROUND(SUM(CAST(JSON_UNQUOTE(JSON_EXTRACT(s.output, '$.costCny')) AS DECIMAL(14, 4))), 4) AS cost_cny,
+       SUM(CAST(JSON_EXTRACT(j.input, CONCAT('$.segments[', s.seg_index - 1, '].genDuration')) AS UNSIGNED)) AS gen_seconds,
+       ROUND(SUM(CAST(JSON_UNQUOTE(JSON_EXTRACT(s.output, '$.costCny')) AS DECIMAL(14, 4)))
+             / NULLIF(SUM(CAST(JSON_EXTRACT(j.input, CONCAT('$.segments[', s.seg_index - 1, '].genDuration')) AS UNSIGNED)), 0), 4) AS cny_per_second
+FROM afv_replicate_step s
+JOIN afv_replicate_job j ON j.id = s.job_id
+WHERE s.kind = 'gateway' AND s.status = 'SUCCEEDED' AND s.finished_at >= CURDATE() - INTERVAL 30 DAY
+  AND JSON_EXTRACT(s.output, '$.costCny') IS NOT NULL
+GROUP BY DATE(s.finished_at), continuity, bridged
+ORDER BY day, continuity, bridged;

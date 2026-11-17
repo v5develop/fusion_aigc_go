@@ -71,6 +71,8 @@ type JobInput struct {
 	// 自动继续只在两者都冻结过且现算其余段价等于 RestPoints 时进行；价变则停在待继续等用户确认（不按新价冻结）。
 	AutoContinue bool  `json:"autoContinue,omitempty"`
 	RestPoints   int64 `json:"restPoints,omitempty"`
+	// Continuity 画面连贯度（CONTRACT §Y）：确认时冻结，只有 smooth 才出现（见 continuity.go）。
+	Continuity string `json:"continuity,omitempty"`
 }
 
 // JobSegment 冻结的一段。
@@ -359,7 +361,7 @@ func (s *Service) confirm(ctx context.Context, req ConfirmReq, holdOnly bool) (*
 		if staged {
 			cs = StageConfirmFirst
 		}
-		s.funnel(ctx, funnelEvent{Stage: cs, UserID: req.UserID, AnalysisID: p.AnalysisID, PlanID: p.ID, JobID: got.ID, Dedupe: fmt.Sprintf("cf:%d", got.ID)})
+		s.funnel(ctx, funnelEvent{Stage: cs, UserID: req.UserID, AnalysisID: p.AnalysisID, PlanID: p.ID, JobID: got.ID, Continuity: planContinuity(p), Dedupe: fmt.Sprintf("cf:%d", got.ID)})
 	}
 	return s.JobView(ctx, req.UserID, got.ID)
 }
@@ -609,7 +611,7 @@ func (s *Service) jobInput(ctx context.Context, p *model.Plan) (*JobInput, error
 	_ = json.Unmarshal(p.Annotations, &ann)
 	in := &JobInput{PlanNo: p.PlanNo, PlanHash: p.PlanHash, EntryCode: s.cfg.EntryCode, ModelGroup: p.ModelGroup, Resolution: p.Resolution,
 		AspectRatio: p.AspectRatio, Audio: ann.Audio, SourceRid: *a.SourceRid, RefImages: refs, MaxCostCNY: s.cfg.MaxCostCNY, Texts: ann.Texts,
-		KeyPrefix: s.cfg.KeyPrefix}
+		KeyPrefix: s.cfg.KeyPrefix, Continuity: ann.Continuity}
 	an := &AnalysisResult{}
 	if r, err := s.ResolveAnalysis(a); err == nil { // 读取时按当前规则纠偏
 		an = r
@@ -1178,6 +1180,9 @@ func (s *Service) advance(ctx context.Context, jobID int64) error {
 			if !gateOpen && st.SegIndex > 1 {
 				continue
 			}
+			if in.smooth() && prevBlocking(steps, st.SegIndex) {
+				continue // 连贯模式：等上一段到终态（成功取末帧衔接，失败照常做）
+			}
 			if inflight >= s.cfg.MaxInFlight {
 				continue
 			}
@@ -1210,13 +1215,27 @@ func (s *Service) advance(ctx context.Context, jobID int64) error {
 					continue
 				}
 			}
-			ok, err := s.store.UpdateStep(ctx, st.ID, model.StepPending, map[string]any{"status": model.StepRunning,
-				"attempt": st.Attempt + 1, "lease_owner": s.owner, "started_at": s.now()})
+			start := map[string]any{"status": model.StepRunning,
+				"attempt": st.Attempt + 1, "lease_owner": s.owner, "started_at": s.now()}
+			var startOut json.RawMessage
+			if in.smooth() && st.SegIndex > 1 {
+				// 衔接决定随步骤落库（崩溃后同键重提时请求逐字相同；成功后带进结果 output）
+				rid, skip := decideBridge(&in, steps, st.SegIndex)
+				if skip != "" {
+					logx.WithContext(ctx).Infof("replicate: 连贯模式本段不带衔接帧 判据=BRIDGE_SKIPPED job=%d step=%s 原因=%s", j.ID, st.StepKey, skip)
+				}
+				startOut = withBridge(st.Output, rid, skip)
+				start["output"] = startOut
+			}
+			ok, err := s.store.UpdateStep(ctx, st.ID, model.StepPending, start)
 			if err != nil || !ok {
 				continue
 			}
 			inflight++
 			st.Status, st.LeaseOwner = model.StepRunning, ptr(s.owner)
+			if startOut != nil {
+				st.Output = startOut
+			}
 			s.pollStep(ctx, j, &in, st, charges)
 		case model.StepHolding:
 			s.reapHolding(ctx, j, st)
@@ -1400,6 +1419,14 @@ func (s *Service) pollStep(ctx context.Context, j *model.Job, in *JobInput, st *
 		}
 		if lf := call.Result.LastFrame; lf != nil {
 			out["lastFrameRid"] = lf.Rid
+		}
+		if b := bridgeOf(st.Output); b.Rid != "" || b.Skip != "" { // 成功后 output 被结果覆盖：衔接信息带过去（任务视图 / 复盘用）
+			if b.Rid != "" {
+				out["bridgeRid"] = b.Rid
+			}
+			if b.Skip != "" {
+				out["bridgeSkip"] = b.Skip
+			}
 		}
 		if call.Cost != nil {
 			out["costCny"] = call.Cost.AmountCNY
@@ -1804,7 +1831,7 @@ func (s *Service) generateRequest(ctx context.Context, j *model.Job, in *JobInpu
 		}
 		ref = rid
 	}
-	prompt := sg.Prompt
+	prompt, bridgeN := applyBridge(in, st, sg.Prompt)
 	if n := redoNoteOf(st.Output); n != "" { // 单段精修备注：只进这一步（本段这次重做 / 它的自动重试）的提示词
 		prompt += redoNotePrefix + n
 	}
@@ -1822,6 +1849,10 @@ func (s *Service) generateRequest(ctx context.Context, j *model.Job, in *JobInpu
 			imgs[i] = aigateway.MediaRef{URI: aigateway.MRScheme + r.Rid}
 		}
 		input["reference_images"] = imgs
+	}
+	if bridgeN > 0 { // 衔接帧永远追加在最后一张，图号 = bridgeN（提示词里的衔接句已按它写）
+		imgs, _ := input["reference_images"].([]aigateway.MediaRef)
+		input["reference_images"] = append(imgs, aigateway.MediaRef{URI: aigateway.MRScheme + bridgeOf(st.Output).Rid})
 	}
 	deadline := s.now().Add(s.cfg.SegmentDeadline).UTC()
 	req := aigateway.CallRequest{Operation: "video.generate", ModelGroup: in.ModelGroup, Input: input,

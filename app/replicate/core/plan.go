@@ -44,7 +44,15 @@ type Annotations struct {
 	Texts []TextOverlay `json:"texts,omitempty"`
 	// Voice 换声音（只在 audio=revoice 时有效，见 voice.go）：音色、语速、逐句改台词。未用时 JSON 不出现，plan_hash 与旧版一致。
 	Voice *VoiceEdit `json:"voice,omitempty"`
+	// Continuity 画面连贯度（CONTRACT §Y）：只有 smooth 才落库（fast = 缺省 = 不出现，JSON 与 plan_hash 与旧版一致）；单段方案忽略。
+	Continuity string `json:"continuity,omitempty"`
 }
+
+// 画面连贯度（PlanReq / PatchReq 的 continuity）。
+const (
+	ContinuityFast   = "fast"   // 默认：各段并行
+	ContinuitySmooth = "smooth" // 按段顺序，上一段末帧作下一段额外参考图
+)
 
 // DimEdit 一项的改法。Refs 是参考图序号（从 1 起，对应 PlanReq.RefImages 的顺序）。
 type DimEdit struct {
@@ -54,6 +62,9 @@ type DimEdit struct {
 	// Occurrences 逐套换装（CONTRACT §O1，只有这一项在视频里出现 ≥2 次时才允许）：第 index 套换成 refs 的图，没列出的套保持原样。
 	// 未用时 JSON 不出现，plan_hash 与旧版一致。
 	Occurrences []OccurrenceEdit `json:"occurrences,omitempty"`
+	// Subjects 多人点名（CONTRACT §X，只对 model 换人 / garment 换装，分析有 ≥2 人才允许）：列出的人物按各自 refs / mode 处理，
+	// 没列出的人保持原样。与 Occurrences 并存时，逐套只作用于未按人指定的部分。未用时 JSON 不出现，plan_hash 与旧版一致。
+	Subjects []SubjectEdit `json:"subjects,omitempty"`
 }
 
 // PlanReq 生成方案（POST /api/v1/replicate/plans）。
@@ -67,6 +78,8 @@ type PlanReq struct {
 	AspectRatio string // 空 = 跟随原片
 	// SampleID 用示例的共享分析出方案（与 AnalysisNo 二选一，>0 时优先）
 	SampleID int64
+	// Continuity fast | smooth（空 = fast）；也接受 annotations.continuity，顶层优先
+	Continuity string
 }
 
 // Gap 结构化缺项（用户口径），前端逐项定位。
@@ -251,6 +264,9 @@ func (s *Service) preparePlan(ctx context.Context, req PlanReq, a *model.Analysi
 			}
 		}
 	}
+	if len(segs) < 2 {
+		ann.Continuity = "" // 单段方案没有接缝，连贯度无意义：忽略（指纹与不选一致）
+	}
 	dl := DialectFor(req.ModelGroup)
 	views := make([]PlanSegmentView, len(segs))
 	prompts := make([]string, len(segs))
@@ -346,6 +362,17 @@ func (s *Service) validate(req PlanReq, an *AnalysisResult) (Annotations, []Gap)
 		add("MODEL_UNKNOWN", "modelGroup", "这个模型暂时不可用，请换一个")
 	}
 	ann := Annotations{Dims: map[string]DimEdit{}, Audio: req.Annotations.Audio}
+	cont := strings.ToLower(strings.TrimSpace(req.Continuity))
+	if cont == "" {
+		cont = strings.ToLower(strings.TrimSpace(req.Annotations.Continuity))
+	}
+	switch cont {
+	case "", ContinuityFast:
+	case ContinuitySmooth:
+		ann.Continuity = ContinuitySmooth
+	default:
+		add("CONTINUITY_INVALID", "continuity", "画面连贯度只能选 更快 / 更连贯")
+	}
 	switch ann.Audio {
 	case "":
 		ann.Audio = AudioRegenerate
@@ -368,16 +395,27 @@ func (s *Service) validate(req PlanReq, an *AnalysisResult) (Annotations, []Gap)
 			continue
 		}
 		e.Note = strings.TrimSpace(e.Note)
+		hadSubjects, hadOcc := len(e.Subjects) > 0, len(e.Occurrences) > 0
 		switch e.Mode {
 		case "", ModeKeep:
+			if hadSubjects {
+				add("SUBJECT_DIM_MODE", field, label+"：按人指定要选「换成我的图」或「按我写的改」")
+			}
 			continue
 		case ModeReplace:
 			if !an.Dims[k].Present {
 				add("DIM_ABSENT", field, label+"：视频里没有这一项")
 			}
-			if len(e.Occurrences) > 0 {
+			if hadOcc {
 				e.Occurrences = s.validateOccurrences(k, label, field, e, an, len(req.RefImages), add)
 				e.Refs = nil // 逐套说了算，维度级的图忽略
+			}
+			if hadSubjects {
+				e.Subjects = validateSubjects(k, label, field, e, an, len(req.RefImages), e.Occurrences, add)
+				e.Refs = nil // 按人说了算，维度级的图忽略
+			}
+			if hadOcc || hadSubjects {
+				// 逐套 / 按人已经说清了换什么；没点名的人（或全是「保持不变」）这一项等于没改
 			} else if len(e.Refs) == 0 {
 				switch k {
 				case "product":
@@ -398,15 +436,21 @@ func (s *Service) validate(req PlanReq, an *AnalysisResult) (Annotations, []Gap)
 				add("OCCURRENCE_MODE", field, label+"：逐套处理只能用在「换成我的图」上")
 				e.Occurrences = nil
 			}
-			if e.Note == "" {
+			if hadSubjects {
+				e.Subjects = validateSubjects(k, label, field, e, an, len(req.RefImages), nil, add) // 说明按人写，这一项的说明只是补充
+			} else if e.Note == "" {
 				add("NOTE_MISSING", field, label+"：写一句话再继续")
-			} else if len([]rune(e.Note)) > 200 {
+			}
+			if len([]rune(e.Note)) > 200 {
 				add("NOTE_TOO_LONG", field, label+"：说明写短一点（200 字以内）")
 			}
 			e.Refs = nil
 		default:
 			add("DIM_MODE", field, label+"：请选择 不改 / 换成我的图 / 按我写的改")
 			continue
+		}
+		if hadSubjects && len(e.Subjects) == 0 && len(e.Occurrences) == 0 && !hadOcc {
+			continue // 点名的人都选了「保持不变」：这一项没有要改的
 		}
 		changed++
 		ann.Dims[k] = e

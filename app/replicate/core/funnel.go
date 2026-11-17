@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"time"
 
@@ -48,6 +49,8 @@ const (
 	StageRetryAudio      = "retry_audio"      // 免费重做声音（每次真正重做记一次，成功失败都算；同 call_id 重放不记）
 	StageShareSample     = "share_sample"     // 成片分享为示例（建了待审核投稿；一成片一次，撤回后重新投不再记）
 	StageWithdrawSample  = "withdraw_sample"  // 撤回已分享的示例（一投稿一次）
+	StageFeedbackUp      = "feedback_up"      // 成片反馈：满意（同一用户同一任务同一段只记一次；换了评价才再记）
+	StageFeedbackDown    = "feedback_down"    // 成片反馈：不满意
 
 	// StageAnalysisSucceedMulti 仅计数用的派生阶段：拆解成功且原片多人（主体 ≥ 2），与 analysis_succeed 同时加一，
 	// 看板据此算「多人原片占比」；不单独落库（库里用 analysis_succeed.multi_person）。
@@ -107,6 +110,7 @@ type funnelEvent struct {
 	PlanID     int64
 	JobID      int64
 	SegIndex   int
+	Continuity string // fast / smooth（确认类事件填；空 = fast）
 	Multi      bool   // 原片主体 ≥ 2（只在分析成功 / 方案事件上有意义）
 	Dedupe     string // 唯一键，必填
 }
@@ -132,7 +136,7 @@ func (s *Service) funnel(ctx context.Context, e funnelEvent) {
 	counted := true
 	if s.funnelStore != nil {
 		row := &model.FunnelEvent{Stage: e.Stage, Channel: channel, UserID: e.UserID, AnalysisID: e.AnalysisID, PlanID: e.PlanID,
-			JobID: e.JobID, SegIndex: e.SegIndex, DedupeKey: e.Dedupe}
+			JobID: e.JobID, SegIndex: e.SegIndex, DedupeKey: e.Dedupe, Continuity: orText(e.Continuity, ContinuityFast)}
 		if e.Multi {
 			row.MultiPerson = 1
 		}
@@ -150,6 +154,18 @@ func (s *Service) funnel(ctx context.Context, e funnelEvent) {
 			funnelTotal.Inc(StageAnalysisSucceedMulti, channel)
 		}
 	}
+}
+
+// planContinuity 方案的画面连贯度（fast / smooth），供漏斗与反馈记录。
+func planContinuity(p *model.Plan) string {
+	if p == nil {
+		return ContinuityFast
+	}
+	var ann Annotations
+	if json.Unmarshal(p.Annotations, &ann) == nil && ann.Continuity == ContinuitySmooth {
+		return ContinuitySmooth
+	}
+	return ContinuityFast
 }
 
 // funnelMulti 分析结果里的主体数是否 ≥ 2（多人原片）。

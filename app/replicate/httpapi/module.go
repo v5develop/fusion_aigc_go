@@ -188,7 +188,7 @@ func MustBuild(c Conf, conn sqlx.SqlConn, opts ...BuildOption) *Module {
 				opts = append(opts, core.WithDelivery(store, media, assets, core.DeliveryConfig{EntryCode: c.Asset.EntryCode}))
 			}
 		}
-		opts = append(opts, core.WithModeration(store, store, words), core.WithNotifier(notifier), core.WithLibrary(store), core.WithPreview(store), core.WithFunnel(store), core.WithBatch(store), core.WithPublishCopy(store), core.WithExport(store), core.WithVoice(store, newVoiceCatalog(conn)), core.WithTrending(store, trendCache), core.WithShare(store), core.WithEtaCalibrator(etaCal),
+		opts = append(opts, core.WithModeration(store, store, words), core.WithNotifier(notifier), core.WithLibrary(store), core.WithPreview(store), core.WithFunnel(store), core.WithBatch(store), core.WithPublishCopy(store), core.WithExport(store), core.WithVoice(store, newVoiceCatalog(conn)), core.WithTrending(store, trendCache), core.WithShare(store), core.WithFeedback(store), core.WithEtaCalibrator(etaCal),
 			core.WithWorkspace(func(ctx context.Context, uid int64) (int64, error) { return workspace.PersonalID(ctx, conn, uid) }))
 		return core.New(cfg, store, ledger, opts...)
 	}

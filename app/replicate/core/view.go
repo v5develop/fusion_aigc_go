@@ -65,7 +65,9 @@ type PlanView struct {
 	Timeline   TimelineView `json:"timeline"`
 	ModelGroup string       `json:"modelGroup"`
 	// Dialect 段提示词按哪家方言写的（prompts 预览即模板稿；开了写手时出片前还会逐段改写，失败回落这一稿）
-	Dialect       string         `json:"dialect"`
+	Dialect string `json:"dialect"`
+	// Continuity 画面连贯度 fast | smooth（CONTRACT §Y；单段方案恒为 fast）
+	Continuity    string         `json:"continuity"`
 	Cost          CostBlock      `json:"cost"`
 	StageQuotes   StageQuotes    `json:"stageQuotes"`
 	ETA           ETAView        `json:"eta"`
@@ -101,7 +103,10 @@ type ETAView struct {
 	First *ETARange `json:"first,omitempty"`
 	Rest  *ETARange `json:"rest,omitempty"`
 	Total ETARange  `json:"total"`
-	Prior bool      `json:"prior"` // true = 先验（没装配历史校准，或该桶历史样本不足）；false = 历史 P50 / P90（eta.go）
+	// Fast / Smooth 多段方案才有（CONTRACT §Y）：并行（更快）与按段顺序（更连贯）两种方式各自的总区间；Total / First / Rest 跟随方案选的模式。
+	Fast   *ETARange `json:"fast,omitempty"`
+	Smooth *ETARange `json:"smooth,omitempty"`
+	Prior  bool      `json:"prior"` // true = 先验（没装配历史校准，或该桶历史样本不足）；false = 历史 P50 / P90（eta.go）
 }
 
 // ETARange 区间。
@@ -130,6 +135,10 @@ type DimLine struct {
 	// Occurrences / OccurrenceText 逐套换装（CONTRACT §O1）：结构化的「第 N 套 → 图 X」与可读文案「第 1 套 → 图 2；第 3 套 → 图 3」
 	Occurrences    []OccurrenceEdit `json:"occurrences,omitempty"`
 	OccurrenceText string           `json:"occurrenceText,omitempty"`
+	// Subjects / SubjectText 多人点名（CONTRACT §X）：结构化的按人改法与逐人一行的可读文案
+	// 「左侧白衣女生 → 图 1；男生 保持不变」（没点名的人写「保持不变」）。
+	Subjects    []SubjectEdit `json:"subjects,omitempty"`
+	SubjectText string        `json:"subjectText,omitempty"`
 }
 
 // TimelineView 分段时间线。
@@ -201,6 +210,9 @@ func (s *Service) planView(p *model.Plan, an *AnalysisResult, q QuoteSnapshot, a
 			if line.Mode == ModeReplace && len(e.Occurrences) > 0 {
 				line.Occurrences, line.OccurrenceText = e.Occurrences, occText(e)
 			}
+			if len(e.Subjects) > 0 && (line.Mode == ModeReplace || line.Mode == ModeDescribe) {
+				line.Subjects, line.SubjectText = e.Subjects, subjectText(an, e)
+			}
 		}
 		line.ModeLabel = modeLabel[line.Mode]
 		if !dim.Present && line.Mode == ModeKeep {
@@ -221,9 +233,7 @@ func (s *Service) planView(p *model.Plan, an *AnalysisResult, q QuoteSnapshot, a
 			v.Risks = append(v.Risks, fmt.Sprintf("视频里的服装换了 %d 套，会按同一张图替换", len(dim.Occurrences)))
 		}
 	}
-	if len(an.Subjects) > 1 {
-		v.Risks = append(v.Risks, fmt.Sprintf("视频里有 %d 个人，替换只针对你选中的那位", len(an.Subjects)))
-	}
+	v.Risks = append(v.Risks, subjectRisks(an, ann)...)
 	if ann.Audio == AudioKeep {
 		v.Risks = append(v.Risks, "保留原视频的声音（口型可能对不上）")
 	}
@@ -270,6 +280,43 @@ func (s *Service) planView(p *model.Plan, an *AnalysisResult, q QuoteSnapshot, a
 	}
 	v.Cost = c
 	v.StageQuotes = StageQuotes{First: q.First, Rest: q.Rest, Total: q.Total}
-	v.ETA = s.eta(p.ModelGroup, segs)
+	v.Continuity = ContinuityFast
+	if ann.Continuity == ContinuitySmooth && n > 1 {
+		v.Continuity = ContinuitySmooth
+		var refs []RefImage
+		_ = json.Unmarshal(p.Refs, &refs)
+		if r := continuityRefsFullRisk(ann, len(refs), n); r != "" {
+			v.Risks = append(v.Risks, r)
+		}
+	}
+	v.ETA = s.eta(p.ModelGroup, segs, v.Continuity == ContinuitySmooth)
 	return v, nil
+}
+
+// subjectRisks 多人视频的风险文案（CONTRACT §X，如实说）：换人 / 换装没点名 → 会尝试替换画面里的所有人；点名了 → 只换指定的人。
+// 只在人物或服装这两项确实有改动、且视频里有 ≥2 个人时才出现。
+func subjectRisks(an *AnalysisResult, ann Annotations) []string {
+	if len(an.Subjects) < 2 {
+		return nil
+	}
+	var named, unnamed bool
+	for _, k := range []string{"model", "garment"} {
+		e, ok := ann.Dims[k]
+		if !ok || (e.Mode != ModeReplace && e.Mode != ModeDescribe) {
+			continue
+		}
+		if len(e.Subjects) > 0 {
+			named = true
+		} else {
+			unnamed = true
+		}
+	}
+	var out []string
+	if unnamed {
+		out = append(out, fmt.Sprintf("视频里有 %d 个人，没有指定的话会尝试替换画面里的所有人", len(an.Subjects)))
+	}
+	if named {
+		out = append(out, "只换你指定的人，其他人保持原样（人物较近或互相遮挡时可能串）")
+	}
+	return out
 }

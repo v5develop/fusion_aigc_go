@@ -816,6 +816,28 @@ Go 网关的登录态只解析出 `userId`（共用会话的 `currentWorkspaceId
 - **定妆图**：被换的套引用的图都参与（用并集）。
 - **智能体工具**：`replicate_create_plan` / `replicate_update_plan` 的 `annotations.dims.<key>` schema 增加可选 `occurrences: [{index(1~20), refs(1~9 个位置)}]`（≤20 项，封闭对象）。
 
+### 15.1b 多人点名（CONTRACT §X，`core/subjects.go`）
+
+视频里有 ≥2 个人时，方案可以只换其中几个人（换脸 / 换衣服），没点名的人保持原样。
+
+- **分析结果**：`AnalysisView.result.subjects: [{id, name, nameEn?, desc, segments?}]`。`name` 是视觉模型给的区分性称呼（位置 + 外观，如「左侧白衣女生」，多人互不相同，重名自动补 `（2）`；缺名补「人物N」）；
+  `desc` 用户视图截到 ≤20 字；`segments: [{t0,t1}]` 是此人出镜时段（模型给得出才有，缺省 = 不知道，当作每段都在；旧分析结果没有这个字段照常可用）。
+  视觉理解的 `segments` 宽容解析（畸形一律当没有，不影响整份分析），并与其它带时间的项一起走 `analysisfix` 时间纠偏。
+- **入参**：`annotations.dims.<model|garment>.subjects: [{"id":"p1","refs":[1],"mode":"replace","note":""}]`。`id` 取自 `result.subjects[].id`；`refs` 是 `refImages` 图号（从 1 起）；
+  `mode` 缺省 = 该项的 mode（`replace` 换成图 / `describe` 按文字改 / `keep` 保持不变，`keep` 等于没列）；describe 的 `note` 缺省沿用该项的 `note`。**只增**：不写时 JSON 无此键，`plan_hash` 与旧版一致。
+  写了 `subjects` 后维度级 `refs` 被忽略并清空；`subjects` 按分析里的人物顺序规范化（与点名顺序无关，同输入同指纹）；这一项的 `mode` 必须是 `replace` 或 `describe`。
+- **校验缺项**（`data.gaps[].code`，`field=dims.<key>` 或 `dims.<key>.subjects[i]`）：`SUBJECT_UNSUPPORTED`（只有 model / garment 支持）、`SUBJECT_SINGLE`（分析只有 1 人，直接用维度级）、
+  `SUBJECT_UNKNOWN`（id 不在分析里；分析没识别出人物时也是它）、`SUBJECT_DUPLICATE`、`SUBJECT_REFS_MISSING`（replace 没给图）、`SUBJECT_MODE`（人物 mode 不合法）、
+  `SUBJECT_DIM_MODE`（这一项是不改却点了名）、`SUBJECT_OCCURRENCE_CONFLICT`（同一个人既按人又按套指定），并复用 `REF_UNKNOWN` / `NOTE_MISSING` / `NOTE_TOO_LONG`。全部点名的人都是 `keep` 且没有别的改动 → `NOTHING_CHANGED`。
+- **与逐套换装并存**：`occurrences` 只作用于该项里「未按人点名」的部分；套的 `subject`（分析给的归属）是被点名的人则冲突。归属为空的套无法判断，视为未点名。
+- **提示词（每段）**：只写本段出镜的人（按 `segments` 与段窗口重叠判断，没给 = 每段都在）：被点名的写「视频中的「左侧白衣女生」换成 图1 中的人物 / 「X」身上的服装换成 图1 中的服装」，没点名的在场者写「保持原样，不要替换」；
+  本段没有任何被点名的人出镜（也没有要换的套）→ 这一项按「不改」。各方言沿用各自标签结构（Seedance 2：每个被换的人一个 `<主体k>`；MiniMax：每人一个 `<Subject k>`）。写手简报「出镜主体」只列本段出镜的人，「用户改动」逐人转述。
+- **PlanView.changes[]**：该项多出 `subjects`（规范化后的结构）与 `subjectText`（逐人一行：「左侧白衣女生 → 图 1；男生 保持不变」，没点名的写「保持不变」）。
+- **风险文案（如实）**：视频 ≥2 人且人物 / 服装有改动时——没点名：「视频里有 N 个人，没有指定的话会尝试替换画面里的所有人」；点名后：「只换你指定的人，其他人保持原样（人物较近或互相遮挡时可能串）」（两种都有就两句都出）。只换商品等不提多人风险。
+- **定妆图**：逐人一行，只写这一帧（`frame.T`）里出镜的人，并声明「画面里的其他人物保持原样」；一个人都对不上时兜底全写。
+- **批量（做多条）**：主替换项的图位置 = 维度级 `refs` ∪ 各逐套 `refs` ∪ 各人物 `replace` 的 `refs`（去重、升序）；每条变体的图数 = 并集张数，按图号升序依次替换；`subjects` 原样保留在子方案里。
+- **智能体工具**：`replicate_create_plan` / `replicate_update_plan` 的 `annotations.dims.<key>` schema 增加可选 `subjects: [{id(≤32), refs(0~9), mode(replace|describe|keep), note}]`（≤10 项，封闭对象）。
+
 ### 15.2 任务来源与待决策提醒（`core/origin.go`、`core/notify.go`）
 
 - **来源 `origin`**：内部入口 `POST /internal/v1/replicate/agent/call` 的 body（签名覆盖）可选带 `"origin":{"kind":"agent","conversation_id":"…","turn_id":"…"}`。
@@ -975,3 +997,30 @@ warning `VOICE_LINE_TRUNCATED:<句号>`）。音轨用媒体服务 `audio/timeli
 - 生效：**每次请求现读库（read-through，不做缓存）**，改动立即生效（优于契约的 ≤60 秒）；读库失败时奖励流程回落部署配置并打错误日志，GET 本身如实报错。
 - 列表 / 详情 / 标记发放各取一次设置，同一次响应内口径一致。
 
+
+## 21 画面连贯度（CONTRACT §Y，迁移 `Go_V1.0.60__replicate_feedback_continuity.sql` 只加漏斗列）
+
+- 入参：`POST /plans`、`PATCH /plans/{no}/annotations` 顶层 `continuity: "fast" | "smooth"`（也接受 `annotations.continuity`，顶层优先）；智能体工具 `replicate_create_plan` / `replicate_update_plan` 同名字段。
+  - `fast`（默认）= 不出现：方案 JSON（`annotations` 不含 `continuity` 键）与 `planHash` 与旧版逐字节一致；**单段方案忽略**（等同 fast，`planHash` 不变）。
+  - `smooth` 落在 `annotations.continuity`，所以进 `planHash`；`PATCH` 不传 `continuity` = 沿用原方案；再做一条 / 批量变体 / 保存的方案都随标注继承。非法值 → `1003` + `gaps[{code:CONTINUITY_INVALID, field:continuity}]`。
+- `PlanView.continuity`：`fast | smooth`（始终出现；单段恒为 `fast`）。`PlanView.eta` 多段方案增加 `fast`、`smooth` 两个 `ETARange`（`lowSec/highSec/text`）：并行 = 轮数 × 每轮，连贯 = 段数 × 每段（先验：每轮 / 每段取 `EtaRoundP50/P90`；有历史样本用同一个历史桶）。`eta.total/first/rest` 跟随方案所选模式。**报价不变**（网关按输出秒数 × 清晰度计价，参考图不计费）。
+- `PlanView.risks`：smooth 且参考图已满（9 张）时加一条「参考图已满，连贯模式这次不能用上一段画面衔接」。
+- 执行：smooth 的任务第 k 段在第 k−1 段链尾到终态前保持排队（不超时、预留照常续期；网关时限 `SegmentDeadline` 从真正提交那刻起算）。第 k−1 段当前有效结果（精修后用新版本）成功且有末帧 → 第 k 段的 `reference_images` 末尾追加该末帧，提示词末尾追加衔接句（各方言措辞，图号 = 方案参考图张数 + 1）；上一段失败 / 取消 / 没末帧 / 参考图已满 → 照常生成、不带衔接帧。重做 / 精修同走此路径，不级联重做后续段。先做第 1 段 → 继续同样按顺序。衔接决定落在该出片步骤的 `output.bridgeRid / bridgeSkip`（成功后随结果保留），保证崩溃重提的请求逐字相同。
+- `JobView` 新增 `continuity`（`fast | smooth`，确认时冻结）、`eta`（未终态的任务有，口径同方案卡，按所选模式；`ETAView` 同上）；`SegView.bridge`（仅 smooth 且第 2 段起）：`used | skipped_prev_failed | skipped_no_frame | skipped_refs_full`。`concurrencyText` 在 smooth 时改为「连贯模式：按顺序一段一段做……」。
+- 漏斗：确认类事件（`confirm_first` / `confirm_all` / 批内每条 `confirm_all` / `batch_confirm`）写 `afv_replicate_funnel.continuity`（其余事件默认 `fast`）。`deploy/grafana/replicate-funnel.sql` 第 7–9 节：确认量、满意率、不满意原因占比、**每秒实际供应商成本**都按 continuity 对比（成本取步骤 `output.costCny`，已有记录，未新增字段）。
+
+## 22 成片反馈（CONTRACT §Z，迁移 `Go_V1.0.60__replicate_feedback_continuity.sql`）
+
+`POST /api/v1/replicate/jobs/{id}/feedback`，请求体 `{rating, reasons?, segIndex?, note?}`；智能体工具 `replicate_feedback {job_id, rating, reasons?, seg_index?, note?}`。属主校验（别人的任务 `NotFound`）。**写入口但不受运行时总开关影响**（暂停新提交时仍收反馈）；固定轻量限频：每分钟 20、每日 300（北京时间自然日），超限 429 `RATE_LIMITED`，失败不占次数。
+
+| 字段 | 说明 |
+|---|---|
+| `rating` | `up` 满意 / `down` 不满意，必填 |
+| `reasons` | 仅 `down` 收（`up` 时忽略）；枚举 `face_mismatch` 人不像 / `product_deformed` 商品变形 / `motion_weird` 动作奇怪 / `seam_jump` 接缝跳变 / `text_garbled` 画面有乱码 / `other`；去重，非枚举 → `1003`；可不选 |
+| `segIndex` | 0 / 不填 = 整条成片；1…`segTotal` = 某一段，越界 → `1003` |
+| `note` | ≤ 200 字（压空白、去控制字符），过文本审核（关键词库 + 网关 `moderation.text`，同精修备注口径）：违规 → `1003` `MODERATION_REJECTED`；审核服务故障 → **不拒收**，评价与原因照常记录、备注丢弃并回 `noteDropped=true` |
+
+- 同一用户同一任务同一 `segIndex` 只留一行（`afv_replicate_feedback`，唯一键 `uk_user_job_seg`），再次提交覆盖（`updated=true`）。`seg_index` 用 0 表示整条成片（不用 NULL：唯一键里 NULL 不去重）。
+- 任务还没有任何段做完（且不是已成功 / 部分成功）→ `4002`（Conflict）`reason=JOB_NOT_FINISHED`。
+- 回执 `FeedbackView`：`{jobId, segIndex, rating, reasons[], note?, continuity, updated, noteDropped?, message}`；`continuity` 取任务确认时冻结的连贯度，同时冗余存在反馈行上。
+- 漏斗阶段 `feedback_up` / `feedback_down`（`seg_index` = 段号，`continuity` = 任务连贯度）：同一段同一评价只记一次，改主意换了评价才再记一条。

@@ -249,17 +249,26 @@ func previewEdits(p *model.Plan) []previewEdit {
 	return out
 }
 
-// buildPreviewPrompt 图 1 = 原片帧，图 2.. = 方案参考图（图号 N → 第 N+1 张）。只写要改的，其余明确要求保持。
-func buildPreviewPrompt(frame FrameOut, edits []previewEdit, an *AnalysisResult, nRefs int) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "图1是一条视频第 %.1f 秒的画面。请在图1的基础上只做下面的修改：\n", frame.T)
-	for i, e := range edits {
+// previewLines 每处改动一行（按人点名的项逐人一行，只写这一帧里出现的人）。
+func previewLines(frame FrameOut, edits []previewEdit, an *AnalysisResult, nRefs int, ignorePresence bool) []string {
+	var lines []string
+	for _, e := range edits {
 		label := DimLabel[e.Key]
+		if len(e.Edit.Subjects) > 0 && an != nil {
+			lines = append(lines, previewSubjectLines(e.Key, e.Edit, an, nRefs, frame.T, ignorePresence)...)
+			if e.Edit.Mode != ModeReplace || len(outfitRefs(e.Edit)) == 0 {
+				continue // 没有未点名的逐套部分要写
+			}
+		}
 		var line string
 		switch e.Edit.Mode {
 		case ModeReplace:
 			var refs []string
-			for _, r := range editRefs(e.Edit) {
+			rs := editRefs(e.Edit)
+			if len(e.Edit.Subjects) > 0 {
+				rs = outfitRefs(e.Edit)
+			}
+			for _, r := range rs {
 				if r >= 1 && r <= nRefs {
 					refs = append(refs, fmt.Sprintf("图%d", r+1))
 				}
@@ -279,7 +288,21 @@ func buildPreviewPrompt(frame FrameOut, edits []previewEdit, an *AnalysisResult,
 				line += fmt.Sprintf("（原画面里是：%s）", d.Desc)
 			}
 		}
-		fmt.Fprintf(&b, "%d. %s\n", i+1, line)
+		lines = append(lines, line)
+	}
+	return lines
+}
+
+// buildPreviewPrompt 图 1 = 原片帧，图 2.. = 方案参考图（图号 N → 第 N+1 张）。只写要改的，其余明确要求保持。
+func buildPreviewPrompt(frame FrameOut, edits []previewEdit, an *AnalysisResult, nRefs int) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "图1是一条视频第 %.1f 秒的画面。请在图1的基础上只做下面的修改：\n", frame.T)
+	lines := previewLines(frame, edits, an, nRefs, false)
+	if len(lines) == 0 {
+		lines = previewLines(frame, edits, an, nRefs, true) // 点名的人在这一帧里都对不上：兜底别让定妆图什么都没改
+	}
+	for i, l := range lines {
+		fmt.Fprintf(&b, "%d. %s\n", i+1, l)
 	}
 	if nRefs > 0 {
 		var m []string

@@ -29,7 +29,7 @@
     "style":      {...}
   },
   "dim_order": ["按这条片子的重点排列十一个维度键"],
-  "subjects": [{"id": "p1", "name": "女主A（长直发）", "name_en": "the woman with long straight hair", "desc": "外观一句话", "segments": [{"t0": 0, "t1": 1.9}]}],
+  "subjects": [{"id": "p1", "name": "左侧白衣女生", "name_en": "the woman in white on the left", "desc": "长直发 白色卫衣", "segments": [{"t0": 0, "t1": 1.9}]}],
   "entities": [{"category": "person | garment | accessory | product | environment | text | other", "name": "黑白条纹衬衫", "t0": 0, "t1": 1.9, "timing": "第 1 段", "subject": "p1"}],
   "sections": [{"t0": 0, "t1": 1.9, "desc": "这一镜画面里有什么", "action": "人物动作", "camera": "景别与运镜", "applies_to": ["garment", "model"]}],
   "on_screen_text": [{"t0": 0, "t1": 11.3, "text": "画面上的原文", "kind": "subtitle | watermark | sticker | price | title | other"}],
@@ -57,7 +57,13 @@
 2. 画面里确实没有的维度写 `"present": false, "desc": ""`，不要编造。
 3. risk 表示替换这一维的难度：涉及人脸、多套服装、复杂手部或商品细节写 high，一般 mid，简单 low。
 4. 同一维度在不同时段明显不同（换装、换场景、换光）时，必须用 occurrences 按时间列出，时段之间不重叠。
-5. subjects 只列人；多人时每人一个 id（p1、p2…），name 用「称呼（最显著的外观特征）」，segments 写此人出镜的全部时段。
+5. subjects 只列画面里出现的人，不要漏人、不要把同一个人拆成两个。每人一个 id（p1、p2…）。
+   - name 是给用户看的区分性称呼，用户靠它在界面里认出「是哪一位」：写「位置 + 外观」，≤12 字，如「左侧白衣女生」「戴帽子的男生」「穿红裙的主播」；
+     多人的 name 必须互不相同，不要写「人物1」「女主A」这类没有外观信息的名字，也不要含 id。
+   - desc 外观一句话（≤20 字），如「长直发 白色卫衣」。
+   - segments 写此人出镜的全部时段 [{"t0":0,"t1":1.9}]；看不出来就整项省略，不要编造。
+   - 只有 1 个人时 name 也要写外观（如「穿条纹衬衫的女生」）。
+   - dims.garment / dims.model 的 occurrences 里，每个时段的 subject 写这一套服装 / 这个人属于哪个 id；多人时尽量填。
 6. sections 是分镜：按镜头切换或明显的画面变化切段，覆盖整条视频、按时间顺序、互不重叠。
    关键帧形态下看不到连续画面，分镜边界要推断：相邻两张关键帧的人物、服装、景别、机位、场景或光线明显不同，就在两帧时间点之间切段（取中点即可）；
    画面相近的连续关键帧归为同一段；转写的句子起止时间可以辅助校准切点。第一段从 0 开始，最后一段到原片时长结束。

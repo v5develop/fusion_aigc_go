@@ -193,6 +193,11 @@ func (f *fakeSession) WithdrawSample(_ context.Context, id int64) (*core.Withdra
 	return &core.WithdrawView{SubmissionID: id, Status: "withdrawn", Unpublished: true, Replay: f.copyReplay}, f.err
 }
 
+func (f *fakeSession) SubmitFeedback(_ context.Context, r core.FeedbackReq) (*core.FeedbackView, error) {
+	f.rec("SubmitFeedback", r)
+	return &core.FeedbackView{JobID: r.JobID, Rating: r.Rating, Message: "谢谢，已记录"}, f.err
+}
+
 type fakeBackend struct {
 	s        *fakeSession
 	enterErr error
@@ -481,6 +486,7 @@ func TestDispatchEveryTool(t *testing.T) {
 		{"replicate_share_sample", `{"job_id":42,"portrait_consent":true}`, want{"ShareSample", true, eq([2]any{int64(42), true})}},
 		{"replicate_share_sample", `{"job_id":42}`, want{"ShareSample", true, eq([2]any{int64(42), false})}},
 		{"replicate_withdraw_sample", `{"submission_id":5}`, want{"WithdrawSample", true, eq(int64(5))}},
+		{"replicate_feedback", `{"job_id":42,"rating":"up"}`, want{"SubmitFeedback", false, nil}},
 	}
 	for _, c := range cases {
 		t.Run(c.tool, func(t *testing.T) {
@@ -937,5 +943,66 @@ func TestShareWithdrawFlags(t *testing.T) {
 	_, e = do(t, call, signed(body("s3", "replicate_share_sample", `{"job_id":42,"portrait_consent":"yes"}`), 7))
 	if !e.Data.IsError {
 		t.Fatalf("portrait_consent 不是布尔值应被拒：%+v", e.Data)
+	}
+}
+
+// 连贯度：create_plan 顶层 continuity 原样带到内核；update_plan 的 continuity 是指针（不给 = 沿用，给了 = 覆盖），单独给它也算有改动。
+func TestContinuityDispatch(t *testing.T) {
+	be := newBackend()
+	call, _ := chain(t, be)
+	_, e := do(t, call, signed(body("k1", "replicate_create_plan", `{"analysis_no":"VRA1","annotations":{"dims":{"scene":{"mode":"describe","note":"海边"}}},"continuity":"smooth"}`), 7))
+	if e.Data.IsError {
+		t.Fatalf("%+v", e.Data)
+	}
+	if r := be.s.got["CreatePlan"].(core.PlanReq); r.Continuity != "smooth" {
+		t.Fatalf("continuity 没带过去：%+v", r)
+	}
+	be = newBackend()
+	call, _ = chain(t, be)
+	_, e = do(t, call, signed(body("k2", "replicate_update_plan", `{"plan_no":"VRP1","continuity":"fast"}`), 7))
+	if e.Data.IsError {
+		t.Fatalf("只改连贯度应成功：%+v", e.Data)
+	}
+	if r := be.s.patchReq; r.Continuity == nil || *r.Continuity != "fast" {
+		t.Fatalf("PatchReq.Continuity：%+v", r)
+	}
+	be = newBackend()
+	call, _ = chain(t, be)
+	_, e = do(t, call, signed(body("k3", "replicate_update_plan", `{"plan_no":"VRP1","resolution":"1080p"}`), 7))
+	if e.Data.IsError || be.s.patchReq.Continuity != nil {
+		t.Fatalf("没给 continuity 应为 nil（沿用）：%+v %+v", e.Data, be.s.patchReq)
+	}
+	_, e = do(t, call, signed(body("k4", "replicate_create_plan", `{"analysis_no":"VRA1","continuity":"slow"}`), 7))
+	if !e.Data.IsError {
+		t.Fatalf("非法连贯度应被 Schema 拒：%+v", e.Data)
+	}
+}
+
+// 反馈工具：免费、不动账，按读入口分派（不受运行时总开关影响）；reasons / seg_index / note 原样带到内核。
+func TestFeedbackDispatch(t *testing.T) {
+	be := newBackend()
+	call, _ := chain(t, be)
+	_, e := do(t, call, signed(body("f1", "replicate_feedback", `{"job_id":42,"rating":"down","reasons":["seam_jump","other"],"seg_index":2,"note":"第二段开头跳了"}`), 7))
+	if e.Data.IsError {
+		t.Fatalf("%+v", e.Data)
+	}
+	if be.write {
+		t.Fatal("反馈必须走读入口（write=false），暂停新提交时也要能收")
+	}
+	r := be.s.got["SubmitFeedback"].(core.FeedbackReq)
+	if r.JobID != 42 || r.Rating != "down" || len(r.Reasons) != 2 || r.Reasons[0] != "seam_jump" || r.SegIndex != 2 || r.Note != "第二段开头跳了" {
+		t.Fatalf("入参：%+v", r)
+	}
+	for name, a := range map[string]string{
+		"评价非法": `{"job_id":42,"rating":"meh"}`,
+		"原因非法": `{"job_id":42,"rating":"down","reasons":["bad"]}`,
+		"段号为零": `{"job_id":42,"rating":"down","seg_index":0}`,
+	} {
+		be = newBackend()
+		call, _ = chain(t, be)
+		_, e = do(t, call, signed(body("f-"+name, "replicate_feedback", a), 7))
+		if !e.Data.IsError || len(be.s.calls) != 0 {
+			t.Fatalf("%s 应被 Schema 拒：%+v", name, e.Data)
+		}
 	}
 }

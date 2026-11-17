@@ -721,12 +721,17 @@ func (s *Service) planModerationView(ctx context.Context, p *model.Plan) *Modera
 // 没开启审核（没装配 / ModerationOff）时跳过，与方案审核一致；故障按 ModerationFailOpen：默认 fail-close 拒绝（MODERATION_UNAVAILABLE，没扣点），
 // 放行时记 ERROR 日志。违规 → MODERATION_REJECTED（不暴露命中词）。
 func (s *Service) moderateRedoNote(ctx context.Context, userID, jobID int64, note string) error {
+	return s.moderateJobNote(ctx, userID, jobID, note, "redo", "replicate.redo_note")
+}
+
+// moderateJobNote 任务上的一句用户自由文字的审核（精修备注 / 成片反馈备注共用）：tag 区分请求号与幂等键，scene 给关键词库分场景。
+func (s *Service) moderateJobNote(ctx context.Context, userID, jobID int64, note, tag, scene string) error {
 	if note == "" || !s.moderationEnabled() {
 		return nil
 	}
-	reqID := fmt.Sprintf(modRequestIDFmt, fmt.Sprintf("job%d-redo", jobID))
+	reqID := fmt.Sprintf(modRequestIDFmt, fmt.Sprintf("job%d-%s", jobID, tag))
 	if s.mod.words != nil {
-		if r, err := s.mod.words.Check(ctx, "replicate.redo_note", note); err != nil {
+		if r, err := s.mod.words.Check(ctx, scene, note); err != nil {
 			logx.WithContext(ctx).Errorf("replicate: 关键词库读取失败（跳过关键词，继续网关审核） 判据=MOD_WORDS_UNAVAILABLE job=%d: %v", jobID, err)
 		} else if !r.Passed {
 			logx.WithContext(ctx).Infof("replicate: 重做备注审核未通过 判据=MODERATION_REJECTED provider=keyword job=%d", jobID)
@@ -735,7 +740,7 @@ func (s *Service) moderateRedoNote(ctx context.Context, userID, jobID int64, not
 			return xerr.NewReason(xerr.ParamError, ReasonModerationRejected, modTextWords)
 		}
 	}
-	b, err := s.gatewayModerate(ctx, fmt.Sprintf("job%d-redo", jobID), ModBizText, s.moderationPolicySig(), 0, false, []string{note})
+	b, err := s.gatewayModerate(ctx, fmt.Sprintf("job%d-%s", jobID, tag), ModBizText, s.moderationPolicySig(), 0, false, []string{note})
 	var de *errModerationDown
 	if errors.As(err, &de) {
 		logx.WithContext(ctx).Errorf("replicate: 重做备注审核服务故障 判据=%s job=%d failOpen=%v call=%s", de.check, jobID, s.cfg.ModerationFailOpen, de.callID)

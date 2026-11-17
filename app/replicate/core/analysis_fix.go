@@ -107,6 +107,12 @@ func applyAnalysisRules(in *visionOut, st *AnalysisState, r *AnalysisResult, cfg
 			doc.Others = append(doc.Others, analysisfix.Span{T0: o.T0, T1: o.T1})
 		}
 	}
+	// 人物出镜时段与其它带时间的项走同一套时间纠偏（反向互换、时长缩放），顺序在 occurrences 之后、画面文字之前
+	for _, sj := range in.Subjects {
+		for _, sp := range sj.Segments {
+			doc.Others = append(doc.Others, analysisfix.Span{T0: sp.T0, T1: sp.T1})
+		}
+	}
 	for _, o := range in.OnScreenText {
 		doc.Others = append(doc.Others, analysisfix.Span{T0: o.T0, T1: o.T1})
 	}
@@ -133,6 +139,12 @@ func applyAnalysisRules(in *visionOut, st *AnalysisState, r *AnalysisResult, cfg
 		}
 		in.Dims[k] = x
 	}
+	for j := range in.Subjects {
+		for l := range in.Subjects[j].Segments {
+			in.Subjects[j].Segments[l].T0, in.Subjects[j].Segments[l].T1 = doc.Others[i].T0, doc.Others[i].T1
+			i++
+		}
+	}
 	for j := range in.OnScreenText {
 		in.OnScreenText[j].T0, in.OnScreenText[j].T1 = doc.Others[i].T0, doc.Others[i].T1
 		i++
@@ -146,16 +158,21 @@ func applyAnalysisRules(in *visionOut, st *AnalysisState, r *AnalysisResult, cfg
 }
 
 // userAnalysis 用户视图里的分析结果：去掉纠偏明细（只给后台看）。
+// 人物（CONTRACT §X）：id、name、desc（≤20 字，给智能体和卡片用的短描述）；其它字段不变。
 func userAnalysis(r *AnalysisResult) *AnalysisResult {
 	if r == nil {
 		return r
 	}
 	ov := outfitsView(r)
-	if len(r.Corrections) == 0 && ov == nil {
+	sv := subjectsView(r)
+	if len(r.Corrections) == 0 && ov == nil && sv == nil {
 		return r
 	}
 	c := *r
 	c.Corrections = nil
 	c.Outfits = ov // 逐套服装摘要（CONTRACT §O1），读取时现算，不进落库的原始结果
+	if sv != nil {
+		c.Subjects = sv
+	}
 	return &c
 }

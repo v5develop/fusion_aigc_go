@@ -473,6 +473,24 @@ func (sc *Scope) PublishCopy(ctx context.Context, jobID int64, platform string) 
 	return sc.s.PublishCopy(sc.ctx(ctx), sc.uid, jobID, platform)
 }
 
+// SubmitFeedback 成片反馈（CONTRACT §Z，免费、不动账）。读入口口径：不受运行时总开关影响；只有轻量限频（每分钟 / 每日，防刷）。
+// 覆盖更新与审核都在内核里。
+func (sc *Scope) SubmitFeedback(ctx context.Context, req core.FeedbackReq) (*core.FeedbackView, error) {
+	if err := checkID(req.JobID, "job_id"); err != nil {
+		return nil, err
+	}
+	req.UserID = sc.uid
+	refund, err := sc.take(ctx, ActionFeedback)
+	if err != nil {
+		return nil, err
+	}
+	v, err := sc.s.SubmitFeedback(sc.ctx(ctx), req)
+	if err != nil {
+		refund() // 失败不占次数
+	}
+	return v, err
+}
+
 // ExportRatio 多比例导出（CONTRACT §N，免费、无同意卡；每成片每比例每模式一次，结果自动入素材库）。写入口。
 func (sc *Scope) ExportRatio(ctx context.Context, jobID int64, ratio, mode string) (*core.ExportView, error) {
 	if err := checkID(jobID, "job_id"); err != nil {

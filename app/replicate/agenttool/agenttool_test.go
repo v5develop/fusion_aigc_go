@@ -20,6 +20,7 @@ var contractTools = []string{
 	"replicate_retry_audio",                               // CONTRACT §Q
 	"replicate_trending",                                  // CONTRACT §S
 	"replicate_share_sample", "replicate_withdraw_sample", // CONTRACT §T
+	"replicate_feedback", // CONTRACT §Z
 }
 
 func TestRegistryMatchesContract(t *testing.T) {
@@ -128,6 +129,7 @@ func TestDescriptionsStateRules(t *testing.T) {
 		"replicate_trending":        {"industry", "不含任何人", "不要向用户编造", "20"},
 		"replicate_share_sample":    {"授权", "portrait_consent", "PORTRAIT_CONSENT_REQUIRED", "完整版", "不扣点"},
 		"replicate_withdraw_sample": {"下架", "submission_id", "不扣点"},
+		"replicate_feedback":        {"不扣点", "face_mismatch", "seam_jump", "seg_index", "replicate_redo_segment", "JOB_NOT_FINISHED"},
 	}
 	for name, subs := range must {
 		tl, ok := Find(name)
@@ -291,6 +293,26 @@ func TestDimEditOccurrencesSchema(t *testing.T) {
 		"多余字段":    `"occurrences":[{"index":1,"refs":[1],"x":1}]`,
 	} {
 		in := `{"analysis_no":"VRA1","ref_images_from":["图1"],"annotations":{"dims":{"garment":{"mode":"replace",` + bad + `}}}}`
+		if _, err := ParseArguments(tl, []byte(in)); err == nil {
+			t.Errorf("%s：应被拒", name)
+		}
+	}
+}
+
+// agenttool：dims[*].subjects 进了封闭 schema，边界有效。
+func TestDimEditSubjectsSchema(t *testing.T) {
+	tl, _ := Find("replicate_create_plan")
+	ok := `{"analysis_no":"VRA1","ref_images_from":["图1","图2"],"annotations":{"dims":{"model":{"mode":"replace","subjects":[{"id":"p1","refs":[1]},{"id":"p2","mode":"keep"}]}}}}`
+	if _, err := ParseArguments(tl, []byte(ok)); err != nil {
+		t.Fatalf("按人点名应通过：%v", err)
+	}
+	for name, bad := range map[string]string{
+		"缺 id":    `"subjects":[{"refs":[1]}]`,
+		"多余字段":    `"subjects":[{"id":"p1","x":1}]`,
+		"mode 非法": `"subjects":[{"id":"p1","mode":"zzz"}]`,
+		"图号 0":    `"subjects":[{"id":"p1","refs":[0]}]`,
+	} {
+		in := `{"analysis_no":"VRA1","ref_images_from":["图1"],"annotations":{"dims":{"model":{"mode":"replace",` + bad + `}}}}`
 		if _, err := ParseArguments(tl, []byte(in)); err == nil {
 			t.Errorf("%s：应被拒", name)
 		}

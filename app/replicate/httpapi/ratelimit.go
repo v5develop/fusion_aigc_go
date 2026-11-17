@@ -33,6 +33,14 @@ const (
 	ActionConfirm  = "confirm"
 	// ActionAnnotate 改标注 / 再做一条：独立计数（replicate.rate.annotate_*），不占「方案」额度
 	ActionAnnotate = "annotate"
+	// ActionFeedback 成片反馈：轻量固定限频（不读配置，只为防刷）
+	ActionFeedback = "feedback"
+)
+
+// 成片反馈的固定限额：每分钟 / 每日（北京时间自然日）。覆盖更新也占次数，正常用户远用不到。
+const (
+	feedbackPerMinute = 20
+	feedbackPerDay    = 300
 )
 
 // RateLimitError 限频命中（writeErr 写成 HTTP 429）。
@@ -62,6 +70,7 @@ var dayText = map[string]string{
 	ActionPlan:     "今天的方案次数用完了，明天 0 点恢复。已有方案仍然可以确认生成",
 	ActionConfirm:  "今天提交生成的次数用完了，明天 0 点恢复",
 	ActionAnnotate: "今天修改方案的次数用完了，明天 0 点恢复。已有方案仍然可以确认生成",
+	ActionFeedback: "今天提交反馈的次数用完了，明天 0 点恢复，谢谢你的反馈",
 }
 
 const (
@@ -95,6 +104,8 @@ func perOf(p RateParams, action string) (int, int) {
 		return p.ConfirmPerMinute, p.ConfirmPerDay
 	case ActionAnnotate:
 		return p.AnnotatePerMinute, p.AnnotatePerDay
+	case ActionFeedback:
+		return feedbackPerMinute, feedbackPerDay
 	}
 	return 0, 0
 }

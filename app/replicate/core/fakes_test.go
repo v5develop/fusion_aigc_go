@@ -960,8 +960,8 @@ func (g *fakeGW) finish(c *aigateway.Call) {
 	c.Status = o.status
 	if o.status == aigateway.StatusSucceeded {
 		var r aigateway.Result
-		_ = json.Unmarshal([]byte(fmt.Sprintf(`{"operation":"video.generate","video":{"rid":"%s","duration_ms":5000},"cover":{"rid":"%s"}}`,
-			workRid("v|"+key), workRid("c|"+key))), &r)
+		_ = json.Unmarshal([]byte(fmt.Sprintf(`{"operation":"video.generate","video":{"rid":"%s","duration_ms":5000},"cover":{"rid":"%s"},"last_frame":{"rid":"%s"}}`,
+			workRid("v|"+key), workRid("c|"+key), workRid("lf|"+key))), &r)
 		c.Result = &r
 		c.Cost = &aigateway.Cost{AmountCNY: "1.20"}
 		return

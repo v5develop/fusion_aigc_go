@@ -75,6 +75,36 @@ type Subject struct {
 	Name   string `json:"name"`
 	NameEn string `json:"nameEn,omitempty"`
 	Desc   string `json:"desc"`
+	// Segments 此人出镜的时间段（秒；视觉理解给得出才有，CONTRACT §X）：写手 / 方言按段判断「该段有没有这个人」。
+	// 空 = 不知道，当作每段都在（旧分析结果没有这个字段，照常可用）。
+	Segments []TimeSpan `json:"segments,omitempty"`
+}
+
+// lenientSpans 宽容的时间段数组：整体不是数组 / 元素类型不对 / 缺 t0 或 t1 都当没有（绝不让解析失败，
+// 否则一个多余的字段就会让整份分析报「输出不是 JSON」）。
+type lenientSpans []TimeSpan
+
+func (l *lenientSpans) UnmarshalJSON(b []byte) error {
+	*l = nil
+	var raw []struct {
+		T0 *float64 `json:"t0"`
+		T1 *float64 `json:"t1"`
+	}
+	if json.Unmarshal(b, &raw) != nil {
+		return nil
+	}
+	for _, x := range raw {
+		if x.T0 != nil && x.T1 != nil {
+			*l = append(*l, TimeSpan{T0: *x.T0, T1: *x.T1})
+		}
+	}
+	return nil
+}
+
+// TimeSpan 一个时间段（秒）。
+type TimeSpan struct {
+	T0 float64 `json:"t0"`
+	T1 float64 `json:"t1"`
 }
 
 // Section 分镜。
@@ -112,16 +142,21 @@ type visionOut struct {
 			Subject string  `json:"subject"`
 		} `json:"occurrences"`
 	} `json:"dims"`
-	DimOrder []string `json:"dim_order"`
-	Subjects []struct {
-		ID     string `json:"id"`
-		Name   string `json:"name"`
-		NameEn string `json:"name_en"`
-		Desc   string `json:"desc"`
-	} `json:"subjects"`
+	DimOrder     []string        `json:"dim_order"`
+	Subjects     []visionSubject `json:"subjects"`
 	Sections     []visionSection `json:"sections"`
 	OnScreenText []OnScreen      `json:"on_screen_text"`
 	Lines        []Sentence      `json:"lines"`
+}
+
+// visionSubject 画面理解输出的一个出镜人物。
+type visionSubject struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	NameEn string `json:"name_en"`
+	Desc   string `json:"desc"`
+	// Segments 此人出镜时段：宽容解析（缺省 / 不是数组 / 元素缺字段都不影响其它字段，见 lenientSpans）
+	Segments lenientSpans `json:"segments"`
 }
 
 // visionSection 画面理解输出的一个分镜。
@@ -215,11 +250,7 @@ func normalizeAnalysis(content string, st *AnalysisState, cfg *analysisfix.Confi
 			r.DimOrder = append(r.DimOrder, k)
 		}
 	}
-	for _, s := range in.Subjects {
-		if s.ID != "" {
-			r.Subjects = append(r.Subjects, Subject{ID: s.ID, Name: trimRunes(s.Name, 40), NameEn: s.NameEn, Desc: trimRunes(s.Desc, 80)})
-		}
-	}
+	r.Subjects = normalizeSubjects(in.Subjects, cl)
 	// 分镜：夹紧、排序、去重叠，首尾补齐到 [0, D]
 	for _, s := range in.Sections {
 		if t0, t1 := cl(s.T0), cl(s.T1); t1 > t0 {

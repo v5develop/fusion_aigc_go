@@ -208,9 +208,13 @@ func (c *EtaCalibrator) lookup(group string, segTotal, maxGenSec int) (etaStat, 
 	return etaStat{}, false
 }
 
-// eta 方案卡的预计耗时：R = ceil(N / MaxInFlight) 轮 × 每轮 [P50, P90]。整张方案用同一个桶（模型组 × 段数桶 × 最长段时长桶），
-// 所以 first / rest / total 要么全部来自历史（prior=false），要么全部是先验（prior=true）。
-func (s *Service) eta(group string, segs []PlanSegmentView) ETAView {
+// eta 方案卡的预计耗时。
+//   - fast（并行）：R = ceil(N / MaxInFlight) 轮 × 每轮 [P50, P90]；
+//   - smooth（连贯，段按顺序）：N 段首尾相接 ≈ N × 每段 [P50, P90]（样本本来就是单段耗时，见本文件头）。
+//
+// Total / First / Rest 按 smooth 参数选的模式给；多段方案另给 Fast / Smooth 两个总区间，供「更快 / 更连贯」并排展示。
+// 整张方案用同一个桶，所以所有区间要么全部来自历史（prior=false），要么全部是先验（prior=true）。
+func (s *Service) eta(group string, segs []PlanSegmentView, smooth bool) ETAView {
 	n := len(segs)
 	p50, p90 := s.cfg.EtaRoundP50.Seconds(), s.cfg.EtaRoundP90.Seconds()
 	prior := true
@@ -223,17 +227,23 @@ func (s *Service) eta(group string, segs []PlanSegmentView) ETAView {
 			p50, p90, prior = st.P50, math.Max(st.P90, st.P50), false
 		}
 	}
-	r := func(k int) *ETARange {
-		rounds := (k + s.cfg.MaxInFlight - 1) / s.cfg.MaxInFlight
+	rng := func(rounds int) *ETARange {
 		lo, hi := int(math.Round(p50))*rounds, int(math.Round(p90))*rounds
 		if hi < lo {
 			hi = lo
 		}
 		return &ETARange{LowSec: lo, HighSec: hi, Text: etaText(lo, hi)}
 	}
+	fast := func(k int) *ETARange { return rng((k + s.cfg.MaxInFlight - 1) / s.cfg.MaxInFlight) }
+	seq := func(k int) *ETARange { return rng(k) }
+	r := fast
+	if smooth && n > 1 {
+		r = seq
+	}
 	v := ETAView{Total: *r(n), Prior: prior}
 	if n > 1 {
 		v.First, v.Rest = r(1), r(n-1)
+		v.Fast, v.Smooth = fast(n), seq(n)
 	}
 	return v
 }

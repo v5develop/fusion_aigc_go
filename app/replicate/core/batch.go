@@ -506,11 +506,11 @@ func (s *Service) ConfirmBatch(ctx context.Context, req BatchConfirmReq) (*Batch
 			logx.WithContext(ctx).Errorf("replicate: 批量收尾时任务已不在提交中 判据=BATCH_SUBMIT_REAPED batch=%d job=%d ok=%v: %v", hdr.ID, jv.JobID, ok, err)
 			continue
 		}
-		s.funnel(ctx, funnelEvent{Stage: StageConfirmAll, UserID: req.UserID, AnalysisID: bp.analysis.ID, PlanID: children[i].ID, JobID: jv.JobID,
+		s.funnel(ctx, funnelEvent{Stage: StageConfirmAll, UserID: req.UserID, AnalysisID: bp.analysis.ID, PlanID: children[i].ID, JobID: jv.JobID, Continuity: planContinuity(children[i]),
 			Dedupe: fmt.Sprintf("cf:%d", jv.JobID)})
 	}
 	_, _ = s.batches.UpdateBatch(ctx, hdr.ID, []int8{model.BatchSubmitting}, map[string]any{"status": model.BatchSubmitted})
-	s.funnel(ctx, funnelEvent{Stage: StageBatchConfirm, UserID: req.UserID, AnalysisID: bp.analysis.ID, PlanID: bp.parent.ID, Dedupe: fmt.Sprintf("bc:%d", hdr.ID)})
+	s.funnel(ctx, funnelEvent{Stage: StageBatchConfirm, UserID: req.UserID, AnalysisID: bp.analysis.ID, PlanID: bp.parent.ID, Continuity: planContinuity(bp.parent), Dedupe: fmt.Sprintf("bc:%d", hdr.ID)})
 	logx.WithContext(ctx).Infof("replicate: 批量确认 user=%d plan=%s batch=%d 条数=%d 合计=%d", req.UserID, bp.parent.PlanNo, hdr.ID, n, total)
 	hdr.Status = model.BatchSubmitted
 	return s.batchView(ctx, hdr)

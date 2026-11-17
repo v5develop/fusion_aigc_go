@@ -46,6 +46,8 @@ type planEdits struct {
 	ModelGroup  *string   `json:"modelGroup"`
 	Resolution  *string   `json:"resolution"`
 	AspectRatio *string   `json:"aspectRatio"`
+	// Continuity 画面连贯度 fast / smooth（CONTRACT §Y）；不出现 = 沿用原方案
+	Continuity *string `json:"continuity"`
 }
 
 func (h *handlers) patchAnnotations(_ http.ResponseWriter, r *http.Request, sc *Scope) (any, error) {
@@ -60,7 +62,7 @@ func (h *handlers) patchAnnotations(_ http.ResponseWriter, r *http.Request, sc *
 	if err := decode(r, &body); err != nil {
 		return nil, err
 	}
-	req := core.PatchReq{PlanNo: no, RefImages: body.RefImages, ModelGroup: body.ModelGroup, Resolution: body.Resolution, AspectRatio: body.AspectRatio}
+	req := core.PatchReq{PlanNo: no, RefImages: body.RefImages, ModelGroup: body.ModelGroup, Resolution: body.Resolution, AspectRatio: body.AspectRatio, Continuity: body.Continuity}
 	if body.Annotations != nil {
 		req.Annotations = *body.Annotations
 	}

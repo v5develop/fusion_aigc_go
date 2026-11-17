@@ -44,6 +44,8 @@ type stepVideo struct {
 	VideoRid   string `json:"videoRid"`
 	CoverRid   string `json:"coverRid"`
 	DurationMs int64  `json:"durationMs"`
+	// LastFrameRid 末帧（网关结果里有才有；连贯模式给下一段当衔接帧）
+	LastFrameRid string `json:"lastFrameRid"`
 }
 
 func videoOf(st *model.Step) (stepVideo, bool) {
