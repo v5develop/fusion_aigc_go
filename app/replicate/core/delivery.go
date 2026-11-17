@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -23,7 +24,7 @@ import (
 //
 //   - 落桶规则：素材库 → 公有桶。成片在媒体服务私有桶（intermediate），先 CopyToLibrary(purpose=asset_library) 得到公有地址，
 //     再经 pkg/asset 写 afv_asset（共享表只经所属包写）。source_task_id = job 的任务中心编号（任务中心 assetGroupId 据此找素材）。
-//   - 幂等：发件箱 afv_replicate_delivery 唯一键 (job_id, kind, seg_index) → 同 job 的成片只入队一次、只入库一次；
+//   - 幂等：发件箱 afv_replicate_delivery 唯一键 (job_id, kind, seg_index, version) → 同 job 的成片只入队一次、只入库一次；
 //     复制用固定幂等键（同一源同一公有对象），写库用 asset.InsertOnceByURL（同任务同地址已有行就不写，含用户已删的）。
 //     入库后、标记完成前崩溃：重做时复制得到同一地址、写库查重命中，不会写出第二条。
 //   - 不阻塞：入库与 job 收尾完全解耦——job 先到终态、先能下载；入库失败按指数退避重试（30 秒起、最长 30 分钟），
@@ -36,7 +37,7 @@ import (
 
 // DeliveryStore 入库发件箱（生产实现 app/replicate/repo，bun）。
 type DeliveryStore interface {
-	// EnqueueDelivery 按 (job_id, kind, seg_index) 插入（已存在不动），返回是否新建。
+	// EnqueueDelivery 按 (job_id, kind, seg_index, version) 插入（已存在不动），返回是否新建。
 	EnqueueDelivery(ctx context.Context, d *model.Delivery) (bool, error)
 	ListDeliveries(ctx context.Context, jobID int64) ([]*model.Delivery, error)
 	// DueDeliveries 待入库且到期、认领空闲 / 过期的（next_run_at 升序，NULL 最先）。
@@ -118,35 +119,46 @@ func libraryView(d *model.Delivery) *LibraryView {
 
 // paidSegments 已确认扣费的成功段：段号 → 该段最后一次成功步骤的产物。只认镜像「已扣除」（ChargeConfirmed）：
 // 已退点 / 不计费（Billing off / shadow、0 点）/ 扣费还没确认的都不算——没收钱的产物不进素材库。
-type paidSeg struct{ videoRid, coverRid string }
+//
+// 同一段被精修成功后，新视频（已确认扣费的精修步骤）是最新一条；gen 是它的版本号（入库行的 version 列）。
+// epoch 是全任务已成功的精修次数（成片 / 预览版入库行的版本）。
+type paidSeg struct {
+	videoRid, coverRid string
+	gen                int
+}
 
-func (s *Service) paidSegments(ctx context.Context, jobID int64) (map[int]paidSeg, error) {
+func (s *Service) paidSegments(ctx context.Context, jobID int64) (map[int]paidSeg, int, error) {
 	steps, err := s.store.ListSteps(ctx, jobID)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	charges, err := s.store.ListCharges(ctx, jobID)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	out := map[int]paidSeg{}
+	segTotal := 0
 	for _, st := range steps {
+		segTotal = max(segTotal, st.SegIndex)
+	}
+	_, epoch := segGenerations(steps, segTotal)
+	sorted := append([]*model.Step(nil), steps...)
+	sort.Slice(sorted, func(a, b int) bool { return sorted[a].ID < sorted[b].ID })
+	out, seen := map[int]paidSeg{}, map[int]int{}
+	for _, st := range sorted {
 		if st.Kind != model.StepKindGateway || st.Status != model.StepSucceeded {
 			continue
 		}
+		gen := seen[st.SegIndex] // 这一步之前该段已有几个成功版本 = 它的版本号
+		seen[st.SegIndex]++
 		c := chargeOf(charges, st.BillingRequestID)
 		if c == nil || c.Status != model.ChargeConfirmed {
 			continue
 		}
-		var v struct {
-			VideoRid string `json:"videoRid"`
-			CoverRid string `json:"coverRid"`
-		}
-		if json.Unmarshal(st.Output, &v) == nil && v.VideoRid != "" {
-			out[st.SegIndex] = paidSeg{videoRid: v.VideoRid, coverRid: v.CoverRid} // 按 id 升序：取最后一次成功（重做后的）
+		if v, ok := videoOf(st); ok {
+			out[st.SegIndex] = paidSeg{videoRid: v.VideoRid, coverRid: v.CoverRid, gen: gen} // 按 id 升序：取最后一次成功（重做 / 精修后的）
 		}
 	}
-	return out, nil
+	return out, epoch, nil
 }
 
 // enqueueOnJobDone job 收尾（成功 / 部分成功，含后台强制收尾后的汇总）时入队素材库，幂等（唯一键 job+kind+段号，已有不动）：
@@ -158,7 +170,7 @@ func (s *Service) enqueueOnJobDone(ctx context.Context, j *model.Job, doc *Resul
 	if s.delivery == nil {
 		return nil
 	}
-	paid, err := s.paidSegments(ctx, j.ID)
+	paid, epoch, err := s.paidSegments(ctx, j.ID)
 	if err != nil {
 		return err
 	}
@@ -169,23 +181,24 @@ func (s *Service) enqueueOnJobDone(ctx context.Context, j *model.Job, doc *Resul
 	have, haveRid := map[string]bool{}, map[string]bool{}
 	if list, err := s.delivery.store.ListDeliveries(ctx, j.ID); err == nil {
 		for _, d := range list {
-			have[fmt.Sprintf("%s|%d", d.Kind, d.SegIndex)] = true
+			have[fmt.Sprintf("%s|%d|%d", d.Kind, d.SegIndex, d.Version)] = true
 			haveRid[d.SrcRid] = true
 		}
 	}
-	put := func(kind string, seg int, rid, cover string) error {
-		if have[fmt.Sprintf("%s|%d", kind, seg)] || haveRid[rid] {
+	put := func(kind string, seg, ver int, rid, cover string) error {
+		key := fmt.Sprintf("%s|%d|%d", kind, seg, ver)
+		if have[key] || haveRid[rid] {
 			return nil
 		}
-		d := &model.Delivery{JobID: j.ID, UserID: j.UserID, Kind: kind, SegIndex: seg, SrcRid: rid, Status: model.DeliveryPending}
+		d := &model.Delivery{JobID: j.ID, UserID: j.UserID, Kind: kind, SegIndex: seg, Version: ver, SrcRid: rid, Status: model.DeliveryPending}
 		if cover != "" {
 			d.CoverRid = ptr(cover)
 		}
 		created, err := s.delivery.store.EnqueueDelivery(ctx, d)
 		if err == nil {
-			have[fmt.Sprintf("%s|%d", kind, seg)], haveRid[rid] = true, true
+			have[key], haveRid[rid] = true, true
 			if created {
-				logx.WithContext(ctx).Infof("replicate: 入素材库已入队 job=%d kind=%s seg=%d rid=%s", j.ID, kind, seg, rid)
+				logx.WithContext(ctx).Infof("replicate: 入素材库已入队 job=%d kind=%s seg=%d ver=%d rid=%s", j.ID, kind, seg, ver, rid)
 			}
 		}
 		return err
@@ -196,13 +209,13 @@ func (s *Service) enqueueOnJobDone(ctx context.Context, j *model.Job, doc *Resul
 		if doc.Kind == ResultPreview {
 			kind = model.DeliveryPreview
 		}
-		if err := put(kind, 0, doc.VideoRid, doc.CoverRid); err != nil {
+		if err := put(kind, 0, epoch, doc.VideoRid, doc.CoverRid); err != nil {
 			return err
 		}
 	}
 	for k := 1; k <= j.SegTotal; k++ {
 		if p, ok := paid[k]; ok {
-			if err := put(model.DeliverySegment, k, p.videoRid, p.coverRid); err != nil {
+			if err := put(model.DeliverySegment, k, p.gen, p.videoRid, p.coverRid); err != nil {
 				return err
 			}
 		}
@@ -228,11 +241,15 @@ func (s *Service) SaveSegment(ctx context.Context, userID, jobID int64, k int) (
 	if k < 1 || k > j.SegTotal {
 		return nil, xerr.New(xerr.NotFound, "没有这一段")
 	}
-	paid, err := s.paidSegments(ctx, j.ID)
+	paid, _, err := s.paidSegments(ctx, j.ID)
 	if err != nil {
 		return nil, err
 	}
 	p, ok := paid[k]
+	ver := 0
+	if ok {
+		ver = p.gen // 精修后的新版本是另一行（version 不同）
+	}
 	// 已入库 / 已入队（收尾时自动入的）：直接返回已有。同内容（同 rid，如单段任务的成片就是这一段）算同一条
 	find := func() (*SaveSegmentView, error) {
 		list, err := s.delivery.store.ListDeliveries(ctx, j.ID)
@@ -240,7 +257,7 @@ func (s *Service) SaveSegment(ctx context.Context, userID, jobID int64, k int) (
 			return nil, err
 		}
 		for _, x := range list {
-			if (x.Kind == model.DeliverySegment && x.SegIndex == k) || (ok && x.SrcRid == p.videoRid) {
+			if (x.Kind == model.DeliverySegment && x.SegIndex == k && x.Version == ver) || (ok && x.SrcRid == p.videoRid) {
 				return &SaveSegmentView{SegIndex: k, Library: libraryView(x)}, nil
 			}
 		}
@@ -262,7 +279,7 @@ func (s *Service) SaveSegment(ctx context.Context, userID, jobID int64, k int) (
 		}
 		return nil, xerr.NewReason(xerr.Conflict, "SEGMENT_NOT_READY", "这一段还没做好，做好后再保存")
 	}
-	d := &model.Delivery{JobID: j.ID, UserID: j.UserID, Kind: model.DeliverySegment, SegIndex: k, SrcRid: p.videoRid, Status: model.DeliveryPending}
+	d := &model.Delivery{JobID: j.ID, UserID: j.UserID, Kind: model.DeliverySegment, SegIndex: k, Version: ver, SrcRid: p.videoRid, Status: model.DeliveryPending}
 	if p.coverRid != "" {
 		d.CoverRid = ptr(p.coverRid)
 	}
@@ -366,7 +383,11 @@ func (s *Service) runDelivery(parent context.Context, id int64) {
 	var in JobInput
 	_ = json.Unmarshal(j.Input, &in)
 	idem := func(what string) string {
-		return fmt.Sprintf("%srpl-lib:%d:%s:%d:%s", in.KeyPrefix, d.JobID, d.Kind, d.SegIndex, what)
+		seg := fmt.Sprint(d.SegIndex)
+		if d.Version > 0 { // 版本 0 沿用旧键（在途 / 已入库的行幂等不变）；精修版本另用一把键，避免复用旧版本的公有对象
+			seg = fmt.Sprintf("%d:v%d", d.SegIndex, d.Version)
+		}
+		return fmt.Sprintf("%srpl-lib:%d:%s:%s:%s", in.KeyPrefix, d.JobID, d.Kind, seg, what)
 	}
 	lib, err := dl.lib.CopyToLibrary(ctx, d.SrcRid, mediasvc.PurposeAssetLibrary, idem("video"))
 	if err == nil && strings.TrimSpace(lib.URL) == "" {

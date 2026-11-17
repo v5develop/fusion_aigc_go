@@ -25,7 +25,7 @@ const prefix = "/api/v1/replicate"
 func Register(server *rest.Server, auth rest.Middleware, m *Module) {
 	h := &handlers{m: m}
 	g, po, pu, pa, de := http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete
-	r := func(method, path string, fn func(w http.ResponseWriter, r *http.Request, s *core.Service, uid int64) (any, error), write bool) rest.Route {
+	r := func(method, path string, fn handlerFn, write bool) rest.Route {
 		return rest.Route{Method: method, Path: prefix + path, Handler: h.wrap(fn, write)}
 	}
 	server.AddRoutes(rest.WithMiddlewares([]rest.Middleware{auth},
@@ -48,6 +48,7 @@ func Register(server *rest.Server, auth rest.Middleware, m *Module) {
 		r(g, "/samples", h.samples, false),
 		r(po, "/samples/:id/try", h.trySample, false),
 		r(g, "/plans/:no", h.getPlan, false),
+		r(g, "/plans/:no/preview", h.getPreview, false), // 已存定妆图（只读，现签新地址；不出图不占额度）
 		r(pa, "/plans/:no/annotations", h.patchAnnotations, true),
 		r(po, "/plans/:no/save", h.savePlan, true),
 		r(g, "/saved-plans", h.savedPlans, false),
@@ -58,32 +59,23 @@ func Register(server *rest.Server, auth rest.Middleware, m *Module) {
 
 type handlers struct{ m *Module }
 
+// handlerFn 薄 REST 处理器：只解析请求（路径 / 查询 / 请求体）→ 调 Scope（ops.go），不含业务口径。
+type handlerFn = func(w http.ResponseWriter, r *http.Request, sc *Scope) (any, error)
+
 func errNotReady() error { return xerr.New(xerr.NotReady, "功能暂未开放") }
 
-// wrap 取内核与登录用户，写接口另查运行时总开关（关着回 7003；读接口照常，已有任务能看）。
-func (h *handlers) wrap(fn func(w http.ResponseWriter, r *http.Request, s *core.Service, uid int64) (any, error), write bool) http.HandlerFunc {
+// wrap 经 Ops.Enter 取内核与登录用户，写接口另查运行时总开关（关着回 7003；读接口照常，已有任务能看）。
+func (h *handlers) wrap(fn handlerFn, write bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if h.m == nil || h.m.rt == nil {
-			writeErr(w, r, errNotReady())
-			return
-		}
-		uid := ctxdata.UserID(r.Context())
-		if uid <= 0 {
-			writeErr(w, r, xerr.New(xerr.Unauthorized, "请先登录"))
-			return
-		}
-		s, enabled := h.m.rt.Service(r.Context())
-		if s == nil || (write && !enabled) {
-			writeErr(w, r, errNotReady())
-			return
-		}
-		out, err := fn(w, r, s, uid)
+		sc, err := h.m.Ops().Enter(r.Context(), ctxdata.UserID(r.Context()), write)
 		if err != nil {
 			writeErr(w, r, err)
 			return
 		}
-		if write && h.m.taskSync != nil {
-			h.m.taskSync.Kick() // 任务中心尽快看到新状态（轮询器另有周期同步兜底）
+		out, err := fn(w, r, sc)
+		if err != nil {
+			writeErr(w, r, err)
+			return
 		}
 		httpx.OkJsonCtx(r.Context(), w, out)
 	}
@@ -150,52 +142,29 @@ type limitsView struct {
 	Enabled bool `json:"enabled"`
 }
 
-func (h *handlers) limits(_ http.ResponseWriter, r *http.Request, s *core.Service, _ int64) (any, error) {
-	_, enabled := h.m.rt.Service(r.Context()) // 与 wrap 同一份缓存（60 秒），不多查库
-	return limitsView{LimitsView: s.Limits(), Enabled: enabled}, nil
+func (h *handlers) limits(_ http.ResponseWriter, _ *http.Request, sc *Scope) (any, error) {
+	return sc.Limits(), nil
 }
 
-func (h *handlers) createAnalysis(_ http.ResponseWriter, r *http.Request, s *core.Service, uid int64) (any, error) {
+func (h *handlers) createAnalysis(_ http.ResponseWriter, r *http.Request, sc *Scope) (any, error) {
 	var body struct {
 		SourceURL string `json:"sourceUrl"`
 	}
 	if err := decode(r, &body); err != nil {
 		return nil, err
 	}
-	if strings.TrimSpace(body.SourceURL) == "" {
-		return nil, xerr.New(xerr.ParamMissing, "请先上传要做同款的视频")
-	}
-	if len(strings.TrimSpace(body.SourceURL)) > 1024 {
-		return nil, xerr.Param("视频地址太长了，请重新上传这条视频")
-	}
-	refund, err := h.take(r, ActionAnalysis, uid)
-	if err != nil {
-		return nil, err
-	}
-	v, err := s.CreateAnalysis(r.Context(), core.CreateAnalysisReq{UserID: uid, SourceURL: body.SourceURL})
-	if err != nil || (v != nil && v.Cached) {
-		refund() // 失败不计次；同一条视频复用已有分析（单飞）也不计次（EXPERIENCE 计次口径 F-22）
-	}
-	return v, err
+	return sc.CreateAnalysis(r.Context(), body.SourceURL)
 }
 
-// take 限频（ratelimit.go）：命中返回 *RateLimitError（写成 429）。
-func (h *handlers) take(r *http.Request, action string, uid int64) (func(), error) {
-	if h.m.limiter == nil {
-		return func() {}, nil
-	}
-	return h.m.limiter.take(r.Context(), action, uid, h.m.rt.Rate())
-}
-
-func (h *handlers) getAnalysis(_ http.ResponseWriter, r *http.Request, s *core.Service, uid int64) (any, error) {
+func (h *handlers) getAnalysis(_ http.ResponseWriter, r *http.Request, sc *Scope) (any, error) {
 	no, err := pathStr(r, "no")
 	if err != nil {
 		return nil, err
 	}
-	return s.GetAnalysis(r.Context(), uid, no)
+	return sc.GetAnalysis(r.Context(), no)
 }
 
-func (h *handlers) createPlan(_ http.ResponseWriter, r *http.Request, s *core.Service, uid int64) (any, error) {
+func (h *handlers) createPlan(_ http.ResponseWriter, r *http.Request, sc *Scope) (any, error) {
 	var body struct {
 		AnalysisNo  string           `json:"analysisNo"`
 		SampleID    int64            `json:"sampleId"`
@@ -208,31 +177,20 @@ func (h *handlers) createPlan(_ http.ResponseWriter, r *http.Request, s *core.Se
 	if err := decode(r, &body); err != nil {
 		return nil, err
 	}
-	if strings.TrimSpace(body.AnalysisNo) == "" && body.SampleID <= 0 {
-		return nil, xerr.New(xerr.ParamMissing, "缺少分析编号，请重新上传视频")
-	}
-	refund, err := h.take(r, ActionPlan, uid)
-	if err != nil {
-		return nil, err
-	}
-	v, err := s.CreatePlan(r.Context(), core.PlanReq{UserID: uid, AnalysisNo: body.AnalysisNo, Annotations: body.Annotations,
+	return sc.CreatePlan(r.Context(), core.PlanReq{AnalysisNo: body.AnalysisNo, Annotations: body.Annotations,
 		RefImages: body.RefImages, ModelGroup: body.ModelGroup, Resolution: body.Resolution, AspectRatio: body.AspectRatio,
 		SampleID: body.SampleID})
-	if err != nil {
-		refund() // 缺项 / 失败不占方案次数
-	}
-	return v, err
 }
 
-func (h *handlers) quotePlan(_ http.ResponseWriter, r *http.Request, s *core.Service, uid int64) (any, error) {
+func (h *handlers) quotePlan(_ http.ResponseWriter, r *http.Request, sc *Scope) (any, error) {
 	no, err := pathStr(r, "no")
 	if err != nil {
 		return nil, err
 	}
-	return s.QuotePlan(r.Context(), uid, no)
+	return sc.QuotePlan(r.Context(), no)
 }
 
-func (h *handlers) confirm(_ http.ResponseWriter, r *http.Request, s *core.Service, uid int64) (any, error) {
+func (h *handlers) confirm(_ http.ResponseWriter, r *http.Request, sc *Scope) (any, error) {
 	no, err := pathStr(r, "no")
 	if err != nil {
 		return nil, err
@@ -245,59 +203,46 @@ func (h *handlers) confirm(_ http.ResponseWriter, r *http.Request, s *core.Servi
 	if err := decode(r, &body); err != nil {
 		return nil, err
 	}
-	pts, err := requirePoints(body.ExpectedPoints, "确认")
-	if err != nil {
-		return nil, err
-	}
-	if body.Stage != "" && body.Stage != "first" && body.Stage != "all" {
-		return nil, xerr.Param("stage 只能是 first 或 all")
-	}
-	// 重放 / 方案已确认：直接返回已有 job，不走限频、不计次
-	if v, err := s.ExistingConfirm(r.Context(), uid, no, idemKey(r)); err != nil || v != nil {
-		return v, err
-	}
-	refund, err := h.take(r, ActionConfirm, uid)
-	if err != nil {
-		return nil, err
-	}
-	v, err := s.Confirm(r.Context(), core.ConfirmReq{UserID: uid, PlanNo: no, PlanHash: body.PlanHash, Stage: body.Stage,
-		IdempotencyKey: idemKey(r), ExpectedPoints: pts})
-	if err != nil || (v != nil && v.Replay) {
-		refund() // 没确认成功（审核没过 / 价变 / 余额不足…）或只是重放已有 job：不占次数
-	}
-	return v, err
+	return sc.Confirm(r.Context(), ConfirmArgs{PlanNo: no, PlanHash: body.PlanHash, Stage: body.Stage,
+		ExpectedPoints: body.ExpectedPoints, IdempotencyKey: idemKey(r)})
 }
 
-func (h *handlers) job(_ http.ResponseWriter, r *http.Request, s *core.Service, uid int64) (any, error) {
+func (h *handlers) job(_ http.ResponseWriter, r *http.Request, sc *Scope) (any, error) {
 	id, err := pathInt(r, "id")
 	if err != nil {
 		return nil, err
 	}
-	return s.JobView(r.Context(), uid, id)
+	return sc.JobView(r.Context(), id)
 }
 
 // jobs GET /jobs?page=&size=：本人历史（创建倒序；page 从 1 起，size 默认 20、最大 50）。
-func (h *handlers) jobs(_ http.ResponseWriter, r *http.Request, s *core.Service, uid int64) (any, error) {
-	q := r.URL.Query()
-	page, size := 1, 20
-	if v := strings.TrimSpace(q.Get("page")); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil || n <= 0 {
-			return nil, xerr.Param("page 不合法")
-		}
-		page = n
+func (h *handlers) jobs(_ http.ResponseWriter, r *http.Request, sc *Scope) (any, error) {
+	page, size, err := pageQuery(r)
+	if err != nil {
+		return nil, err
 	}
-	if v := strings.TrimSpace(q.Get("size")); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil || n <= 0 {
-			return nil, xerr.Param("size 不合法")
-		}
-		size = n
-	}
-	return s.ListJobs(r.Context(), uid, page, size)
+	return sc.ListJobs(r.Context(), page, size)
 }
 
-func (h *handlers) cont(_ http.ResponseWriter, r *http.Request, s *core.Service, uid int64) (any, error) {
+// pageQuery 解析 ?page=&size=：不传 = 0（Ops 取默认），传了必须是正整数。
+func pageQuery(r *http.Request) (page, size int, err error) {
+	q := r.URL.Query()
+	for _, p := range []struct {
+		name string
+		dst  *int
+	}{{"page", &page}, {"size", &size}} {
+		if v := strings.TrimSpace(q.Get(p.name)); v != "" {
+			n, perr := strconv.Atoi(v)
+			if perr != nil || n <= 0 {
+				return 0, 0, xerr.Param(p.name + " 不合法")
+			}
+			*p.dst = n
+		}
+	}
+	return page, size, nil
+}
+
+func (h *handlers) cont(_ http.ResponseWriter, r *http.Request, sc *Scope) (any, error) {
 	id, err := pathInt(r, "id")
 	if err != nil {
 		return nil, err
@@ -309,35 +254,30 @@ func (h *handlers) cont(_ http.ResponseWriter, r *http.Request, s *core.Service,
 	if err := decode(r, &body); err != nil {
 		return nil, err
 	}
-	pts, err := requirePoints(body.ExpectedPoints, "继续")
-	if err != nil {
-		return nil, err
-	}
-	return s.Continue(r.Context(), core.ContinueReq{UserID: uid, JobID: id, PlanHash: body.PlanHash,
-		IdempotencyKey: idemKey(r), ExpectedPoints: pts})
+	return sc.Continue(r.Context(), ContinueArgs{JobID: id, PlanHash: body.PlanHash, ExpectedPoints: body.ExpectedPoints, IdempotencyKey: idemKey(r)})
 }
 
-func (h *handlers) stop(_ http.ResponseWriter, r *http.Request, s *core.Service, uid int64) (any, error) {
+func (h *handlers) stop(_ http.ResponseWriter, r *http.Request, sc *Scope) (any, error) {
 	id, err := pathInt(r, "id")
 	if err != nil {
 		return nil, err
 	}
-	return s.Stop(r.Context(), uid, id)
+	return sc.Stop(r.Context(), id)
 }
 
 // cancelRest POST /jobs/{id}/cancel-rest：不做剩下的段（只取消没开始的段，在途段做完；幂等，返回新的 JobView）。
-func (h *handlers) cancelRest(_ http.ResponseWriter, r *http.Request, s *core.Service, uid int64) (any, error) {
+func (h *handlers) cancelRest(_ http.ResponseWriter, r *http.Request, sc *Scope) (any, error) {
 	id, err := pathInt(r, "id")
 	if err != nil {
 		return nil, err
 	}
-	return s.CancelRest(r.Context(), uid, id)
+	return sc.CancelRest(r.Context(), id)
 }
 
 // models GET /models?analysisNo=&sampleId=&resolution=&aspectRatio=：可选出片模型（名称、特点、单价/秒、是否支持该时长与画幅）。
-func (h *handlers) models(_ http.ResponseWriter, r *http.Request, s *core.Service, uid int64) (any, error) {
+func (h *handlers) models(_ http.ResponseWriter, r *http.Request, sc *Scope) (any, error) {
 	q := r.URL.Query()
-	req := core.ModelsReq{UserID: uid, AnalysisNo: strings.TrimSpace(q.Get("analysisNo")), Resolution: q.Get("resolution"), AspectRatio: q.Get("aspectRatio")}
+	req := core.ModelsReq{AnalysisNo: strings.TrimSpace(q.Get("analysisNo")), Resolution: q.Get("resolution"), AspectRatio: q.Get("aspectRatio")}
 	if v := strings.TrimSpace(q.Get("sampleId")); v != "" {
 		n, err := strconv.ParseInt(v, 10, 64)
 		if err != nil || n <= 0 {
@@ -345,10 +285,10 @@ func (h *handlers) models(_ http.ResponseWriter, r *http.Request, s *core.Servic
 		}
 		req.SampleID = n
 	}
-	return s.ListModels(r.Context(), req)
+	return sc.Models(r.Context(), req)
 }
 
-func (h *handlers) redo(_ http.ResponseWriter, r *http.Request, s *core.Service, uid int64) (any, error) {
+func (h *handlers) redo(_ http.ResponseWriter, r *http.Request, sc *Scope) (any, error) {
 	id, err := pathInt(r, "id")
 	if err != nil {
 		return nil, err
@@ -363,41 +303,21 @@ func (h *handlers) redo(_ http.ResponseWriter, r *http.Request, s *core.Service,
 	if err := decode(r, &body); err != nil {
 		return nil, err
 	}
-	pts, err := requirePoints(body.ExpectedPoints, "重做")
-	if err != nil {
-		return nil, err
-	}
-	return s.Redo(r.Context(), core.RedoReq{UserID: uid, JobID: id, SegIndex: int(k), IdempotencyKey: idemKey(r), ExpectedPoints: pts})
+	return sc.Redo(r.Context(), RedoArgs{JobID: id, SegIndex: k, ExpectedPoints: body.ExpectedPoints, IdempotencyKey: idemKey(r)})
 }
 
-// requirePoints 确认 / 继续 / 重做都要预留点数：必须带页面展示的本次点数（与后端重算不一致 → 409 QUOTE_CHANGED；
-// 确认时方案总价超过 replicate.confirm_threshold_points 时缺失或不一致同样 409 QUOTE_CHANGED，见 core.gateConfirmThreshold）。
-// 缺失或 ≤0 → 1002 PARAM_MISSING，在查重放、限频、动钱之前拦下。
-func requirePoints(p *int64, what string) (int64, error) {
-	if p == nil || *p <= 0 {
-		return 0, xerr.New(xerr.ParamMissing, "缺少"+what+"点数（expectedPoints），请刷新页面后重试")
-	}
-	return *p, nil
-}
-
-func (h *handlers) pref(_ http.ResponseWriter, r *http.Request, s *core.Service, uid int64) (any, error) {
+func (h *handlers) pref(_ http.ResponseWriter, r *http.Request, sc *Scope) (any, error) {
 	var body struct {
 		AutoContinue *bool `json:"autoContinue"`
 	}
 	if err := decode(r, &body); err != nil {
 		return nil, err
 	}
-	if body.AutoContinue == nil {
-		return nil, xerr.New(xerr.ParamMissing, "缺少 autoContinue")
-	}
-	if err := s.SetAutoContinue(r.Context(), uid, *body.AutoContinue); err != nil {
-		return nil, err
-	}
-	return map[string]any{"autoContinue": *body.AutoContinue}, nil
+	return sc.SetAutoContinue(r.Context(), body.AutoContinue)
 }
 
 // saveSegment POST /jobs/{id}/segments/{k}/save：把已做好的这一段保存到素材库（幂等；入库异步，结果看 library.status）。
-func (h *handlers) saveSegment(_ http.ResponseWriter, r *http.Request, s *core.Service, uid int64) (any, error) {
+func (h *handlers) saveSegment(_ http.ResponseWriter, r *http.Request, sc *Scope) (any, error) {
 	id, err := pathInt(r, "id")
 	if err != nil {
 		return nil, err
@@ -406,5 +326,5 @@ func (h *handlers) saveSegment(_ http.ResponseWriter, r *http.Request, s *core.S
 	if err != nil {
 		return nil, err
 	}
-	return s.SaveSegment(r.Context(), uid, id, int(k))
+	return sc.SaveSegment(r.Context(), id, k)
 }

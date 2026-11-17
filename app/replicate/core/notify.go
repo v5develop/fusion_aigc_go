@@ -123,7 +123,8 @@ func (s *Service) notifyJob(ctx context.Context, jobID int64) {
 	counted := map[string]bool{}
 	for k := 1; k <= j.SegTotal; k++ {
 		chain := segChain(steps, k)
-		if len(chain) == 0 || !notDone(chain[len(chain)-1]) {
+		eff, refining := segResult(chain) // 精修失败（旧视频仍在）不算失败段，不发「失败已退点」
+		if eff == nil || refining || !notDone(eff) {
 			continue
 		}
 		segPending := false

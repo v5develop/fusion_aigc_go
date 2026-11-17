@@ -61,6 +61,10 @@ type SegView struct {
 	Redoable   bool   `json:"redoable"`
 	RedoLabel  string `json:"redoLabel,omitempty"`
 	Redos      int    `json:"redos"`
+	// Refinable 已做好的段还能付费精修（写明要改什么再重做这一段；旧视频在新版本做好前一直可播放）；RefineLabel 如「精修这一段 · 80 点」。
+	// 失败段的重做仍是 Redoable / RedoLabel，两者不会同时为真。
+	Refinable   bool   `json:"refinable"`
+	RefineLabel string `json:"refineLabel,omitempty"`
 	// Library 这一段的素材库状态（收尾时已扣费的段自动入库；手动 POST /jobs/{id}/segments/{k}/save 同一行）
 	Library *LibraryView `json:"library,omitempty"`
 }
@@ -148,8 +152,11 @@ func (s *Service) JobView(ctx context.Context, userID, jobID int64) (*JobView, e
 			continue
 		}
 		sv := s.segView(j, chain, charges, gateWaiting && k > 1)
+		if sv.Refinable {
+			sv.RefineLabel = s.refineLabel(ctx, j, &in, sv)
+		}
 		switch sv.State {
-		case "succeeded":
+		case "succeeded", "refining":
 			v.SegDone++
 		case "failed":
 			v.SegFailed++
@@ -223,7 +230,7 @@ func (s *Service) JobView(ctx context.Context, userID, jobID int64) (*JobView, e
 					preview = d
 				case model.DeliverySegment:
 					for i := range v.Segments {
-						if v.Segments[i].Index == d.SegIndex {
+						if v.Segments[i].Index == d.SegIndex { // 精修后的新版本是更晚的一行（按 id 升序，后者覆盖前者）
 							v.Segments[i].Library = libraryView(d)
 						}
 					}
@@ -290,10 +297,32 @@ func (s *Service) signRIDs(ctx context.Context, rids []string) (map[string]strin
 
 func (s *Service) segView(j *model.Job, chain []*model.Step, charges []*model.Charge, notReleased bool) SegView {
 	last := chain[len(chain)-1]
+	eff, refining := segResult(chain) // 视频 / 状态以有效结果为准；链尾只在「正在精修 / 精修失败」时用来补充说明
 	sv := SegView{Index: last.SegIndex, Redos: redoCount(chain)}
-	if c := chargeOf(charges, last.BillingRequestID); c != nil {
+	if c := chargeOf(charges, eff.BillingRequestID); c != nil {
 		sv.Points = c.Points
 	}
+	if refining {
+		sv.State, sv.StateLabel = "refining", "精修中"
+		sv.Text = "正在按你的要求精修，做好前仍可播放和下载现在的版本"
+		if isAutoRetry(last.StepKey) {
+			sv.Text = "精修遇到点小问题，正在自动重试（不会多收点数），做好前仍可播放现在的版本"
+		}
+		if v, ok := videoOf(eff); ok {
+			sv.VideoRid, sv.CoverRid = v.VideoRid, v.CoverRid
+		}
+		if c := chargeOf(charges, last.BillingRequestID); c != nil {
+			sv.Points = c.Points // 精修这一次的预留
+		}
+		return sv
+	}
+	if eff != last { // 精修没成功：退回了精修预留，这一段仍是旧版本
+		if c := chargeOf(charges, last.BillingRequestID); c != nil {
+			sv.MoneyText = ChargeMoneyText(c)
+		}
+		sv.Text = "上一次精修没成功，已退回点数，现在的版本没有变"
+	}
+	last = eff
 	switch last.Status {
 	case model.StepPending, model.StepHolding:
 		if notReleased {
@@ -316,6 +345,10 @@ func (s *Service) segView(j *model.Job, chain []*model.Step, charges []*model.Ch
 		}
 		_ = json.Unmarshal(last.Output, &out)
 		sv.VideoRid, sv.CoverRid = out.VideoRid, out.CoverRid
+		if s.refineAllowed(j, sv.Redos) {
+			sv.Refinable = true
+			sv.RefineLabel = fmt.Sprintf("精修这一段 · %d 点", sv.Points)
+		}
 	case model.StepCanceled:
 		sv.State, sv.StateLabel = "canceled", "已取消"
 		switch deref(last.ErrorCode) {
@@ -349,6 +382,27 @@ func (s *Service) segView(j *model.Job, chain []*model.Step, charges []*model.Ch
 	return sv
 }
 
+// refineAllowed 已做好的段能否再精修：任务状态（成功 / 部分成功 / 在途）、每段 / 每任务重做次数与 Redo 一致。
+func (s *Service) refineAllowed(j *model.Job, segRedos int) bool {
+	switch j.Status {
+	case model.JobSucceeded, model.JobPartial, model.JobQueued, model.JobRunning:
+	default:
+		return false
+	}
+	return segRedos < s.cfg.RedoMaxPerSegment && j.RedoCount < s.cfg.RedoMaxPerJob
+}
+
+// refineLabel 精修按钮文案：点数取现在的实时报价（与 Redo 的 ExpectedPoints 校验同口径）；报价失败回落这一段原来的点数。
+func (s *Service) refineLabel(ctx context.Context, j *model.Job, in *JobInput, sv SegView) string {
+	pts := sv.Points
+	if sv.Index >= 1 && sv.Index <= len(in.Segments) {
+		if q, err := s.ledger.Quote(ctx, s.charge(j.UserID, "", in.ModelGroup, in.Resolution, in.Segments[sv.Index-1].GenDuration)); err == nil {
+			pts = q
+		}
+	}
+	return fmt.Sprintf("精修这一段 · %d 点", pts)
+}
+
 // restPoints 决策卡上「继续」的预计点数（实时报价；报价失败时不显示数字）。
 func (s *Service) restPoints(ctx context.Context, j *model.Job, in *JobInput) int64 {
 	if len(in.Segments) < 2 {
@@ -370,6 +424,7 @@ type JobSummary struct {
 	JobID          int64     `json:"jobId"`
 	TaskID         string    `json:"taskId"`
 	PlanNo         string    `json:"planNo"`
+	AnalysisNo     string    `json:"analysisNo"` // 源视频的分析编号（同一源视频的任务相同），取不到为空
 	Status         string    `json:"status"`
 	StatusLabel    string    `json:"statusLabel"`
 	Title          string    `json:"title"`
@@ -418,12 +473,25 @@ func (s *Service) ListJobs(ctx context.Context, userID int64, page, size int) (*
 	}
 	out := &JobList{Items: make([]JobSummary, 0, len(jobs)), Total: total, Page: page, Size: size}
 	var rids []string
+	analysisNos := map[int64]string{} // 方案 id → 分析编号（同一页里多个任务常出自同一方案 / 同一分析）
 	for _, j := range jobs {
 		var in JobInput
 		_ = json.Unmarshal(j.Input, &in)
 		st := jobStatus[j.Status]
 		it := JobSummary{JobID: j.ID, TaskID: deref(j.TaskID), PlanNo: j.PlanNo, Status: st[0], StatusLabel: st[1],
 			Title: orText(in.Title, "视频做同款"), SegTotal: j.SegTotal, SegDone: j.SegDone, SourceThumbRid: in.SourceThumbRid, CreatedAt: j.CreatedAt}
+		if j.PlanID > 0 {
+			no, ok := analysisNos[j.PlanID]
+			if !ok {
+				if p, _ := s.store.GetPlan(ctx, j.PlanID); p != nil {
+					if a, _ := s.store.GetAnalysis(ctx, p.AnalysisID); a != nil {
+						no = a.AnalysisNo
+					}
+				}
+				analysisNos[j.PlanID] = no
+			}
+			it.AnalysisNo = no
+		}
 		if charges, err := s.store.ListCharges(ctx, j.ID); err == nil {
 			for _, c := range charges {
 				if c.Status == model.ChargeConfirmed || c.Status == model.ChargeHeld || confirmPending(c) {
@@ -435,11 +503,11 @@ func (s *Service) ListJobs(ctx context.Context, userID int64, page, size int) (*
 			it.CoverRid = rv.CoverRid
 		} else if steps, err := s.store.ListSteps(ctx, j.ID); err == nil {
 			for k := 1; k <= j.SegTotal && it.CoverRid == ""; k++ {
-				if chain := segChain(steps, k); len(chain) > 0 && chain[len(chain)-1].Status == model.StepSucceeded {
+				if eff, _ := segResult(segChain(steps, k)); eff != nil && eff.Status == model.StepSucceeded {
 					var o struct {
 						CoverRid string `json:"coverRid"`
 					}
-					_ = json.Unmarshal(chain[len(chain)-1].Output, &o)
+					_ = json.Unmarshal(eff.Output, &o)
 					it.CoverRid = o.CoverRid
 				}
 			}

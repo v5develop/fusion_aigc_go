@@ -99,6 +99,20 @@ type Config struct {
 	// ModerationPlanWait 生成 / 报价方案时等后台预审的时长（默认 0：不等，方案立即返回、审核状态 pending；
 	// afv_system_config.replicate.moderation.plan_wait_ms，0~5000）。结论出得快时可调大，让方案卡直接显示结论。
 	ModerationPlanWait time.Duration
+
+	// 定妆图（preview.go；Replicate.Preview.*）：PreviewOff 关闭；PreviewModelGroup 出图的网关模型组（image.edit，默认与 studio 通用档一致
+	// img.gpt-image-2.5-sunburst）；PreviewDailyQuota 每人每个自然日（Asia/Shanghai）免费次数（默认 3）；PreviewWait 等网关出图的上限（默认 60 秒）。
+	PreviewOff        bool
+	PreviewModelGroup string
+	PreviewDailyQuota int
+	PreviewWait       time.Duration
+
+	// 坏片判定（badoutput.go，CONTRACT §J4；Replicate.BadOutput.*，运行时 afv_system_config.replicate.bad_output.*）：
+	// 段视频落桶后、确认扣点前调媒体服务 video/inspect。BadOutputOff 关闭；黑屏占时长比例 ≥ BadOutputBlackRatio（默认 0.6）
+	// 或定格占比 ≥ BadOutputFreezeRatio（默认 0.8）或解不开 → 判坏片（BAD_OUTPUT：退点、不自动重试）。检测器自身故障 / 没装配媒体服务 → 放行。
+	BadOutputOff         bool
+	BadOutputBlackRatio  float64
+	BadOutputFreezeRatio float64
 }
 
 func (c Config) withDefaults() Config {
@@ -199,6 +213,21 @@ func (c Config) withDefaults() Config {
 	if c.ConfirmThresholdPoints < 0 {
 		c.ConfirmThresholdPoints = 0
 	}
+	if c.PreviewModelGroup == "" {
+		c.PreviewModelGroup = "img.gpt-image-2.5-sunburst"
+	}
+	if c.PreviewDailyQuota <= 0 {
+		c.PreviewDailyQuota = 3
+	}
+	if c.PreviewWait <= 0 {
+		c.PreviewWait = 60 * time.Second
+	}
+	if c.BadOutputBlackRatio <= 0 || c.BadOutputBlackRatio > 1 {
+		c.BadOutputBlackRatio = 0.6
+	}
+	if c.BadOutputFreezeRatio <= 0 || c.BadOutputFreezeRatio > 1 {
+		c.BadOutputFreezeRatio = 0.8
+	}
 	c.AnalysisRules = c.AnalysisRules.Normalize()
 	return c
 }
@@ -269,6 +298,8 @@ type Gateway interface {
 type Media interface {
 	IngestURL(ctx context.Context, srcURL, purpose, idem string) (mediasvc.Resource, error)
 	Probe(ctx context.Context, rid string) (mediasvc.ProbeInfo, error)
+	// InspectVideo 坏片检测（黑屏 / 定格占比、能否解码），只读。
+	InspectVideo(ctx context.Context, rid string) (mediasvc.VideoInspect, error)
 	Frames(ctx context.Context, rid string, count int, idem string) ([]mediasvc.Frame, error)
 	Grid(ctx context.Context, rids []string, p mediasvc.GridParams, idem string) (mediasvc.Resource, error)
 }

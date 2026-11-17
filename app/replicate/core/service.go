@@ -37,6 +37,8 @@ type Service struct {
 	workspace func(ctx context.Context, userID int64) (int64, error)
 	// etaCal 方案卡 ETA 的历史校准（eta.go，可选；不装配则恒用先验 prior=true）
 	etaCal *EtaCalibrator
+	// previews 定妆图读写与每日额度（preview.go，可选；不装配时定妆图回 7003）
+	previews PreviewStore
 }
 
 // Option 装配可选依赖。
@@ -92,7 +94,7 @@ func (s *Service) Limits() LimitsView {
 	l := s.cfg.Limits
 	v := LimitsView{Limits: l, SegTargetSec: l.SegTarget(), LongformEnabled: s.cutter != nil,
 		MaxInFlight: s.cfg.MaxInFlight, ContinueHours: int(s.cfg.ContinueWindow / time.Hour),
-		RedoMaxPerSegment: s.cfg.RedoMaxPerSegment, DefaultModel: s.DefaultModel(), WriterEnabled: s.cfg.WriterModelGroup != ""}
+		RedoMaxPerSegment: s.cfg.RedoMaxPerSegment, DefaultModel: s.DefaultModel(), WriterEnabled: s.cfg.WriterModelGroup != "", ConfirmThresholdPoints: s.cfg.ConfirmThresholdPoints}
 	for _, m := range s.enabledModels() {
 		v.Models = append(v.Models, m.Group)
 	}

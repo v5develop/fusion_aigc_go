@@ -63,6 +63,7 @@ type Delivery struct {
 	UserID     int64      `bun:"user_id"`
 	Kind       string     `bun:"kind"`
 	SegIndex   int        `bun:"seg_index"`
+	Version    int        `bun:"version"` // 版本号：同一段 / 成片被精修后的新视频另占一行（0 = 原片），段号 seg_index 始终是真实段号
 	SrcRid     string     `bun:"src_rid"`
 	CoverRid   *string    `bun:"cover_rid"`
 	Status     int8       `bun:"status"`

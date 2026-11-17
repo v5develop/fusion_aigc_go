@@ -41,7 +41,10 @@ func cancelRestPreview(j *model.Job, steps []*model.Step, charges []*model.Charg
 		if len(chain) == 0 {
 			continue
 		}
-		last := chain[len(chain)-1]
+		last, refining := segResult(chain)
+		if refining {
+			continue // 付费精修不是「剩下的段」：用户要求的重做不随「不做剩下的段」被取消
+		}
 		switch last.Status {
 		case model.StepPending:
 			v.Segments++
@@ -88,8 +91,14 @@ func (s *Service) CancelRest(ctx context.Context, userID, jobID int64) (*JobView
 	dctx, cancel := s.detached(ctx) // 取消一旦开始就做完（客户端断开也要退点）
 	defer cancel()
 	canceledSegs := map[int]bool{}
+	refiningSegs := map[int]bool{}
+	for k := 1; k <= j.SegTotal; k++ {
+		if _, refining := segResult(segChain(steps, k)); refining {
+			refiningSegs[k] = true
+		}
+	}
 	for _, st := range steps {
-		if st.Kind != model.StepKindGateway || st.Status != model.StepPending {
+		if st.Kind != model.StepKindGateway || st.Status != model.StepPending || refiningSegs[st.SegIndex] {
 			continue
 		}
 		ok, err := s.store.UpdateStep(dctx, st.ID, model.StepPending, map[string]any{"status": model.StepCanceled, "finished_at": s.now(),

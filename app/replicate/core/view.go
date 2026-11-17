@@ -27,6 +27,8 @@ type LimitsView struct {
 	DefaultModel  string   `json:"defaultModel"`
 	Models        []string `json:"models"`
 	WriterEnabled bool     `json:"writerEnabled"`
+	// ConfirmThresholdPoints 发送前二次确认阈值（与确认接口的闸门同一配置）：方案总价超过它时确认必须带 expectedPoints；0 = 不启用
+	ConfirmThresholdPoints int64 `json:"confirmThresholdPoints"`
 }
 
 // Policy 成片规则（水印 / 会员 / AI 标识），付费前在方案卡与确认条里说清（EXPERIENCE 0.1 #6）。
@@ -53,6 +55,7 @@ func (DefaultPolicy) Resolve(context.Context, int64) Policy {
 type PlanView struct {
 	PlanNo     string       `json:"planNo"`
 	PlanHash   string       `json:"planHash"`
+	AnalysisNo string       `json:"analysisNo"` // 方案出自哪条分析（同一源视频的方案 analysisNo 相同）
 	Status     string       `json:"status"`
 	Title      string       `json:"title"`
 	Overview   string       `json:"overview"`

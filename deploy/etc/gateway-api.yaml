@@ -91,6 +91,7 @@ Replicate:              # 视频做同款（/api/v1/replicate/**，docs/api/api-
   Billing: {Mode: "off"} # off / shadow / on（加引号：YAML 里裸 off 是布尔）
   AiGateway: {BaseURL: "", KeyID: "", Secret: ""}
   Media: {BaseURL: "", Token: ""}
+  Preview: {Enabled: true, ModelGroup: "img.gpt-image-2.5-sunburst", DailyQuota: 3, WaitSeconds: 60} # 定妆图（免费，agent 工具 replicate_preview_frame）：image.edit 模型组 / 每人每自然日（Asia/Shanghai）次数 / 等出图上限
 CanvasInternal:         # 服务间内部入口（Java 画布助手 → /internal/v1/canvas/agent/*，签名契约 docs/design/canvas-agent-tools.md §12）；Keys 为空则不注册
   Keys: []              # 例：[{KeyId: "fusion-java", Secret: "<≥32 字节随机串，与 Java APP_FUSION_GO_SECRET 相同>"}]；轮换时新旧并存。nginx 须对公网屏蔽 /internal/
 CanvasEvents:           # 画布实时同步 SSE（/api/v1/canvas/canvases/:id/events），订阅 Auth.Session 的 Redis

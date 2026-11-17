@@ -552,6 +552,8 @@ type AnalysisView struct {
 	Result     *AnalysisResult `json:"result,omitempty"`
 	Warnings   []string        `json:"warnings,omitempty"`
 	ElapsedS   int             `json:"elapsedS"`
+	// Suggestions 一键方案（CONTRACT §J1）：分析成功后按结果确定性给出，≤3 条，顺序即推荐度；智能体先给用户这几条，Web 渲染成按钮
+	Suggestions []Suggestion `json:"suggestions,omitempty"`
 }
 
 // StageView 用户可见的四个阶段（EXPERIENCE §4.3）：读取 / 抽帧 / 台词 / 理解。
@@ -609,6 +611,7 @@ func (s *Service) analysisView(a *model.Analysis) *AnalysisView {
 		v.Status = "succeeded"
 		if r, err := s.ResolveAnalysis(a); err == nil {
 			v.Result = userAnalysis(r) // 读取时按当前规则纠偏；纠偏明细只给后台看
+			v.Suggestions = suggestionsOf(r)
 		}
 	case model.AnalysisFailed:
 		v.Status = "failed"

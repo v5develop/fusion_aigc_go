@@ -11,7 +11,9 @@ import (
 	"aigc-local-life/app/gateway/api/internal/handler"
 	"aigc-local-life/app/gateway/api/internal/handler/canvasagent"
 	"aigc-local-life/app/gateway/api/internal/handler/canvasevents"
+	"aigc-local-life/app/gateway/api/internal/handler/internalauth"
 	plazahandler "aigc-local-life/app/gateway/api/internal/handler/plaza"
+	"aigc-local-life/app/gateway/api/internal/handler/replicateagent"
 	"aigc-local-life/app/gateway/api/internal/svc"
 	headline "aigc-local-life/app/plaza/headline/httpapi"
 	plazav1 "aigc-local-life/app/plaza/v1compat"
@@ -46,8 +48,8 @@ func main() {
 	defer server.Stop()
 	// 幂等键：Idempotency-Key（AIGC 口径）同步成 X-Request-Id，旧头仍接受
 	server.Use(idempotency.Middleware)
-	// 服务间画布入口（/internal/v1/canvas/）验签要原始请求体：须在 jsoncase 改写请求体之前存下
-	server.Use(canvasagent.PreserveInternalBody)
+	// 服务间入口（/internal/v1/**：画布工具、复刻智能体）验签要原始请求体：须在 jsoncase 改写请求体之前存下
+	server.Use(internalauth.PreserveInternalBody)
 	// JSON 字段 snake_case / camelCase 双写（与 Java 命名对齐，迁移期两者并存）
 	server.Use(jsoncase.Middleware)
 
@@ -56,8 +58,13 @@ func main() {
 	handler.RegisterHandlers(server, ctx)
 	// 画布智能体工具（MCP + Function Call）：不在 goctl 生成的 routes.go 里，单独注册
 	canvasagent.Register(server, ctx)
-	// /internal/v1/canvas/agent/*：服务间 HMAC（没配 CanvasInternal.Keys 时不注册）；/api/v1/canvas/canvases/:id/events（SSE）、/revision
-	canvasagent.RegisterInternal(server, ctx)
+	// 服务间入口共用一把校验器（同一份 CanvasInternal.Keys + 同一个 nonce 存储；没配可用密钥时都不注册）：
+	// /internal/v1/canvas/agent/*（画布工具）与 /internal/v1/replicate/agent/*（复刻智能体工具）。
+	if iv := internalauth.NewVerifier(ctx); iv != nil {
+		canvasagent.RegisterInternal(server, ctx, iv)
+		replicateagent.RegisterInternal(server, ctx, iv)
+	}
+	// /api/v1/canvas/canvases/:id/events（SSE）、/revision
 	canvasevents.Register(server, ctx)
 
 	plazahandler.Register(server, ctx)                  // /api/v1/plaza/*：手写路由，v1wire 信封

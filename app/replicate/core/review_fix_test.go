@@ -878,3 +878,29 @@ func TestN8ContinueRefundRetriedWhileWaiting(t *testing.T) {
 		t.Fatalf("待继续期间就应补退（不等终态）：%s job=%d", e.ledger.status(c2), e.job(jv.JobID).Status)
 	}
 }
+
+// 追加字段：方案卡 / 历史列表带 analysisNo，limits 带二次确认阈值（Java 侧据此判断「同一源视频」与是否要二次确认）。
+func TestAnalysisNoAndThresholdExposed(t *testing.T) {
+	e := newEnv(t, false)
+	a := e.seedAnalysis(10)
+	pv := e.plan(a)
+	if pv.AnalysisNo != a.AnalysisNo || pv.AnalysisNo == "" {
+		t.Fatalf("方案卡 analysisNo：%q want %q", pv.AnalysisNo, a.AnalysisNo)
+	}
+	got, err := e.svc.GetPlan(e.ctx, uid, pv.PlanNo)
+	if err != nil || got.AnalysisNo != a.AnalysisNo {
+		t.Fatalf("GET 方案 analysisNo：%v %+v", err, got)
+	}
+	jv := e.confirm(pv, "", "an-1")
+	l, err := e.svc.ListJobs(e.ctx, uid, 1, 20)
+	if err != nil || len(l.Items) != 1 || l.Items[0].JobID != jv.JobID || l.Items[0].AnalysisNo != a.AnalysisNo || l.Items[0].PlanNo != pv.PlanNo {
+		t.Fatalf("列表 analysisNo / planNo：%v %+v", err, l.Items)
+	}
+	if e.svc.Limits().ConfirmThresholdPoints != 0 {
+		t.Fatal("默认不启用阈值")
+	}
+	e.svc.cfg.ConfirmThresholdPoints = 300
+	if e.svc.Limits().ConfirmThresholdPoints != 300 {
+		t.Fatalf("limits 应带阈值：%+v", e.svc.Limits())
+	}
+}

@@ -125,6 +125,18 @@ func MustBuild(c Conf, conn sqlx.SqlConn, opts ...BuildOption) *Module {
 			base.WriterModelGroup = base.VisionModelGroup
 		}
 	}
+	base.PreviewOff = !c.Preview.Enabled
+	if v := strings.TrimSpace(c.Preview.ModelGroup); v != "" {
+		base.PreviewModelGroup = v
+	}
+	if c.Preview.DailyQuota > 0 {
+		base.PreviewDailyQuota = c.Preview.DailyQuota
+	}
+	if c.Preview.WaitSeconds > 0 {
+		base.PreviewWait = time.Duration(min(c.Preview.WaitSeconds, 120)) * time.Second
+	}
+	base.BadOutputOff = !c.BadOutput.Enabled
+	base.BadOutputBlackRatio, base.BadOutputFreezeRatio = c.BadOutput.BlackRatio, c.BadOutput.FreezeRatio
 	base.Models, base.DefaultModel = c.Models, strings.TrimSpace(c.DefaultModel)
 	// ETA 历史校准：进程内一份（运行参数变了重建 Service 也共用同一份缓存），按历史成功 job 的每段耗时分桶出 P50 / P90
 	etaCal := core.NewEtaCalibrator(store, core.EtaCalibration{})
@@ -145,7 +157,7 @@ func MustBuild(c Conf, conn sqlx.SqlConn, opts ...BuildOption) *Module {
 				opts = append(opts, core.WithDelivery(store, media, assets, core.DeliveryConfig{EntryCode: c.Asset.EntryCode}))
 			}
 		}
-		opts = append(opts, core.WithModeration(store, store, words), core.WithNotifier(notifier), core.WithLibrary(store), core.WithEtaCalibrator(etaCal),
+		opts = append(opts, core.WithModeration(store, store, words), core.WithNotifier(notifier), core.WithLibrary(store), core.WithPreview(store), core.WithEtaCalibrator(etaCal),
 			core.WithWorkspace(func(ctx context.Context, uid int64) (int64, error) { return workspace.PersonalID(ctx, conn, uid) }))
 		return core.New(cfg, store, ledger, opts...)
 	}

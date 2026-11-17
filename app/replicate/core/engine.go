@@ -829,13 +829,25 @@ type RedoReq struct {
 	SegIndex       int
 	IdempotencyKey string
 	ExpectedPoints int64
+	// Note 单段精修备注（可选，去首尾空白后 ≤200 字；对话智能体「第 2 段动作再大一点」用）：经文字审核后只写进这一段这次重做的提示词，
+	// 重做步骤的自动重试沿用同一条；不影响原方案与其它段，报价照旧只算这一段。
+	Note string
 }
 
-// Redo 失败段单独重做：新预留（-u<n>）+ 新步骤（#u<n>，自己再有一次 #r1 自动重试）；原失败段的预留早已退回，不再动。
+// Redo 单段重做 / 精修。
+//   - 失败段：重做，备注可选；
+//   - 已做好的段：付费精修，必须带备注。新预留与失败段重做完全一致（同价、同 ExpectedPoints 校验、同幂等）；
+//     精修做好前旧视频仍是这一段的结果，精修失败则退回精修预留、这一段仍用旧视频（见 refine.go segResult）。
+//
+// 失败段单独重做：新预留（-u<n>）+ 新步骤（#u<n>，自己再有一次 #r1 自动重试）；原失败段的预留早已退回，不再动。
 func (s *Service) Redo(ctx context.Context, req RedoReq) (*JobView, error) {
 	key := strings.TrimSpace(req.IdempotencyKey)
 	if key == "" || len(key) > 64 {
 		return nil, xerr.New(xerr.ParamMissing, "缺少请求标识，请刷新页面后重试")
+	}
+	note, err := normalizeRedoNote(req.Note)
+	if err != nil {
+		return nil, err
 	}
 	j, err := s.ownJob(ctx, req.UserID, req.JobID)
 	if err != nil {
@@ -852,6 +864,7 @@ func (s *Service) Redo(ctx context.Context, req RedoReq) (*JobView, error) {
 	}
 	switch j.Status {
 	case model.JobQueued, model.JobRunning, model.JobFailed, model.JobPartial:
+	case model.JobSucceeded: // 只有精修（已做好段 + 备注）才允许；下面判清是哪种之后再放行
 	default:
 		return nil, xerr.NewReason(xerr.Conflict, "NOT_REDOABLE", "这个任务现在不能重做")
 	}
@@ -867,17 +880,29 @@ func (s *Service) Redo(ctx context.Context, req RedoReq) (*JobView, error) {
 	if len(chain) == 0 {
 		return nil, xerr.New(xerr.ParamError, "没有这一段")
 	}
-	last := chain[len(chain)-1]
-	switch last.Status {
-	case model.StepFailed:
-	case model.StepSucceeded:
-		return nil, xerr.NewReason(xerr.Conflict, "SEGMENT_OK", "这一段已经做好了")
-	case model.StepCanceled:
+	// 一段当前的结果与状态只看 segResult：精修失败后链尾虽是失败，这一段仍是已完成（可再精修）
+	eff, refining := segResult(chain)
+	refine := false
+	switch {
+	case refining:
+		return nil, xerr.NewReason(xerr.Conflict, "SEGMENT_BUSY", "这一段正在精修，等做完再说")
+	case eff.Status == model.StepSucceeded:
+		if note == "" {
+			logx.WithContext(ctx).Infof("replicate: 精修被拒 判据=REFINE_NOTE_REQUIRED job=%d seg=%d（已做好的段重做必须写明要改什么）", j.ID, req.SegIndex)
+			return nil, xerr.NewReason(xerr.Conflict, "SEGMENT_OK", "这一段已经做好了；想改的话，请写明要改什么再精修")
+		}
+		refine = true
+	case eff.Status == model.StepFailed:
+	case eff.Status == model.StepCanceled:
 		return nil, xerr.NewReason(xerr.Conflict, "NOT_REDOABLE", "这一段没有开始做，不能重做")
 	default:
 		return nil, xerr.NewReason(xerr.Conflict, "SEGMENT_BUSY", "这一段还在生成")
 	}
+	if j.Status == model.JobSucceeded && !refine {
+		return nil, xerr.NewReason(xerr.Conflict, "NOT_REDOABLE", "这个任务现在不能重做")
+	}
 	if done := redoCount(chain); done >= s.cfg.RedoMaxPerSegment {
+		logx.WithContext(ctx).Infof("replicate: 重做被拒 判据=REDO_LIMIT_SEG job=%d seg=%d 已做=%d 上限=%d 精修=%v", j.ID, req.SegIndex, done, s.cfg.RedoMaxPerSegment, refine)
 		return nil, xerr.NewReason(xerr.Conflict, "REDO_LIMIT", fmt.Sprintf("这一段已经重做了 %d 次，换个模型或调整方案再试", done))
 	}
 	// 编号按全部重做步骤（含预留没成功的）：请求号 / 步骤键从不复用，否则撞唯一键、后续重做永远进不去
@@ -890,7 +915,14 @@ func (s *Service) Redo(ctx context.Context, req RedoReq) (*JobView, error) {
 	if req.ExpectedPoints > 0 && req.ExpectedPoints != pts {
 		return nil, priceChanged(req.ExpectedPoints, pts)
 	}
+	// 备注审核放在占名额 / 预留之前：不通过不动钱、不占名额（重复点击已在上面按 client_key 短路，不会重复审）
+	if err := s.moderateRedoNote(ctx, j.UserID, j.ID, note); err != nil {
+		return nil, err
+	}
 	redoable := []int8{model.JobQueued, model.JobRunning, model.JobFailed, model.JobPartial}
+	if refine {
+		redoable = append(redoable, model.JobSucceeded)
+	}
 	// 原子占名额：redo_count 自增与上限在同一条件里，并发重做不会超限
 	claimed, err := s.store.ClaimRedo(ctx, j.ID, s.cfg.RedoMaxPerJob, redoable)
 	if err != nil {
@@ -920,7 +952,7 @@ func (s *Service) Redo(ctx context.Context, req RedoReq) (*JobView, error) {
 	rid := reqRedo(in.BillingSalt, j.ID, req.SegIndex, n)
 	sk := genKey(req.SegIndex, fmt.Sprintf("#u%d", n))
 	step := &model.Step{JobID: j.ID, StepKey: sk, Kind: model.StepKindGateway, SegIndex: req.SegIndex, Status: model.StepHolding,
-		IdemKey: jobKey(in.KeyPrefix, j.ID, sk), BillingRequestID: ptr(rid)}
+		IdemKey: jobKey(in.KeyPrefix, j.ID, sk), BillingRequestID: ptr(rid), Output: redoNoteOutput(note)}
 	c := &model.Charge{JobID: j.ID, UserID: j.UserID, SegIndex: req.SegIndex, Stage: model.ChargeStageRedo, RequestID: rid,
 		ClientKey: ptr(key), Seconds: sg.GenDuration, Status: model.ChargePending}
 	if _, created, err := s.store.AddRedo(ctx, step, c); err != nil {
@@ -1345,7 +1377,8 @@ func (s *Service) pollStep(ctx context.Context, j *model.Job, in *JobInput, st *
 	if n := retryIndex(st.StepKey); f.Transient && n < s.cfg.AutoRetryMax {
 		key := nextRetryKey(st.StepKey)
 		retry := &model.Step{JobID: j.ID, StepKey: key, Kind: model.StepKindGateway, SegIndex: st.SegIndex,
-			Status: model.StepPending, IdemKey: jobKey(in.KeyPrefix, j.ID, key), BillingRequestID: st.BillingRequestID, RetryOf: ptr(st.StepKey)}
+			Status: model.StepPending, IdemKey: jobKey(in.KeyPrefix, j.ID, key), BillingRequestID: st.BillingRequestID, RetryOf: ptr(st.StepKey),
+			Output: carryRedoNote(st.Output)} // 重做步骤的自动重试沿用同一条精修备注
 		ok, err := s.store.AddRetryStep(ctx, st, s.failSet(f, call.Status), retry)
 		switch {
 		case err != nil:
@@ -1392,6 +1425,11 @@ func (s *Service) deliver(ctx context.Context, j *model.Job, st *model.Step, cha
 	c := chargeOf(charges, st.BillingRequestID)
 	if c == nil {
 		logx.WithContext(ctx).Errorf("replicate: 出片成功但找不到预留镜像 判据=CHARGE_MISSING job=%d step=%s", j.ID, st.StepKey)
+		return
+	}
+	// 坏片判定（J4）：确认扣点之前。只查还没确认过的单（预留中 / 免费）；「确认待重试」的单早已通过检查，不重复检。
+	if (c.Status == model.ChargeHeld || c.Status == model.ChargeFree) && s.checkBadOutput(ctx, j, st) {
+		s.failStep(ctx, j, st, failure(FailBadOutput, "BAD_OUTPUT", false), charges)
 		return
 	}
 	switch c.Status {
@@ -1551,9 +1589,12 @@ func (s *Service) rollup(ctx context.Context, jobID int64) error {
 		if len(chain) == 0 {
 			continue
 		}
-		last := chain[len(chain)-1]
+		eff, refining := segResult(chain) // 精修中 / 精修失败都按旧版本算，不让已做好的段掉成失败
 		if gate == model.StepWaiting && k > 1 {
 			continue // 未放行的段不计入
+		}
+		if eff.Status == model.StepCanceled && deref(eff.ErrorCode) == codeNotContinued {
+			continue // 用户不继续 / 到期没做的段（先看第 1 段就结束的任务）：不计入，精修第 1 段后任务仍是成功
 		}
 		considered++
 		for _, st := range chain {
@@ -1561,12 +1602,13 @@ func (s *Service) rollup(ctx context.Context, jobID int64) error {
 				started = true
 			}
 		}
-		switch last.Status {
-		case model.StepSucceeded:
+		switch {
+		case eff.Status == model.StepSucceeded:
 			done++
-		case model.StepFailed, model.StepCanceled:
+			active = active || refining
+		case eff.Status == model.StepFailed || eff.Status == model.StepCanceled:
 			failed++
-			if last.Status == model.StepCanceled && deref(last.ErrorCode) == codeCancelRest {
+			if eff.Status == model.StepCanceled && deref(eff.ErrorCode) == codeCancelRest {
 				userCanceled++
 			}
 		default:
@@ -1712,8 +1754,12 @@ func (s *Service) generateRequest(ctx context.Context, j *model.Job, in *JobInpu
 		}
 		ref = rid
 	}
+	prompt := sg.Prompt
+	if n := redoNoteOf(st.Output); n != "" { // 单段精修备注：只进这一步（本段这次重做 / 它的自动重试）的提示词
+		prompt += redoNotePrefix + n
+	}
 	input := map[string]any{
-		"prompt": sg.Prompt, "duration_s": sg.GenDuration, "resolution": in.Resolution,
+		"prompt": prompt, "duration_s": sg.GenDuration, "resolution": in.Resolution,
 		"reference_videos": []aigateway.MediaRef{{URI: aigateway.MRScheme + ref}},
 		"generate_audio":   in.Audio == AudioRegenerate,
 	}

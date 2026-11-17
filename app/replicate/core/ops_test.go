@@ -64,7 +64,7 @@ func (m *memOps) EnqueueDelivery(_ context.Context, d *model.Delivery) (bool, er
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, x := range m.dels {
-		if x.JobID == d.JobID && x.Kind == d.Kind && x.SegIndex == d.SegIndex {
+		if x.JobID == d.JobID && x.Kind == d.Kind && x.SegIndex == d.SegIndex && x.Version == d.Version {
 			return false, nil
 		}
 	}

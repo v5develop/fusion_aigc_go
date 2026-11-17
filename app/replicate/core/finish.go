@@ -206,26 +206,14 @@ func (s *Service) outcomes(j *model.Job, in *JobInput, steps []*model.Step) []se
 	out := make([]segOutcome, 0, len(in.Segments))
 	for _, sg := range in.Segments {
 		o := segOutcome{seg: sg}
-		chain := segChain(steps, sg.Index)
-		for _, st := range chain {
-			if st.Status != model.StepSucceeded {
-				continue
-			}
-			var v struct {
-				VideoRid   string `json:"videoRid"`
-				CoverRid   string `json:"coverRid"`
-				DurationMs int64  `json:"durationMs"`
-			}
-			if json.Unmarshal(st.Output, &v) == nil && v.VideoRid != "" {
-				o.rid, o.cover, o.durMs = v.VideoRid, v.CoverRid, v.DurationMs // 链按 id 升序：取最后一次成功（重做后的）
-			}
+		// 取这一段当前有效的结果（精修中 / 精修失败仍是旧视频，精修成功后是新视频）；占位只给真正没成功的段
+		eff, _ := segResult(segChain(steps, sg.Index))
+		if v, ok := videoOf(eff); ok {
+			o.rid, o.cover, o.durMs = v.VideoRid, v.CoverRid, v.DurationMs
 		}
 		if o.rid == "" {
 			// segChain 已跳过预留没成功的重做步骤；只有「用户不继续 / 到期」才不占位，其余缺段一律失败占位（不静默省略）
-			var last *model.Step
-			if n := len(chain); n > 0 {
-				last = chain[n-1]
-			}
+			last := eff
 			o.omitted = last != nil && last.Status == model.StepCanceled &&
 				(deref(last.ErrorCode) == codeNotContinued || deref(last.ErrorCode) == codeCancelRest) // 用户不继续 / 不做剩下的段：不占位
 			o.failed = !o.omitted

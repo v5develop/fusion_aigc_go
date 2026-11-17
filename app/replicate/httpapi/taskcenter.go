@@ -24,11 +24,11 @@ import (
 //     关联第 1 段会把单段价格当成整单价格显示，所以写 NONE，点数走 request_params.points。
 //   - 同步水位 tc_updated_at（Go_V1.0.39）：job 行任何变化自动刷新；预留镜像 / 入库变化时显式刷新。
 func TaskSource() taskcenter.Source {
-	// 已入库的产物里挑一个：完整成片（final）> 预览版（preview）> 第 1 个已入库的段（段号最小），部分成功的任务也有可点开的成品
+	// 已入库的产物里挑一个：完整成片（final）> 预览版（preview）> 第 1 个已入库的段（段号最小；同段多版本取最新），部分成功的任务也有可点开的成品
 	// 封面取同一行（没有封面回退该行成品地址），不会出现「成片地址 + 某一段的封面」
 	pick := func(expr string) string {
 		return "(SELECT " + expr + " FROM afv_replicate_delivery d WHERE d.job_id = s.id AND d.status = 1 AND d.video_url IS NOT NULL" +
-			" ORDER BY FIELD(d.kind, 'final', 'preview', 'segment'), d.seg_index LIMIT 1)"
+			" ORDER BY FIELD(d.kind, 'final', 'preview', 'segment'), d.seg_index, d.version DESC LIMIT 1)"
 	}
 	video, cover := pick("d.video_url"), pick("COALESCE(d.cover_url, d.video_url)")
 	return taskcenter.Source{

@@ -72,6 +72,21 @@ type Conf struct {
 	URLTTLSeconds int `json:",default=3600"`
 	// TaskCenterEnabled 视频做同款 job 同步进任务中心（pkg/taskcenter 新同步源，见 taskcenter.go）。默认开（Replicate 本身默认关）。
 	TaskCenterEnabled bool `json:",default=true"`
+	// Preview 定妆图（免费预览第 1 帧，agent 工具 replicate_preview_frame；需配 AiGateway）。
+	// ModelGroup 出图的网关模型组（image.edit，默认与 studio 通用档一致）；DailyQuota 每人每个自然日（Asia/Shanghai）免费次数；WaitSeconds 等网关出图的上限。
+	Preview struct {
+		Enabled     bool   `json:",default=true"`
+		ModelGroup  string `json:",default=img.gpt-image-2.5-sunburst"`
+		DailyQuota  int    `json:",default=3"`
+		WaitSeconds int    `json:",default=60"`
+	} `json:",optional"`
+	// BadOutput 坏片判定（J4）：段视频落桶后、确认扣点前检查黑屏 / 定格 / 解不开，命中按失败退点且不自动重试。
+	// BlackRatio / FreezeRatio 为占视频时长的比例阈值（≥ 即判坏片）。运行时 replicate.bad_output.enabled / black_ratio / freeze_ratio 覆盖。
+	BadOutput struct {
+		Enabled     bool    `json:",default=true"`
+		BlackRatio  float64 `json:",default=0.6"`
+		FreezeRatio float64 `json:",default=0.8"`
+	} `json:",optional"`
 	// Asset 成片 / 单段入素材库（afv_replicate_delivery 发件箱 → 媒体服务复制到公有桶 → pkg/asset）。需配 Media。
 	Asset struct {
 		Enabled   bool   `json:",default=true"`

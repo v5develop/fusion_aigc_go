@@ -712,3 +712,53 @@ func (s *Service) planModerationView(ctx context.Context, p *model.Plan) *Modera
 	}
 	return moderationView(m, true)
 }
+
+// moderateRedoNote 单段精修备注的审核（Redo 占名额 / 预留之前同步跑，口径同方案里用户写的文字）：先过关键词库，再过网关 moderation.text
+// （一次调用；幂等键按 job + 备注内容，同一条备注重放同一结论）。
+// 不落 afv_replicate_moderation（那张表按 plan_id + plan_hash 存方案级结论，备注没有对应方案行），只写 afv_moderation_log 留痕
+// （request_id = replicate:job<id>-redo）。
+// 没开启审核（没装配 / ModerationOff）时跳过，与方案审核一致；故障按 ModerationFailOpen：默认 fail-close 拒绝（MODERATION_UNAVAILABLE，没扣点），
+// 放行时记 ERROR 日志。违规 → MODERATION_REJECTED（不暴露命中词）。
+func (s *Service) moderateRedoNote(ctx context.Context, userID, jobID int64, note string) error {
+	if note == "" || !s.moderationEnabled() {
+		return nil
+	}
+	reqID := fmt.Sprintf(modRequestIDFmt, fmt.Sprintf("job%d-redo", jobID))
+	if s.mod.words != nil {
+		if r, err := s.mod.words.Check(ctx, "replicate.redo_note", note); err != nil {
+			logx.WithContext(ctx).Errorf("replicate: 关键词库读取失败（跳过关键词，继续网关审核） 判据=MOD_WORDS_UNAVAILABLE job=%d: %v", jobID, err)
+		} else if !r.Passed {
+			logx.WithContext(ctx).Infof("replicate: 重做备注审核未通过 判据=MODERATION_REJECTED provider=keyword job=%d", jobID)
+			s.logMod(ctx, ModerationLog{UserID: userID, BizType: ModBizText, Provider: ModProviderKeyword, ResultStatus: ModResultRejected,
+				Scene: "keyword", Label: r.Label, RejectedTarget: summarizeText(note), Reason: modTextWords, RequestContent: note, RequestID: reqID})
+			return xerr.NewReason(xerr.ParamError, ReasonModerationRejected, modTextWords)
+		}
+	}
+	b, err := s.gatewayModerate(ctx, fmt.Sprintf("job%d-redo", jobID), ModBizText, s.moderationPolicySig(), 0, false, []string{note})
+	var de *errModerationDown
+	if errors.As(err, &de) {
+		logx.WithContext(ctx).Errorf("replicate: 重做备注审核服务故障 判据=%s job=%d failOpen=%v call=%s", de.check, jobID, s.cfg.ModerationFailOpen, de.callID)
+		s.logMod(ctx, ModerationLog{UserID: userID, BizType: ModBizText, Provider: ModProviderGateway, Passed: s.cfg.ModerationFailOpen,
+			ResultStatus: ModResultError, Scene: "error", Label: de.check, Reason: "审核服务故障：" + de.check, RequestContent: note,
+			RawResponse: de.raw, RequestID: reqID, OutTaskID: de.callID})
+		if s.cfg.ModerationFailOpen {
+			return nil
+		}
+		return xerr.NewReason(xerr.ThirdPartyError, ReasonModerationUnavailable, modTextDown)
+	}
+	if err != nil {
+		return err
+	}
+	rejected, hits, labels, scene := s.evaluateMod(b, func(int) string { return "备注 " + summarizeText(note) })
+	l := ModerationLog{UserID: userID, BizType: ModBizText, Provider: ModProviderGateway, Passed: !rejected, Scene: scene,
+		Label: strings.Join(labels, "; "), RequestContent: note, RawResponse: b.raw, RequestID: reqID, OutTaskID: strings.Join(b.callIDs, ", ")}
+	if rejected {
+		l.ResultStatus, l.RejectedTarget, l.Reason = ModResultRejected, strings.Join(hits, ", "), modTextWords
+		s.logMod(ctx, l)
+		logx.WithContext(ctx).Infof("replicate: 重做备注审核未通过 判据=MODERATION_REJECTED provider=gateway job=%d 标签=%s", jobID, strings.Join(labels, ","))
+		return xerr.NewReason(xerr.ParamError, ReasonModerationRejected, modTextWords)
+	}
+	l.ResultStatus = ModResultPassed
+	s.logMod(ctx, l)
+	return nil
+}

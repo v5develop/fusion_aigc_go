@@ -983,6 +983,18 @@ type fakeMedia struct {
 	ingests   int
 	ingestErr error
 	idems     []string
+	// inspect 坏片检测的脚本：nil = 一律正常；inspected 记录被检查过的 rid
+	inspect   func(rid string) (mediasvc.VideoInspect, error)
+	inspected []string
+}
+
+// InspectVideo 默认返回「正常片」（可解码、无黑屏 / 定格）。
+func (m *fakeMedia) InspectVideo(_ context.Context, rid string) (mediasvc.VideoInspect, error) {
+	m.inspected = append(m.inspected, rid)
+	if m.inspect != nil {
+		return m.inspect(rid)
+	}
+	return mediasvc.VideoInspect{Decodable: true, DurationS: 5}, nil
 }
 
 func (m *fakeMedia) IngestURL(_ context.Context, src, purpose, idem string) (mediasvc.Resource, error) {
@@ -1170,14 +1182,13 @@ func (e *env) assertMoney(jobID int64) {
 	j, _ := e.store.GetJob(e.ctx, jobID)
 	steps := e.steps(jobID)
 	var want int64
+	// 每个成功步骤都已扣费（精修成功的段：原版本与精修版本各扣一笔）
 	for k := 1; k <= j.SegTotal; k++ {
-		chain := segChain(steps, k)
-		if len(chain) == 0 {
-			continue
-		}
-		if last := chain[len(chain)-1]; last.Status == model.StepSucceeded && last.BillingRequestID != nil {
-			if r := e.ledger.res[*last.BillingRequestID]; r != nil {
-				want += r.points
+		for _, st := range segChain(steps, k) {
+			if st.Status == model.StepSucceeded && st.BillingRequestID != nil {
+				if r := e.ledger.res[*st.BillingRequestID]; r != nil {
+					want += r.points
+				}
 			}
 		}
 	}

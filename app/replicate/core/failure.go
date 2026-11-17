@@ -41,6 +41,7 @@ var failTable = map[string]Failure{
 	FailRejected:      {Text: "出了点问题，我们在处理", Action: "联系我们"},
 	FailBillingGone:   {Text: "这一段的点数预留已失效，没有扣点数", Action: "重做这一段"},
 	FailCut:           {Text: "原视频的这一段读取失败", Action: "换一条视频"},
+	FailBadOutput:     {Text: "画面有问题（黑屏 / 定格），这一段没收费，可以重做", Action: "重做这一段"},
 }
 
 func failure(code, class string, transient bool) Failure {

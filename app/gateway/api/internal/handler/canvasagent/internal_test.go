@@ -173,18 +173,6 @@ func TestInternalTools(t *testing.T) {
 	}
 }
 
-func TestNonceStoreByMode(t *testing.T) {
-	if nonceStore("pro", nil) != nil || nonceStore("pre", nil) != nil || nonceStore("rt", nil) != nil {
-		t.Fatal("非开发模式没有 Redis 时不应注册（nonce 存储为 nil）")
-	}
-	if _, ok := nonceStore("dev", nil).(*svcauth.MemoryNonces); !ok {
-		t.Fatal("dev 模式退回进程内")
-	}
-	if _, ok := nonceStore("test", nil).(*svcauth.MemoryNonces); !ok {
-		t.Fatal("test 模式退回进程内")
-	}
-}
-
 // 审计 IP 用 pkg/clientip：直连对端不是可信代理时，客户端自带的 X-Forwarded-For / X-Real-IP 不认。
 func TestAuditIPUsesClientIP(t *testing.T) {
 	rpc := &fakeRPC{}
@@ -216,22 +204,5 @@ func TestInternalNotRegisteredWithoutKeys(t *testing.T) {
 	cfg.Keys = []config.CanvasInternalKey{{KeyId: "java-1", Secret: "too-short"}}
 	if BuildVerifier(cfg, svcauth.NewMemoryNonces()) != nil {
 		t.Fatal("secret 不合格不应注册")
-	}
-}
-
-// PreserveInternalBody 只管 /internal/v1/canvas/，其它路径照旧被 jsoncase 改写。
-func TestPreserveOnlyInternal(t *testing.T) {
-	var seen string
-	h := PreserveInternalBody(func(w http.ResponseWriter, r *http.Request) {
-		_, ok := r.Context().Value(rawBodyKey{}).(*rawBody)
-		seen = map[bool]string{true: "kept", false: "none"}[ok]
-	})
-	h(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/api/v1/canvas/agent/call", strings.NewReader("{}")))
-	if seen != "none" {
-		t.Fatal("非内部路径不应处理")
-	}
-	h(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, InternalPrefix+"/agent/call", strings.NewReader("{}")))
-	if seen != "kept" {
-		t.Fatal("内部路径应存原始 body")
 	}
 }

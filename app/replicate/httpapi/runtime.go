@@ -40,6 +40,15 @@ const (
 	// KeyAnalysisRules 分析纠偏规则配置（JSON，rules/analysisfix.Config：{"disabled":[规则码],"durationTolerance":0.15,…}；空 = 默认）
 	KeyAnalysisRules = "replicate.analysis_rules"
 
+	// 定妆图（Go_V1.0.52）：库里有且合法时覆盖 Replicate.Preview.*（数据库 > 文件配置；60 秒内生效），缺省 / 非法用 yaml
+	KeyPreviewEnabled    = "replicate.preview.enabled"     // bool，定妆图开关
+	KeyPreviewDailyQuota = "replicate.preview.daily_quota" // int 1~1000，每人每个自然日免费次数
+
+	// 坏片判定（J4）：整段黑屏 / 定格 / 解不开的段按失败处理并退点。库里有且合法时覆盖 Replicate.BadOutput.*
+	KeyBadOutputEnabled     = "replicate.bad_output.enabled"      // bool，坏片判定开关（默认 true）
+	KeyBadOutputBlackRatio  = "replicate.bad_output.black_ratio"  // 小数 (0,1]：黑屏占时长比例 ≥ 它判坏片（默认 0.6）
+	KeyBadOutputFreezeRatio = "replicate.bad_output.freeze_ratio" // 小数 (0,1]：定格占时长比例 ≥ 它判坏片（默认 0.8）
+
 	// 内容审核（P0-4，策略同 Java app.moderation.*）
 	KeyModerationEnabled     = "replicate.moderation.enabled"           // bool，默认 true
 	KeyModerationFailOpen    = "replicate.moderation.fail_open"         // bool，默认 false（审核服务故障不让确认）
@@ -237,6 +246,27 @@ func applyParams(base core.Config, longformYAML bool, kv map[string]string) Para
 	if v, ok := intOf(KeyModerationPlanWait, 0, 5000); ok {
 		p.Cfg.ModerationPlanWait = time.Duration(v) * time.Millisecond
 	}
+	if v, ok := boolOf(KeyPreviewEnabled); ok {
+		p.Cfg.PreviewOff = !v
+	}
+	if v, ok := intOf(KeyPreviewDailyQuota, 1, 1000); ok {
+		p.Cfg.PreviewDailyQuota = v
+	}
+	if v, ok := boolOf(KeyBadOutputEnabled); ok {
+		p.Cfg.BadOutputOff = !v
+	}
+	for _, x := range []struct {
+		key string
+		dst *float64
+	}{{KeyBadOutputBlackRatio, &p.Cfg.BadOutputBlackRatio}, {KeyBadOutputFreezeRatio, &p.Cfg.BadOutputFreezeRatio}} {
+		if raw, ok := kv[x.key]; ok {
+			if f, err := strconv.ParseFloat(raw, 64); err != nil || f <= 0 || f > 1 {
+				warn(x.key, raw, "不是 (0,1] 的小数")
+			} else {
+				*x.dst = f
+			}
+		}
+	}
 	for _, x := range []struct {
 		key string
 		dst *int
@@ -379,6 +409,8 @@ func signature(p Params) string {
 		strconv.FormatBool(c.ModerationOff), strconv.FormatBool(c.ModerationFailOpen), strconv.FormatBool(c.ModerationReviewPass),
 		c.ModerationTextGroup, c.ModerationImageGroup, c.ModerationRejectTTL.String(),
 		c.ModerationConfirmWait.String(), c.ModerationPlanWait.String(),
+		strconv.FormatBool(c.PreviewOff), strconv.Itoa(c.PreviewDailyQuota),
+		strconv.FormatBool(c.BadOutputOff), strconv.FormatFloat(c.BadOutputBlackRatio, 'f', 3, 64), strconv.FormatFloat(c.BadOutputFreezeRatio, 'f', 3, 64),
 		strconv.FormatInt(c.ConfirmThresholdPoints, 10), analysisfix.VersionOf(c.AnalysisRules),
 	}, "|")
 }

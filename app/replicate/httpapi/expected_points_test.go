@@ -1,12 +1,10 @@
 package httpapi
 
 import (
-	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
-	"aigc-local-life/app/replicate/core"
 	"aigc-local-life/pkg/xerr"
 
 	"github.com/zeromicro/go-zero/rest/pathvar"
@@ -17,7 +15,7 @@ func TestExpectedPointsRequired(t *testing.T) {
 	h := &handlers{}
 	cases := []struct {
 		name string
-		fn   func(http.ResponseWriter, *http.Request, *core.Service, int64) (any, error)
+		fn   handlerFn
 		vars map[string]string
 		pre  string // 其余必填字段
 	}{
@@ -36,8 +34,8 @@ func TestExpectedPointsRequired(t *testing.T) {
 			body := "{" + strings.Join(parts, ",") + "}"
 			r := httptest.NewRequest("POST", "/x", strings.NewReader(body))
 			r = pathvar.WithVars(r, c.vars)
-			// s 传 nil、handlers 没装模块：校验必须在查重放 / 限频 / 调内核之前完成，否则这里会空指针
-			_, err := c.fn(httptest.NewRecorder(), r, nil, 7)
+			// Scope 是空壳（没有内核、没装模块）：校验必须在查重放 / 限频 / 调内核之前完成，否则这里会空指针
+			_, err := c.fn(httptest.NewRecorder(), r, &Scope{uid: 7, write: true})
 			if code, _, ok := xerr.Parse(err); err == nil || !ok || code != xerr.ParamMissing {
 				t.Fatalf("%s body=%s 应回 PARAM_MISSING：%v", c.name, body, err)
 			}

@@ -87,7 +87,7 @@ job 的取数口径（四条各走索引的查询，内存合并按 `next_run_at
 
 ```json
 {
-  "planNo": "VRP…", "planHash": "64hex", "status": "READY",
+  "planNo": "VRP…", "planHash": "64hex", "analysisNo": "VRA…", "status": "READY",
   "title": "这条方案会改什么",
   "overview": "换商品 · 重新配乐 · 共 32 秒 · 3 段",
   "changes": [{"key":"product","label":"商品","mode":"replace","modeLabel":"换成我的图","current":"白色运动鞋","refs":[1],"risk":"mid"}],
@@ -139,7 +139,7 @@ key 为十一项：`model garment accessory product motion expression line camer
   "segTotal": 3, "segDone": 1, "segFailed": 0, "overview": "已完成 1/3 段",
   "concurrencyText": "最多同时做 3 段，其余排队",
   "segments": [
-    {"index":1,"state":"succeeded","stateLabel":"已完成","points":120,"videoRid":"…","videoUrl":"https://…(签名)","coverRid":"…","coverUrl":"https://…","redoable":false,"redos":0},
+    {"index":1,"state":"succeeded","stateLabel":"已完成","points":120,"videoRid":"…","videoUrl":"https://…(签名)","coverRid":"…","coverUrl":"https://…","redoable":false,"refinable":true,"refineLabel":"精修这一段 · 120 点","redos":0},
     {"index":2,"state":"not_started","stateLabel":"满意第 1 段后再做","points":0,"redoable":false,"redos":0},
     {"index":3,"state":"failed","stateLabel":"没成功","text":"这一段这次没生成出来","moneyText":"已退回 80 点",
      "points":80,"redoable":true,"redoLabel":"重做这一段（80 点）","redos":0}
@@ -179,10 +179,22 @@ job 到「成功 / 部分成功」后由轮询器合成（钱与合成无关：�
 - `result`：`{status: ready|retry|failed|unavailable, kind: full|preview|partial, videoRid, videoUrl, coverRid, coverUrl, missing[], text}`；合成失败自动重试 3 次后 `failed`（只交付逐段视频）；
   没配媒体服务为 `unavailable`。缺段（没成功，且不是用户不继续 / 到期）一律占位，不静默省略。
 
+段的精修字段（`segments[]`，只增不改）：
+
+| 字段 | 含义 |
+|---|---|
+| `refinable` | 已做好（`succeeded`）的段还能付费精修；失败段的重做仍是 `redoable` / `redoLabel`，两者不会同时为真 |
+| `refineLabel` | 如「精修这一段 · 80 点」；`refinable=false` 时省略 |
+| `state="refining"`（`stateLabel`「精修中」） | 这一段的精修在途：任务回到执行中，旧视频仍在 `videoRid` / `videoUrl` 里可播放，精修做好前 `refinable` / `redoable` 都为 false；精修失败退点后回到 `succeeded`，旧视频不变 |
+
+精修成功后新视频另占素材库发件箱一行（`afv_replicate_delivery.version` +1，见 §8.2），旧版本保留；`segments[].library` 报最新版本那行；`seg_index` 始终是真实段号。
+
+**经 Agent 工具精修**：精修入口是 Agent 工具（`replicate_redo_segment`，`seg_index` + 必填备注 `note`，网关转发到内核 `Redo`，备注拼进该段提示词「补充要求：…」，报价只算这一段，需带 `expectedPoints`）。REST `POST /jobs/{id}/segments/{k}/redo` 不变（请求体仍是 `{expectedPoints}`，不带备注）。
+
 ## 5.2 历史列表（`GET /jobs?page=&size=`）
 
 ```json
-{"items":[{"jobId":42,"taskId":"…","planNo":"VRP…","status":"succeeded","statusLabel":"做好了！","title":"看懂了：3 个镜头…",
+{"items":[{"jobId":42,"taskId":"…","planNo":"VRP…","analysisNo":"VRA…","status":"succeeded","statusLabel":"做好了！","title":"看懂了：3 个镜头…",
            "segTotal":3,"segDone":3,"points":340,"sourceThumbRid":"…","sourceThumbUrl":"https://…","coverRid":"…","coverUrl":"https://…",
            "createdAt":"2026-11-14T10:00:00+08:00"}],
  "total":12,"page":1,"size":20,"urlExpiresAt":"2026-11-14T11:00:00+08:00"}
@@ -282,6 +294,7 @@ Go 网关的登录态只解析出 `userId`（共用会话的 `currentWorkspaceId
 - 失败不阻塞 job：暂时错误指数退避（30 秒起、最长 30 分钟），媒体服务 4xx 或超过 8 次放弃（`判据=DELIVERY_GAVE_UP`，后台详情可见）。
 - `JobView.library`（当前成片：预览版时报 `preview` 那条，否则报 `final`）/ `segments[].library`：`{status: saved|saving|failed, text}`，文案「已保存到素材库 · 去看」「正在保存到素材库…」「保存到素材库失败，已在重试。你仍可下载」「保存到素材库没有成功，你仍可下载」。
 - `POST /jobs/{id}/segments/{k}/save`（保留）：已入队 / 已入库（收尾时自动入的）直接返回已有状态；段没做好 → 409 `SEGMENT_NOT_READY`；出了片但没确认扣费 → 409 `SEGMENT_NOT_PAID`；没开启入库 → 7003。单段任务的成片就是这一段，同地址只入库一条。
+- 版本（`Go_V1.0.51__replicate_delivery_version.sql`）：发件箱唯一键为 `(job_id, kind, seg_index, version)`，`version` 默认 0；精修成功后该段的新视频、重新拼出的成片 / 预览版各另占一行（`version` = 该段成功次数 - 1 / 全任务已成功的精修次数），`seg_index` 始终是真实段号。任务中心 `result_url` 取同类里最新版本。
 - 每条入库完成都刷新任务中心水位（`result_url` 可能因此改变，见 §8.1）。
 - 配置：`Replicate.Asset.Enabled`（默认 true，需配 `Replicate.Media`）、`Replicate.Asset.EntryCode`（默认 `video_replicate`，需在 `afv_asset_category_entry` 登记分类，否则落「其他」）。
 
@@ -495,7 +508,7 @@ Go 网关的登录态只解析出 `userId`（共用会话的 `currentWorkspaceId
 | 方法 路径 | 作用 |
 |---|---|
 | `GET /models?analysisNo=&sampleId=&resolution=&aspectRatio=` | 可选出片模型列表（读接口）。带视频（`analysisNo` 或 `sampleId`）时按分段判断时长并给预计点数 |
-| `GET /limits` | 新增 `defaultModel`（推荐模型）、`models[]`（开放的模型组码）、`writerEnabled` |
+| `GET /limits` | 新增 `defaultModel`（推荐模型）、`models[]`（开放的模型组码）、`writerEnabled`、`confirmThresholdPoints`（发送前二次确认阈值，与确认接口闸门同一配置 `replicate.confirm_threshold_points`；方案总价超过它时确认必须带 `expectedPoints`，否则 409 `QUOTE_CHANGED`；`0` = 不启用） |
 | `POST /plans`、`PATCH /plans/{no}/annotations`、`POST /saved-plans/{id}/reuse` | `modelGroup` 必须在开放列表里，否则 `1003` + `gaps[{code:MODEL_UNKNOWN}]`；`resolution` 空 = 该模型默认清晰度；清晰度 / 画幅 / 分段时长按模型校验（`RESOLUTION_UNSUPPORTED` / `ASPECT_UNSUPPORTED` / `DURATION_UNSUPPORTED`）。换模型 = 新方案（新 `planHash` / 新报价 / 新方言提示词） |
 | `POST /jobs/{id}/cancel-rest` | 不做剩下的段，返回新的 JobView（写接口，带 `Idempotency-Key`） |
 
@@ -580,3 +593,58 @@ Go 网关的登录态只解析出 `userId`（共用会话的 `currentWorkspaceId
   `msg`「点数有变化：A → B 点，请再确认一次」/「这次要预留 B 点，请确认点数后再提交」，不建 job、不预留、退回本次确认限频额度；日志 `判据=CONFIRM_THRESHOLD`（带方案总价 / 阈值 / 本次 / 页面值）。
 - 未超过阈值（或阈值 0）：沿用原口径——带了 `expectedPoints` 且不一致回 `QUOTE_CHANGED`。HTTP 接口本来就要求 `expectedPoints` 必填（缺失 1002），阈值对 HTTP 调用方的差别只在 `msg` 文案（reason 都是 `QUOTE_CHANGED`）；对直接调内核的调用方，超阈值时 `expectedPoints` 变为必填。
 - 继续 / 重做不受阈值影响（仍按各自的 `expectedPoints` 比对，不一致 `QUOTE_CHANGED`）。
+
+## 12 体验拓展 P0（CONTRACT §J；迁移 `Go_V1.0.52__replicate_preview.sql`）
+
+### 12.1 一键方案建议（`AnalysisView.suggestions[]`，只增字段）
+
+`status=succeeded` 时由分析结果确定性算出（不调模型），最多 3 条，顺序即推荐度；没有命中则省略字段。
+
+```json
+"suggestions":[{"key":"swap_model","label":"换成我的模特","desc":"把视频里的人换成你的模特，动作和场景保持不变。需要一张人物照片","needs":"person_image"}]
+```
+
+| key | 命中条件 | needs |
+|---|---|---|
+| `swap_model` | 有出镜人物（`subjects` 非空或人物项存在） | `person_image` |
+| `swap_product` | 有主推商品 | `product_image` |
+| `swap_garment` | 有服装 | `garment_image` |
+| `clean_text` | 画面文字里有字幕 / 水印 / 贴纸文字（价格、标题不算） | 空（不缺图；文字由系统叠加） |
+
+固定按上表顺序取前 3 条（四条全中时 `clean_text` 被挤掉）。
+
+### 12.2 定妆图（agent 工具 `replicate_preview_frame {plan_no}` 出图；`GET /plans/:no/preview` 只读已存的图）
+
+免费、不扣点、不需要同意卡；出图是写入口（运行时总开关关着回 7003）。结果 `PreviewView`：
+`{planNo, imageUrl, imageRid, frameAtSec, quotaUsed, quotaTotal, urlExpiresAt}`，另有只增字段 `frameUrl`（原片帧，并排对比用）与 `replay`（true = 回放，工具结果 `replayed` 同值）。
+地址是现签短时地址（过期后重调工具，回放不占额度）。
+
+- **输入帧**：分析阶段已抽的均匀帧（`afv_replicate_analysis.state.frames`，每帧带原片秒数）里，离方案第 1 段中点最近的一帧；不另调媒体服务抽帧（它只支持均匀抽，不支持指定时间点）。
+- **出图**：网关 `image.edit`，`images` = [原片帧, 方案参考图…]（方案图号 N = 第 N+1 张），`n=1`，`aspect_ratio` 取方案画幅（空则不传，跟随原帧），`media_purpose=intermediate`，`labels{caller_biz=replicate,kind=preview,plan}`；
+  提示词由方案改法（replace / describe；不含台词）用中文生成，并写明其余保持不变、不加文字水印。幂等键 `{prefix}rpl-prev-{uid}-{plan_hash[:16]}:{model_group}`，重试时 `RetryFailed`。最多等 `Preview.WaitSeconds`（默认 60），超时 / 失败回可重试的 `THIRD_PARTY_ERROR`（没占额度）。
+- **幂等**：同一用户同一 `plan_hash` 只生成一次（`afv_replicate_preview` 唯一键 + 占坑），重复调用回放、不占额度；别的调用正在出图回 `IN_PROGRESS`（可重试）；占坑 3 分钟没动静视为崩溃遗留，可接手。
+- **额度**：每人每自然日（Asia/Shanghai）`Preview.DailyQuota`（默认 3）次；出图前原子「有余量才 +1」占位（`afv_replicate_preview_quota`），失败 / 超时 / 没产物再退回，所以只有成功出图才真正占用；并发不会超发。用完回 `4002 reason=PREVIEW_QUOTA_EXHAUSTED`（不可重试，文案说明明天 0 点恢复）。已出过图的方案用完额度后仍可回放。
+- **审核**：出图前过方案确认同一道内容检查（`gateModeration`：参考图 / 帧不通过 `MODERATION_REJECTED`，审核服务故障按 fail-close，没出结论 `MODERATION_PENDING`，都不占额度）；出图结果本身不另审（输入已审，只给本人看，不入素材库）。
+- **错误**：`PREVIEW_QUOTA_EXHAUSTED`、`MODERATION_REJECTED`、`PARAM_INVALID`（只改了台词 / 声音 / 叠字，没有可预览的画面）、`PLAN_STALE`、`PLAN_EXPIRED`、`IN_PROGRESS`、`THIRD_PARTY_ERROR`、`FEATURE_NOT_READY`。
+- **配置**：`Replicate.Preview: {Enabled: true, ModelGroup: "img.gpt-image-2.5-sunburst", DailyQuota: 3, WaitSeconds: 60}`（`ModelGroup` 与 studio 通用档同名；换组需网关该组支持 `image.edit`）。**运行时覆盖（数据库 > 文件配置，≤60 秒生效，同总开关机制）**：`afv_system_config.replicate.preview.enabled`（bool，覆盖 `Preview.Enabled`）、`replicate.preview.daily_quota`（整数 1~1000，覆盖 `Preview.DailyQuota`）；缺省 / 非法值告警并用 yaml。`ModelGroup` / `WaitSeconds` 仍只读 yaml（改需重启）。
+
+**只读接口 `GET /api/v1/replicate/plans/:no/preview`**（Auth，仅属主；读入口，总开关 / 额度用完 / 定妆图开关关着都照常可读）：返回已存的 `PreviewView`，`imageUrl` / `frameUrl` 现签新地址并带 `urlExpiresAt`，`replay=true`。**从不出图、不占额度。** 没出过 / 还在出图 / 不是本人的方案 → `4001 RESOURCE_NOT_FOUND`（msg「找不到这个方案」/「这个方案还没有定妆图」）。用途：智能体事件流会剥掉签名地址，聊天卡片按 `planNo` 拉这个接口拿新地址（同任务卡）。经 Ops 层（`Scope.GetPreview`），REST 与 Ops 一致性表已覆盖。
+
+### 12.5 坏片判定（J4，CONTRACT §J）
+
+段视频由网关落桶（`DELIVERING`，已有 `videoRid`）之后、**确认扣点之前**，调媒体服务 `POST /v1/mediasvc/video/inspect`（见 `media-service.md`）整段检查：
+
+| 判据 | 默认阈值 |
+|---|---|
+| 解不开（容器损坏 / 完整解码失败，`decodable=false`） | — |
+| 黑屏占时长比例 `black_ratio` | ≥ 0.6 |
+| 定格占时长比例 `freeze_ratio` | ≥ 0.8 |
+
+命中 → 该段步骤置失败，`error_code=BAD_OUTPUT`，`error_msg`「画面有问题（黑屏 / 定格），这一段没收费，可以重做」，**退回该段预留**，**不走 `#r1` 自动重试**（`Transient=false`），按钮「重做这一段」（用户付费决定，不做免费重做）。精修步骤命中同样按失败：退回精修预留，这一段仍是已完成 + 旧视频（`segResult` 语义），成片 / 入库不变，段说明沿用「上一次精修没成功，已退回点数，现在的版本没有变」。
+只检查还没确认过的单（预留中 / 免费）；「确认待重试」的单已通过检查，不重复检。供应商成本平台承担（日志 `判据=bad_output` 带 `costCny`）。
+
+**fail-open**：检测器自身故障（没装配媒体服务、调用报错 / 超时 90 秒、响应读不懂）一律放行，按成功继续确认扣点（供应商已扣费、产物多半是好的）；ERROR 日志 `判据=bad_output_check_unavailable`。
+
+配置：`Replicate.BadOutput: {Enabled: true, BlackRatio: 0.6, FreezeRatio: 0.8}`；运行时覆盖（数据库 > 文件，≤60 秒）`afv_system_config.replicate.bad_output.enabled`（bool）、`replicate.bad_output.black_ratio` / `replicate.bad_output.freeze_ratio`（(0,1] 小数）；非法值告警并用 yaml。
+
+失败码表新增：`BAD_OUTPUT`（不可重试、退点、可重做）。

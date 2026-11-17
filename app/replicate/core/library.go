@@ -113,6 +113,9 @@ func (s *Service) fullPlanView(ctx context.Context, p *model.Plan, an *AnalysisR
 	if err != nil || v == nil {
 		return v, err
 	}
+	if a, _ := s.store.GetAnalysis(ctx, p.AnalysisID); a != nil {
+		v.AnalysisNo = a.AnalysisNo
+	}
 	if moderate {
 		v.Moderation = s.planModerationView(ctx, p)
 	} else {

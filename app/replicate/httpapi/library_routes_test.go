@@ -25,7 +25,7 @@ func TestSampleRoutesBypassRateLimit(t *testing.T) {
 		func(cfg core.Config, _ bool) *core.Service { return core.New(cfg, nil, nil) })
 	m := &Module{rt: rt, limiter: newRateLimiter(nil, nil)}
 	h := &handlers{m: m}
-	call := func(fn func(http.ResponseWriter, *http.Request, *core.Service, int64) (any, error), write bool, method, path, body string, vars map[string]string) (int, string) {
+	call := func(fn handlerFn, write bool, method, path, body string, vars map[string]string) (int, string) {
 		r := httptest.NewRequest(method, path, strings.NewReader(body))
 		r = r.WithContext(ctxdata.WithUserID(r.Context(), 7))
 		if vars != nil {
