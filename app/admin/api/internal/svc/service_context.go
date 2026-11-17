@@ -2,6 +2,7 @@ package svc
 
 import (
 	"context"
+	"strings"
 
 	"aigc-local-life/app/admin/api/internal/config"
 	"aigc-local-life/app/admin/api/internal/middleware"
@@ -19,6 +20,7 @@ import (
 	"aigc-local-life/pkg/adminuser"
 	"aigc-local-life/pkg/bundb"
 	"aigc-local-life/pkg/dbpool"
+	"aigc-local-life/pkg/mediasvc"
 	"aigc-local-life/pkg/session"
 	"aigc-local-life/pkg/storage"
 
@@ -152,5 +154,9 @@ func newReplicateAdmin(c config.Config, conn sqlx.SqlConn) *replicateadmin.Servi
 		logx.Errorf("admin: 视频做同款后台初始化失败: %v", err)
 		return nil
 	}
-	return replicateadmin.New(store, bill, forcer)
+	ra := replicateadmin.New(store, bill, forcer)
+	if m := c.ReplicateAdmin.Media; strings.TrimSpace(m.BaseURL) != "" { // 通过用户投稿时把成片复制进素材库桶
+		ra.SetShareMedia(mediasvc.New([]string{m.BaseURL}, m.Token))
+	}
+	return ra
 }

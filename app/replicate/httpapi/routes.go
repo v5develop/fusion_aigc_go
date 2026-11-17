@@ -42,6 +42,7 @@ func Register(server *rest.Server, auth rest.Middleware, m *Module) {
 		r(po, "/jobs/:id/stop", h.stop, true),
 		r(po, "/jobs/:id/cancel-rest", h.cancelRest, true),
 		r(g, "/models", h.models, false),
+		r(g, "/voices", h.voices, false), // 换声音的音色列表（只读；CONTRACT §P，?gender=&style=）
 		r(po, "/jobs/:id/segments/:k/redo", h.redo, true),
 		r(po, "/jobs/:id/segments/:k/save", h.saveSegment, true),
 		r(pu, "/pref", h.pref, true),
@@ -296,6 +297,12 @@ func (h *handlers) models(_ http.ResponseWriter, r *http.Request, sc *Scope) (an
 		req.SampleID = n
 	}
 	return sc.Models(r.Context(), req)
+}
+
+// voices GET /voices?gender=&style=：可选配音音色（只读）。样音地址是音色目录里的试听地址（公有桶、无签名，原样返回）。
+func (h *handlers) voices(_ http.ResponseWriter, r *http.Request, sc *Scope) (any, error) {
+	q := r.URL.Query()
+	return sc.ListVoices(r.Context(), q.Get("gender"), q.Get("style"))
 }
 
 func (h *handlers) redo(_ http.ResponseWriter, r *http.Request, sc *Scope) (any, error) {

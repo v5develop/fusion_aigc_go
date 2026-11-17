@@ -44,6 +44,10 @@ const (
 	StageCancelRest      = "cancel_rest"      // 用户取消剩余段
 	StagePublishCopy     = "publish_copy"     // 生成发布文案（回放不算；一成片一平台一次）
 	StageExportRatio     = "export_ratio"     // 多比例导出（回放 / 同比例返回成片本身不算；一成片一比例一模式一次）
+	StageRevoice         = "revoice"          // 换声音成片交付（合成成功，一任务一次）
+	StageRetryAudio      = "retry_audio"      // 免费重做声音（每次真正重做记一次，成功失败都算；同 call_id 重放不记）
+	StageShareSample     = "share_sample"     // 成片分享为示例（建了待审核投稿；一成片一次，撤回后重新投不再记）
+	StageWithdrawSample  = "withdraw_sample"  // 撤回已分享的示例（一投稿一次）
 
 	// StageAnalysisSucceedMulti 仅计数用的派生阶段：拆解成功且原片多人（主体 ≥ 2），与 analysis_succeed 同时加一，
 	// 看板据此算「多人原片占比」；不单独落库（库里用 analysis_succeed.multi_person）。

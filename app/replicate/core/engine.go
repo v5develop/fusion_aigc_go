@@ -52,6 +52,8 @@ type JobInput struct {
 	Segments    []JobSegment  `json:"segments"`
 	MaxCostCNY  string        `json:"maxCostCny,omitempty"`
 	Texts       []TextOverlay `json:"texts,omitempty"` // 成片叠字（finish.go）
+	// Voice 换声音参数（audio=revoice 时确认冻结：音色、语速、每句台词与时间窗、模型组，见 voice.go）；未用时不出现
+	Voice *VoiceJob `json:"voice,omitempty"`
 	// KeyPrefix 确认时冻结的幂等键环境前缀（步骤 idem_key、切段 / 合成的媒体幂等键都带它）。
 	KeyPrefix string `json:"keyPrefix,omitempty"`
 	// Title / SourceThumbRid 历史列表摘要（确认时从分析结果冻结：一句话概述、首帧）。
@@ -228,6 +230,11 @@ func (s *Service) confirm(ctx context.Context, req ConfirmReq, holdOnly bool) (*
 	if err != nil {
 		return nil, err
 	}
+	if in.Voice != nil { // 换声音的当日额度：满了在建任务、动钱之前就拒（VOICE_QUOTA_EXHAUSTED）
+		if err := s.voiceQuotaPrecheck(ctx, req.UserID, 1); err != nil {
+			return nil, err
+		}
+	}
 	n := len(in.Segments)
 	in.BillingSalt = newBillingSalt()
 	pref, _ := s.store.GetPref(ctx, req.UserID)
@@ -324,6 +331,12 @@ func (s *Service) confirm(ctx context.Context, req ConfirmReq, holdOnly bool) (*
 		}
 		return nil, xerr.NewReason(xerr.Conflict, "PLAN_STALE", "方案刚更新了，请再看一眼价格")
 	}
+	if in.Voice != nil { // 原子占用换声音额度（任务已建、还没动钱）：并发把额度占满的那一方在这里被拒，整个确认回滚
+		if err := s.acquireVoiceQuota(ctx, got); err != nil {
+			s.abortSubmit(ctx, got, p.ID, "今天的换声音额度用完了，没有扣点数")
+			return nil, err
+		}
+	}
 	alive := func(c context.Context) bool { // 心跳：每冻结一段刷新 job，回收器按 updated_at 判断「提交中」是否卡死
 		ok, err := s.store.TouchJob(c, got.ID, []int8{model.JobSubmitting})
 		return err != nil || ok // 心跳写失败不当成被回收（回收以库为准，下一段再试）
@@ -402,6 +415,7 @@ func (s *Service) abortSubmit(ctx context.Context, j *model.Job, planID int64, r
 		logx.WithContext(ctx).Errorf("replicate: 提交失败收尾没写上 判据=ABORT_SUBMIT job=%d ok=%v: %v", j.ID, ok, err)
 	}
 	s.cancelUnstarted(dctx, j.ID, codeNotSubmitted)
+	s.releaseVoiceIfAny(dctx, j, "提交没走完") // 换声音额度：没提交成功不占条数（幂等）
 	if planID > 0 {
 		_, _ = s.store.ReleasePlan(dctx, planID, j.ID)
 	}
@@ -600,6 +614,11 @@ func (s *Service) jobInput(ctx context.Context, p *model.Plan) (*JobInput, error
 	if r, err := s.ResolveAnalysis(a); err == nil { // 读取时按当前规则纠偏
 		an = r
 		in.Title = trimRunes(strings.TrimSpace(an.Summary), 60)
+	}
+	if vj, err := s.voiceJob(ctx, ann, an); err != nil {
+		return nil, err
+	} else {
+		in.Voice = vj
 	}
 	var st AnalysisState
 	if json.Unmarshal(a.State, &st) == nil {
@@ -1719,6 +1738,7 @@ func (s *Service) reapSubmitting(ctx context.Context, j *model.Job) error {
 	}
 	logx.WithContext(ctx).Infof("replicate: 回收卡住的提交 判据=SUBMIT_STALE job=%d 心跳=%s", j.ID, j.UpdatedAt.Format(time.RFC3339))
 	s.cancelUnstarted(ctx, j.ID, codeNotSubmitted)
+	s.releaseVoiceIfAny(ctx, j, "提交被回收")
 	charges, err := s.store.ListCharges(ctx, j.ID)
 	if err != nil {
 		return err

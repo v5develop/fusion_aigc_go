@@ -27,6 +27,12 @@ func TestPermForReplicate(t *testing.T) {
 		// 示例素材：上传 = sample；解析预览只读 = view
 		{"POST", "/api/v1/replicate/admin/samples/media/upload", "replicate:sample"},
 		{"POST", "/api/v1/replicate/admin/samples/media/resolve", "replicate:view"},
+		// 用户投稿（Go_V1.0.58）：读 = view，写（通过 / 驳回 / 标记奖励）= sample
+		{"GET", "/api/v1/replicate/admin/shares", "replicate:view"},
+		{"GET", "/api/v1/replicate/admin/shares/3", "replicate:view"},
+		{"POST", "/api/v1/replicate/admin/shares/3/approve", "replicate:sample"},
+		{"POST", "/api/v1/replicate/admin/shares/3/reject", "replicate:sample"},
+		{"POST", "/api/v1/replicate/admin/shares/3/reward", "replicate:sample"},
 		// 总开关（Go_V1.0.50）：读 = view，写 = switch
 		{"GET", "/api/v1/replicate/admin/switch", "replicate:view"},
 		{"PUT", "/api/v1/replicate/admin/switch", "replicate:switch"},

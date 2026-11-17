@@ -89,6 +89,26 @@ type Conf struct {
 		DailyQuota  int    `json:",default=20"`
 		WaitSeconds int    `json:",default=60"`
 	} `json:",optional"`
+	// Voice 换声音 / 改台词（CONTRACT §P，免费；agent 工具 replicate_list_voices；需配 AiGateway）。ModelGroup 合成配音的网关 tts.synthesize 模型组
+	// （音色目录复用 afv_digital_human_voice，音色参数值须属于该模型组）；DailyQuota 每人每个自然日（Asia/Shanghai）条数（确认时占用，默认 10）；
+	// WaitSeconds 每句等网关的上限；Concurrency 逐句合成并发。运行时 replicate.voice.enabled / daily_quota 覆盖。
+	Voice struct {
+		Enabled     bool   `json:",default=true"`
+		ModelGroup  string `json:",default=tts.minimax-speech-2.8-hd"`
+		DailyQuota  int    `json:",default=10"`
+		WaitSeconds int    `json:",default=60"`
+		Concurrency int    `json:",default=4"`
+	} `json:",optional"`
+	// Trending 灵感推荐（CONTRACT §S，agent 工具 replicate_trending，只读免费）：MinUsers 是 k-匿名阈值——某个改法组合的去重用户数 < 它不展示（默认 20）。
+	// 运行时 replicate.trending.min_users 覆盖（数据库 > 文件配置）。统计与缓存不需要别的配置（近 7 天、每小时预计算一次）。
+	Trending struct {
+		MinUsers int `json:",default=20"`
+	} `json:",optional"`
+	// Motion 接缝挪到画面最静处（CONTRACT §R）：分析多段视频时向媒体服务要运动量曲线（video/motion-profile），没有镜头切换 / 停顿切点时按它选最静处；
+	// 算不出自动退回均分。Enabled=false 不再计算（已算好的分析不受影响）。
+	Motion struct {
+		Enabled bool `json:",default=true"`
+	} `json:",optional"`
 	// DecisionReminder 待决策提醒（CONTRACT §O2）：第 1 段做好后一直没处理，离自动结束（Cfg.ContinueWindow，默认 24 小时）还剩 LeadHours（默认 4）
 	// 小时时站内通知提醒一次。运行时 replicate.decision_reminder.enabled / lead_hours 覆盖。
 	DecisionReminder struct {

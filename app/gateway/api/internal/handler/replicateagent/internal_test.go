@@ -168,6 +168,31 @@ func (f *fakeSession) ExportRatio(_ context.Context, jobID int64, ratio, mode st
 	return &core.ExportView{JobID: jobID, Ratio: ratio, Mode: mode}, f.err
 }
 
+func (f *fakeSession) RetryAudio(_ context.Context, jobID int64, callID string) (*core.AudioRetryView, error) {
+	f.rec("RetryAudio", [2]any{jobID, callID})
+	return &core.AudioRetryView{JobID: jobID, Audio: core.AudioResultKept, Replay: f.copyReplay}, f.err
+}
+
+func (f *fakeSession) ListVoices(_ context.Context, gender, style string) (*core.VoiceList, error) {
+	f.rec("ListVoices", [2]string{gender, style})
+	return &core.VoiceList{Voices: []core.VoiceView{{VoiceID: 3, Name: "小云", Gender: "female"}}}, f.err
+}
+
+func (f *fakeSession) Trending(_ context.Context, industry string) (*core.TrendingView, error) {
+	f.rec("Trending", industry)
+	return &core.TrendingView{Industry: industry, Period: "7d", Items: []core.TrendingItem{{Label: "换模特 + 保留原声"}}}, f.err
+}
+
+func (f *fakeSession) ShareSample(_ context.Context, jobID int64, consent bool) (*core.ShareView, error) {
+	f.rec("ShareSample", [2]any{jobID, consent})
+	return &core.ShareView{SubmissionID: 5, JobID: jobID, Status: "pending", Replay: f.copyReplay}, f.err
+}
+
+func (f *fakeSession) WithdrawSample(_ context.Context, id int64) (*core.WithdrawView, error) {
+	f.rec("WithdrawSample", id)
+	return &core.WithdrawView{SubmissionID: id, Status: "withdrawn", Unpublished: true, Replay: f.copyReplay}, f.err
+}
+
 type fakeBackend struct {
 	s        *fakeSession
 	enterErr error
@@ -448,6 +473,14 @@ func TestDispatchEveryTool(t *testing.T) {
 		{"replicate_publish_copy", `{"job_id":42}`, want{"PublishCopy", true, eq([2]any{int64(42), ""})}},
 		{"replicate_export_ratio", `{"job_id":42,"ratio":"9:16","mode":"crop"}`, want{"ExportRatio", true, eq([3]any{int64(42), "9:16", "crop"})}},
 		{"replicate_export_ratio", `{"job_id":42,"ratio":"1:1"}`, want{"ExportRatio", true, eq([3]any{int64(42), "1:1", ""})}},
+		{"replicate_list_voices", `{"gender":"female","style":"亲切"}`, want{"ListVoices", false, eq([2]string{"female", "亲切"})}},
+		{"replicate_retry_audio", `{"job_id":42}`, want{"RetryAudio", true, eq([2]any{int64(42), "call-x"})}},
+		{"replicate_list_voices", `{}`, want{"ListVoices", false, eq([2]string{"", ""})}},
+		{"replicate_trending", `{"industry":"food"}`, want{"Trending", false, eq("food")}},
+		{"replicate_trending", `{}`, want{"Trending", false, eq("")}},
+		{"replicate_share_sample", `{"job_id":42,"portrait_consent":true}`, want{"ShareSample", true, eq([2]any{int64(42), true})}},
+		{"replicate_share_sample", `{"job_id":42}`, want{"ShareSample", true, eq([2]any{int64(42), false})}},
+		{"replicate_withdraw_sample", `{"submission_id":5}`, want{"WithdrawSample", true, eq(int64(5))}},
 	}
 	for _, c := range cases {
 		t.Run(c.tool, func(t *testing.T) {
@@ -506,6 +539,50 @@ func TestCreatePlanDispatch(t *testing.T) {
 		if !e.Data.IsError || e.Data.Result["error_code"] != "PARAM_INVALID" || len(be.s.calls) != 0 {
 			t.Fatalf("%s 应 PARAM_INVALID 且不建方案：%+v", name, e.Data)
 		}
+	}
+}
+
+// 换声音：annotations.audio=revoice + annotations.voice 原样带到内核；update_plan 里 voice 整体替换，audio 改成别的方式时清掉旧音色。
+func TestRevoiceAnnotationsDispatch(t *testing.T) {
+	be := newBackend()
+	call, _ := chain(t, be)
+	args := `{"analysis_no":"VRA1","annotations":{"audio":"revoice","voice":{"voiceId":5,"speed":1.1,"lines":[{"index":2,"text":"全场五折"}]}}}`
+	if _, e := do(t, call, signed(body("v1", "replicate_create_plan", args), 7)); e.Data.IsError {
+		t.Fatalf("%+v", e.Data)
+	}
+	a := be.s.got["CreatePlan"].(core.PlanReq).Annotations
+	if a.Audio != "revoice" || a.Voice == nil || a.Voice.VoiceID != 5 || a.Voice.Speed != 1.1 || len(a.Voice.Lines) != 1 || a.Voice.Lines[0].Text != "全场五折" {
+		t.Fatalf("换声音设置没原样带过去：%+v", a)
+	}
+	// 没有 voiceId 的 voice 被入参校验拦下
+	be = newBackend()
+	call, _ = chain(t, be)
+	_, e := do(t, call, signed(body("v2", "replicate_create_plan", `{"analysis_no":"VRA1","annotations":{"audio":"revoice","voice":{"speed":1}}}`), 7))
+	if !e.Data.IsError || e.Data.Result["error_code"] != "PARAM_INVALID" || len(be.s.calls) != 0 {
+		t.Fatalf("缺 voiceId 应 PARAM_INVALID：%+v", e.Data)
+	}
+	// update：只改语速以外的维度时沿用 voice；audio 改成 keep 且没给 voice → 清掉旧音色
+	cur := &core.PlanView{Annotations: &core.Annotations{Audio: "revoice", Voice: &core.VoiceEdit{VoiceID: 5}}}
+	be = newBackend()
+	be.s.curPlan = cur
+	call, _ = chain(t, be)
+	if _, e := do(t, call, signed(body("v3", "replicate_update_plan", `{"plan_no":"VRP1","annotations":{"dims":{"scene":{"mode":"describe","note":"海边"}}}}`), 7)); e.Data.IsError {
+		t.Fatalf("%+v", e.Data)
+	}
+	if r := be.s.patchReq.Annotations; r.Voice == nil || r.Voice.VoiceID != 5 || r.Audio != "revoice" {
+		t.Fatalf("没给 voice / audio 应沿用：%+v", r)
+	}
+	be = newBackend()
+	be.s.curPlan = cur
+	call, _ = chain(t, be)
+	if _, e := do(t, call, signed(body("v4", "replicate_update_plan", `{"plan_no":"VRP1","annotations":{"audio":"keep"}}`), 7)); e.Data.IsError {
+		t.Fatalf("%+v", e.Data)
+	}
+	if r := be.s.patchReq.Annotations; r.Voice != nil || r.Audio != "keep" {
+		t.Fatalf("改成保留原声应清掉音色：%+v", r)
+	}
+	if cur.Annotations.Voice == nil {
+		t.Fatal("不得改写 GetPlan 返回的原对象")
 	}
 }
 
@@ -791,12 +868,13 @@ func TestPublishCopyExportDispatch(t *testing.T) {
 			t.Fatalf("%s 应 PARAM_INVALID：%+v", name, e.Data)
 		}
 	}
-	for reason, tool := range map[string]string{"JOB_NOT_DELIVERED": "replicate_export_ratio", "COPY_QUOTA_EXHAUSTED": "replicate_publish_copy"} {
+	for reason, tool := range map[string]string{"JOB_NOT_DELIVERED": "replicate_export_ratio", "COPY_QUOTA_EXHAUSTED": "replicate_publish_copy",
+		"AUDIO_NOT_FAILED": "replicate_retry_audio", "AUDIO_RETRY_LIMIT": "replicate_retry_audio"} {
 		be := newBackend()
 		be.s.err = xerr.NewReason(xerr.Conflict, reason, "中文提示")
 		call, _ := chain(t, be)
 		args := `{"job_id":1,"ratio":"1:1"}`
-		if tool == "replicate_publish_copy" {
+		if tool == "replicate_publish_copy" || tool == "replicate_retry_audio" {
 			args = `{"job_id":1}`
 		}
 		_, e := do(t, call, signed(body("n-"+reason, tool, args), 7))
@@ -840,5 +918,24 @@ func TestCallOriginThreadedToConfirm(t *testing.T) {
 	b := `{"call_id":"kb","tool":"replicate_confirm_batch","arguments":{"plan_no":"VRP1","variants":[{"ref_images_from":["图1"],"ref_images":["mr://a"]}],"expected_points":130},"origin":{"kind":"agent","conversation_id":"c-1"}}`
 	if rec, e := do(t, call, signed(b, 42)); e.Data.IsError || len(be.s.origins) != 1 || be.s.origins[0] != "agent|c-1|" {
 		t.Fatalf("批量确认来源：%s origins=%v", rec.Body.String(), be.s.origins)
+	}
+}
+
+// 分享 / 撤回：重放标 replayed，且都不是扣点工具（不要求 expected_points）；portrait_consent 必须是布尔值。
+func TestShareWithdrawFlags(t *testing.T) {
+	be := newBackend()
+	be.s.copyReplay = true
+	call, _ := chain(t, be)
+	_, e := do(t, call, signed(body("s1", "replicate_share_sample", `{"job_id":42}`), 7))
+	if e.Data.IsError || !e.Data.Replayed {
+		t.Fatalf("分享重放应标 replayed：%+v", e.Data)
+	}
+	_, e = do(t, call, signed(body("s2", "replicate_withdraw_sample", `{"submission_id":5}`), 7))
+	if e.Data.IsError || !e.Data.Replayed {
+		t.Fatalf("撤回重放应标 replayed：%+v", e.Data)
+	}
+	_, e = do(t, call, signed(body("s3", "replicate_share_sample", `{"job_id":42,"portrait_consent":"yes"}`), 7))
+	if !e.Data.IsError {
+		t.Fatalf("portrait_consent 不是布尔值应被拒：%+v", e.Data)
 	}
 }

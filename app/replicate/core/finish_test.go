@@ -22,6 +22,22 @@ type fakeComposer struct {
 	drops    []bool
 	muxes    []muxCall
 	muxErr   error // 非空：贴回一律失败
+	// 换声音：铺音轨的调用记录与失败注入
+	timelines   []timelineCall
+	timelineErr error
+}
+
+type timelineCall struct {
+	clips []mediasvc.AudioClip
+	total float64
+}
+
+func (c *fakeComposer) AudioTimeline(_ context.Context, clips []mediasvc.AudioClip, total float64, idem string) (mediasvc.Resource, error) {
+	if c.timelineErr != nil {
+		return mediasvc.Resource{}, c.timelineErr
+	}
+	c.timelines = append(c.timelines, timelineCall{clips, total})
+	return mediasvc.Resource{RID: fmt.Sprintf("track-%d", len(c.timelines))}, nil
 }
 
 type muxCall struct {

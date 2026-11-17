@@ -8,6 +8,7 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -124,6 +125,20 @@ type Config struct {
 	BadOutputOff         bool
 	BadOutputBlackRatio  float64
 	BadOutputFreezeRatio float64
+
+	// MotionOff 关闭「接缝挪到画面最静处」（分析时不再算运动量曲线；已有曲线的分析不受影响；Replicate.Motion.Enabled，默认开）
+	MotionOff bool
+
+	// 换声音 / 改台词（voice.go，CONTRACT §P；Replicate.Voice.*，运行时 afv_system_config.replicate.voice.*）：VoiceOff 关闭；
+	// VoiceModelGroup 合成配音的网关 tts.synthesize 模型组；VoiceDailyQuota 每人每个自然日（Asia/Shanghai）条数（确认时占用，默认 10）；
+	// VoiceWait 每句等网关的上限（默认 60 秒）；VoiceConcurrency 逐句合成的并发（默认 4）。
+	VoiceOff         bool
+	VoiceModelGroup  string
+	VoiceDailyQuota  int
+	VoiceWait        time.Duration
+	VoiceConcurrency int
+	// TrendingMinUsers 灵感推荐的 k-匿名阈值：某个改法组合的去重用户数 < 它不展示（默认 20，CONTRACT §S；运行时 replicate.trending.min_users 覆盖）。
+	TrendingMinUsers int
 }
 
 func (c Config) withDefaults() Config {
@@ -248,6 +263,21 @@ func (c Config) withDefaults() Config {
 	if c.BadOutputFreezeRatio <= 0 || c.BadOutputFreezeRatio > 1 {
 		c.BadOutputFreezeRatio = 0.8
 	}
+	if c.VoiceModelGroup == "" {
+		c.VoiceModelGroup = "tts.minimax-speech-2.8-hd"
+	}
+	if c.VoiceDailyQuota <= 0 {
+		c.VoiceDailyQuota = 10
+	}
+	if c.VoiceWait <= 0 {
+		c.VoiceWait = 60 * time.Second
+	}
+	if c.TrendingMinUsers <= 0 {
+		c.TrendingMinUsers = 20
+	}
+	if c.VoiceConcurrency <= 0 {
+		c.VoiceConcurrency = 4
+	}
 	c.AnalysisRules = c.AnalysisRules.Normalize()
 	return c
 }
@@ -324,6 +354,11 @@ type Media interface {
 	Grid(ctx context.Context, rids []string, p mediasvc.GridParams, idem string) (mediasvc.Resource, error)
 }
 
+// MotionProfiler 媒体服务的画面运动量曲线算子（*mediasvc.Client 满足）。独立成可选接口：没实现 / 调用失败 = 分段退回原规则（fail-open）。
+type MotionProfiler interface {
+	VideoMotionProfile(ctx context.Context, rid string, fps, fromS, toS float64) (mediasvc.MotionProfile, error)
+}
+
 // Cutter 按区间切出一段原片（重编码保精度），作为该段的参考视频。
 //
 // 占位：媒体服务目前只有 /video/trim（只截前 N 秒），没有区间切段 /video/cut（DESIGN §5.10 新算子）。
@@ -366,6 +401,8 @@ type Store interface {
 	CreateJob(ctx context.Context, j *model.Job, build JobBuilder) (got *model.Job, created bool, err error)
 	GetJob(ctx context.Context, id int64) (*model.Job, error)
 	GetJobByRequest(ctx context.Context, userID int64, requestID string) (*model.Job, error)
+	// SwapResultDoc 整份结果文档 CAS：WHERE id=? AND result_document=old，成功才换成 new（免费重做声音的认领 / 落结果用，audio_retry.go）。
+	SwapResultDoc(ctx context.Context, id int64, old, new json.RawMessage) (bool, error)
 	// TransitJob CAS：WHERE id=? AND status IN (from...)。
 	TransitJob(ctx context.Context, id int64, from []int8, to int8, set map[string]any) (bool, error)
 	// ClaimContinue 待继续 → 继续中：WHERE id=? AND status=7 AND continue_attempt=?，continue_attempt+1。

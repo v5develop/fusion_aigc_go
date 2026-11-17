@@ -40,6 +40,7 @@ func Register(server *rest.Server, c *svc.ServiceContext) {
 	))
 	registerSwitch(server, c)
 	registerSamples(server, c, h)
+	registerShares(server, c, h)
 	registerSampleMedia(server, c, h)
 }
 

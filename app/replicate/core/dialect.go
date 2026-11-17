@@ -123,8 +123,12 @@ var refHint = map[string]string{"model": "只参考脸、发型与体态，服�
 	"scene": "只参考场景的布局、装修与门头"}
 
 func buildPromptView(d *Dialect, an *AnalysisResult, ann Annotations, refCount int, seg segment.Segment, total int) promptView {
+	audio := ann.Audio
+	if audio == AudioRevoice {
+		audio = AudioKeep // 换声音：模型不生成新的声音（成片的声音由配音替换），提示词与保留原声同口径
+	}
 	v := promptView{Multi: total > 1, Index: seg.Index, Total: total, Duration: seg.GenDuration, GenT0: seg.GenT0, GenT1: seg.GenT1,
-		Video: d.VideoTag, Audio: ann.Audio}
+		Video: d.VideoTag, Audio: audio}
 	var keepNames, changed []string
 	subjNo := 1
 	for _, k := range an.DimOrder {

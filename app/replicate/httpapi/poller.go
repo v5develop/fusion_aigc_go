@@ -108,6 +108,7 @@ func (p *Poller) tick() {
 	}
 	svc.TickGuarded(p.ctx, p.batch, p.guard)
 	svc.TickDeliveries(p.ctx, p.batch) // 入素材库（发件箱各自 CAS 认领，多实例安全）
+	svc.TickTrending(p.ctx)            // 灵感推荐预计算（缓存按小时过期，每轮只做一次廉价的过期检查）
 	if p.taskSync != nil && time.Since(p.lastSync) >= taskSyncEvery {
 		p.lastSync = time.Now()
 		_ = p.taskSync(p.ctx) // 失败已在 taskcenter 里记日志，下一轮重来

@@ -165,7 +165,7 @@ type CostBlock struct {
 
 var modeLabel = map[string]string{ModeKeep: "不改", ModeReplace: "换成我的图", ModeDescribe: "按我写的改"}
 
-var audioLabel = map[string]string{AudioRegenerate: "重新配乐", AudioKeep: "保留原声", AudioMute: "无声"}
+var audioLabel = map[string]string{AudioRegenerate: "重新配乐", AudioKeep: "保留原声", AudioMute: "无声", AudioRevoice: "换声音"}
 
 // PlanViewExpired 视图派生的方案状态：READY 但已过 expires_at（库里不写这个值）。
 const PlanViewExpired = "EXPIRED"
@@ -227,6 +227,9 @@ func (s *Service) planView(p *model.Plan, an *AnalysisResult, q QuoteSnapshot, a
 	if ann.Audio == AudioKeep {
 		v.Risks = append(v.Risks, "保留原视频的声音（口型可能对不上）")
 	}
+	if ann.Audio == AudioRevoice {
+		v.Risks = append(v.Risks, voiceLipRisk)
+	}
 	if len(an.OnScreenText) > 0 {
 		v.Risks = append(v.Risks, "画面文字将在生成后由系统叠加，不会交给 AI 画")
 	}
@@ -246,7 +249,7 @@ func (s *Service) planView(p *model.Plan, an *AnalysisResult, q QuoteSnapshot, a
 		v.Timeline.Single, v.Timeline.Title = true, "整条一次生成，没有拼接"
 	} else {
 		v.Timeline.Title = fmt.Sprintf("这条视频会拆成 %d 段分别生成，再拼成一条", n)
-		v.Timeline.Explain = fmt.Sprintf("这条视频 %d 秒。AI 单次最长生成 %d 秒，所以拆成 %d 段。拆的位置选在镜头切换或说话停顿的地方，看起来自然",
+		v.Timeline.Explain = fmt.Sprintf("这条视频 %d 秒。AI 单次最长生成 %d 秒，所以拆成 %d 段。拆的位置选在镜头切换、说话停顿或画面较静的地方，看起来自然",
 			int(math.Round(dur)), lim.SegCapSec, n)
 		v.Timeline.SeamTip = fmt.Sprintf("这里是两段的拼接处，会多留 %.1f 秒让画面接得更顺", lim.OverlapSec)
 	}

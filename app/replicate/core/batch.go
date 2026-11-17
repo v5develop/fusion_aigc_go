@@ -440,6 +440,12 @@ func (s *Service) ConfirmBatch(ctx context.Context, req BatchConfirmReq) (*Batch
 	if req.ExpectedPoints != total {
 		return nil, priceChanged(req.ExpectedPoints, total)
 	}
+	// 换声音：每条任务各占一条当日额度，整批放不下就整批不做（VOICE_QUOTA_EXHAUSTED，此时还没动钱）；音色等设置原样继承给每一条
+	if bp.ann.Audio == AudioRevoice && bp.ann.Voice != nil && s.voices != nil {
+		if err := s.voiceQuotaPrecheck(ctx, req.UserID, n); err != nil {
+			return nil, err
+		}
+	}
 	// 派生全部子方案（还没动钱：参考图拒收 / 缺项 / 报价失败在这里就挡掉）
 	children := make([]*model.Plan, n)
 	for i, v := range req.Variants {

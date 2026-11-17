@@ -143,6 +143,23 @@ func MustBuild(c Conf, conn sqlx.SqlConn, opts ...BuildOption) *Module {
 	if c.Copy.WaitSeconds > 0 {
 		base.CopyWait = time.Duration(min(c.Copy.WaitSeconds, 120)) * time.Second
 	}
+	base.MotionOff = !c.Motion.Enabled
+	base.VoiceOff = !c.Voice.Enabled
+	if v := strings.TrimSpace(c.Voice.ModelGroup); v != "" {
+		base.VoiceModelGroup = v
+	}
+	if c.Voice.DailyQuota > 0 {
+		base.VoiceDailyQuota = c.Voice.DailyQuota
+	}
+	if c.Voice.WaitSeconds > 0 {
+		base.VoiceWait = time.Duration(min(c.Voice.WaitSeconds, 120)) * time.Second
+	}
+	if c.Voice.Concurrency > 0 {
+		base.VoiceConcurrency = min(c.Voice.Concurrency, 8)
+	}
+	if c.Trending.MinUsers > 0 {
+		base.TrendingMinUsers = c.Trending.MinUsers
+	}
 	base.DecisionReminderOff = !c.DecisionReminder.Enabled
 	if c.DecisionReminder.LeadHours > 0 {
 		base.DecisionReminderLead = time.Duration(min(c.DecisionReminder.LeadHours, 168)) * time.Hour
@@ -152,6 +169,8 @@ func MustBuild(c Conf, conn sqlx.SqlConn, opts ...BuildOption) *Module {
 	base.Models, base.DefaultModel = c.Models, strings.TrimSpace(c.DefaultModel)
 	// ETA 历史校准：进程内一份（运行参数变了重建 Service 也共用同一份缓存），按历史成功 job 的每段耗时分桶出 P50 / P90
 	etaCal := core.NewEtaCalibrator(store, core.EtaCalibration{})
+	// 灵感推荐的预计算缓存：同样进程内一份，运行参数变了重建 Service 也共用（否则每次重建都要重算一遍）
+	trendCache := core.NewTrendingCache(0)
 	build := func(cfg core.Config, longform bool) *core.Service {
 		var opts []core.Option
 		if gw != nil { // 别把 nil 指针装进接口
@@ -169,7 +188,7 @@ func MustBuild(c Conf, conn sqlx.SqlConn, opts ...BuildOption) *Module {
 				opts = append(opts, core.WithDelivery(store, media, assets, core.DeliveryConfig{EntryCode: c.Asset.EntryCode}))
 			}
 		}
-		opts = append(opts, core.WithModeration(store, store, words), core.WithNotifier(notifier), core.WithLibrary(store), core.WithPreview(store), core.WithFunnel(store), core.WithBatch(store), core.WithPublishCopy(store), core.WithExport(store), core.WithEtaCalibrator(etaCal),
+		opts = append(opts, core.WithModeration(store, store, words), core.WithNotifier(notifier), core.WithLibrary(store), core.WithPreview(store), core.WithFunnel(store), core.WithBatch(store), core.WithPublishCopy(store), core.WithExport(store), core.WithVoice(store, newVoiceCatalog(conn)), core.WithTrending(store, trendCache), core.WithShare(store), core.WithEtaCalibrator(etaCal),
 			core.WithWorkspace(func(ctx context.Context, uid int64) (int64, error) { return workspace.PersonalID(ctx, conn, uid) }))
 		return core.New(cfg, store, ledger, opts...)
 	}

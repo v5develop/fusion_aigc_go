@@ -327,6 +327,24 @@ func (m *memStore) TransitJob(_ context.Context, id int64, from []int8, to int8,
 	return false, nil
 }
 
+func (m *memStore) SwapResultDoc(_ context.Context, id int64, old, new json.RawMessage) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, x := range m.jobs {
+		if x.ID != id {
+			continue
+		}
+		var a, b any
+		if json.Unmarshal(x.ResultDocument, &a) != nil || json.Unmarshal(old, &b) != nil || !reflect.DeepEqual(a, b) {
+			return false, nil
+		}
+		x.ResultDocument = append(json.RawMessage(nil), new...)
+		x.UpdatedAt = m.now()
+		return true, nil
+	}
+	return false, nil
+}
+
 func (m *memStore) ClaimContinue(_ context.Context, id int64, attempt int) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -864,6 +882,8 @@ type fakeGW struct {
 	submitErr error
 	analysis  map[string]json.RawMessage // asr / vision 结果（按 operation）
 	modGate   chan struct{}              // 非 nil：审核调用（moderation.*）的 Get 阻塞到它关闭（模拟审核慢）
+	// ttsHook 非 nil：tts.synthesize 调用由它决定结果（rid、时长毫秒、是否失败）
+	ttsHook func(req aigateway.CallRequest) (rid string, durMs int64, fail bool)
 }
 
 func newGW() *fakeGW {
@@ -914,6 +934,15 @@ func (g *fakeGW) Get(ctx context.Context, id string, _ time.Duration) (*aigatewa
 }
 
 func (g *fakeGW) finish(c *aigateway.Call) {
+	if c.Operation == "tts.synthesize" && g.ttsHook != nil {
+		rid, dur, fail := g.ttsHook(g.reqs[c.IdempotencyKey])
+		if fail {
+			c.Status, c.Failure = aigateway.StatusFailed, &aigateway.Failure{Class: "VENDOR_FAILED", Code: "x"}
+			return
+		}
+		c.Status, c.Result = aigateway.StatusSucceeded, &aigateway.Result{Operation: "tts.synthesize", Audio: &aigateway.MediaOut{Rid: rid, DurationMs: dur}}
+		return
+	}
 	if raw, ok := g.analysis[c.Operation]; ok {
 		var r aigateway.Result
 		_ = json.Unmarshal(raw, &r)
@@ -986,6 +1015,17 @@ type fakeMedia struct {
 	// inspect 坏片检测的脚本：nil = 一律正常；inspected 记录被检查过的 rid
 	inspect   func(rid string) (mediasvc.VideoInspect, error)
 	inspected []string
+	// motion 运动量曲线的脚本（CONTRACT §R）：nil = 不实现该能力的行为由 noMotionMedia 包装；motionCalls 记录调用次数
+	motion      func(rid string) (mediasvc.MotionProfile, error)
+	motionCalls int
+}
+
+func (m *fakeMedia) VideoMotionProfile(_ context.Context, rid string, fps, from, to float64) (mediasvc.MotionProfile, error) {
+	m.motionCalls++
+	if m.motion != nil {
+		return m.motion(rid)
+	}
+	return mediasvc.MotionProfile{}, errors.New("motion 未脚本化")
 }
 
 // InspectVideo 默认返回「正常片」（可解码、无黑屏 / 定格）。

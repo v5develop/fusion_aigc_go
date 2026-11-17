@@ -48,6 +48,12 @@ func ResolveAnalysisWith(a *model.Analysis, cfg analysisfix.Config) (*AnalysisRe
 	if err := json.Unmarshal(a.Result, &r); err != nil {
 		return nil, err
 	}
+	if len(a.State) > 0 {
+		var st AnalysisState
+		if json.Unmarshal(a.State, &st) == nil {
+			r.Motion = st.Motion.toSegment()
+		}
+	}
 	return &r, nil
 }
 

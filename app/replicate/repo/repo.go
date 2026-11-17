@@ -282,6 +282,12 @@ func (r *Repo) TransitJob(ctx context.Context, id int64, from []int8, to int8, s
 	})
 }
 
+// SwapResultDoc 整份结果文档 CAS（JSON 列按值比较：CAST(? AS JSON) 与列值都规范化后比，键序 / 空白不影响）。
+func (r *Repo) SwapResultDoc(ctx context.Context, id int64, old, new json.RawMessage) (bool, error) {
+	return one(r.db.NewUpdate().Table(model.TableJob).Set("result_document = CAST(? AS JSON)", string(new)).Set("tc_updated_at = NOW(3)").
+		Where("id = ? AND result_document = CAST(? AS JSON)", id, string(old)).Exec(ctx))
+}
+
 // tcNow 任务中心同步水位的取值（库时钟）。只在业务状态写路径设置；租约 / next_run_at / 提交心跳不碰。
 var tcNow = bun.Safe("NOW(3)")
 

@@ -85,7 +85,7 @@ func TestKeepAudioNotAppliedForOtherModes(t *testing.T) {
 	}
 }
 
-// 贴回失败：回落到未贴回的成片（交付不丢、仍带生成的声音，不是静音片），结果视图说明原声没能保留。
+// 贴回失败：回落到未贴回的拼接成片（交付不丢；keep 的段视频本身没有音轨，所以这条成片是静音的），结果视图如实说明并提示可免费重做声音。
 func TestKeepAudioMuxFailureFallsBack(t *testing.T) {
 	e := newEnv(t, true)
 	fc := withComposer(e, "")
@@ -94,11 +94,11 @@ func TestKeepAudioMuxFailureFallsBack(t *testing.T) {
 	if jv.Status != "succeeded" || jv.Result == nil || jv.Result.Status != ResultReady || jv.Result.VideoRid != "final-1" {
 		t.Fatalf("贴回失败应回落到拼接成片：%s %+v", jv.Status, jv.Result)
 	}
-	if jv.Result.Audio != AudioResultFailed || !strings.Contains(jv.Result.AudioNote, "没能保留") {
-		t.Fatalf("应告诉用户原声没保留：%+v", jv.Result)
+	if jv.Result.Audio != AudioResultFailed || jv.Result.AudioNote != audioFailedNote || !jv.Result.CanRetryAudio {
+		t.Fatalf("应如实告诉用户成片没有声音、可免费重做：%+v", jv.Result)
 	}
 	if len(fc.drops) != 1 || fc.drops[0] || len(fc.muxes) != 0 {
-		t.Fatalf("回落的拼接成片必须带生成声音：drops=%v muxes=%d", fc.drops, len(fc.muxes))
+		t.Fatalf("回落的拼接成片不去声、也没贴回：drops=%v muxes=%d", fc.drops, len(fc.muxes))
 	}
 	e.assertMoney(jv.JobID)
 }

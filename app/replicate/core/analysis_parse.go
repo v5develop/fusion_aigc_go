@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"aigc-local-life/app/replicate/rules/analysisfix"
+	"aigc-local-life/app/replicate/rules/segment"
 )
 
 // DimKeys 十一维（与 Java VideoCloneDims.KEYS、v4 DIMS 同一套键，DESIGN §6）。
@@ -46,6 +47,8 @@ type AnalysisResult struct {
 	// Corrections 被纠偏的项（后台查看；用户视图里去掉）。都是读取时现算，不进分析缓存键。
 	RulesVersion string                   `json:"rulesVersion,omitempty"`
 	Corrections  []analysisfix.Correction `json:"corrections,omitempty"`
+	// Motion 画面运动量曲线（分段选「画面最静处」用，CONTRACT §R）：读取时由分析状态带上，不落结果、不进视图 / 缓存 / 方案指纹以外的任何地方。
+	Motion *segment.Motion `json:"-"`
 	// Outfits 服装套数摘要（读取时由 userAnalysis 现算；落库的原始结果为空）。见 outfits.go。
 	Outfits *OutfitsView `json:"outfits,omitempty"`
 }
@@ -158,6 +161,7 @@ func normalizeAnalysis(content string, st *AnalysisState, cfg *analysisfix.Confi
 	if p := st.Probe; p != nil {
 		d, r.DurationS, r.Width, r.Height, r.HasAudio = p.DurationS, p.DurationS, p.Width, p.Height, p.HasAudio
 	}
+	r.Motion = st.Motion.toSegment()
 	r.AudioKind = oneOf(in.AudioKind, "silent", "speech", "music", "mixed", "silent")
 	if !r.HasAudio {
 		r.AudioKind = "silent"

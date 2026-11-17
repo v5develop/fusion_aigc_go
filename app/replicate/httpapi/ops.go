@@ -291,6 +291,16 @@ func (sc *Scope) Models(ctx context.Context, req core.ModelsReq) (*core.ModelLis
 	return sc.s.ListModels(ctx, req)
 }
 
+// ListVoices 换声音的音色列表（CONTRACT §P，只读）。gender: female / male；style: 风格关键词。
+func (sc *Scope) ListVoices(ctx context.Context, gender, style string) (*core.VoiceList, error) {
+	return sc.s.ListVoices(ctx, core.VoiceListReq{Gender: gender, Style: style})
+}
+
+// Trending 灵感推荐（CONTRACT §S，只读）：本周同行业复刻最多的改法。industry 空 = 取用户在广场设置的行业偏好，再缺省全站。
+func (sc *Scope) Trending(ctx context.Context, industry string) (*core.TrendingView, error) {
+	return sc.s.Trending(ctx, sc.uid, industry)
+}
+
 // RedoArgs 单段重做的入参。
 type RedoArgs struct {
 	JobID          int64
@@ -469,6 +479,31 @@ func (sc *Scope) ExportRatio(ctx context.Context, jobID int64, ratio, mode strin
 		return nil, err
 	}
 	return sc.s.ExportRatio(sc.ctx(ctx), sc.uid, jobID, ratio, mode)
+}
+
+// RetryAudio 免费重做声音（CONTRACT §Q，不扣点、无同意卡；只对 result.audio=failed 的已交付成片可用，每成片最多 3 次，同 call_id 重放不重做）。写入口。
+func (sc *Scope) RetryAudio(ctx context.Context, jobID int64, callID string) (*core.AudioRetryView, error) {
+	if err := checkID(jobID, "job_id"); err != nil {
+		return nil, err
+	}
+	return sc.s.RetryAudio(sc.ctx(ctx), sc.uid, jobID, callID)
+}
+
+// ShareSample 把完整成片分享成公开示例（CONTRACT §T，免费、不动账；建待审核投稿，一成片一条）。portraitConsent = 用户已勾选肖像授权
+// （方案替换了人物时必须为 true）。写入口。
+func (sc *Scope) ShareSample(ctx context.Context, jobID int64, portraitConsent bool) (*core.ShareView, error) {
+	if err := checkID(jobID, "job_id"); err != nil {
+		return nil, err
+	}
+	return sc.s.ShareSample(sc.ctx(ctx), sc.uid, jobID, portraitConsent)
+}
+
+// WithdrawSample 撤回自己分享的示例（CONTRACT §T）：待审核的作废，已上线的示例立即下架。写入口。
+func (sc *Scope) WithdrawSample(ctx context.Context, submissionID int64) (*core.WithdrawView, error) {
+	if err := checkID(submissionID, "submission_id"); err != nil {
+		return nil, err
+	}
+	return sc.s.WithdrawSample(sc.ctx(ctx), sc.uid, submissionID)
 }
 
 // Exports 当前成片的已导出清单并现签新地址（只读，不看总开关；GET /jobs/:id/exports）。

@@ -365,6 +365,7 @@ func (s *Service) collectModInputs(ctx context.Context, p *model.Plan) (modInput
 			in.texts = append(in.texts, v)
 		}
 	}
+	in.texts = append(in.texts, voiceTexts(ann)...) // 换声音里用户改写的台词（CONTRACT §P）
 	var refs []RefImage
 	_ = json.Unmarshal(p.Refs, &refs)
 	for _, r := range refs {

@@ -2,37 +2,44 @@ package agenttool
 
 // 工具名（内部入口按它分派；Java 目录 AgentToolCatalogue 登记同一批名字，启动探测校验两边一致）。
 const (
-	ToolLimits       = "replicate_limits"
-	ToolAnalyze      = "replicate_analyze"
-	ToolGetAnalysis  = "replicate_get_analysis"
-	ToolListModels   = "replicate_list_models"
-	ToolListSamples  = "replicate_list_samples"
-	ToolTrySample    = "replicate_try_sample"
-	ToolCreatePlan   = "replicate_create_plan"
-	ToolUpdatePlan   = "replicate_update_plan"
-	ToolGetPlan      = "replicate_get_plan"
-	ToolQuote        = "replicate_quote"
-	ToolConfirm      = "replicate_confirm"
-	ToolGetJob       = "replicate_get_job"
-	ToolListJobs     = "replicate_list_jobs"
-	ToolContinue     = "replicate_continue"
-	ToolRedoSegment  = "replicate_redo_segment"
-	ToolStop         = "replicate_stop"
-	ToolCancelRest   = "replicate_cancel_rest"
-	ToolPreviewFrame = "replicate_preview_frame"
-	ToolQuoteBatch   = "replicate_quote_batch"
-	ToolConfirmBatch = "replicate_confirm_batch"
-	ToolGetBatch     = "replicate_get_batch"
-	ToolPublishCopy  = "replicate_publish_copy"
-	ToolExportRatio  = "replicate_export_ratio"
-	NoteMaxRunes     = 200
-	maxRefImages     = 9
-	maxOutfits       = 20 // 一项逐套换装最多列几套
-	maxBatchVariants = 10
-	maxTexts         = 4
-	maxTextRunes     = 30
-	maxDimNoteRunes  = 500
-	maxAttachOrdinal = 32
+	ToolLimits         = "replicate_limits"
+	ToolAnalyze        = "replicate_analyze"
+	ToolGetAnalysis    = "replicate_get_analysis"
+	ToolListModels     = "replicate_list_models"
+	ToolListSamples    = "replicate_list_samples"
+	ToolTrySample      = "replicate_try_sample"
+	ToolCreatePlan     = "replicate_create_plan"
+	ToolUpdatePlan     = "replicate_update_plan"
+	ToolGetPlan        = "replicate_get_plan"
+	ToolQuote          = "replicate_quote"
+	ToolConfirm        = "replicate_confirm"
+	ToolGetJob         = "replicate_get_job"
+	ToolListJobs       = "replicate_list_jobs"
+	ToolContinue       = "replicate_continue"
+	ToolRedoSegment    = "replicate_redo_segment"
+	ToolStop           = "replicate_stop"
+	ToolCancelRest     = "replicate_cancel_rest"
+	ToolPreviewFrame   = "replicate_preview_frame"
+	ToolQuoteBatch     = "replicate_quote_batch"
+	ToolConfirmBatch   = "replicate_confirm_batch"
+	ToolGetBatch       = "replicate_get_batch"
+	ToolPublishCopy    = "replicate_publish_copy"
+	ToolExportRatio    = "replicate_export_ratio"
+	ToolListVoices     = "replicate_list_voices"
+	ToolRetryAudio     = "replicate_retry_audio"
+	ToolTrending       = "replicate_trending"
+	ToolShareSample    = "replicate_share_sample"
+	ToolWithdrawSample = "replicate_withdraw_sample"
+	NoteMaxRunes       = 200
+	maxRefImages       = 9
+	maxOutfits         = 20 // 一项逐套换装最多列几套
+	maxBatchVariants   = 10
+	maxTexts           = 4
+	maxTextRunes       = 30
+	maxVoiceLines      = 80
+	maxVoiceLineRune   = 200
+	maxDimNoteRunes    = 500
+	maxAttachOrdinal   = 32
 )
 
 // DimKeys 方案维度（与 core.DimKeys 一致，测试里对账）。
@@ -133,6 +140,19 @@ func dimEdit() Schema {
 	}, "mode")
 }
 
+// voiceSchema 换声音设置（只在 audio=revoice 时用）。
+func voiceSchema() Schema {
+	return obj("换声音设置（只在 audio=revoice 时填）：音色、语速，以及要改写的台词。台词原文不会给你看，改台词由用户在表单里逐句填写，你不要自己编台词", Props{
+		"voiceId": Schema{"type": "integer", "description": "音色编号（replicate_list_voices 返回的 voiceId，不要自己编）", "minimum": 1},
+		"speed":   number("整体语速 0.5~1.5，不填 = 正常语速", 0.5, 1.5),
+		"lines": arr("逐句改台词：用户填写的改动。index 从 1 起，与分析结果 lines 的顺序一致；没列出的句沿用原片台词。每句字数不能超过该句的上限（约每秒 5 个字）",
+			obj("改一句", Props{
+				"index": integer("第几句（从 1 起）", 1, maxVoiceLines),
+				"text":  strMax("这一句改成什么（用户写的）", maxVoiceLineRune),
+			}, "index", "text"), 0, maxVoiceLines),
+	}, "voiceId")
+}
+
 func textOverlay() Schema {
 	return obj("成片上叠加的文字（店名 / 价格 / 标题）：生成后由系统叠上去，不交给 AI 画，不额外花生成点数", Props{
 		"text":  strMax("文字内容，每处最多 30 字", maxTextRunes),
@@ -153,11 +173,12 @@ func annotationsSchema(action string) Schema {
 	return obj(action+"用户想怎么改原视频。dims 的键是十一个维度："+
 		"model 人物 / garment 服装 / accessory 配饰 / product 商品 / motion 动作 / expression 表情 / line 台词 / camera 镜头 / light 光线 / scene 场景 / style 风格；"+
 		"没写的维度保持原样。要把商品 / 人物 / 服装换成用户自己的，必须给 mode=replace 并配参考图 refs；mode=describe 必须写 note。"+
-		"audio：regenerate 重新配乐（默认）/ keep 保留原声 / mute 静音。texts：成片叠字，≤4 处",
+		"audio：regenerate 重新配乐（默认）/ keep 保留原声 / mute 静音 / revoice 换个声音（用原片台词按所选音色重新配音，须配 voice；口型可能对不上，要告诉用户）。texts：成片叠字，≤4 处",
 		Props{
 			"dims":  obj("各维度的改法（只写要改的）", dims),
-			"audio": enum("声音处理", "regenerate", "keep", "mute"),
+			"audio": enum("声音处理", "regenerate", "keep", "mute", "revoice"),
 			"texts": arr("成片叠字", textOverlay(), 0, maxTexts),
+			"voice": voiceSchema(),
 		})
 }
 
@@ -178,6 +199,59 @@ func buildRegistry() []Tool {
 		return out(desc, Props{})
 	}
 	return []Tool{
+		readOnly(Tool{
+			Name:  ToolListVoices,
+			Title: "可选配音音色",
+			Description: "列出「换声音」可选的配音音色：voiceId、名称、性别、风格、试听样音。用户说「换个声音 / 配音 / 改台词」时先调它，" +
+				"先问用户要男声还是女声、什么风格（gender：female / male；style：风格关键词，都可不填）。voice.voiceId 一律取这里返回的 voiceId，不要自己编。" +
+				"换声音免费（每人每天有条数限制），口型可能对不上；方案里用 annotations.audio=revoice + annotations.voice。不扣点。",
+			Input: obj("", Props{
+				"gender": enum("性别筛选：female 女声 / male 男声；不填列全部", "female", "male"),
+				"style":  strMax("风格关键词，如 亲切、活泼；不填不筛", 32),
+			}),
+			Output: out("VoiceList：voices[{voiceId, name, gender, style, sampleUrl?}]", Props{}),
+		}),
+		readOnly(Tool{
+			Name:  ToolTrending,
+			Title: "本周热门改法",
+			Description: "给没想好改什么的用户灵感：本周同行业复刻最多的改法（近 7 天已确认方案按「改了哪几项 + 声音策略」聚合排序，最多 5 条，如「换模特 + 保留原声」）。" +
+				"用户说「不知道改什么 / 有什么推荐 / 别人都怎么改」，或刚上传视频还在拆解时可以调。industry 不填 = 取用户在广场设置的行业，再没有就看全站；" +
+				"某行业人数不够时自动回落全站（返回的 industry 为空、fallback=true）。每条有 label（给用户看的中文名）、desc、dims（改了哪几项及 replace / describe）、" +
+				"audio（非默认的声音策略）、sampleId（有同组合的示例时给，可直接 replicate_try_sample）。" +
+				"数据只有改法组合，不含任何人的参考图、备注或台词，人数不足 20 的组合不会出现，不要向用户编造具体人数。结果每小时更新一次。不扣点。",
+			Input: obj("", Props{
+				"industry": strMax("行业 code（广场的行业标识）；不填 = 用户的行业偏好，再缺省全站", 64),
+			}),
+			Output: out("TrendingView：industry、period（7d）、fallback、items[{label, desc, dims[{key,mode}], audio?, sampleId?}]", Props{}),
+		}),
+		{
+			Name:  ToolShareSample,
+			Title: "分享成片为示例",
+			Description: "把用户已经做好的完整成片分享成公开示例，投给运营审核（通过后作为示例展示，不展示账号信息，可随时撤回）。" +
+				"【免费，不扣点，不需要扣点同意卡，但必须先让用户明确授权】用户点「分享为示例」后，先出一张授权表单：「同意作为公开示例展示，可随时撤回；不展示你的账号信息」，用户确认后才调本工具。" +
+				"如果这条成片的方案替换了人物（换模特），还要用户明确勾选肖像授权，勾选后传 portrait_consent=true；这一项只有表单里用户确认过才能传 true，不要替用户勾选。" +
+				"替换了人物却没传 true 返回 PORTRAIT_CONSENT_REQUIRED（回去补授权表单，不要重试同样的参数）。" +
+				"只收完整版成片（预览版 / 部分成片返回 JOB_NOT_DELIVERED）；同一条成片只能投一次，再调用返回已有投稿（replay=true）；被运营驳回的不能再投（SHARE_REJECTED）；撤回过的可以重新投。" +
+				"返回 ShareView（submissionId、status、statusLabel、text）；submissionId 撤回时要用。通过与否由运营审核，之后可在对话里问用户进展。",
+			Input: obj("", Props{
+				"job_id":           Schema{"type": "integer", "description": "任务编号（replicate_confirm / replicate_get_job 返回的 jobId）", "minimum": 1},
+				"portrait_consent": Schema{"type": "boolean", "description": "用户已在授权表单里勾选肖像授权（方案替换了人物时必须为 true；只能在用户确认后传 true）"},
+			}, "job_id"),
+			Output:     out("ShareView：submissionId、jobId、status（pending|approved|rejected|withdrawn）、statusLabel、portraitConsent、replay、text", Props{}),
+			Idempotent: true,
+		},
+		{
+			Name:  ToolWithdrawSample,
+			Title: "撤回分享的示例",
+			Description: "撤回用户之前分享的示例：还在审核中的作废；已经上线的示例立即下架。用户说「撤回我分享的示例 / 别再展示我的视频」时调用，【免费，不扣点，不需要确认】。" +
+				"submission_id 是分享时 replicate_share_sample 返回的 submissionId（对话里找得到；找不到就如实告诉用户暂时定位不到这条投稿，不要用 replicate_share_sample 去查，它会对撤回过的成片重新投稿）。" +
+				"返回 WithdrawView（status、unpublished=示例是否刚被下架、text）；已经撤回或没通过的重复调用不报错（replay=true）。已发放过的奖励不会收回。",
+			Input: obj("", Props{
+				"submission_id": Schema{"type": "integer", "description": "投稿号（replicate_share_sample 返回的 submissionId）", "minimum": 1},
+			}, "submission_id"),
+			Output:     out("WithdrawView：submissionId、status、statusLabel、unpublished、replay、text", Props{}),
+			Idempotent: true,
+		},
 		readOnly(Tool{
 			Name:  ToolLimits,
 			Title: "复刻限制与开关",
@@ -376,6 +450,21 @@ func buildRegistry() []Tool {
 				"mode":   enum("pad = 模糊底铺满（缺省，不裁画面）/ crop = 居中裁切", "pad", "crop"),
 			}, "job_id", "ratio"),
 			Output:     out("ExportView：jobId、ratio、mode、videoUrl、urlExpiresAt、library{status,state,text}", Props{}),
+			Idempotent: true,
+		},
+		{
+			Name:  ToolRetryAudio,
+			Title: "免费重做声音",
+			Description: "成片的 result.audio=failed（保留原声贴回失败 / 换声音失败，此时成片是静音的，result.audioNote 会这么说）时，免费重做声音这一步：" +
+				"【不扣点，不需要同意卡】不重新生成画面，只在现有成片上重新贴回原声（保留原声）或重新合成配音（换声音，不再占今天的换声音条数）。" +
+				"看到 audio=failed（或 result.canRetryAudio=true）应主动告诉用户「声音这次没处理成功，可以免费重做」并询问是否重做。" +
+				"成功后成片换成带声音的新版本（会自动保存到素材库），返回 AudioRetryView（audio、changed、videoUrl、retriesLeft）。" +
+				"每条成片最多重做 3 次，用完返回 AUDIO_RETRY_LIMIT；声音没出问题返回 AUDIO_NOT_FAILED；正在重做或成片正在更新返回 IN_PROGRESS（稍后再试）。" +
+				"重做要几十秒，等它返回。只对已交付的成片可用（JOB_NOT_DELIVERED）。",
+			Input: obj("", Props{
+				"job_id": Schema{"type": "integer", "description": "任务编号（replicate_confirm / replicate_get_job 返回的 jobId）", "minimum": 1},
+			}, "job_id"),
+			Output:     out("AudioRetryView：jobId、audio（kept|revoiced|none|failed）、audioNote、changed、retriesLeft、canRetryAudio、videoUrl、urlExpiresAt、library", Props{}),
 			Idempotent: true,
 		},
 		readOnly(Tool{

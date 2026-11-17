@@ -64,6 +64,7 @@ job 的取数口径（四条各走索引的查询，内存合并按 `next_run_at
 | `NOT_REDOABLE` | job 状态不允许重做（提交中 / 待继续 / 已取消…）；该段没开始做（提交失败取消） | 这个任务现在不能重做 / 这一段没有开始做，不能重做 |
 | `SUBMIT_TIMEOUT` | 确认 / 继续 / 重做在逐段预留期间超时、被回收器接管 | 提交超时，已冻结的点数会自动退回。请重试 |
 | `MODERATION_PENDING` | 确认时方案的内容检查（后台预审）还没出结论，等了 `replicate.moderation.confirm_wait_ms`（默认 3 秒）仍没有（§8.3） | 内容检查还没完成，几秒后再点确认。（没有扣点数） |
+| `AUDIO_NOT_FAILED` / `AUDIO_RETRY_LIMIT` | `replicate_retry_audio`：成片的声音没出问题 / 这条成片免费重做声音已满 3 次（§17） | 这条成片的声音没有出问题，不需要重做 / 这条成片已经免费重做过 3 次声音了，次数用完了 |
 | `SEGMENT_NOT_PAID` | `POST /jobs/{id}/segments/{k}/save`：这一段出了片但没有确认扣费（不计费 / 已退点），不进素材库（§8.2） | 这一段没有收费，不保存到素材库，你仍可下载 |
 
 其它：余额不足 `code=3003`「点数不足，还差 N 点」；入口未配价 `code=5001`「该功能暂未配置价格，请联系客服」；多段视频在区间切段上线前 `code=7003`；
@@ -177,13 +178,14 @@ job 到「成功 / 部分成功」后由轮询器合成（钱与合成无关：�
 - 文字叠加（店名 / 价格 / 标题）：方案 `annotations.texts=[{text, kind?: shop_name|price|title|other, box?: {x,y,w,h}（0~1，缺省底部横条）, t0?, t1?, color?: #RRGGBB}]`，
   ≤4 处、每处 ≤30 字；缺项码 `TEXT_TOO_MANY TEXT_EMPTY TEXT_TOO_LONG TEXT_BOX TEXT_TIME TEXT_COLOR`（字段 `texts[n].…`）。只叠字也算「有改动」。
   拼好后走 `/video/overlay-text`；没配字体时不叠字（WARN `TEXT_NO_FONT`）。
-- 保留原声（方案 `annotations.audio=keep`，CONTRACT §L2）：拼接**不去声**（`DropAudio` 仅 `mute` 为 true；mux 算子只映射外部音轨、丢弃输入视频自带音轨，所以成功时生成的声音被替换），拼接后调
+- 保留原声（方案 `annotations.audio=keep`，CONTRACT §L2）：拼接**不去声**（`DropAudio` 仅 `mute` 为 true；mux 算子只映射外部音轨、丢弃输入视频自带音轨）。**只有 `audio=regenerate` 才让模型生成声音**（`engine.go generateRequest` 的 `generate_audio`），keep / revoice 的段视频本身没有音轨，拼接后调
   `/video/mux-audio`，用**原片对应区间的原音轨**替换成片音轨。区间 = 每个没被「不继续 / 不做剩下的段」略过的段的原片窗口 `[t0, t1]`
   （失败占位段也占它那一段时间，原声照常对应），首尾相接的相邻区间合并成一段，按成片时间轴排列；成片比原片长的部分静音补齐，不循环。
   单段且无叠字时同样贴回（原本直接用段视频，现在多一次 mux）。贴回发生在叠字之前。`regenerate` 维持现状，`mute` 维持去声。
-  **失败不丢交付**：贴回出错（媒体服务故障 / 没装配贴回算子 / 区间为空等）→ 回落到未贴回的拼接成片（仍带模型生成的声音，不会是静音片），日志 `判据=keep_audio_mux_failed`，
-  结果视图 `audio=failed` 并带 `audioNote`；原片本身没有音轨（`audio.no_audio_stream`）不算故障，`audio=none`。
-- `result`：`{status: ready|retry|failed|unavailable, kind: full|preview|partial, videoRid, videoUrl, coverRid, coverUrl, missing[], text, audio?, audioNote?}`（`audio` 只在方案选了保留原声时有值：`kept` 已贴回 / `failed` 贴回失败、成片没有原声 / `none` 原片本身没有声音；`failed` / `none` 时 `audioNote` 是给用户的一句话，add-only）；合成失败自动重试 3 次后 `failed`（只交付逐段视频）；
+  **失败不丢交付，但成片是静音的**：贴回出错（媒体服务故障 / 没装配贴回算子 / 区间为空等）→ 回落到未贴回的拼接成片（段视频没有音轨，所以**没有声音**），日志 `判据=keep_audio_mux_failed`，
+  结果视图 `audio=failed`、`canRetryAudio=true` 并带 `audioNote`（「声音没处理成功，成片暂时没有声音；可以免费重做声音（不重新生成画面）」，换声音失败同一句）；
+  免费重做见 §17。原片本身没有音轨（`audio.no_audio_stream`）不算故障，`audio=none`。
+- `result`：`{status: ready|retry|failed|unavailable, kind: full|preview|partial, videoRid, videoUrl, coverRid, coverUrl, missing[], text, audio?, audioNote?, canRetryAudio?}`（`audio` 只在方案选了保留原声 / 换声音时有值：`kept` 已贴回 / `revoiced` 已换声 / `failed` 处理失败、成片是静音的 / `none` 原片本身没有声音；`failed` / `none` 时 `audioNote` 是给用户的一句话；`canRetryAudio` = 失败且还有免费重做次数，add-only）；合成失败自动重试 3 次后 `failed`（只交付逐段视频）；
   没配媒体服务为 `unavailable`。缺段（没成功，且不是用户不继续 / 到期）一律占位，不静默省略。
 
 段的精修字段（`segments[]`，只增不改）：
@@ -677,7 +679,9 @@ Go 网关的登录态只解析出 `userId`（共用会话的 `currentWorkspaceId
 | `segment_save` | 手动保存单段到素材库（新入队才记） | `SaveSegment` |
 | `redo` / `refine` | 失败段重做 / 已成功段带备注精修（按幂等键去重） | `Redo` |
 | `bad_output` | 坏片判定 | `checkBadOutput` |
+| `retry_audio` | 免费重做声音（每次真正重做记一次，成功失败都算；同 call_id 重放不记） | `RetryAudio` |
 | `publish_copy` / `export_ratio` | 生成发布文案（每成片每平台首次）/ 多比例导出（每成片每比例每模式首次；回放与同比例返回成片本身不记） | `PublishCopy` / `ExportRatio` |
+| `share_sample` / `withdraw_sample` | 成片分享为示例（建待审核投稿；一成片一次，撤回后重新投不再记）/ 撤回投稿（一投稿一次） | `ShareSample` / `WithdrawSample` |
 | `stop` / `cancel_rest` / `decision_timeout` | 决策卡选择不继续 / 取消剩余段 / 24 小时未决定自动结束 | `Stop` / `CancelRest` / 到期推进 |
 
 「下载」发生在浏览器端，后端看不到，用 `segment_save` 与 `delivered` 近似。
@@ -827,3 +831,127 @@ Go 网关的登录态只解析出 `userId`（共用会话的 `currentWorkspaceId
     `replicate.decision_reminder.enabled`（bool）、`replicate.decision_reminder.lead_hours`（1~168）。
   - 迁移前已处于待继续的任务没有 `decision_remind_at`，不会被轮询器唤醒提醒（只有被其它路径推进到时才会按时间判断补发）。
   - 漏斗：不新增阶段。
+
+## 16 换声音 / 改台词（CONTRACT §P，迁移 `Go_V1.0.57__replicate_voice.sql`）
+
+用原片台词（分析结果 `result.lines` 的 `{t0, t1, text}`）按所选音色重新配音，替换成片音轨；可逐句改台词。**配音免费**（报价不变），每人每天 10 条。口型可能对不上，方案卡与同意卡都要写明。
+
+**方案标注（固定位置）**：`annotations.audio = "revoice"` + `annotations.voice = {voiceId, speed?, lines?:[{index, text}]}`
+（`voice` 只在 `audio=revoice` 时有效；未用时 JSON 不出现，`plan_hash` 与旧版一致）。`index` 从 1 起（与 `lines` 顺序一致），没列出的句沿用原片台词；
+与原句相同的改动会被丢掉；`speed` 0.5~1.5（缺省 / 1.0 = 正常语速）。PlanView 回显同一份 `annotations`，并在 `changes` 里多一项 `voice`（音色与语速）、
+改了台词再多一项 `voiceLines`，没改台词则 `kept` 里有 `voiceLines`（沿用原片）；`risks` 含「换声音后口型可能对不上」。
+
+**校验（gap 码，缺项不生成方案）**：`VOICE_AUDIO_MODE`（带了 voice 但 audio 不是 revoice）、`VOICE_MISSING`（没选音色）、`VOICE_UNKNOWN`（音色不存在 / 已停用）、
+`VOICE_UNAVAILABLE`（换声音没开放）、`VOICE_NO_LINES`（视频里没有台词，无可换的内容）、`VOICE_TOO_MANY_LINES`（> 80 句）、`VOICE_SPEED`、`VOICE_LINE_INDEX`、
+`VOICE_LINE_DUPLICATE`、`VOICE_LINE_EMPTY`、`VOICE_LINE_TOO_LONG`（每句 ≤ ceil(该句秒数 × 5) 字，提示里写明上限，不自动截断）。改写的台词与叠字 / 改法说明一起过文本审核。
+
+**音色列表**：`GET /api/v1/replicate/voices?gender=&style=`（登录可见，只读）与工具 `replicate_list_voices {gender?, style?}` 返回同样的
+`{voices:[{voiceId, name, gender, style, sampleUrl?}]}`。复用数字人音色表 `afv_digital_human_voice`（只读，只列启用且未删除的）；
+`sampleUrl` 是表里 `preview_url`（公有桶、**无签名**的试听地址，原样返回）。网关音色参数值不对外。
+
+**合成**（成片拼接完成后，在叠字之前，与「保留原声」同位置）：确认时冻结每句台词与时间窗、音色、语速、模型组（`Replicate.Voice.ModelGroup`）；
+逐句调网关 `tts.synthesize`（并发 ≤ 4，每句最多等 60 秒，幂等键由 任务 / 句号 / 模型组 / 音色 / 语速 / 文字 确定，重试 / 重新合成不重复花钱）；
+原片时间 → 成片时间按各段窗口映射（占位段照常占时间，「不继续」的段不占，起点落在没做的段里的句子不配）；每句可用时间窗 = 到下一句起点，
+且不超过原句长度 ×1.25 + 0.5 秒；句子比窗长则语速上调（至多 ×1.3）重合成一次，仍超出则保留并由时间线截掉尾巴（`result.audioNote` 说明、`ResultDoc.voiceTrimmed` 记句号、
+warning `VOICE_LINE_TRUNCATED:<句号>`）。音轨用媒体服务 `audio/timeline`（新增可选 `max_seconds`，见 media-service.md）铺好，再用 `video/mux-audio`（音轨 rid 当 audio、区间 `[0,总时长]`）替换成片音轨。
+**任何一步失败都回落到未换声的成片（段视频没有音轨，所以是静音的）**，`result.audio="failed"` + `audioNote`（如实说没有声音、可免费重做），退回额度，不拦交付；免费重做见 §17。成功 `result.audio="revoiced"`。
+
+**额度**：每人每天 `Replicate.Voice.DailyQuota`（默认 10，运行时 `afv_system_config.replicate.voice.daily_quota`）条，**确认时占用**（一个任务占一条，批量每条各占一条，整批放不下整批不做），
+任务没成功（提交没走完 / 全部段失败 / 取消 / 成片没合成出来 / 配音合成失败）退回，只退一次。满了确认返回 `VOICE_QUOTA_EXHAUSTED`（409，此时没建任务、没冻点数）。
+开关 `replicate.voice.enabled`（运行时覆盖 `Replicate.Voice.Enabled`）。表：`afv_replicate_voice_quota`（用户 + 自然日 → 已用）、`afv_replicate_voice_use`（任务 → 占用流水，状态 1 占用 / 2 已退回）。
+漏斗新增阶段 `revoice`（换声音成片交付，一任务一次）。批量：变体原样继承 `audio` 与 `voice`。
+
+配置（`Replicate.Voice`）：`Enabled`(true)、`ModelGroup`(`tts.minimax-speech-2.8-hd`，音色表里的参数值须属于该模型组)、`DailyQuota`(10)、`WaitSeconds`(60)、`Concurrency`(4)。
+
+## 17 免费重做声音（CONTRACT §Q，无迁移）
+
+**工具 `replicate_retry_audio {job_id}`**（写入口：运行时总开关关着回 7003；不扣点、无同意卡；幂等键 = `call_id`）。只对 `result.audio="failed"` 的**已交付成片**（完整版 / 部分版，不含预览版）可用：
+在现有成片画面上只重跑「声音」这一步，**不重新生成画面、不动账**。
+
+- keep：把原片对应区间的原音轨重新贴回成片（`video/mux-audio`，区间同首次）；revoice：重新合成配音再替换音轨（逐句 TTS 的幂等键由 任务 / 句号 / 音色 / 语速 / 文字 决定，网关回放同一次调用；
+  **不再占换声音额度**——首次失败时额度已退回）。
+- 成功：`result.videoRid` / `result.audio` 更新，成片换新版本，入素材库发件箱新增一行 `kind=final`，`version = 精修代数 + 1000 × result_document.audioGen`（旧版本的入库行保留）；
+  原片本来没有声音（`audio=none`）不换版本。漏斗：`retry_audio`（每次真正重做记一次）；换声音重做成功补记 `revoice`（`rv:<job>` 去重，不重复）。
+- 上限：每个成片最多 **3 次**（认领时 +1，成功失败都算）。状态全在 `result_document`：`audioRetries`（已用次数）、`audioGen`（换过成片的次数）、`audioRetryCall`（最近处理的 call_id）、
+  `audioClaim {callId, at}`（并发占位，10 分钟未完成可被接手）。认领与落结果用 `SwapResultDoc`（`result_document` 整份 CAS，JSON 列按值比较），不另建表。
+  合成依据变了（某段重做成功 → 整条成片重新合成）整份结果重建，次数随之清零，`audioGen` 继续递增（版本不撞旧行）。
+- 返回 `AudioRetryView {jobId, audio(kept|revoiced|none|failed), audioNote?, changed, retriesLeft, canRetryAudio?, videoUrl?, urlExpiresAt?, library?, replay?}`。
+  这次仍没成功时 `audio="failed"`、`changed=false`、工具成功返回（次数已计）；同 `call_id` 重放返回当时的结果（`replay=true`，不重做、不计次）。
+- 错误码：`AUDIO_NOT_FAILED`（声音没出问题 / 没选声音处理）、`AUDIO_RETRY_LIMIT`（次数用完）、`IN_PROGRESS`（别的调用正在重做，或有段刚重做成功、成片还没按新依据合成完；可重试）、
+  `JOB_NOT_DELIVERED`、`FEATURE_NOT_READY`（合成器没实现贴回算子）。
+
+## 18 接缝挪到画面最静处（CONTRACT §R，无迁移）
+
+多段视频分段时，切点优先级仍是 镜头切换 > 说话停顿；**两者都没有**时不再直接均分，而是向媒体服务要的画面运动量曲线里选「运动量最小」的采样时刻（`cutReason="quiet"`，文案「画面较静处」）。
+
+- **曲线**：媒体服务 `POST /v1/mediasvc/video/motion-profile`（见 media-service.md；`tblend` 相邻采样帧绝对差 + `signalstats` YAVG，4 fps，值 = 平均绝对亮度差 0~255）。
+  **分析阶段（`frames` 阶段末尾）整条原片算一次**，量化成 uint8（×8，分辨率 1/8，32 以上饱和）+ base64 存进 `afv_replicate_analysis.state.motion {fps, q}`，这条原片的所有方案复用，出方案时不再调媒体服务。
+  只算需要拆成多段的视频（时长 > 单段上限）。`AnalysisResult.Motion` 是 `json:"-"`：读取时由状态带上，不进结果 JSON、不进用户视图。
+- **fail-open**：没装配 / 运行时关闭（`Replicate.Motion.Enabled=false`，只影响之后的分析）/ 媒体服务出错（日志 `判据=MOTION_PROFILE_UNAVAILABLE`，状态 warning `motion_degraded`，不给用户看）→ 没有曲线，分段与原来逐字一致（golden 测试）。
+- **选法**（`rules/segment.PlanWithMotion`，纯函数，曲线由调用方传入）：窗口 = 均分位置 ± `min(4, 0.3×段长上限)` 秒，再夹进「最小段长 / 末段最短 / 剩余装得进 MaxSegments 段」的可行区间，并要求「切完剩下的仍装得进 n-1 段」（不因挑静处多花一段生成费）；
+  代价 = `max(Scores[i], Scores[i+1])`（切点两侧各一个采样间隔都不该有大动作）；与最小代价相差 ≤ 0.25 的算一样静，取离均分位置最近的，再并列取更晚的。窗口内没有采样点 → 均分。
+  方案指纹 `plan_hash` 因切点变化而变化（新分析的新方案；已有方案 / 没有曲线的分析不变）。
+
+## 19 灵感推荐（CONTRACT §S，无迁移）
+
+**工具 `replicate_trending {industry?}`**（只读、免费；读入口，总开关关着也可用）→ `TrendingView`：
+
+```json
+{"industry":"food","period":"7d","fallback":false,
+ "items":[{"label":"换模特 + 保留原声","desc":"近 7 天复刻最多的改法",
+           "dims":[{"key":"model","mode":"replace"}],"audio":"keep","sampleId":3}]}
+```
+
+- **口径**：近 7 天**已确认**方案（`afv_replicate_plan.status=CONFIRMED` 且 `afv_replicate_job.created_at` 在窗口内），按「改法组合」聚合 = 被改动的维度集合（`mode ∈ {replace, describe}`，`keep` 不算，按 `DimKeys` 顺序）+ 声音策略（空 = `regenerate`）。
+  没改任何项且声音是默认的方案不算一种改法。按**去重用户数**降序、方案数降序、组合键升序排，最多 5 条。`dims[].mode` 取该组合里多数用户的改法（平手取 `replace`）。
+- **k-匿名**：去重用户数 < 阈值的组合不展示。阈值：yaml `Replicate.Trending.MinUsers`（默认 20），运行时 `afv_system_config.replicate.trending.min_users`（int 1~100000，库里有且合法时覆盖，60 秒内生效，进运行参数签名）。
+  输出只有维度键 / 处理方式 / 声音策略 / 中文标签，**不含参考图、备注、台词、叠字、用户号、人数**。
+- **标签**：`换` / `改`（replace / describe）+ 项名（人物说「模特」，其余沿用 `DimLabel`），用 ` + ` 连接，非默认声音追加 `保留原声` / `静音` / `换声音`（默认的重新配乐不出现，`audio` 字段同理缺省）。`desc`：第 1 名 =「近 7 天复刻最多的改法」，其余「近 7 天热门改法第 N 名」。
+- **行业**：参数 `industry` 优先；缺省取用户在广场设置的主行业（只读复用 `afv_user_industry_pref` + `afv_template_industry`，二级行业取父级 code）；再缺省全站。统计时二级行业的用户也计入父级行业。
+  该行业下一个组合都凑不够 k 时回落全站：返回 `industry=""`、`fallback=true`（add-only 字段）。**行业 code 不存在也走同一路径（空结果 → 回落）**。
+- **`sampleId`**：有启用且分析就绪的示例用的是同一组合（同维度键集合 + 同声音策略，不比 replace / describe）时给排在最前的那个，可直接 `replicate_try_sample`。
+- **缓存**：按行业缓存在进程内（`core.TrendingCache`，跨运行参数重建共用），每小时一算；读请求只读缓存，从没算过的行业第一次被问到时现算。轮询器每轮 `TickTrending` 把全站（预热）与所有已缓存行业里过期的刷新。
+  重算失败沿用旧结果（日志 `判据=trending_refresh_failed`）；从没算过且失败才报错。多实例各算各的（只读聚合）。单次最多扫最近 20 万张方案。
+
+## 20 成片分享进示例库（CONTRACT §T，迁移 `Go_V1.0.58__replicate_share.sql`）
+
+表 `afv_replicate_share {id, user_id, job_id(唯一), plan_id, status(pending|approved|rejected|withdrawn), reject_reason, sample_id, portrait_consent, industry, reward_status(none|granted), reward_at, reviewed_by, reviewed_at, created_at, updated_at}`。
+
+**用户侧工具（写入口）**
+
+- `replicate_share_sample {job_id, portrait_consent?}` → `ShareView {submissionId, jobId, status, statusLabel, portraitConsent, replay?, text}`。免费、不动账、无扣点同意卡；**只收完整版成片**（任务 `succeeded` 且 `result.kind=full`；预览 / 部分成片 / 部分成功 → 409 `JOB_NOT_DELIVERED`）。
+  一个成片一条投稿：重复调用回放已有投稿（`replay=true`，也是工具层 `replayed`）；被驳回的 → 409 `SHARE_REJECTED`；撤回过的重新投（同一行改回 `pending`）。漏斗 `share_sample`。
+- **肖像授权**：方案替换了人物（`dims.model.mode=replace`）时必须有授权。授权是 Java 在对话里收集的（授权表单），Go 看不到 → **智能体在用户确认授权表单后传 `portrait_consent=true`**，Go 校验并记到 `portrait_consent`；替换了人物却没传 → 409 `PORTRAIT_CONSENT_REQUIRED`（不建投稿）。没替换人物的方案不要求（`describe` 不算）。
+  Java 提示词须保证：只有用户勾选后才传 true，不替用户勾选。
+- `replicate_withdraw_sample {submission_id}` → `WithdrawView {submissionId, status, statusLabel, unpublished, replay?, text}`。本人撤回：`pending` 作废；`approved` 的在**同一事务**里把生成的示例下架（`afv_replicate_sample` `deleted=1, enabled=0`，与后台删除示例同一套更新）并 `unpublished=true`；
+  已撤回 / 已驳回的重复调用不报错（`replay=true`）。别人的投稿 / 不存在 → 404。已发放的奖励不收回。漏斗 `withdraw_sample`（一投稿一次）。
+
+**管理端（admin-api `/api/v1/replicate/admin/shares/**`；读 `replicate:view`，写 `replicate:sample`，中间件 `replicateRoutePerm` 路由级覆盖 + handler 内再查）**
+
+| 方法 路径 | 请求 | 响应 |
+|---|---|---|
+| `GET /shares?status=&userId=&page=&size=` | status ∈ pending/approved/rejected/withdrawn；size 默认 20 最大 100；id 倒序 | `{items:[ShareRow],total,page,size}` |
+| `GET /shares/{id}` | — | `ShareRow` |
+| `POST /shares/{id}/approve` | `{title?}`（缺省取分析摘要前 40 字） | `ShareRow`（`sampleId` 为新示例） |
+| `POST /shares/{id}/reject` | `{reason}`（必填 ≤200 字，展示给用户） | `ShareRow` |
+| `POST /shares/{id}/reward` | —（管理端先调 Java 积分调整接口成功，再调本接口落状态） | `ShareRow`（`rewardReplay=true` = 之前已标记） |
+
+```json
+// ShareRow
+{"id":1,"userId":12345678,"userIdMasked":"12****78","jobId":31,"planId":21,"planNo":"VRP…","status":"pending","statusLabel":"待审核","rejectReason":"",
+ "sampleId":0,"change":{"label":"换模特 + 保留原声","dims":[{"key":"model","mode":"replace"}],"audio":"keep"},"portraitConsent":true,"industry":"food",
+ "videoRid":"…","coverRid":"…","videoUrl":"（现签短时地址）","coverUrl":"…",
+ "rewardStatus":"none","rewardAt":null,"rewardAllowed":false,"monthRewardCount":0,"rewardLimit":3,"rewardKey":"replicate-share-reward:1",
+ "reviewedBy":0,"reviewedAt":null,"createdAt":"…","updatedAt":"…"}
+```
+
+- `userId` 是真实用户号（调 Java 积分接口发奖励要用），展示用 `userIdMasked`；`change` 只有项名与处理方式，**不含用户的参考图 / 备注 / 台词 / 叠字**；`videoUrl` / `coverUrl` 由 handler 整页批量现签（admin 的 `ReplicateAdmin.Media`，签不出为空）。
+- **通过**：前置 = 任务仍是完整版成片、分析仍在、**媒体服务已配（`ReplicateAdmin.Media.BaseURL`，用来把成片复制进素材库桶；没配回 7003，宁可不通过也不让公开示例引用用户私有桶）**。
+  同一事务（锁投稿行，重复点击只通过一次）：把用户那次分析整行复制成系统身份（`user_id=0`，`source_key=sha256(share:<id>)`，结果与阶段状态一并带上）→ 插入启用的示例（`source_rid` = 原片 rid、`result_rid` = 成片复制进素材库后的新 rid、封面同理（失败只是没封面）、
+  `annotations` = 方案改法**去掉一切用户内容**（只留各项处理方式与声音策略；换声音退回重新配乐）、`industry` = 投稿时用户的主行业）→ 投稿 `approved` + `sample_id`。之后与运营登记的示例走同一套读取 / 试用路径，可在示例管理里继续编辑。
+  不是待审核 → 409 `SHARE_NOT_PENDING`；已通过的重复调用直接返回。示例用的原片 rid 仍是用户类别（私有桶，用户输入永不删），由现签地址播放。
+- **驳回**：原因必填；同原因重复驳回幂等，其它状态 409 `SHARE_NOT_PENDING`。
+- **标记奖励已发放**：积分只在 Java，管理端用幂等键 `replicate-share-reward:{submissionId}`（= `rewardKey`）调 Java 积分调整接口（每条 30 点），**成功后**才调本接口。本接口幂等；事务内按 id 顺序锁住该用户全部投稿行后核对：
+  不是 `approved`（含用户已撤回）→ 409 `SHARE_NOT_APPROVED`；本月（北京时间自然月，按 `reward_at`）已发放 ≥ 3 次 → 409 `REWARD_MONTHLY_LIMIT`（此时不应再调 Java：页面据 `rewardAllowed` 置灰「发放奖励」）。
+  `rewardAllowed` = 已通过 + 未发放 + 该用户本月次数 < 上限；`monthRewardCount` 为该用户本月已发放次数。已发放的重复标记不受上限影响。
+

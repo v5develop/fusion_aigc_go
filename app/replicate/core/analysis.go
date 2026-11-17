@@ -43,7 +43,9 @@ type AnalysisState struct {
 	TranscribeCallID string      `json:"transcribeCallId,omitempty"`
 	Transcript       *Transcript `json:"transcript,omitempty"`
 	TranscribeNote   string      `json:"transcribeNote,omitempty"` // silent / failed / off
-	VisionCallID     string      `json:"visionCallId,omitempty"`
+	// Motion 整条原片的画面运动量曲线（CONTRACT §R，分析时算一次，供所有方案分段复用；算不出 / 单段视频 = nil，分段退回原规则）
+	Motion       *MotionState `json:"motion,omitempty"`
+	VisionCallID string       `json:"visionCallId,omitempty"`
 	// VisionContent 画面理解原文（模型输出，未纠偏）。读取时按当前纠偏规则对它重新规范化（ResolveAnalysisWith），
 	// 改规则不必重跑分析、不重新调用网关。
 	VisionContent string   `json:"visionContent,omitempty"`
@@ -339,6 +341,7 @@ func (s *Service) runStage(ctx context.Context, a *model.Analysis, st *AnalysisS
 		for _, f := range fs {
 			st.Frames = append(st.Frames, FrameOut{T: f.TimestampS, Rid: f.RID})
 		}
+		s.computeMotion(ctx, a, st)
 		return model.StageSheet, nil, nil
 
 	case model.StageSheet:

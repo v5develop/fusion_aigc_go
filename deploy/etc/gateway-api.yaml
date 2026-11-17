@@ -92,6 +92,9 @@ Replicate:              # 视频做同款（/api/v1/replicate/**，docs/api/api-
   AiGateway: {BaseURL: "", KeyID: "", Secret: ""}
   Media: {BaseURL: "", Token: ""}
   Preview: {Enabled: true, ModelGroup: "img.gpt-image-2.5-sunburst", DailyQuota: 3, WaitSeconds: 60} # 定妆图（免费，agent 工具 replicate_preview_frame）：image.edit 模型组 / 每人每自然日（Asia/Shanghai）次数 / 等出图上限
+  Motion: {Enabled: true} # 接缝挪到画面最静处：分析多段视频时向媒体服务要运动量曲线（video/motion-profile），算不出自动退回均分
+  Voice: {Enabled: true, ModelGroup: "tts.minimax-speech-2.8-hd", DailyQuota: 10, WaitSeconds: 60, Concurrency: 4} # 换声音 / 改台词（免费，每人每天条数；音色目录复用数字人音色表，参数值须属于该 tts 模型组）
+  Trending: {MinUsers: 20} # 灵感推荐 k-匿名阈值（近 7 天已确认方案，某改法组合的去重用户数低于它不展示；运行时 replicate.trending.min_users 覆盖）
 CanvasInternal:         # 服务间内部入口（Java 画布助手 → /internal/v1/canvas/agent/*，签名契约 docs/design/canvas-agent-tools.md §12）；Keys 为空则不注册
   Keys: []              # 例：[{KeyId: "fusion-java", Secret: "<≥32 字节随机串，与 Java APP_FUSION_GO_SECRET 相同>"}]；轮换时新旧并存。nginx 须对公网屏蔽 /internal/
 CanvasEvents:           # 画布实时同步 SSE（/api/v1/canvas/canvases/:id/events），订阅 Auth.Session 的 Redis

@@ -218,7 +218,7 @@ func (s *Service) enqueueOnJobDone(ctx context.Context, j *model.Job, doc *Resul
 		if doc.Kind == ResultPreview {
 			kind = model.DeliveryPreview
 		}
-		if err := put(kind, 0, epoch, doc.VideoRid, doc.CoverRid); err != nil {
+		if err := put(kind, 0, finalVersion(epoch, doc), doc.VideoRid, doc.CoverRid); err != nil {
 			return err
 		}
 	}

@@ -82,8 +82,18 @@ type ResultDoc struct {
 	Error    string                 `json:"error,omitempty"`
 	Warnings []string               `json:"warnings,omitempty"`
 	Segments []resultSegmentContrib `json:"segments,omitempty"`
-	// Audio 原声贴回结果（只在方案 audio=keep 时有值）：kept 已贴回 / failed 贴回失败（成片退回没有原声）/ none 原片本身没有声音
+	// Audio 声音处理结果（方案 audio=keep / revoice 时有值）：kept 已贴回 / revoiced 已换声 / failed 处理失败（成片是静音的，可免费重做）/ none 原片本身没有声音
 	Audio string `json:"audio,omitempty"`
+	// AudioKind 声音处理的种类：方案 audio=revoice 时为 "revoice"（视图据此换文案）；VoiceTrimmed 提速后仍被截尾的句号（换声音）
+	AudioKind    string `json:"audioKind,omitempty"`
+	VoiceTrimmed []int  `json:"voiceTrimmed,omitempty"`
+	// 免费重做声音（CONTRACT §Q，audio_retry.go）的状态：AudioRetries 已用次数（认领时 +1，成功失败都算，最多 maxAudioRetries）；
+	// AudioGen 声音重做后换了成片的次数（成片入素材库的版本 = 精修代数 + 1000 × AudioGen）；AudioRetryCall 最近处理过的 call_id（同键重放不重做）；
+	// AudioClaim 正在重做的占位（防并发，过期可被接手）。合成依据变了（段重做成功）整份结果重建，这些随之清零。
+	AudioRetries   int         `json:"audioRetries,omitempty"`
+	AudioGen       int         `json:"audioGen,omitempty"`
+	AudioRetryCall string      `json:"audioRetryCall,omitempty"`
+	AudioClaim     *audioClaim `json:"audioClaim,omitempty"`
 }
 
 type resultSegmentContrib struct {
@@ -106,7 +116,13 @@ type ResultView struct {
 	// Audio / AudioNote 方案选了「保留原声」时的贴回结果：Audio = kept | failed | none；failed / none 时 AudioNote 是给用户的一句话。add-only。
 	Audio     string `json:"audio,omitempty"`
 	AudioNote string `json:"audioNote,omitempty"`
+	// CanRetryAudio true = 声音处理失败且还有免费重做次数（replicate_retry_audio）。add-only。
+	CanRetryAudio bool `json:"canRetryAudio,omitempty"`
 }
+
+// audioFailedNote 声音处理（贴回原声 / 换声音）失败时给用户的一句话。段视频本身没有声音（只有 audio=regenerate 才让模型生成声音），
+// 所以失败时交付的成片是静音的，如实说明，并告诉用户可以免费重做声音。
+const audioFailedNote = "声音没处理成功，成片暂时没有声音；可以免费重做声音（不重新生成画面）"
 
 func resultView(raw json.RawMessage) *ResultView {
 	if len(raw) == 0 {
@@ -117,11 +133,14 @@ func resultView(raw json.RawMessage) *ResultView {
 		return nil
 	}
 	v := &ResultView{Status: d.Status, Kind: d.Kind, VideoRid: d.VideoRid, CoverRid: d.CoverRid, Missing: d.Missing, Audio: d.Audio}
-	switch d.Audio {
-	case AudioResultFailed:
-		v.AudioNote = "原视频的声音这次没能保留，这条成片没有原声"
-	case AudioResultNone:
+	switch {
+	case d.Audio == AudioResultFailed:
+		v.AudioNote = audioFailedNote
+		v.CanRetryAudio = d.Status == ResultReady && d.AudioRetries < maxAudioRetries
+	case d.Audio == AudioResultNone:
 		v.AudioNote = "原视频本身没有声音，成片也没有声音"
+	case d.Audio == AudioResultRevoiced && len(d.VoiceTrimmed) > 0:
+		v.AudioNote = fmt.Sprintf("第 %s 句配音比原句长，加快语速后仍放不下，结尾被截短了；可以缩短这几句台词重新做", joinInts(d.VoiceTrimmed))
 	}
 	switch {
 	case d.Status == ResultReady && d.Kind == ResultPreview:
@@ -272,6 +291,10 @@ func (s *Service) finalize(ctx context.Context, jobID int64) error {
 	if err != nil || j == nil {
 		return err
 	}
+	if j.Status == model.JobFailed || j.Status == model.JobCanceled {
+		s.releaseVoiceIfAny(ctx, j, "任务没成功") // 换声音额度：任务没成功不占今天的条数（幂等，只退一次）
+		return nil
+	}
 	if j.Status != model.JobSucceeded && j.Status != model.JobPartial {
 		return nil
 	}
@@ -294,6 +317,9 @@ func (s *Service) finalize(ctx context.Context, jobID int64) error {
 		return s.enqueueOnJobDone(ctx, j, &prev) // 带上已有成片：按 rid 去重要看到它
 	}
 	doc := ResultDoc{Basis: basis, Attempts: 1}
+	if prev.AudioGen > 0 {
+		doc.AudioGen = prev.AudioGen + 1 // 重做声音换过成片后按新依据重合成：版本继续往上走，不与旧版本的入库行撞键
+	}
 	if prev.Basis == basis {
 		doc.Attempts = prev.Attempts + 1
 	}
@@ -307,6 +333,9 @@ func (s *Service) finalize(ctx context.Context, jobID int64) error {
 	case doc.Attempts >= resultMaxAttempts:
 		doc.Status, doc.Error = ResultFailed, trimRunes(berr.Error(), 200)
 		logx.WithContext(ctx).Errorf("replicate: 成片合成放弃 判据=ATTEMPTS_EXHAUSTED job=%d 次数=%d: %v", j.ID, doc.Attempts, berr)
+		if in.Audio == AudioRevoice {
+			s.releaseVoice(ctx, j.ID, "成片没合成出来，没换成声") // 没有交付整条成片：不占换声音条数
+		}
 	default:
 		doc.Status, doc.Error = ResultRetry, trimRunes(berr.Error(), 200)
 		logx.WithContext(ctx).Infof("replicate: 成片合成失败，稍后重试 job=%d 第 %d 次: %v", j.ID, doc.Attempts, berr)
@@ -357,13 +386,10 @@ func (s *Service) compose(ctx context.Context, j *model.Job, in *JobInput, outs 
 	default:
 		doc.Kind = ResultFull
 	}
-	keep := in.Audio == AudioKeep
 	if !multi && len(in.Texts) == 0 {
 		doc.Segments = []resultSegmentContrib{{Index: outs[0].seg.Index, VideoRid: outs[0].rid, Kind: "source"}}
 		one := composed{RID: outs[0].rid}
-		if keep { // 单段且无叠字也要贴回原声（没有合成器 → 回落，不拦交付）
-			one.RID = s.keepOriginalAudio(ctx, j, in, keepRanges(outs), one.RID, idem("mux"), doc)
-		}
+		one.RID = s.fixAudio(ctx, j, in, outs, one.RID, idem, doc) // 单段且无叠字也要贴回原声 / 换声音（没有合成器 → 回落，不拦交付）
 		return one, nil
 	}
 	if s.composer == nil {
@@ -413,17 +439,16 @@ func (s *Service) compose(ctx context.Context, j *model.Job, in *JobInput, outs 
 	if len(items) == 1 && sources == 1 {
 		out.RID = items[0].RID
 	} else {
-		// 只有 mute 去声。keep 不去声：贴回算子只取原片音轨、丢弃输入视频自带的音轨，贴回成功时生成的声音自然被替换；
-		// 贴回失败时拼接成片仍带模型生成的声音（契约 L2 回落口径），不会交付一条静音片
+		// 只有 mute 去声。keep / revoice 不在这里去声：贴回算子只取外部音轨、丢弃输入视频自带的音轨。
+		// 注意：只有 audio=regenerate 才让模型生成声音（engine.go generateRequest），keep / revoice 的段视频本身没有音轨，
+		// 所以贴回 / 配音失败时交付的成片是静音的（CONTRACT §P 更正），由「免费重做声音」补救（audio_retry.go）。
 		res, err := s.composer.ConcatItems(ctx, items, mediasvc.ConcatParams{DropAudio: in.Audio == AudioMute}, idem("concat"))
 		if err != nil {
 			return composed{}, fmt.Errorf("拼接失败: %w", err)
 		}
 		out.RID, out.Timeline = res.RID, res.Timeline
 	}
-	if keep { // 原声贴回在叠字之前：叠字算子只改画面，音轨一路带过去
-		out.RID = s.keepOriginalAudio(ctx, j, in, keepRanges(outs), out.RID, idem("mux"), doc)
-	}
+	out.RID = s.fixAudio(ctx, j, in, outs, out.RID, idem, doc) // 原声贴回 / 换声音在叠字之前：叠字算子只改画面，音轨一路带过去
 	if len(in.Texts) > 0 {
 		if font == "" {
 			doc.Warnings = appendOnce(doc.Warnings, "TEXT_NO_FONT")
@@ -449,6 +474,17 @@ func (s *Service) compose(ctx context.Context, j *model.Job, in *JobInput, outs 
 	return out, nil
 }
 
+// fixAudio 拼接完成后的声音处理：keep 贴回原声、revoice 换成新配音，其余不动。两者都失败回落（返回传入的 rid），不拦交付。
+func (s *Service) fixAudio(ctx context.Context, j *model.Job, in *JobInput, outs []segOutcome, rid string, idem func(string) string, doc *ResultDoc) string {
+	switch in.Audio {
+	case AudioKeep:
+		return s.keepOriginalAudio(ctx, j, in, keepRanges(outs), rid, idem("mux"), doc)
+	case AudioRevoice:
+		return s.revoiceAudio(ctx, j, in, outs, rid, idem, doc)
+	}
+	return rid
+}
+
 // keepRanges 成片时间轴对应的原片区间：按段顺序取每个没被「不继续 / 不做剩下的段」略过的段的 [T0, T1]（失败占位段也占它那一段时间，
 // 原声照常对应），首尾相接的相邻区间合并成一段，贴回时音频不会在衔接处断开。
 func keepRanges(outs []segOutcome) []mediasvc.TimeRange {
@@ -471,12 +507,12 @@ func keepRanges(outs []segOutcome) []mediasvc.TimeRange {
 }
 
 // keepOriginalAudio 方案 audio=keep：用原片对应区间的音轨替换成片音轨，返回贴回后的视频 rid。
-// 任何失败（没装配、区间为空、媒体服务出错）都回落到传入的 videoRid（交付不丢），记 判据=keep_audio_mux_failed 并把结果标成
-// failed；原片本身没有声音标 none（不算故障）。视图据此告诉用户原声没能保留。
+// 任何失败（没装配、区间为空、媒体服务出错）都回落到传入的 videoRid（交付不丢；段视频没有音轨，所以这条成片是静音的），
+// 记 判据=keep_audio_mux_failed 并把结果标成 failed，用户可免费重做声音；原片本身没有声音标 none（不算故障）。
 func (s *Service) keepOriginalAudio(ctx context.Context, j *model.Job, in *JobInput, ranges []mediasvc.TimeRange, videoRid, idem string, doc *ResultDoc) string {
 	fail := func(why string, err error) string {
 		doc.Audio = AudioResultFailed
-		logx.WithContext(ctx).Errorf("replicate: 原声贴回失败，成片退回没有原声 判据=keep_audio_mux_failed job=%d 原因=%s: %v", j.ID, why, err)
+		logx.WithContext(ctx).Errorf("replicate: 原声贴回失败，成片暂时没有声音 判据=keep_audio_mux_failed job=%d 原因=%s: %v", j.ID, why, err)
 		return videoRid
 	}
 	var m AudioMuxer

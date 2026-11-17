@@ -16,6 +16,10 @@ var contractTools = []string{
 	"replicate_stop", "replicate_cancel_rest", "replicate_preview_frame",
 	"replicate_quote_batch", "replicate_confirm_batch", "replicate_get_batch", // CONTRACT §M
 	"replicate_publish_copy", "replicate_export_ratio", // CONTRACT §N
+	"replicate_list_voices",                               // CONTRACT §P
+	"replicate_retry_audio",                               // CONTRACT §Q
+	"replicate_trending",                                  // CONTRACT §S
+	"replicate_share_sample", "replicate_withdraw_sample", // CONTRACT §T
 }
 
 func TestRegistryMatchesContract(t *testing.T) {
@@ -91,7 +95,7 @@ func TestChargeAndReadOnlyFlags(t *testing.T) {
 	charges := map[string]bool{"replicate_confirm": true, "replicate_continue": true, "replicate_redo_segment": true, "replicate_confirm_batch": true}
 	readOnly := map[string]bool{"replicate_limits": true, "replicate_get_analysis": true, "replicate_list_models": true, "replicate_list_samples": true,
 		"replicate_try_sample": true, "replicate_get_plan": true, "replicate_get_job": true, "replicate_list_jobs": true,
-		"replicate_quote_batch": true, "replicate_get_batch": true}
+		"replicate_quote_batch": true, "replicate_get_batch": true, "replicate_list_voices": true, "replicate_trending": true}
 	for _, tl := range Tools() {
 		if tl.Charges != charges[tl.Name] {
 			t.Errorf("%s Charges=%v", tl.Name, tl.Charges)
@@ -110,17 +114,20 @@ func TestChargeAndReadOnlyFlags(t *testing.T) {
 // 说明里必须交代规划模型要守的规则（CONTRACT / AGENT §16）。
 func TestDescriptionsStateRules(t *testing.T) {
 	must := map[string][]string{
-		"replicate_confirm":      {"扣", "plan_hash", "expected_points", "绝不", "QUOTE_CHANGED", "replicate_redo_segment", "不要轮询"},
-		"replicate_continue":     {"扣", "plan_hash", "expected_points", "绝不", "QUOTE_CHANGED"},
-		"replicate_redo_segment": {"扣", "expected_points", "绝不", "replicate_confirm", "失败", "note", "200"},
-		"replicate_get_analysis": {"绝不要", "轮询"},
-		"replicate_analyze":      {"video", "source", "系统", "不要轮询", "cached"},
-		"replicate_create_plan":  {"报价", "不需要再调 replicate_quote", "gaps", "ref_images_from", "refs"},
-		"replicate_update_plan":  {"新方案", "STALE", "合并", "ref_images_from"},
-		"replicate_quote":        {"不需要再调"},
-		"replicate_stop":         {"退"},
-		"replicate_cancel_rest":  {"退", "幂等"},
-		"replicate_get_job":      {"decision", "money", "cancelRest", "不要轮询"},
+		"replicate_confirm":         {"扣", "plan_hash", "expected_points", "绝不", "QUOTE_CHANGED", "replicate_redo_segment", "不要轮询"},
+		"replicate_continue":        {"扣", "plan_hash", "expected_points", "绝不", "QUOTE_CHANGED"},
+		"replicate_redo_segment":    {"扣", "expected_points", "绝不", "replicate_confirm", "失败", "note", "200"},
+		"replicate_get_analysis":    {"绝不要", "轮询"},
+		"replicate_analyze":         {"video", "source", "系统", "不要轮询", "cached"},
+		"replicate_create_plan":     {"报价", "不需要再调 replicate_quote", "gaps", "ref_images_from", "refs"},
+		"replicate_update_plan":     {"新方案", "STALE", "合并", "ref_images_from"},
+		"replicate_quote":           {"不需要再调"},
+		"replicate_stop":            {"退"},
+		"replicate_cancel_rest":     {"退", "幂等"},
+		"replicate_get_job":         {"decision", "money", "cancelRest", "不要轮询"},
+		"replicate_trending":        {"industry", "不含任何人", "不要向用户编造", "20"},
+		"replicate_share_sample":    {"授权", "portrait_consent", "PORTRAIT_CONSENT_REQUIRED", "完整版", "不扣点"},
+		"replicate_withdraw_sample": {"下架", "submission_id", "不扣点"},
 	}
 	for name, subs := range must {
 		tl, ok := Find(name)

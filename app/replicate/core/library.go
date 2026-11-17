@@ -124,6 +124,7 @@ func (s *Service) fullPlanView(ctx context.Context, p *model.Plan, an *AnalysisR
 	var ann Annotations
 	_ = json.Unmarshal(p.Annotations, &ann)
 	v.Annotations = &ann
+	s.voicePlanLines(ctx, v, ann, an)
 	_ = json.Unmarshal(p.Refs, &v.RefImages)
 	if v.RefImages == nil {
 		v.RefImages = []RefImage{}
@@ -622,9 +623,9 @@ func ValidSampleAnnotations(raw json.RawMessage) (*Annotations, error) {
 		}
 	}
 	switch ann.Audio {
-	case "", AudioRegenerate, AudioKeep, AudioMute:
+	case "", AudioRegenerate, AudioKeep, AudioMute, AudioRevoice:
 	default:
-		return nil, errors.New("声音只能是 regenerate / keep / mute")
+		return nil, errors.New("声音只能是 regenerate / keep / mute / revoice")
 	}
 	return &ann, nil
 }

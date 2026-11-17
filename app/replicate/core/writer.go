@@ -129,6 +129,8 @@ func writerBrief(d *Dialect, an *AnalysisResult, ann Annotations, refCount int, 
 		fmt.Fprintf(&b, "【保持不变】%s\n", strings.Join(ks, "；"))
 	}
 	switch ann.Audio {
+	case AudioRevoice:
+		b.WriteString("【声音】不要生成新的声音（成片会换成新的配音）\n")
 	case AudioKeep:
 		b.WriteString("【声音】不要生成新的声音（成片会贴回原声）\n")
 	case AudioMute:

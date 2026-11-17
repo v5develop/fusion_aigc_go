@@ -351,6 +351,8 @@ func buildCopyBrief(platform string, in *JobInput, p *model.Plan, an *AnalysisRe
 		fmt.Fprintf(&b, "叠加文字（成片上用户加的）：%s\n", strings.Join(texts, " / "))
 	}
 	switch in.Audio {
+	case AudioRevoice:
+		b.WriteString("声音：换了新的配音\n")
 	case AudioKeep:
 		b.WriteString("声音：保留原视频声音\n")
 	case AudioMute:

@@ -39,6 +39,11 @@ type Session interface {
 	GetBatch(ctx context.Context, id int64) (*core.BatchView, error)
 	PublishCopy(ctx context.Context, jobID int64, platform string) (*core.PublishCopyView, error)
 	ExportRatio(ctx context.Context, jobID int64, ratio, mode string) (*core.ExportView, error)
+	ListVoices(ctx context.Context, gender, style string) (*core.VoiceList, error)
+	RetryAudio(ctx context.Context, jobID int64, callID string) (*core.AudioRetryView, error)
+	Trending(ctx context.Context, industry string) (*core.TrendingView, error)
+	ShareSample(ctx context.Context, jobID int64, portraitConsent bool) (*core.ShareView, error)
+	WithdrawSample(ctx context.Context, submissionID int64) (*core.WithdrawView, error)
 }
 
 // Backend 取调用上下文（模块在 / 已登录 / 写工具另查总开关）。
@@ -111,6 +116,15 @@ func Execute(ctx context.Context, be Backend, uid int64, c agenttool.Call) *agen
 	}
 	if ev, ok := v.(*core.ExportView); ok && ev != nil {
 		res.Replayed = ev.Replay || ev.Original
+	}
+	if sv, ok := v.(*core.ShareView); ok && sv != nil {
+		res.Replayed = sv.Replay // 这条成片早就投过：返回的是已有投稿
+	}
+	if wv, ok := v.(*core.WithdrawView); ok && wv != nil {
+		res.Replayed = wv.Replay
+	}
+	if av, ok := v.(*core.AudioRetryView); ok && av != nil {
+		res.Replayed = av.Replay // 同 call_id 重放：返回当时的结果，没有重做也没有计次
 	}
 	if pv, ok := v.(*core.PreviewView); ok && pv != nil {
 		res.Replayed = pv.Replay // 同一方案已出过图：回放，没占额度
@@ -266,10 +280,10 @@ func (a args) batchVariants() ([]httpapi.BatchVariantArgs, error) {
 }
 
 // mergeAnnotations 把本次给的标注按维度合并进当前方案的标注：dims 逐个覆盖，audio 给了才换，texts 出现（含空数组）就整体替换。
-func mergeAnnotations(cur *core.Annotations, patch core.Annotations, hasAudio, hasTexts bool) core.Annotations {
+func mergeAnnotations(cur *core.Annotations, patch core.Annotations, hasAudio, hasTexts, hasVoice bool) core.Annotations {
 	out := core.Annotations{Dims: map[string]core.DimEdit{}}
 	if cur != nil {
-		out.Audio, out.Texts = cur.Audio, append([]core.TextOverlay(nil), cur.Texts...)
+		out.Audio, out.Texts, out.Voice = cur.Audio, append([]core.TextOverlay(nil), cur.Texts...), cur.Voice
 		for k, v := range cur.Dims {
 			out.Dims[k] = v
 		}
@@ -282,6 +296,11 @@ func mergeAnnotations(cur *core.Annotations, patch core.Annotations, hasAudio, h
 	}
 	if hasTexts {
 		out.Texts = patch.Texts
+	}
+	if hasVoice {
+		out.Voice = patch.Voice // 换声音设置整体替换
+	} else if hasAudio && out.Audio != core.AudioRevoice {
+		out.Voice = nil // 声音改成别的方式，旧的音色设置不再有效
 	}
 	return out
 }
@@ -304,6 +323,9 @@ var handlers = map[string]tool{
 	}},
 	agenttool.ToolListModels: {run: func(ctx context.Context, s Session, _ args, _ string) (any, error) {
 		return s.Models(ctx, core.ModelsReq{})
+	}},
+	agenttool.ToolListVoices: {run: func(ctx context.Context, s Session, a args, _ string) (any, error) {
+		return s.ListVoices(ctx, a.str("gender"), a.str("style"))
 	}},
 	agenttool.ToolListSamples: {run: func(ctx context.Context, s Session, a args, _ string) (any, error) {
 		return s.ListSamples(ctx, a.str("industry"))
@@ -371,6 +393,22 @@ var handlers = map[string]tool{
 		id, _ := a.int("job_id")
 		return s.ExportRatio(ctx, id, a.str("ratio"), a.str("mode"))
 	}},
+	agenttool.ToolRetryAudio: {write: true, run: func(ctx context.Context, s Session, a args, key string) (any, error) {
+		id, _ := a.int("job_id")
+		return s.RetryAudio(ctx, id, key)
+	}},
+	agenttool.ToolTrending: {run: func(ctx context.Context, s Session, a args, _ string) (any, error) {
+		return s.Trending(ctx, a.str("industry"))
+	}},
+	agenttool.ToolShareSample: {write: true, run: func(ctx context.Context, s Session, a args, _ string) (any, error) {
+		id, _ := a.int("job_id")
+		consent, _ := a["portrait_consent"].(bool)
+		return s.ShareSample(ctx, id, consent)
+	}},
+	agenttool.ToolWithdrawSample: {write: true, run: func(ctx context.Context, s Session, a args, _ string) (any, error) {
+		id, _ := a.int("submission_id")
+		return s.WithdrawSample(ctx, id)
+	}},
 	agenttool.ToolGetJob: {run: func(ctx context.Context, s Session, a args, _ string) (any, error) {
 		id, _ := a.int("job_id")
 		return s.JobView(ctx, id)
@@ -435,6 +473,7 @@ func updatePlan(ctx context.Context, s Session, a args, _ string) (any, error) {
 	raw, _ := a["annotations"].(map[string]any)
 	_, hasAudio := raw["audio"]
 	_, hasTexts := raw["texts"]
-	req.Annotations = mergeAnnotations(cur.Annotations, ann, hasAudio, hasTexts)
+	_, hasVoice := raw["voice"]
+	req.Annotations = mergeAnnotations(cur.Annotations, ann, hasAudio, hasTexts, hasVoice)
 	return s.PatchAnnotations(ctx, req, true)
 }

@@ -33,6 +33,7 @@ const (
 	AudioRegenerate = "regenerate"
 	AudioKeep       = "keep"
 	AudioMute       = "mute"
+	// AudioRevoice 见 voice.go：用原片台词按所选音色重新配音（annotations.voice）
 )
 
 // Annotations 用户改动。
@@ -41,6 +42,8 @@ type Annotations struct {
 	Audio string             `json:"audio"`
 	// Texts 生成后由系统叠加的文字（店名 / 价格 / 标题；≤4 处，每处 ≤30 字），不交给 AI 画。见 finish.go。
 	Texts []TextOverlay `json:"texts,omitempty"`
+	// Voice 换声音（只在 audio=revoice 时有效，见 voice.go）：音色、语速、逐句改台词。未用时 JSON 不出现，plan_hash 与旧版一致。
+	Voice *VoiceEdit `json:"voice,omitempty"`
 }
 
 // DimEdit 一项的改法。Refs 是参考图序号（从 1 起，对应 PlanReq.RefImages 的顺序）。
@@ -204,6 +207,7 @@ func (s *Service) preparePlan(ctx context.Context, req PlanReq, a *model.Analysi
 	}
 	ratio := strings.TrimSpace(req.AspectRatio)
 	ann, gaps := s.validate(req, &an)
+	gaps = append(gaps, s.voiceCatalogGaps(ctx, ann.Voice)...)
 	if !contains(resolutions, resolution) {
 		logx.WithContext(ctx).Infof("replicate: 方案拒收 判据=RESOLUTION_UNSUPPORTED user=%d 模型=%s 值=%q", req.UserID, req.ModelGroup, req.Resolution)
 		gaps = append(gaps, Gap{Code: "RESOLUTION_UNSUPPORTED", Field: "resolution", Message: "这个模型的清晰度只能选 " + strings.Join(resolutions, " / ")})
@@ -231,7 +235,7 @@ func (s *Service) preparePlan(ctx context.Context, req PlanReq, a *model.Analysi
 			return nil, nil, QuoteSnapshot{}, &GapsError{Gaps: rgaps}
 		}
 	}
-	segs, err := segment.Plan(an.DurationS, candidates(&an), s.cfg.Limits)
+	segs, err := segment.PlanWithMotion(an.DurationS, candidates(&an), s.cfg.Limits, an.Motion)
 	if err != nil {
 		return nil, nil, QuoteSnapshot{}, xerr.New(xerr.ParamError, fmt.Sprintf("这条视频的时长不适合拆分，建议剪到 %d 秒内再试", s.cfg.Limits.MaxDurationSec))
 	}
@@ -345,11 +349,15 @@ func (s *Service) validate(req PlanReq, an *AnalysisResult) (Annotations, []Gap)
 	switch ann.Audio {
 	case "":
 		ann.Audio = AudioRegenerate
-	case AudioRegenerate, AudioKeep, AudioMute:
+	case AudioRegenerate, AudioKeep, AudioMute, AudioRevoice:
 	default:
 		add("AUDIO_MODE", "audio", "声音的处理方式不对，请重新选择")
 	}
 	changed := 0
+	if ann.Audio == AudioRevoice {
+		changed++ // 换声音本身就是一处改动
+	}
+	ann.Voice = validateVoiceEdit(req.Annotations.Voice, ann.Audio, an, add)
 	ann.Texts = validateTexts(req.Annotations.Texts, add)
 	changed += len(ann.Texts)
 	for k, e := range req.Annotations.Dims {

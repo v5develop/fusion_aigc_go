@@ -48,6 +48,13 @@ const (
 	KeyCopyEnabled    = "replicate.copy.enabled"     // bool，发布文案开关
 	KeyCopyDailyQuota = "replicate.copy.daily_quota" // int 1~10000，每人每个自然日次数（默认 20）
 
+	// 换声音（Go_V1.0.57，CONTRACT §P）：库里有且合法时覆盖 Replicate.Voice.*（数据库 > 文件配置；60 秒内生效）
+	KeyVoiceEnabled    = "replicate.voice.enabled"     // bool，换声音开关
+	KeyVoiceDailyQuota = "replicate.voice.daily_quota" // int 1~10000，每人每个自然日条数（默认 10）
+
+	// 灵感推荐（CONTRACT §S）：库里有且合法时覆盖 Replicate.Trending.*（数据库 > 文件配置；60 秒内生效）
+	KeyTrendingMinUsers = "replicate.trending.min_users" // int 1~100000，k-匿名阈值：改法组合的去重用户数低于它不展示（默认 20）
+
 	// 待决策提醒（Go_V1.0.56，CONTRACT §O2）：库里有且合法时覆盖 Replicate.DecisionReminder.*（数据库 > 文件配置；60 秒内生效）
 	KeyDecisionReminderEnabled   = "replicate.decision_reminder.enabled"    // bool，待决策提醒开关（默认 true）
 	KeyDecisionReminderLeadHours = "replicate.decision_reminder.lead_hours" // int 1~168：离自动结束还剩多少小时时提醒（默认 4；不比待继续窗口短才生效）
@@ -266,6 +273,15 @@ func applyParams(base core.Config, longformYAML bool, kv map[string]string) Para
 	if v, ok := intOf(KeyCopyDailyQuota, 1, 10000); ok {
 		p.Cfg.CopyDailyQuota = v
 	}
+	if v, ok := boolOf(KeyVoiceEnabled); ok {
+		p.Cfg.VoiceOff = !v
+	}
+	if v, ok := intOf(KeyVoiceDailyQuota, 1, 10000); ok {
+		p.Cfg.VoiceDailyQuota = v
+	}
+	if v, ok := intOf(KeyTrendingMinUsers, 1, 100000); ok {
+		p.Cfg.TrendingMinUsers = v
+	}
 	if v, ok := boolOf(KeyDecisionReminderEnabled); ok {
 		p.Cfg.DecisionReminderOff = !v
 	}
@@ -430,6 +446,7 @@ func signature(p Params) string {
 		c.ModerationTextGroup, c.ModerationImageGroup, c.ModerationRejectTTL.String(),
 		c.ModerationConfirmWait.String(), c.ModerationPlanWait.String(),
 		strconv.FormatBool(c.PreviewOff), strconv.Itoa(c.PreviewDailyQuota), strconv.FormatBool(c.CopyOff), strconv.Itoa(c.CopyDailyQuota),
+		strconv.FormatBool(c.MotionOff), strconv.FormatBool(c.VoiceOff), strconv.Itoa(c.VoiceDailyQuota), c.VoiceModelGroup, c.VoiceWait.String(), strconv.Itoa(c.VoiceConcurrency), strconv.Itoa(c.TrendingMinUsers),
 		strconv.FormatBool(c.DecisionReminderOff), c.DecisionReminderLead.String(),
 		strconv.FormatBool(c.BadOutputOff), strconv.FormatFloat(c.BadOutputBlackRatio, 'f', 3, 64), strconv.FormatFloat(c.BadOutputFreezeRatio, 'f', 3, 64),
 		strconv.FormatInt(c.ConfirmThresholdPoints, 10), analysisfix.VersionOf(c.AnalysisRules),

@@ -131,7 +131,7 @@ func (s *Service) ListModels(ctx context.Context, req ModelsReq) (*ModelList, er
 		if err != nil {
 			return nil, err
 		}
-		if sg, err := segment.Plan(an.DurationS, candidates(an), s.cfg.Limits); err == nil {
+		if sg, err := segment.PlanWithMotion(an.DurationS, candidates(an), s.cfg.Limits, an.Motion); err == nil {
 			segs = sg
 		}
 	}

@@ -46,6 +46,14 @@ type Service struct {
 	// copies / exports 发布文案与多比例导出（publish_copy.go / export_ratio.go，可选；不装配时对应工具回 7003）
 	copies  CopyStore
 	exports ExportStore
+	// voices / voiceCat 换声音的额度流水与音色目录（voice.go，可选；不装配时换声音不可用）
+	voices   VoiceStore
+	voiceCat VoiceCatalog
+	// trendStore / trend 灵感推荐（trending.go，可选；不装配时 replicate_trending 回 7003）；trend 进程内一份，跨运行参数重建共用
+	trendStore TrendingStore
+	trend      *TrendingCache
+	// shares 成片分享投稿（share.go，可选；不装配时分享 / 撤回回 7003）
+	shares ShareStore
 }
 
 // Option 装配可选依赖。
