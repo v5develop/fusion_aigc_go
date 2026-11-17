@@ -100,48 +100,103 @@ func TestWithdrawShareNoopAndNotOwner(t *testing.T) {
 	}
 }
 
-// 标记奖励：先按 id 顺序锁住该用户的全部投稿行，再在锁内数本月已发放次数；已达上限不落状态。
-func TestGrantShareRewardLocksUserRowsThenChecksLimit(t *testing.T) {
-	from, to := time.UnixMilli(1762000000000), time.UnixMilli(1764000000000)
+// 占位奖励：先按 id 顺序锁住该用户的全部投稿行，再在锁内数本月已发放 + 发放中次数；已达上限不落状态。
+func TestClaimShareRewardLocksUserRowsThenChecksLimit(t *testing.T) {
+	p := ClaimParams{Enabled: true, Points: 30, Limit: 3, From: time.UnixMilli(1762000000000), To: time.UnixMilli(1764000000000), Now: t0, AdminID: 9}
 	r, mock := newMock(t)
 	mock.ExpectBegin()
 	mock.ExpectQuery(q("SELECT `user_id` FROM `afv_replicate_share` WHERE (id = 5) LIMIT 1")).WillReturnRows(sqlmock.NewRows([]string{"user_id"}).AddRow(7))
 	mock.ExpectQuery("WHERE \\(sh.user_id = 7\\) ORDER BY sh.id FOR UPDATE").
 		WillReturnRows(sqlmock.NewRows(shareCols).AddRow(5, 7, 31, 21, "approved", "", 88, 0, "", "none", nil, 9, nil, t0, t0))
-	mock.ExpectQuery(q("SELECT COUNT(*) FROM `afv_replicate_share` WHERE (user_id = 7 AND reward_status = 'granted' AND reward_at >= FROM_UNIXTIME(1762000000000 / 1000) AND reward_at < FROM_UNIXTIME(1764000000000 / 1000)) FOR UPDATE")).
+	mock.ExpectQuery(q("SELECT COUNT(*) FROM `afv_replicate_share` WHERE (user_id = 7 AND reward_status IN ('granted', 'granting') AND COALESCE(reward_claimed_at, reward_at) >= FROM_UNIXTIME(1762000000000 / 1000) AND COALESCE(reward_claimed_at, reward_at) < FROM_UNIXTIME(1764000000000 / 1000)) FOR UPDATE")).
 		WillReturnRows(sqlmock.NewRows([]string{"n"}).AddRow(3))
 	mock.ExpectCommit()
-	sh, out, err := r.GrantShareReward(ctx, 5, 3, from, to, t0)
-	if err != nil || out != RewardLimitHit || sh == nil || sh.RewardStatus != "none" {
+	sh, out, err := r.ClaimShareReward(ctx, 5, p)
+	if err != nil || out != ClaimLimitHit || sh == nil || sh.RewardStatus != "none" {
 		t.Fatalf("本月已 3 次应拒：out=%v sh=%+v err=%v", out, sh, err)
 	}
 }
 
-func TestGrantShareRewardGrantsAndIsIdempotent(t *testing.T) {
-	from, to := time.UnixMilli(1762000000000), time.UnixMilli(1764000000000)
+func TestClaimShareRewardClaimsAndReplays(t *testing.T) {
+	p := ClaimParams{Enabled: true, Points: 30, Limit: 3, From: time.UnixMilli(1762000000000), To: time.UnixMilli(1764000000000), Now: t0, AdminID: 9}
 	r, mock := newMock(t)
 	mock.ExpectBegin()
 	mock.ExpectQuery("SELECT `user_id`").WillReturnRows(sqlmock.NewRows([]string{"user_id"}).AddRow(7))
 	mock.ExpectQuery("FOR UPDATE").WillReturnRows(sqlmock.NewRows(shareCols).AddRow(5, 7, 31, 21, "approved", "", 88, 0, "", "none", nil, 9, nil, t0, t0))
 	mock.ExpectQuery("SELECT COUNT").WillReturnRows(sqlmock.NewRows([]string{"n"}).AddRow(2))
-	mock.ExpectExec(q("UPDATE `afv_replicate_share` SET reward_status = 'granted', reward_at = FROM_UNIXTIME(1763000000123 / 1000) WHERE (id = 5)")).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(q("UPDATE `afv_replicate_share` SET reward_status = 'granting', reward_points = 30, reward_claimed_by = 9, reward_claimed_at = FROM_UNIXTIME(1763000000123 / 1000) WHERE (id = 5)")).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
-	if sh, out, err := r.GrantShareReward(ctx, 5, 3, from, to, t0); err != nil || out != RewardGranted || sh.RewardStatus != "granted" {
+	if sh, out, err := r.ClaimShareReward(ctx, 5, p); err != nil || out != ClaimOK || sh.RewardStatus != "granting" || sh.RewardPoints != 30 {
 		t.Fatalf("out=%v sh=%+v err=%v", out, sh, err)
 	}
-	// 已发放：直接返回 Already，不数、不写
+	// 已是发放中：直接返回 Replay，不数、不写（即使奖励已关闭）
+	p.Enabled = false
 	mock.ExpectBegin()
 	mock.ExpectQuery("SELECT `user_id`").WillReturnRows(sqlmock.NewRows([]string{"user_id"}).AddRow(7))
-	mock.ExpectQuery("FOR UPDATE").WillReturnRows(sqlmock.NewRows(shareCols).AddRow(5, 7, 31, 21, "approved", "", 88, 0, "", "granted", t0, 9, nil, t0, t0))
+	mock.ExpectQuery("FOR UPDATE").WillReturnRows(sqlmock.NewRows(shareCols).AddRow(5, 7, 31, 21, "approved", "", 88, 0, "", "granting", nil, 9, nil, t0, t0))
 	mock.ExpectCommit()
-	if _, out, err := r.GrantShareReward(ctx, 5, 3, from, to, t0); err != nil || out != RewardAlready {
+	if _, out, err := r.ClaimShareReward(ctx, 5, p); err != nil || out != ClaimReplay {
 		t.Fatalf("out=%v err=%v", out, err)
 	}
 	// 不存在
 	mock.ExpectBegin()
 	mock.ExpectQuery("SELECT `user_id`").WillReturnRows(sqlmock.NewRows([]string{"user_id"}))
 	mock.ExpectRollback()
-	if _, out, err := r.GrantShareReward(ctx, 6, 3, from, to, t0); err != nil || out != RewardNotFound {
+	if _, out, err := r.ClaimShareReward(ctx, 6, p); err != nil || out != ClaimNotFound {
 		t.Fatalf("out=%v err=%v", out, err)
+	}
+}
+
+func TestClaimShareRewardDisabledAndNotApproved(t *testing.T) {
+	p := ClaimParams{Enabled: false, Points: 30, Limit: 3, Now: t0}
+	r, mock := newMock(t)
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT `user_id`").WillReturnRows(sqlmock.NewRows([]string{"user_id"}).AddRow(7))
+	mock.ExpectQuery("FOR UPDATE").WillReturnRows(sqlmock.NewRows(shareCols).AddRow(5, 7, 31, 21, "approved", "", 88, 0, "", "none", nil, 9, nil, t0, t0))
+	mock.ExpectCommit()
+	if _, out, err := r.ClaimShareReward(ctx, 5, p); err != nil || out != ClaimDisabled {
+		t.Fatalf("关闭应拒（不数不写）：out=%v err=%v", out, err)
+	}
+	p.Enabled = true
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT `user_id`").WillReturnRows(sqlmock.NewRows([]string{"user_id"}).AddRow(7))
+	mock.ExpectQuery("FOR UPDATE").WillReturnRows(sqlmock.NewRows(shareCols).AddRow(5, 7, 31, 21, "withdrawn", "", 88, 0, "", "none", nil, 9, nil, t0, t0))
+	mock.ExpectCommit()
+	if _, out, err := r.ClaimShareReward(ctx, 5, p); err != nil || out != ClaimNotApproved {
+		t.Fatalf("撤回应拒：out=%v err=%v", out, err)
+	}
+}
+
+// mark 是 CAS（granting → granted），不再数月额度。
+func TestMarkShareRewardGrantedCAS(t *testing.T) {
+	r, mock := newMock(t)
+	mock.ExpectExec(q("UPDATE `afv_replicate_share` SET reward_status = 'granted', reward_at = FROM_UNIXTIME(1763000000123 / 1000) WHERE (id = 5 AND reward_status = 'granting')")).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery("WHERE \\(sh.id = 5\\)").WillReturnRows(sqlmock.NewRows(shareCols).AddRow(5, 7, 31, 21, "approved", "", 88, 0, "", "granted", t0, 9, nil, t0, t0))
+	if sh, out, err := r.MarkShareRewardGranted(ctx, 5, t0); err != nil || out != MarkDone || sh.RewardStatus != "granted" {
+		t.Fatalf("out=%v sh=%+v err=%v", out, sh, err)
+	}
+	// 没抢到：已 granted → Already；none → NotClaimed
+	for st, want := range map[string]MarkOutcome{"granted": MarkAlready, "none": MarkNotClaimed} {
+		mock.ExpectExec("UPDATE `afv_replicate_share`").WillReturnResult(sqlmock.NewResult(0, 0))
+		mock.ExpectQuery("WHERE \\(sh.id = 5\\)").WillReturnRows(sqlmock.NewRows(shareCols).AddRow(5, 7, 31, 21, "approved", "", 88, 0, "", st, nil, 9, nil, t0, t0))
+		if _, out, err := r.MarkShareRewardGranted(ctx, 5, t0); err != nil || out != want {
+			t.Fatalf("%s：out=%v err=%v", st, out, err)
+		}
+	}
+}
+
+func TestReleaseShareRewardCAS(t *testing.T) {
+	r, mock := newMock(t)
+	mock.ExpectExec(q("UPDATE `afv_replicate_share` SET reward_status = 'none', reward_points = 0, reward_claimed_by = 0, reward_claimed_at = NULL WHERE (id = 5 AND reward_status = 'granting')")).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery("WHERE \\(sh.id = 5\\)").WillReturnRows(sqlmock.NewRows(shareCols).AddRow(5, 7, 31, 21, "approved", "", 88, 0, "", "none", nil, 9, nil, t0, t0))
+	if _, out, err := r.ReleaseShareReward(ctx, 5); err != nil || out != ReleaseDone {
+		t.Fatalf("out=%v err=%v", out, err)
+	}
+	for st, want := range map[string]ReleaseOutcome{"granted": ReleaseGranted, "none": ReleaseNoop} {
+		mock.ExpectExec("UPDATE `afv_replicate_share`").WillReturnResult(sqlmock.NewResult(0, 0))
+		mock.ExpectQuery("WHERE \\(sh.id = 5\\)").WillReturnRows(sqlmock.NewRows(shareCols).AddRow(5, 7, 31, 21, "approved", "", 88, 0, "", st, nil, 9, nil, t0, t0))
+		if _, out, err := r.ReleaseShareReward(ctx, 5); err != nil || out != want {
+			t.Fatalf("%s：out=%v err=%v", st, out, err)
+		}
 	}
 }

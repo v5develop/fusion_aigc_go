@@ -25,8 +25,10 @@ import (
 //   - 通过：用投稿的共享分析（整行复制成系统身份的一行）+ 改法（去掉用户内容）+ 成片（复制进素材库桶，媒体服务没配 / 失败则整条通过失败，
 //     不退而用用户私有桶里的原 rid）生成一条启用的示例，复用 repo 的示例表与同一套示例读取路径；事务内锁投稿行，重复点击只通过一次。
 //   - 驳回：原因必填，展示给用户。
-//   - 标记奖励已发放：积分只在 Java，管理端先调 Java 积分调整接口（幂等键 replicate-share-reward:{submissionId}，每条 30 点），
-//     成功后调本接口落状态；本接口幂等，并在库内锁用户的投稿行后核对「同一用户每月最多 3 次」。
+//   - 奖励发放（两阶段，积分只在 Java）：claim（占位：同一事务内锁用户投稿行，校验开关与「同一用户每月最多 N 次」，
+//     none → granting 并定下点数快照）→ 管理端调 Java 积分调整接口（幂等键 replicate-share-reward:{submissionId}，点数 = 快照）
+//     → mark（granting → granted，无条件，不再看开关 / 上限）。Java 明确失败且不再重试时用 release 取消占位（granting → none）。
+//     这样「开关关了 / 月上限被并发占满」只会挡在 claim 之前，不会出现 Java 已加点而 Go 拒收的「已发放未标记」。
 // ---------------------------------------------------------------------------------------------
 
 const (
@@ -37,8 +39,13 @@ const (
 	// ReasonRewardMonthlyLimit 同一用户本月奖励次数已达上限。
 	ReasonRewardMonthlyLimit = "REWARD_MONTHLY_LIMIT"
 
-	// DefaultRewardMonthlyLimit 每人每月最多发放几次奖励（DECISIONS 2026-11-17）。
-	DefaultRewardMonthlyLimit = 3
+	// ReasonRewardDisabled 分享奖励已在后台关闭（CONTRACT §U）；只在 claim 时判定。
+	ReasonRewardDisabled = "REWARD_DISABLED"
+	// ReasonRewardNotClaimed 标记发放时这条投稿还没占位（没走 claim）。
+	ReasonRewardNotClaimed = "REWARD_NOT_CLAIMED"
+	// ReasonRewardAlreadyGranted 取消占位时这条已经发放完成，不能取消。
+	ReasonRewardAlreadyGranted = "REWARD_ALREADY_GRANTED"
+
 	// RewardKeyPrefix 管理端调 Java 积分接口的幂等键前缀：replicate-share-reward:{submissionId}。
 	RewardKeyPrefix = "replicate-share-reward:"
 
@@ -53,7 +60,9 @@ type ShareStore interface {
 	RewardCounts(ctx context.Context, userIDs []int64, from, to time.Time) (map[int64]int, error)
 	ApproveShare(ctx context.Context, id, adminID int64, a *model.Analysis, smp *model.Sample) (*model.Share, bool, error)
 	RejectShare(ctx context.Context, id, adminID int64, reason string) (bool, error)
-	GrantShareReward(ctx context.Context, id int64, limit int, from, to, now time.Time) (*model.Share, repo.RewardOutcome, error)
+	ClaimShareReward(ctx context.Context, id int64, p repo.ClaimParams) (*model.Share, repo.ClaimOutcome, error)
+	MarkShareRewardGranted(ctx context.Context, id int64, now time.Time) (*model.Share, repo.MarkOutcome, error)
+	ReleaseShareReward(ctx context.Context, id int64) (*model.Share, repo.ReleaseOutcome, error)
 	GetAnalysis(ctx context.Context, id int64) (*model.Analysis, error)
 }
 
@@ -82,13 +91,6 @@ func (s *Service) clock() time.Time {
 		return s.now()
 	}
 	return time.Now()
-}
-
-func (s *Service) rewardLimit() int {
-	if s.rewardMonthlyLimit > 0 {
-		return s.rewardMonthlyLimit
-	}
-	return DefaultRewardMonthlyLimit
 }
 
 var cstLoc = time.FixedZone("CST", 8*3600)
@@ -131,14 +133,17 @@ type ShareRow struct {
 	CoverRid string `json:"coverRid,omitempty"`
 	VideoURL string `json:"videoUrl,omitempty"`
 	CoverURL string `json:"coverUrl,omitempty"`
-	// 奖励：RewardStatus none / granted；RewardAllowed = 已通过 + 还没发 + 该用户本月没到上限（前端据此置灰「发放奖励」）；
-	// MonthRewardCount 该用户本月已发放几次；RewardKey = 调 Java 积分接口用的幂等键
+	// 奖励：RewardStatus none / granting（发放中）/ granted；RewardAllowed = 奖励开着 + 已通过 + 还没占位 + 该用户本月没到上限（前端据此置灰「发放奖励」）；
+	// MonthRewardCount 该用户本月已发放 + 发放中几次；RewardKey = 调 Java 积分接口用的幂等键
 	RewardStatus     string     `json:"rewardStatus"`
 	RewardAt         *time.Time `json:"rewardAt,omitempty"`
 	RewardAllowed    bool       `json:"rewardAllowed"`
 	MonthRewardCount int        `json:"monthRewardCount"`
-	RewardLimit      int        `json:"rewardLimit"`
-	RewardKey        string     `json:"rewardKey"`
+	// RewardLimit 当前配置的每人每月上限（0 = 不限）；RewardPoints：已占位（granting / granted 且有快照）时是占位时的点数快照，
+	// 否则是当前配置的每条奖励点数（管理端调 Java 积分接口以占位返回的快照为准）
+	RewardLimit  int    `json:"rewardLimit"`
+	RewardPoints int    `json:"rewardPoints"`
+	RewardKey    string `json:"rewardKey"`
 	// RewardReplay 仅「标记奖励已发放」返回：true = 之前已经标记过，这次没有变化
 	RewardReplay bool       `json:"rewardReplay,omitempty"`
 	ReviewedBy   int64      `json:"reviewedBy,omitempty"`
@@ -171,16 +176,20 @@ func validShareStatus(s string) bool {
 	return false
 }
 
-func (s *Service) shareRow(ctx context.Context, sh *model.Share, monthCount int) ShareRow {
+func (s *Service) shareRow(ctx context.Context, sh *model.Share, monthCount int, rs RewardSettings) ShareRow {
 	row := ShareRow{ID: sh.ID, UserID: sh.UserID, UserIDMasked: maskUserID(sh.UserID), JobID: sh.JobID, PlanID: sh.PlanID,
 		Status: sh.Status, StatusLabel: core.ShareStatusLabel(sh.Status), RejectReason: sh.RejectReason, PortraitConsent: sh.PortraitConsent,
-		Industry: sh.Industry, RewardStatus: sh.RewardStatus, RewardAt: sh.RewardAt, MonthRewardCount: monthCount, RewardLimit: s.rewardLimit(),
+		Industry: sh.Industry, RewardStatus: sh.RewardStatus, RewardAt: sh.RewardAt, MonthRewardCount: monthCount, RewardLimit: rs.MonthlyLimit, RewardPoints: rs.Points,
 		RewardKey: RewardKeyPrefix + strconv.FormatInt(sh.ID, 10), ReviewedBy: sh.ReviewedBy, ReviewedAt: sh.ReviewedAt, CreatedAt: sh.CreatedAt,
 		UpdatedAt: sh.UpdatedAt, Change: core.ShareChangeSummary(nil)}
 	if sh.SampleID != nil {
 		row.SampleID = *sh.SampleID
 	}
-	row.RewardAllowed = sh.Status == model.ShareApproved && sh.RewardStatus != model.RewardGranted && monthCount < row.RewardLimit
+	if sh.RewardPoints > 0 && (sh.RewardStatus == model.RewardGranting || sh.RewardStatus == model.RewardGranted) {
+		row.RewardPoints = sh.RewardPoints
+	}
+	row.RewardAllowed = rs.Enabled && sh.Status == model.ShareApproved && sh.RewardStatus != model.RewardGranted && sh.RewardStatus != model.RewardGranting &&
+		(rs.MonthlyLimit == 0 || monthCount < rs.MonthlyLimit)
 	if p, err := s.store.AdminGetPlan(ctx, sh.PlanID); err == nil && p != nil {
 		row.PlanNo, row.Change = p.PlanNo, core.ShareChangeSummary(p.Annotations)
 	}
@@ -218,9 +227,10 @@ func (s *Service) ListShares(ctx context.Context, req ShareListReq) (*ShareList,
 	if err != nil {
 		return nil, err
 	}
+	rs := s.rewardSettings(ctx)
 	out := &ShareList{Items: make([]ShareRow, 0, len(list)), Total: total, Page: req.Page, Size: req.Size}
 	for _, sh := range list {
-		out.Items = append(out.Items, s.shareRow(ctx, sh, counts[sh.UserID]))
+		out.Items = append(out.Items, s.shareRow(ctx, sh, counts[sh.UserID], rs))
 	}
 	return out, nil
 }
@@ -251,7 +261,7 @@ func (s *Service) loadShare(ctx context.Context, ss ShareStore, id int64) (Share
 	if err != nil {
 		return ShareRow{}, nil, err
 	}
-	return s.shareRow(ctx, sh, counts[sh.UserID]), sh, nil
+	return s.shareRow(ctx, sh, counts[sh.UserID], s.rewardSettings(ctx)), sh, nil
 }
 
 // GetShare 一条投稿。
@@ -407,36 +417,105 @@ func (s *Service) RejectShare(ctx context.Context, id, adminID int64, reason str
 	return &row, nil
 }
 
-// MarkRewardGranted 标记「奖励已发放」：管理端在 Java 积分调整接口调用成功后调（Java 侧自带幂等键，这里再按状态幂等）。
-// 返回 RewardReplay=true 表示之前已标记。同一用户本月已发放达上限返回 409 REWARD_MONTHLY_LIMIT（此时不应再调 Java；
-// 页面应先看 rewardAllowed，置灰按钮）。
+// RewardClaim claim 的结果：管理端据此调 Java 积分接口（amount = RewardPoints，idempotencyKey = RewardKey）。
+type RewardClaim struct {
+	RewardKey    string `json:"rewardKey"`
+	RewardPoints int    `json:"rewardPoints"`
+	RewardStatus string `json:"rewardStatus"` // granting / granted
+	// Granted = 已经发放完成（无需再调 Java / mark）
+	Granted bool `json:"granted"`
+}
+
+// ClaimReward 占位奖励发放（两阶段第一阶段，管理端在调 Java 积分接口之前调；幂等，重试返回同一份点数快照）。
+// 判据（拒收均 409 且带 reason）：不是已通过 → SHARE_NOT_APPROVED；奖励已关闭 → REWARD_DISABLED；本月（发放 + 发放中）已达上限 → REWARD_MONTHLY_LIMIT。
+// 已是发放中 / 已发放的重复调用不再看开关与上限（钱可能已在路上）。
+func (s *Service) ClaimReward(ctx context.Context, id, adminID int64) (*RewardClaim, error) {
+	ss, err := s.shareStore()
+	if err != nil {
+		return nil, err
+	}
+	rs := s.rewardSettings(ctx)
+	now := s.clock()
+	from, to := monthBounds(now)
+	sh, outcome, err := ss.ClaimShareReward(ctx, id, repo.ClaimParams{Enabled: rs.Enabled, Points: rs.Points, Limit: rs.MonthlyLimit, From: from, To: to, Now: now, AdminID: adminID})
+	if err != nil {
+		return nil, err
+	}
+	switch outcome {
+	case repo.ClaimNotFound:
+		return nil, xerr.New(xerr.NotFound, "找不到这条投稿")
+	case repo.ClaimNotApproved:
+		return nil, xerr.NewReason(xerr.Conflict, ReasonShareNotApproved, "这条投稿还没通过审核（或已被用户撤回），不能发放奖励")
+	case repo.ClaimDisabled:
+		logx.WithContext(ctx).Infof("replicate-admin: 奖励占位拒收 判据=REWARD_DISABLED share=%d 分享奖励已在后台关闭", id)
+		return nil, xerr.NewReason(xerr.Conflict, ReasonRewardDisabled, "分享奖励已关闭，不能发放")
+	case repo.ClaimLimitHit:
+		logx.WithContext(ctx).Infof("replicate-admin: 奖励占位拒收 判据=REWARD_MONTHLY_LIMIT share=%d user=%d 本月已达上限 %d", id, sh.UserID, rs.MonthlyLimit)
+		return nil, xerr.NewReason(xerr.Conflict, ReasonRewardMonthlyLimit, fmt.Sprintf("该用户本月已发放 %d 次奖励，达到上限", rs.MonthlyLimit))
+	}
+	if outcome == repo.ClaimOK {
+		logx.WithContext(ctx).Infof("replicate-admin: 奖励占位 share=%d user=%d admin=%d points=%d", id, sh.UserID, adminID, sh.RewardPoints)
+	}
+	points := sh.RewardPoints
+	if points <= 0 { // 老数据（迁移前已发放的行没有快照）：回显当前配置，仅作展示
+		points = rs.Points
+	}
+	return &RewardClaim{RewardKey: RewardKeyPrefix + strconv.FormatInt(sh.ID, 10), RewardPoints: points, RewardStatus: sh.RewardStatus,
+		Granted: sh.RewardStatus == model.RewardGranted}, nil
+}
+
+// MarkRewardGranted 标记「奖励已发放」（两阶段第三阶段，Java 积分接口成功之后调）：granting → granted，无条件——
+// 积分已经发出，不再校验开关 / 月上限。已发放 → 幂等（RewardReplay=true）；没占位（none）→ 409 REWARD_NOT_CLAIMED。
 func (s *Service) MarkRewardGranted(ctx context.Context, id, adminID int64) (*ShareRow, error) {
 	ss, err := s.shareStore()
 	if err != nil {
 		return nil, err
 	}
-	now := s.clock()
-	from, to := monthBounds(now)
-	sh, outcome, err := ss.GrantShareReward(ctx, id, s.rewardLimit(), from, to, now)
+	sh, outcome, err := ss.MarkShareRewardGranted(ctx, id, s.clock())
 	if err != nil {
 		return nil, err
 	}
 	switch outcome {
-	case repo.RewardNotFound:
+	case repo.MarkNotFound:
 		return nil, xerr.New(xerr.NotFound, "找不到这条投稿")
-	case repo.RewardNotApproved:
-		return nil, xerr.NewReason(xerr.Conflict, ReasonShareNotApproved, "这条投稿还没通过审核（或已被用户撤回），不能发放奖励")
-	case repo.RewardLimitHit:
-		logx.WithContext(ctx).Infof("replicate-admin: 奖励标记拒收 判据=REWARD_MONTHLY_LIMIT share=%d user=%d 本月已达上限 %d", id, sh.UserID, s.rewardLimit())
-		return nil, xerr.NewReason(xerr.Conflict, ReasonRewardMonthlyLimit, fmt.Sprintf("该用户本月已发放 %d 次奖励，达到上限", s.rewardLimit()))
+	case repo.MarkNotClaimed:
+		logx.WithContext(ctx).Infof("replicate-admin: 奖励标记拒收 判据=REWARD_NOT_CLAIMED share=%d 还没占位（先调 reward/claim）", id)
+		return nil, xerr.NewReason(xerr.Conflict, ReasonRewardNotClaimed, "这条投稿还没占位发放，请先占位再标记")
 	}
 	row, _, err := s.loadShare(ctx, ss, id)
 	if err != nil {
 		return nil, err
 	}
-	row.RewardReplay = outcome == repo.RewardAlready
-	if outcome == repo.RewardGranted {
-		logx.WithContext(ctx).Infof("replicate-admin: 标记奖励已发放 share=%d user=%d admin=%d", id, sh.UserID, adminID)
+	row.RewardReplay = outcome == repo.MarkAlready
+	if outcome == repo.MarkDone {
+		logx.WithContext(ctx).Infof("replicate-admin: 标记奖励已发放 share=%d user=%d admin=%d points=%d", id, sh.UserID, adminID, sh.RewardPoints)
+	}
+	return &row, nil
+}
+
+// ReleaseReward 取消占位：granting → none（幂等；本来就是 none 直接返回）。只在 Java 明确没有加点（调用没发出 / 明确不可重试的失败）时用；
+// 已发放 → 409 REWARD_ALREADY_GRANTED。
+func (s *Service) ReleaseReward(ctx context.Context, id, adminID int64) (*ShareRow, error) {
+	ss, err := s.shareStore()
+	if err != nil {
+		return nil, err
+	}
+	sh, outcome, err := ss.ReleaseShareReward(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	switch outcome {
+	case repo.ReleaseNotFound:
+		return nil, xerr.New(xerr.NotFound, "找不到这条投稿")
+	case repo.ReleaseGranted:
+		return nil, xerr.NewReason(xerr.Conflict, ReasonRewardAlreadyGranted, "这条奖励已经发放完成，不能取消")
+	}
+	if outcome == repo.ReleaseDone {
+		logx.WithContext(ctx).Infof("replicate-admin: 取消奖励占位 share=%d user=%d admin=%d", id, sh.UserID, adminID)
+	}
+	row, _, err := s.loadShare(ctx, ss, id)
+	if err != nil {
+		return nil, err
 	}
 	return &row, nil
 }

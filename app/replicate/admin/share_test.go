@@ -55,7 +55,11 @@ func (f *fakeShares) AdminListShares(_ context.Context, fl repo.ShareFilter, _, 
 func (f *fakeShares) RewardCounts(_ context.Context, ids []int64, from, to time.Time) (map[int64]int, error) {
 	out := map[int64]int{}
 	for _, s := range f.shares {
-		if s.RewardStatus == model.RewardGranted && s.RewardAt != nil && !s.RewardAt.Before(from) && s.RewardAt.Before(to) {
+		at := s.RewardClaimedAt
+		if at == nil {
+			at = s.RewardAt
+		}
+		if (s.RewardStatus == model.RewardGranted || s.RewardStatus == model.RewardGranting) && at != nil && !at.Before(from) && at.Before(to) {
 			for _, id := range ids {
 				if id == s.UserID {
 					out[id]++
@@ -88,23 +92,54 @@ func (f *fakeShares) RejectShare(_ context.Context, id, adminID int64, reason st
 	}
 	return false, nil
 }
-func (f *fakeShares) GrantShareReward(ctx context.Context, id int64, limit int, from, to, now time.Time) (*model.Share, repo.RewardOutcome, error) {
+func (f *fakeShares) ClaimShareReward(ctx context.Context, id int64, p repo.ClaimParams) (*model.Share, repo.ClaimOutcome, error) {
 	s := f.shares[id]
 	if s == nil {
-		return nil, repo.RewardNotFound, nil
+		return nil, repo.ClaimNotFound, nil
 	}
 	switch {
 	case s.RewardStatus == model.RewardGranted:
-		return cp(s), repo.RewardAlready, nil
+		return cp(s), repo.ClaimGranted, nil
+	case s.RewardStatus == model.RewardGranting:
+		return cp(s), repo.ClaimReplay, nil
 	case s.Status != model.ShareApproved:
-		return cp(s), repo.RewardNotApproved, nil
+		return cp(s), repo.ClaimNotApproved, nil
+	case !p.Enabled:
+		return cp(s), repo.ClaimDisabled, nil
 	}
-	n, _ := f.RewardCounts(ctx, []int64{s.UserID}, from, to)
-	if n[s.UserID] >= limit {
-		return cp(s), repo.RewardLimitHit, nil
+	n, _ := f.RewardCounts(ctx, []int64{s.UserID}, p.From, p.To)
+	if p.Limit > 0 && n[s.UserID] >= p.Limit {
+		return cp(s), repo.ClaimLimitHit, nil
 	}
-	s.RewardStatus, s.RewardAt = model.RewardGranted, &now
-	return cp(s), repo.RewardGranted, nil
+	now := p.Now
+	s.RewardStatus, s.RewardPoints, s.RewardClaimedBy, s.RewardClaimedAt = model.RewardGranting, p.Points, p.AdminID, &now
+	return cp(s), repo.ClaimOK, nil
+}
+func (f *fakeShares) MarkShareRewardGranted(_ context.Context, id int64, now time.Time) (*model.Share, repo.MarkOutcome, error) {
+	s := f.shares[id]
+	switch {
+	case s == nil:
+		return nil, repo.MarkNotFound, nil
+	case s.RewardStatus == model.RewardGranting:
+		s.RewardStatus, s.RewardAt = model.RewardGranted, &now
+		return cp(s), repo.MarkDone, nil
+	case s.RewardStatus == model.RewardGranted:
+		return cp(s), repo.MarkAlready, nil
+	}
+	return cp(s), repo.MarkNotClaimed, nil
+}
+func (f *fakeShares) ReleaseShareReward(_ context.Context, id int64) (*model.Share, repo.ReleaseOutcome, error) {
+	s := f.shares[id]
+	switch {
+	case s == nil:
+		return nil, repo.ReleaseNotFound, nil
+	case s.RewardStatus == model.RewardGranting:
+		s.RewardStatus, s.RewardPoints, s.RewardClaimedBy, s.RewardClaimedAt = model.RewardNone, 0, 0, nil
+		return cp(s), repo.ReleaseDone, nil
+	case s.RewardStatus == model.RewardGranted:
+		return cp(s), repo.ReleaseGranted, nil
+	}
+	return cp(s), repo.ReleaseNoop, nil
 }
 
 type fakeShareMedia struct {
@@ -326,35 +361,52 @@ func TestRejectShare(t *testing.T) {
 	}
 }
 
-func TestMarkRewardGrantedIdempotentAndMonthlyLimit(t *testing.T) {
+// claim → mark 两阶段：幂等、点数快照、月上限（发放 + 发放中都占额度）。
+func TestClaimThenMarkIdempotentAndMonthlyLimit(t *testing.T) {
 	s, f, _ := shareFixture(t)
-	if _, err := s.MarkRewardGranted(ctx, 1, 9); xerr.ReasonOf(err) != ReasonShareNotApproved {
-		t.Fatalf("待审核不能发奖励：%v", err)
+	if _, err := s.ClaimReward(ctx, 1, 9); xerr.ReasonOf(err) != ReasonShareNotApproved {
+		t.Fatalf("待审核不能占位：%v", err)
 	}
 	f.shares[1].Status = model.ShareApproved
 	l, _ := s.ListShares(ctx, ShareListReq{})
 	if !l.Items[0].RewardAllowed {
 		t.Fatalf("已通过 + 没发 + 本月 0 次：应允许：%+v", l.Items[0])
 	}
+	// 没占位就标记：409
+	if _, err := s.MarkRewardGranted(ctx, 1, 9); xerr.ReasonOf(err) != ReasonRewardNotClaimed {
+		t.Fatalf("没占位不能标记：%v", err)
+	}
+	c, err := s.ClaimReward(ctx, 1, 9)
+	if err != nil || c.RewardStatus != model.RewardGranting || c.Granted || c.RewardPoints != 30 || c.RewardKey != "replicate-share-reward:1" {
+		t.Fatalf("占位：%+v err=%v", c, err)
+	}
+	if g, _ := s.GetShare(ctx, 1); g.RewardAllowed || g.RewardStatus != model.RewardGranting || g.MonthRewardCount != 1 {
+		t.Fatalf("发放中不再允许新占位且占额度：%+v", g)
+	}
+	if again, err := s.ClaimReward(ctx, 1, 9); err != nil || again.RewardStatus != model.RewardGranting || again.RewardPoints != 30 {
+		t.Fatalf("重复占位应幂等：%+v err=%v", again, err)
+	}
 	row, err := s.MarkRewardGranted(ctx, 1, 9)
 	if err != nil || row.RewardStatus != model.RewardGranted || row.RewardReplay || row.RewardAllowed || row.MonthRewardCount != 1 || row.RewardAt == nil {
 		t.Fatalf("标记：%+v err=%v", row, err)
 	}
-	again, err := s.MarkRewardGranted(ctx, 1, 9)
-	if err != nil || !again.RewardReplay || again.MonthRewardCount != 1 {
+	if again, err := s.MarkRewardGranted(ctx, 1, 9); err != nil || !again.RewardReplay || again.MonthRewardCount != 1 {
 		t.Fatalf("重复标记应幂等（不重复计数）：%+v err=%v", again, err)
 	}
-	// 同一用户再来 2 条已通过的：本月第 2、3 次可以，第 4 次拒
+	if c, err := s.ClaimReward(ctx, 1, 9); err != nil || !c.Granted || c.RewardStatus != model.RewardGranted {
+		t.Fatalf("已发放的占位返回 granted=true：%+v err=%v", c, err)
+	}
+	// 同一用户再来几条已通过的：本月第 2、3 次可以占位，第 4 次拒
 	for i := int64(2); i <= 5; i++ {
 		f.shares[i] = &model.Share{ID: i, UserID: 12345678, JobID: 40 + i, PlanID: 21, Status: model.ShareApproved, RewardStatus: model.RewardNone}
 		f.id = i
 	}
 	for i := int64(2); i <= 3; i++ {
-		if _, err := s.MarkRewardGranted(ctx, i, 9); err != nil {
-			t.Fatalf("第 %d 次应可发：%v", i, err)
+		if _, err := s.ClaimReward(ctx, i, 9); err != nil {
+			t.Fatalf("第 %d 次应可占位：%v", i, err)
 		}
 	}
-	if _, err := s.MarkRewardGranted(ctx, 4, 9); xerr.ReasonOf(err) != ReasonRewardMonthlyLimit || f.shares[4].RewardStatus == model.RewardGranted {
+	if _, err := s.ClaimReward(ctx, 4, 9); xerr.ReasonOf(err) != ReasonRewardMonthlyLimit || f.shares[4].RewardStatus != model.RewardNone {
 		t.Fatalf("第 4 次应超限且不落状态：%v", err)
 	}
 	l, _ = s.ListShares(ctx, ShareListReq{Status: "approved"})
@@ -363,16 +415,42 @@ func TestMarkRewardGrantedIdempotentAndMonthlyLimit(t *testing.T) {
 			t.Fatalf("超限后 rewardAllowed 应置灰：%+v", it)
 		}
 	}
-	// 已发放过的那几条重复标记仍幂等（不会因为到上限而报错）
-	if r, err := s.MarkRewardGranted(ctx, 2, 9); err != nil || !r.RewardReplay {
-		t.Fatalf("已发放的重放不受上限影响：%+v err=%v", r, err)
-	}
 	// 次月重新计数
 	s.now = func() time.Time { return now0.AddDate(0, 1, 0) }
-	if r, err := s.MarkRewardGranted(ctx, 4, 9); err != nil || r.MonthRewardCount != 1 {
-		t.Fatalf("下个月应重新计数：%+v err=%v", r, err)
+	if c, err := s.ClaimReward(ctx, 4, 9); err != nil || c.RewardStatus != model.RewardGranting {
+		t.Fatalf("下个月应重新计数：%+v err=%v", c, err)
+	}
+	if _, err := s.ClaimReward(ctx, 99, 9); err == nil {
+		t.Fatal("找不到应报错")
 	}
 	if _, err := s.MarkRewardGranted(ctx, 99, 9); err == nil {
+		t.Fatal("找不到应报错")
+	}
+}
+
+// release：granting → none（清快照，让出额度）；none 幂等；granted 拒。
+func TestReleaseReward(t *testing.T) {
+	s, f, _ := shareFixture(t)
+	f.shares[1].Status = model.ShareApproved
+	if _, err := s.ClaimReward(ctx, 1, 9); err != nil {
+		t.Fatal(err)
+	}
+	row, err := s.ReleaseReward(ctx, 1, 9)
+	if err != nil || row.RewardStatus != model.RewardNone || row.MonthRewardCount != 0 || !row.RewardAllowed {
+		t.Fatalf("取消占位：%+v err=%v", row, err)
+	}
+	if f.shares[1].RewardClaimedAt != nil || f.shares[1].RewardClaimedBy != 0 {
+		t.Fatalf("占位信息应清空：%+v", f.shares[1])
+	}
+	if _, err := s.ReleaseReward(ctx, 1, 9); err != nil {
+		t.Fatalf("none 重复取消应幂等：%v", err)
+	}
+	_, _ = s.ClaimReward(ctx, 1, 9)
+	_, _ = s.MarkRewardGranted(ctx, 1, 9)
+	if _, err := s.ReleaseReward(ctx, 1, 9); xerr.ReasonOf(err) != ReasonRewardAlreadyGranted {
+		t.Fatalf("已发放不能取消：%v", err)
+	}
+	if _, err := s.ReleaseReward(ctx, 99, 9); err == nil {
 		t.Fatal("找不到应报错")
 	}
 }
@@ -380,7 +458,7 @@ func TestMarkRewardGrantedIdempotentAndMonthlyLimit(t *testing.T) {
 func TestMarkRewardRejectsWithdrawn(t *testing.T) {
 	s, f, _ := shareFixture(t)
 	f.shares[1].Status = model.ShareWithdrawn
-	if _, err := s.MarkRewardGranted(ctx, 1, 9); xerr.ReasonOf(err) != ReasonShareNotApproved {
+	if _, err := s.ClaimReward(ctx, 1, 9); xerr.ReasonOf(err) != ReasonShareNotApproved {
 		t.Fatalf("用户撤回的投稿不发奖励：%v", err)
 	}
 }

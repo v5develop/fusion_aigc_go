@@ -54,6 +54,8 @@ type ServiceContext struct {
 	ReplicateAdmin *replicateadmin.Service
 	// ReplicateSwitch 视频做同款总开关读写（afv_system_config.replicate.enabled）；没配 DataSource 时为 nil（接口回 7003）
 	ReplicateSwitch *replicatehttp.Switch
+	// ReplicateShareReward 分享奖励规则读写（afv_system_config.replicate.share_reward.*）；没配 DataSource 时为 nil（接口回 7003）
+	ReplicateShareReward *replicatehttp.ShareRewardSettings
 }
 
 func NewServiceContext(c config.Config) *ServiceContext {
@@ -66,22 +68,25 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	plaza := newPlaza(c, conn, sess)
 	hl := httpapi.MustBuild(c.DataSource, sessRedis(sess), c.PlazaHeadline, true, c.Plaza.AdminWriteEnabled)
 	wireHeadline(plaza, hl)
+	rwEnabled, rwPoints, rwLimit := c.ShareRewardDefaults()
+	shareReward := replicatehttp.NewShareRewardSettings(conn, replicateadmin.RewardSettings{Enabled: rwEnabled, Points: rwPoints, MonthlyLimit: rwLimit})
 	return &ServiceContext{
-		ReplicateAdmin:  newReplicateAdmin(c, conn),
-		ReplicateSwitch: replicatehttp.NewSwitch(conn, c.ReplicateAdmin.EnabledDefault),
-		Plaza:           plaza,
-		Headline:        hl,
-		Config:          c,
-		AdminAuth:       middleware.NewAdminAuthMiddleware(c.Auth.Mode, c.Auth.Jwt, session.New(c.Auth.Session), conn).Handle,
-		CopywritingRpc:  copywriting.NewCopywriting(zrpc.MustNewClient(c.CopywritingRpc)),
-		DigitalHumanRpc: digitalhuman.NewDigitalHuman(zrpc.MustNewClient(c.DigitalHumanRpc)),
-		NoteRpc:         note.NewNote(zrpc.MustNewClient(c.NoteRpc)),
-		ImageGenRpc:     imagegen.NewImageGen(zrpc.MustNewClient(c.ImageGenRpc)),
-		StudioRpc:       studio.NewStudio(zrpc.MustNewClient(c.StudioRpc)),
-		AssetLibRpc:     assetlib.NewAssetlib(zrpc.MustNewClient(c.AssetLibRpc)),
-		CanvasRpc:       canvas.NewCanvas(zrpc.MustNewClient(c.CanvasRpc)),
-		AdminUser:       adminuser.New(conn),
-		Session:         session.New(c.Auth.Session),
+		ReplicateAdmin:       newReplicateAdmin(c, conn, shareReward),
+		ReplicateSwitch:      replicatehttp.NewSwitch(conn, c.ReplicateAdmin.EnabledDefault),
+		ReplicateShareReward: shareReward,
+		Plaza:                plaza,
+		Headline:             hl,
+		Config:               c,
+		AdminAuth:            middleware.NewAdminAuthMiddleware(c.Auth.Mode, c.Auth.Jwt, session.New(c.Auth.Session), conn).Handle,
+		CopywritingRpc:       copywriting.NewCopywriting(zrpc.MustNewClient(c.CopywritingRpc)),
+		DigitalHumanRpc:      digitalhuman.NewDigitalHuman(zrpc.MustNewClient(c.DigitalHumanRpc)),
+		NoteRpc:              note.NewNote(zrpc.MustNewClient(c.NoteRpc)),
+		ImageGenRpc:          imagegen.NewImageGen(zrpc.MustNewClient(c.ImageGenRpc)),
+		StudioRpc:            studio.NewStudio(zrpc.MustNewClient(c.StudioRpc)),
+		AssetLibRpc:          assetlib.NewAssetlib(zrpc.MustNewClient(c.AssetLibRpc)),
+		CanvasRpc:            canvas.NewCanvas(zrpc.MustNewClient(c.CanvasRpc)),
+		AdminUser:            adminuser.New(conn),
+		Session:              session.New(c.Auth.Session),
 	}
 }
 
@@ -145,7 +150,7 @@ func wireHeadline(plaza *core.Service, hl *httpapi.Headline) {
 
 // newReplicateAdmin 视频做同款后台：业务表经 app/replicate/repo（bun），动钱只经 pkg/billing（ReplicateAdmin.Billing）；
 // 强制收尾用与 gateway 同源的运行参数（afv_system_config）并装通知器 / 任务中心同步（replicatehttp.AdminForcer）。
-func newReplicateAdmin(c config.Config, conn sqlx.SqlConn) *replicateadmin.Service {
+func newReplicateAdmin(c config.Config, conn sqlx.SqlConn, shareReward *replicatehttp.ShareRewardSettings) *replicateadmin.Service {
 	if conn == nil {
 		return nil
 	}
@@ -155,6 +160,9 @@ func newReplicateAdmin(c config.Config, conn sqlx.SqlConn) *replicateadmin.Servi
 		return nil
 	}
 	ra := replicateadmin.New(store, bill, forcer)
+	if shareReward != nil { // 分享奖励规则（数据库 > 配置文件）；不装配时 Service 用内置默认
+		ra.SetRewardSettings(shareReward)
+	}
 	if m := c.ReplicateAdmin.Media; strings.TrimSpace(m.BaseURL) != "" { // 通过用户投稿时把成片复制进素材库桶
 		ra.SetShareMedia(mediasvc.New([]string{m.BaseURL}, m.Token))
 	}

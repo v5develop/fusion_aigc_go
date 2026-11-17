@@ -56,10 +56,34 @@ type Config struct {
 		// EnabledDefault 视频做同款总开关的部署默认值（须与 gateway-api 的 Replicate.Enabled 一致，部署工具同时写两处）。
 		// 后台开关页据此显示「跟随部署配置」时的实际状态；库里 replicate.enabled 存在时以库为准。
 		EnabledDefault bool `json:",default=false"`
+		// ShareReward 用户投稿分享奖励规则的部署默认值（CONTRACT §U）；库里 replicate.share_reward.* 存在且合法时逐项以库为准。
+		// Points 1–1000、MonthlyLimit 0–100（0 = 不限），非法值启动告警并退回内置默认 true / 30 / 3。
+		// 用指针：整段缺省时 go-zero 不会套子字段 default，nil = 用内置默认（显式写 0 / false 则原样保留）。
+		ShareReward struct {
+			Enabled      *bool `json:",optional"`
+			Points       *int  `json:",optional"`
+			MonthlyLimit *int  `json:",optional"`
+		} `json:",optional"`
 		// Media 示例素材的上传 / 预览（媒体服务）。没配 BaseURL 时上传与解析接口回「媒体服务未配置」，粘贴编号的老路径不受影响。
 		Media struct {
 			BaseURL string `json:",optional"`
 			Token   string `json:",optional"`
 		} `json:",optional"`
 	} `json:",optional"`
+}
+
+// ShareRewardDefaults 部署配置里的分享奖励规则（缺省项用内置默认 true / 30 / 3）。
+func (c Config) ShareRewardDefaults() (enabled bool, points, monthlyLimit int) {
+	enabled, points, monthlyLimit = true, 30, 3
+	r := c.ReplicateAdmin.ShareReward
+	if r.Enabled != nil {
+		enabled = *r.Enabled
+	}
+	if r.Points != nil {
+		points = *r.Points
+	}
+	if r.MonthlyLimit != nil {
+		monthlyLimit = *r.MonthlyLimit
+	}
+	return
 }

@@ -246,6 +246,7 @@ const replicateAdminPrefix = "/api/v1/replicate/admin/"
 
 // replicateRoutePerm 视频做同款后台的路由级权限（Go_V1.0.39）：POST /jobs/{id}/refund 要 replicate:refund，
 // POST /jobs/{id}/force-finish 要 replicate:force；示例管理 /samples/** 的写（POST / PUT / DELETE，Go_V1.0.41）与用户投稿 /shares/** 的写（通过 / 驳回 / 标记奖励，Go_V1.0.58）要 replicate:sample；
+// 分享奖励规则 /share-reward-settings 的写（PUT / DELETE，CONTRACT §U）同属示例管理 = replicate:sample；
 // 总开关 /switch 的写（PUT / DELETE，Go_V1.0.50）要 replicate:switch；
 // 其余走前缀映射（GET = replicate:view，其它写 = replicate:force，从严）。
 func replicateRoutePerm(method, p string) string {
@@ -256,7 +257,7 @@ func replicateRoutePerm(method, p string) string {
 	if seg[0] == "samples" && len(seg) == 3 && seg[1] == "media" && seg[2] == "resolve" { // 解析只读预览，查看即可（Go_V1.0.50）
 		return "replicate:view"
 	}
-	if (seg[0] == "samples" || seg[0] == "shares") && method != http.MethodGet && method != http.MethodHead { // 用户投稿（Go_V1.0.58）与示例同属示例管理
+	if (seg[0] == "samples" || seg[0] == "shares" || seg[0] == "share-reward-settings") && method != http.MethodGet && method != http.MethodHead { // 用户投稿（Go_V1.0.58）与示例同属示例管理
 		return "replicate:sample"
 	}
 	if seg[0] == "switch" && method != http.MethodGet && method != http.MethodHead { // 总开关写（Go_V1.0.50）：暂停 / 恢复全站新提交

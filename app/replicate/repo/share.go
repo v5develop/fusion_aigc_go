@@ -187,7 +187,10 @@ func (r *Repo) AdminListShares(ctx context.Context, f ShareFilter, offset, limit
 	return out, int64(n), nil
 }
 
-// RewardCounts 这些用户在 [from, to) 内已发放奖励的次数（reward_at 落在区间内的 granted 行）。
+// rewardMonthExpr 奖励落月时间：占位时间优先（占位即占额度），老数据回落发放时间。
+const rewardMonthExpr = "COALESCE(reward_claimed_at, reward_at)"
+
+// RewardCounts 这些用户在 [from, to) 内已发放 + 发放中（已占位）的奖励次数。
 func (r *Repo) RewardCounts(ctx context.Context, userIDs []int64, from, to time.Time) (map[int64]int, error) {
 	out := map[int64]int{}
 	if len(userIDs) == 0 {
@@ -197,8 +200,8 @@ func (r *Repo) RewardCounts(ctx context.Context, userIDs []int64, from, to time.
 		UserID int64 `bun:"user_id"`
 		N      int   `bun:"n"`
 	}
-	err := r.db.NewRaw("SELECT user_id, COUNT(*) AS n FROM ? WHERE user_id IN (?) AND reward_status = ? AND reward_at >= ? AND reward_at < ? GROUP BY user_id",
-		bun.Ident(model.TableShare), bun.In(userIDs), model.RewardGranted, msExpr(from), msExpr(to)).Scan(ctx, &rows)
+	err := r.db.NewRaw("SELECT user_id, COUNT(*) AS n FROM ? WHERE user_id IN (?) AND reward_status IN (?, ?) AND "+rewardMonthExpr+" >= ? AND "+rewardMonthExpr+" < ? GROUP BY user_id",
+		bun.Ident(model.TableShare), bun.In(userIDs), model.RewardGranted, model.RewardGranting, msExpr(from), msExpr(to)).Scan(ctx, &rows)
 	if err != nil {
 		return nil, err
 	}
@@ -259,74 +262,165 @@ func (r *Repo) RejectShare(ctx context.Context, id, adminID int64, reason string
 		Set("reviewed_by = ?", adminID).Set("reviewed_at = NOW(3)").Where("id = ? AND status = ?", id, model.SharePending).Exec(ctx))
 }
 
-// RewardOutcome 标记奖励已发放的结果。
-type RewardOutcome int
+// ClaimOutcome 占位（claim）的结果。
+type ClaimOutcome int
 
 const (
-	RewardGranted     RewardOutcome = iota // 这次标记成功
-	RewardAlready                          // 之前已经标记过（幂等重放）
-	RewardLimitHit                         // 同一用户本月已达上限
-	RewardNotApproved                      // 投稿不是已通过状态
-	RewardNotFound                         // 没有这条投稿
+	ClaimOK          ClaimOutcome = iota // 这次新占位成功（none → granting）
+	ClaimReplay                          // 已是发放中（任何人占的）：原样返回，点数沿用快照
+	ClaimGranted                         // 已发放
+	ClaimNotApproved                     // 投稿不是已通过状态
+	ClaimDisabled                        // 奖励已关闭
+	ClaimLimitHit                        // 同一用户本月（发放 + 发放中）已达上限
+	ClaimNotFound                        // 没有这条投稿
 )
 
-// GrantShareReward 标记「奖励已发放」（幂等；管理端在 Java 积分接口调用成功之后调）：
-// 先按 id 顺序锁住该用户的全部投稿行（同一用户并发标记串行化、锁序固定不死锁），再在锁内判断：已发放 → 重放；
-// 不是已通过 → 拒；本月（[from, to)）已发放 ≥ limit → 拒；否则 reward_status=granted、reward_at=now。返回最新投稿行。
-func (r *Repo) GrantShareReward(ctx context.Context, id int64, limit int, from, to, now time.Time) (*model.Share, RewardOutcome, error) {
+// ClaimParams 占位参数（规则取自调用时刻的奖励设置）。
+type ClaimParams struct {
+	Enabled  bool
+	Points   int
+	Limit    int // <=0 = 不限
+	From, To time.Time
+	Now      time.Time
+	AdminID  int64
+}
+
+// lockUserShares 同一事务内：按 id 顺序锁住该用户全部投稿行（同一用户并发占位 / 标记串行化、锁序固定不死锁），返回目标那行。
+func lockUserShares(ctx context.Context, tx bun.Tx, id int64) (*model.Share, error) {
+	var uid int64
+	if err := tx.NewSelect().Table(model.TableShare).Column("user_id").Where("id = ?", id).Limit(1).Scan(ctx, &uid); err != nil {
+		return nil, err
+	}
+	var rows []*model.Share
+	if err := tx.NewSelect().Model(&rows).Where("sh.user_id = ?", uid).OrderExpr("sh.id").For("UPDATE").Scan(ctx); err != nil {
+		return nil, err
+	}
+	for _, x := range rows {
+		if x.ID == id {
+			return x, nil
+		}
+	}
+	return nil, nil
+}
+
+// ClaimShareReward 占位「奖励发放」（两阶段的第一阶段，管理端在调 Java 加积分之前调）：
+// 同一事务内先锁用户的全部投稿行，再在锁内判断：已发放 → ClaimGranted；已是发放中 → ClaimReplay（幂等，点数快照不变，重试可继续）；
+// 不是已通过 → 拒；奖励已关闭 → 拒；本月（[From, To)）已发放 + 发放中 ≥ Limit → 拒；
+// 否则 reward_status none → granting，记点数快照 / 占位人 / 占位时间。占位成功之后的 Java 加点与 mark 不再受开关 / 上限影响。
+func (r *Repo) ClaimShareReward(ctx context.Context, id int64, p ClaimParams) (*model.Share, ClaimOutcome, error) {
 	var out *model.Share
-	outcome := RewardNotFound
+	outcome := ClaimNotFound
 	err := bundb.RunInTx(ctx, r.db, func(ctx context.Context, tx bun.Tx) error {
-		var uid int64
-		if err := tx.NewSelect().Table(model.TableShare).Column("user_id").Where("id = ?", id).Limit(1).Scan(ctx, &uid); err != nil {
+		sh, err := lockUserShares(ctx, tx, id)
+		if err != nil || sh == nil {
 			return err
-		}
-		var rows []*model.Share
-		if err := tx.NewSelect().Model(&rows).Where("sh.user_id = ?", uid).OrderExpr("sh.id").For("UPDATE").Scan(ctx); err != nil {
-			return err
-		}
-		var sh *model.Share
-		for _, x := range rows {
-			if x.ID == id {
-				sh = x
-			}
-		}
-		if sh == nil {
-			return nil
 		}
 		out = sh
 		switch {
 		case sh.RewardStatus == model.RewardGranted:
-			outcome = RewardAlready
+			outcome = ClaimGranted
+			return nil
+		case sh.RewardStatus == model.RewardGranting:
+			outcome = ClaimReplay
 			return nil
 		case sh.Status != model.ShareApproved:
-			outcome = RewardNotApproved
+			outcome = ClaimNotApproved
+			return nil
+		case !p.Enabled:
+			outcome = ClaimDisabled
 			return nil
 		}
-		// 必须是锁定读（FOR UPDATE，读最新已提交）：事务第一条普通 SELECT（上面读 user_id）已在 REPEATABLE READ 下定好快照，
-		// 普通 COUNT 会看不到排在我们前面的并发事务刚提交的发放，导致并发超发。
+		// 必须是锁定读（FOR UPDATE，读最新已提交）：事务第一条普通 SELECT 已在 REPEATABLE READ 下定好快照，
+		// 普通 COUNT 会看不到排在我们前面的并发事务刚提交的占位，导致并发超发。
 		var n int
 		if err := tx.NewSelect().Table(model.TableShare).ColumnExpr("COUNT(*)").
-			Where("user_id = ? AND reward_status = ? AND reward_at >= ? AND reward_at < ?", uid, model.RewardGranted, msExpr(from), msExpr(to)).For("UPDATE").Scan(ctx, &n); err != nil {
+			Where("user_id = ? AND reward_status IN (?, ?) AND "+rewardMonthExpr+" >= ? AND "+rewardMonthExpr+" < ?",
+				sh.UserID, model.RewardGranted, model.RewardGranting, msExpr(p.From), msExpr(p.To)).For("UPDATE").Scan(ctx, &n); err != nil {
 			return err
 		}
-		if n >= limit {
-			outcome = RewardLimitHit
+		if p.Limit > 0 && n >= p.Limit {
+			outcome = ClaimLimitHit
 			return nil
 		}
-		if _, err := tx.NewUpdate().Table(model.TableShare).Set("reward_status = ?", model.RewardGranted).Set("reward_at = ?", msExpr(now)).
-			Where("id = ?", id).Exec(ctx); err != nil {
+		if _, err := tx.NewUpdate().Table(model.TableShare).Set("reward_status = ?", model.RewardGranting).Set("reward_points = ?", p.Points).
+			Set("reward_claimed_by = ?", p.AdminID).Set("reward_claimed_at = ?", msExpr(p.Now)).Where("id = ?", id).Exec(ctx); err != nil {
 			return err
 		}
-		sh.RewardStatus, sh.RewardAt = model.RewardGranted, &now
-		outcome = RewardGranted
+		sh.RewardStatus, sh.RewardPoints, sh.RewardClaimedBy, sh.RewardClaimedAt = model.RewardGranting, p.Points, p.AdminID, &p.Now
+		outcome = ClaimOK
 		return nil
 	})
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, RewardNotFound, nil
+		return nil, ClaimNotFound, nil
 	}
 	if err != nil {
-		return nil, RewardNotFound, err
+		return nil, ClaimNotFound, err
 	}
 	return out, outcome, nil
+}
+
+// MarkOutcome 标记（mark）的结果。
+type MarkOutcome int
+
+const (
+	MarkDone       MarkOutcome = iota // granting → granted 成功
+	MarkAlready                       // 之前已经 granted（幂等重放）
+	MarkNotClaimed                    // 还没占位（none），不能标记
+	MarkNotFound                      // 没有这条投稿
+)
+
+// MarkShareRewardGranted 两阶段的第三阶段：granting → granted（CAS，无条件——积分已经发出，不再看开关 / 月上限）。
+// granted 重放幂等；none（没占位）→ MarkNotClaimed。返回最新投稿行。
+func (r *Repo) MarkShareRewardGranted(ctx context.Context, id int64, now time.Time) (*model.Share, MarkOutcome, error) {
+	ok, err := one(r.db.NewUpdate().Table(model.TableShare).Set("reward_status = ?", model.RewardGranted).Set("reward_at = ?", msExpr(now)).
+		Where("id = ? AND reward_status = ?", id, model.RewardGranting).Exec(ctx))
+	if err != nil {
+		return nil, MarkNotFound, err
+	}
+	sh, err := r.GetShare(ctx, id)
+	if err != nil {
+		return nil, MarkNotFound, err
+	}
+	switch {
+	case sh == nil:
+		return nil, MarkNotFound, nil
+	case ok:
+		return sh, MarkDone, nil
+	case sh.RewardStatus == model.RewardGranted:
+		return sh, MarkAlready, nil
+	}
+	return sh, MarkNotClaimed, nil
+}
+
+// ReleaseOutcome 取消占位（release）的结果。
+type ReleaseOutcome int
+
+const (
+	ReleaseDone     ReleaseOutcome = iota // granting → none 成功
+	ReleaseNoop                           // 本来就是 none（幂等）
+	ReleaseGranted                        // 已经 granted，不能取消
+	ReleaseNotFound                       // 没有这条投稿
+)
+
+// ReleaseShareReward 取消占位：granting → none（CAS），清点数快照与占位信息，让出月额度。只用于 Java 明确没加点（调用都没发出 / 明确不可重试的失败）。
+func (r *Repo) ReleaseShareReward(ctx context.Context, id int64) (*model.Share, ReleaseOutcome, error) {
+	ok, err := one(r.db.NewUpdate().Table(model.TableShare).Set("reward_status = ?", model.RewardNone).Set("reward_points = 0").
+		Set("reward_claimed_by = 0").Set("reward_claimed_at = NULL").
+		Where("id = ? AND reward_status = ?", id, model.RewardGranting).Exec(ctx))
+	if err != nil {
+		return nil, ReleaseNotFound, err
+	}
+	sh, err := r.GetShare(ctx, id)
+	if err != nil {
+		return nil, ReleaseNotFound, err
+	}
+	switch {
+	case sh == nil:
+		return nil, ReleaseNotFound, nil
+	case ok:
+		return sh, ReleaseDone, nil
+	case sh.RewardStatus == model.RewardGranted:
+		return sh, ReleaseGranted, nil
+	}
+	return sh, ReleaseNoop, nil
 }

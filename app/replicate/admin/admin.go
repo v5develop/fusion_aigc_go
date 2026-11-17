@@ -97,9 +97,10 @@ type Service struct {
 	forcer Forcer
 	// shareMedia 通过用户投稿时把成片复制进素材库桶（share.go；SetShareMedia 装配，可选）
 	shareMedia ShareMedia
-	// now 时钟（测试注入，nil = 系统时间）；rewardMonthlyLimit 每人每月奖励上限（0 = 默认 3）
-	now                func() time.Time
-	rewardMonthlyLimit int
+	// now 时钟（测试注入，nil = 系统时间）
+	now func() time.Time
+	// rewardSrc 分享奖励规则来源（share_settings.go；SetRewardSettings 装配，nil = 内置默认 true / 30 / 3）
+	rewardSrc RewardSettingsSource
 }
 
 // New 装配。

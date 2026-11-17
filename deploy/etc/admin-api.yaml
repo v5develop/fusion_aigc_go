@@ -48,3 +48,7 @@ ReplicateAdmin:         # 视频做同款后台（/api/v1/replicate/admin/**）�
     Mode: "off"
   TaskCenterEnabled: true # 强制收尾后触发任务中心同步；须与 gateway-api 的 Replicate.TaskCenterEnabled 一致
   EnabledDefault: false   # 总开关部署默认值，须与 gateway-api 的 Replicate.Enabled 一致（部署工具同时写两处）；后台开关页「跟随部署配置」时显示它
+  ShareReward:            # 用户投稿分享奖励规则的部署默认值；后台「用户投稿」设置栏改过（afv_system_config replicate.share_reward.*）则逐项以库为准，每次请求现读，改动立即生效
+    Enabled: true         # false = 不发奖励（rewardAllowed 恒 false，reward 接口 409 REWARD_DISABLED）
+    Points: 30            # 每条奖励点数，1–1000
+    MonthlyLimit: 3       # 同一用户每自然月（北京时间）最多发放次数，0–100，0 = 不限；非法值启动告警并退回 true / 30 / 3

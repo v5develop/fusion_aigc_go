@@ -915,7 +915,7 @@ warning `VOICE_LINE_TRUNCATED:<句号>`）。音轨用媒体服务 `audio/timeli
 
 ## 20 成片分享进示例库（CONTRACT §T，迁移 `Go_V1.0.58__replicate_share.sql`）
 
-表 `afv_replicate_share {id, user_id, job_id(唯一), plan_id, status(pending|approved|rejected|withdrawn), reject_reason, sample_id, portrait_consent, industry, reward_status(none|granted), reward_at, reviewed_by, reviewed_at, created_at, updated_at}`。
+表 `afv_replicate_share {id, user_id, job_id(唯一), plan_id, status(pending|approved|rejected|withdrawn), reject_reason, sample_id, portrait_consent, industry, reward_status(none|granting|granted), reward_points, reward_claimed_by, reward_claimed_at, reward_at, reviewed_by, reviewed_at, created_at, updated_at}`。
 
 **用户侧工具（写入口）**
 
@@ -934,14 +934,16 @@ warning `VOICE_LINE_TRUNCATED:<句号>`）。音轨用媒体服务 `audio/timeli
 | `GET /shares/{id}` | — | `ShareRow` |
 | `POST /shares/{id}/approve` | `{title?}`（缺省取分析摘要前 40 字） | `ShareRow`（`sampleId` 为新示例） |
 | `POST /shares/{id}/reject` | `{reason}`（必填 ≤200 字，展示给用户） | `ShareRow` |
-| `POST /shares/{id}/reward` | —（管理端先调 Java 积分调整接口成功，再调本接口落状态） | `ShareRow`（`rewardReplay=true` = 之前已标记） |
+| `POST /shares/{id}/reward/claim` | —（两阶段第一步：占位，之后才调 Java 积分接口） | `{rewardKey, rewardPoints, rewardStatus(granting\|granted), granted}` |
+| `POST /shares/{id}/reward` | —（Java 积分调整接口成功之后调：granting → granted） | `ShareRow`（`rewardReplay=true` = 之前已标记） |
+| `POST /shares/{id}/reward/release` | —（取消占位：granting → none，仅 Java 明确没加点时用） | `ShareRow` |
 
 ```json
 // ShareRow
 {"id":1,"userId":12345678,"userIdMasked":"12****78","jobId":31,"planId":21,"planNo":"VRP…","status":"pending","statusLabel":"待审核","rejectReason":"",
  "sampleId":0,"change":{"label":"换模特 + 保留原声","dims":[{"key":"model","mode":"replace"}],"audio":"keep"},"portraitConsent":true,"industry":"food",
  "videoRid":"…","coverRid":"…","videoUrl":"（现签短时地址）","coverUrl":"…",
- "rewardStatus":"none","rewardAt":null,"rewardAllowed":false,"monthRewardCount":0,"rewardLimit":3,"rewardKey":"replicate-share-reward:1",
+ "rewardStatus":"none","rewardAt":null,"rewardAllowed":false,"monthRewardCount":0,"rewardLimit":3,"rewardPoints":30,"rewardKey":"replicate-share-reward:1",
  "reviewedBy":0,"reviewedAt":null,"createdAt":"…","updatedAt":"…"}
 ```
 
@@ -951,7 +953,25 @@ warning `VOICE_LINE_TRUNCATED:<句号>`）。音轨用媒体服务 `audio/timeli
   `annotations` = 方案改法**去掉一切用户内容**（只留各项处理方式与声音策略；换声音退回重新配乐）、`industry` = 投稿时用户的主行业）→ 投稿 `approved` + `sample_id`。之后与运营登记的示例走同一套读取 / 试用路径，可在示例管理里继续编辑。
   不是待审核 → 409 `SHARE_NOT_PENDING`；已通过的重复调用直接返回。示例用的原片 rid 仍是用户类别（私有桶，用户输入永不删），由现签地址播放。
 - **驳回**：原因必填；同原因重复驳回幂等，其它状态 409 `SHARE_NOT_PENDING`。
-- **标记奖励已发放**：积分只在 Java，管理端用幂等键 `replicate-share-reward:{submissionId}`（= `rewardKey`）调 Java 积分调整接口（每条 30 点），**成功后**才调本接口。本接口幂等；事务内按 id 顺序锁住该用户全部投稿行后核对：
-  不是 `approved`（含用户已撤回）→ 409 `SHARE_NOT_APPROVED`；本月（北京时间自然月，按 `reward_at`）已发放 ≥ 3 次 → 409 `REWARD_MONTHLY_LIMIT`（此时不应再调 Java：页面据 `rewardAllowed` 置灰「发放奖励」）。
-  `rewardAllowed` = 已通过 + 未发放 + 该用户本月次数 < 上限；`monthRewardCount` 为该用户本月已发放次数。已发放的重复标记不受上限影响。
+- **奖励发放（两阶段，Go_V1.0.59）**：积分只在 Java。旧流程「先调 Java 加点、再标记」在中间被关开关 / 被并发占满月额度时会出现「Java 已加点而 Go 拒收」；现在**所有会拒绝的判断都挡在加点之前**：
+  1. `claim`（占位）：同一事务内按 id 顺序锁住该用户全部投稿行（锁定读），判断后 `reward_status` none → `granting`，并记点数快照 `reward_points`（= 此刻设置的点数）/ 占位人 / 占位时间。判据：已发放 → 返回 `granted=true`；已是发放中 → 原样返回（幂等，点数沿用快照，**不再看开关与上限**，重试可继续）；
+     不是 `approved`（含用户已撤回）→ 409 `SHARE_NOT_APPROVED`；奖励已关闭 → 409 `REWARD_DISABLED`；本月（北京时间自然月，按占位时间，已发放 + 发放中都算）次数 ≥ `monthlyLimit`（默认 3，0 = 不限）→ 409 `REWARD_MONTHLY_LIMIT`。返回 `{rewardKey, rewardPoints, rewardStatus, granted}`。
+  2. 管理端调 Java 积分调整接口：`amount = rewardPoints`（快照），`idempotencyKey = rewardKey`（`replicate-share-reward:{submissionId}`）。
+  3. `reward`（标记）：`granting` → `granted` **无条件**（钱已发出，不再检查开关 / 上限）；已 `granted` 幂等（`rewardReplay=true`）；`none`（没占位）→ 409 `REWARD_NOT_CLAIMED`。
+  4. `reward/release`（取消）：`granting` → `none`，清点数快照与占位信息、让出月额度；`none` 幂等；已 `granted` → 409 `REWARD_ALREADY_GRANTED`。**只在 Java 明确没加点时用**（调用没发出 / 明确不可重试的失败）；Java 结果不明（超时 / 5xx）应保持 `granting`，用同一流程重试（两端都幂等）。
+  `rewardStatus` 取值 `none` / `granting`（发放中）/ `granted`；`rewardAllowed` = 奖励开着 + 已通过 + `none` + （上限为 0 或本月次数 < 上限）；`rewardPoints`：`granting` / `granted` 且有快照时是快照，否则是当前设置点数；
+  `rewardLimit` = 当前月上限（0 = 不限）；`monthRewardCount` = 该用户本月已发放 + 发放中次数。
+
+#### 分享奖励规则设置（CONTRACT §U）
+
+`GET /api/v1/replicate/admin/share-reward-settings`（`replicate:view`）→
+```json
+{"enabled":true,"points":30,"monthlyLimit":3,"source":"config","configDefault":{"enabled":true,"points":30,"monthlyLimit":3},"remark":"…","updatedAt":"…"}
+```
+`PUT` 同路径（`replicate:sample`）`{enabled, points, monthlyLimit, reason}`：三项都必填；`points` 1–1000，`monthlyLimit` 0–100（0 = 不限），越界 400；`reason` 必填（≤200 字，写进配置备注并打日志）；成功返回同 GET。
+`DELETE` 同路径（`replicate:sample`）`{reason}`：恢复跟随部署配置（逻辑删除库里三行），返回同 GET。
+
+- 存储：`afv_system_config` 的 `replicate.share_reward.enabled` / `.points` / `.monthly_limit` 三行；**数据库 > 配置文件，逐项判定**：库里该项存在且合法才用库值，非法 / 缺失告警后用部署配置 `ReplicateAdmin.ShareReward.{Enabled,Points,MonthlyLimit}`（缺省 true / 30 / 3；yaml 值本身非法退内置默认）。`source`：`db` = 至少一项取自库，`config` = 全部跟随部署配置。
+- 生效：**每次请求现读库（read-through，不做缓存）**，改动立即生效（优于契约的 ≤60 秒）；读库失败时奖励流程回落部署配置并打错误日志，GET 本身如实报错。
+- 列表 / 详情 / 标记发放各取一次设置，同一次响应内口径一致。
 

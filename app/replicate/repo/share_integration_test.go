@@ -294,12 +294,15 @@ func TestIntegrationRejectShare(t *testing.T) {
 	}
 }
 
-func TestIntegrationGrantShareReward(t *testing.T) {
+func TestIntegrationClaimMarkReleaseShareReward(t *testing.T) {
 	db := shareITDB(t)
 	r := New(db)
 	now := time.Now()
 	from := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
 	to := from.AddDate(0, 1, 0)
+	params := func(limit int) ClaimParams {
+		return ClaimParams{Enabled: true, Points: 30, Limit: limit, From: from, To: to, Now: now, AdminID: shareITAdmin}
+	}
 
 	// 5 条已通过的投稿 + 1 条待审核（同一用户）
 	var ids []int64
@@ -314,73 +317,136 @@ func TestIntegrationGrantShareReward(t *testing.T) {
 	if _, err := r.InsertShare(ctx, pend); err != nil {
 		t.Fatal(err)
 	}
-
-	grant := func(id int64) (*model.Share, RewardOutcome) {
-		sh, oc, err := r.GrantShareReward(ctx, id, 3, from, to, now)
+	claim := func(id int64, p ClaimParams) (*model.Share, ClaimOutcome) {
+		sh, oc, err := r.ClaimShareReward(ctx, id, p)
 		if err != nil {
 			t.Fatal(err)
 		}
 		return sh, oc
 	}
-	if _, oc := grant(pend.ID); oc != RewardNotApproved {
-		t.Fatalf("待审核的不能发：%v", oc)
+	if _, oc := claim(pend.ID, params(3)); oc != ClaimNotApproved {
+		t.Fatalf("待审核的不能占位：%v", oc)
 	}
-	if _, oc := grant(987654321); oc != RewardNotFound {
+	if _, oc := claim(987654321, params(3)); oc != ClaimNotFound {
 		t.Fatalf("不存在：%v", oc)
 	}
-	for i := 0; i < 3; i++ {
-		if sh, oc := grant(ids[i]); oc != RewardGranted || sh.RewardStatus != model.RewardGranted || sh.RewardAt == nil {
-			t.Fatalf("第 %d 次应发放：%v %+v", i, oc, sh)
+	// 奖励已关闭：不占位，也不落任何状态
+	off := params(3)
+	off.Enabled = false
+	if _, oc := claim(ids[0], off); oc != ClaimDisabled {
+		t.Fatalf("关闭应拒：%v", oc)
+	}
+	if cur, _ := r.GetShare(ctx, ids[0]); cur.RewardStatus != model.RewardNone || cur.RewardClaimedAt != nil || cur.RewardPoints != 0 {
+		t.Fatalf("关闭时不该占位：%+v", cur)
+	}
+	// mark 没占位的：NotClaimed，不落状态
+	if _, oc, err := r.MarkShareRewardGranted(ctx, ids[0], now); err != nil || oc != MarkNotClaimed {
+		t.Fatalf("没占位不能标记：%v %v", oc, err)
+	}
+	// 占位：点数快照；重试幂等（沿用快照，即使这次传的点数 / 开关不同）
+	if sh, oc := claim(ids[0], params(3)); oc != ClaimOK || sh.RewardStatus != model.RewardGranting || sh.RewardPoints != 30 || sh.RewardClaimedBy != shareITAdmin || sh.RewardClaimedAt == nil {
+		t.Fatalf("占位：%v %+v", oc, sh)
+	}
+	retry := params(3)
+	retry.Enabled, retry.Points = false, 99
+	if sh, oc := claim(ids[0], retry); oc != ClaimReplay || sh.RewardPoints != 30 {
+		t.Fatalf("重试占位应原样返回快照：%v %+v", oc, sh)
+	}
+	// 占位后关闭 / 上限变 0 之外的任何变化：mark 无条件成功（不看开关与上限）
+	if sh, oc, err := r.MarkShareRewardGranted(ctx, ids[0], now); err != nil || oc != MarkDone || sh.RewardStatus != model.RewardGranted || sh.RewardAt == nil || sh.RewardPoints != 30 {
+		t.Fatalf("mark：%v %+v %v", oc, sh, err)
+	}
+	if _, oc, _ := r.MarkShareRewardGranted(ctx, ids[0], now); oc != MarkAlready {
+		t.Fatalf("mark 重放：%v", oc)
+	}
+	if _, oc := claim(ids[0], params(3)); oc != ClaimGranted {
+		t.Fatalf("已发放的占位：%v", oc)
+	}
+	// 再占两条（发放中也占额度）→ 第 4 条超限
+	for _, id := range ids[1:3] {
+		if _, oc := claim(id, params(3)); oc != ClaimOK {
+			t.Fatalf("应可占位：%v", oc)
 		}
 	}
-	if _, oc := grant(ids[0]); oc != RewardAlready { // 幂等重放，不占额度
-		t.Fatalf("重放：%v", oc)
-	}
-	if _, oc := grant(ids[3]); oc != RewardLimitHit {
-		t.Fatalf("第 4 次应达上限：%v", oc)
-	}
-	if cur, _ := r.GetShare(ctx, ids[3]); cur.RewardStatus != model.RewardNone || cur.RewardAt != nil {
-		t.Fatalf("被拒的不该落奖励：%+v", cur)
+	if _, oc := claim(ids[3], params(3)); oc != ClaimLimitHit {
+		t.Fatalf("granted + granting 共 3 条，第 4 条应超限：%v", oc)
 	}
 	if m, err := r.RewardCounts(ctx, []int64{shareITUser}, from, to); err != nil || m[shareITUser] != 3 {
-		t.Fatalf("本月计数：%v %v", m, err)
+		t.Fatalf("本月计数含发放中：%v %v", m, err)
 	}
-	// 上个月的区间里没有（reward_at 在本月）
 	if m, _ := r.RewardCounts(ctx, []int64{shareITUser}, from.AddDate(0, -1, 0), from); m[shareITUser] != 0 {
 		t.Fatalf("上月不该有：%v", m)
 	}
-	// 次月额度重新计：同一投稿换个月窗口可以发
+	// release：只清 granting；让出额度后第 4 条可占位；granted / none 不动
+	if sh, oc, err := r.ReleaseShareReward(ctx, ids[2]); err != nil || oc != ReleaseDone || sh.RewardStatus != model.RewardNone || sh.RewardPoints != 0 || sh.RewardClaimedAt != nil || sh.RewardClaimedBy != 0 {
+		t.Fatalf("release：%v %+v %v", oc, sh, err)
+	}
+	if _, oc, _ := r.ReleaseShareReward(ctx, ids[2]); oc != ReleaseNoop {
+		t.Fatalf("release 重放：%v", oc)
+	}
+	if _, oc, _ := r.ReleaseShareReward(ctx, ids[0]); oc != ReleaseGranted {
+		t.Fatalf("已发放不能 release：%v", oc)
+	}
+	if _, oc, _ := r.ReleaseShareReward(ctx, 987654321); oc != ReleaseNotFound {
+		t.Fatalf("release 不存在：%v", oc)
+	}
+	if _, oc := claim(ids[3], params(3)); oc != ClaimOK {
+		t.Fatalf("让出额度后应可占位：%v", oc)
+	}
+	// 次月额度重新计（占位时间在本月，次月窗口里没有）
 	nf, nt := to, to.AddDate(0, 1, 0)
-	if _, oc, err := r.GrantShareReward(ctx, ids[3], 3, nf, nt, to.Add(time.Hour)); err != nil || oc != RewardGranted {
-		t.Fatalf("次月应可发：%v %v", oc, err)
+	np := ClaimParams{Enabled: true, Points: 30, Limit: 3, From: nf, To: nt, Now: to.Add(time.Hour), AdminID: shareITAdmin}
+	if _, oc := claim(ids[4], np); oc != ClaimOK {
+		t.Fatalf("次月应可占位：%v", oc)
 	}
+}
 
-	// 并发：同一用户剩下的一条与另一条同时抢最后额度（limit=5：已发 4 条，只剩 1 个名额）
-	var wg sync.WaitGroup
-	got := make([]RewardOutcome, 2)
-	extra := &model.Share{UserID: shareITUser, JobID: 880010, PlanID: 1, Status: model.ShareApproved, RewardStatus: model.RewardNone}
-	if _, err := r.InsertShare(ctx, extra); err != nil {
-		t.Fatal(err)
+// 并发：同一用户两条同时抢最后一个月额度，恰好一个占位成功；mark 之后计数仍是 limit。
+func TestIntegrationClaimShareRewardConcurrentLastSlot(t *testing.T) {
+	db := shareITDB(t)
+	r := New(db)
+	now := time.Now()
+	from := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+	to := from.AddDate(0, 1, 0)
+	var ids []int64
+	for i := 0; i < 6; i++ {
+		sh := &model.Share{UserID: shareITUser, JobID: int64(881000 + i), PlanID: 1, Status: model.ShareApproved, RewardStatus: model.RewardNone}
+		if ok, err := r.InsertShare(ctx, sh); err != nil || !ok {
+			t.Fatal(ok, err)
+		}
+		ids = append(ids, sh.ID)
 	}
-	for i, id := range []int64{ids[4], extra.ID} {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			_, oc, err := r.GrantShareReward(ctx, id, 4, from, to, now)
-			if err != nil {
-				t.Error(err)
-			}
-			got[i] = oc
-		}()
+	p := ClaimParams{Enabled: true, Points: 30, Limit: 4, From: from, To: to, Now: now, AdminID: shareITAdmin}
+	for _, id := range ids[:3] { // 已占 3 条，只剩 1 个名额
+		if _, oc, err := r.ClaimShareReward(ctx, id, p); err != nil || oc != ClaimOK {
+			t.Fatal(oc, err)
+		}
 	}
-	wg.Wait()
-	if !(got[0] == RewardGranted && got[1] == RewardLimitHit) && !(got[1] == RewardGranted && got[0] == RewardLimitHit) {
-		t.Fatalf("并发抢最后一个名额应恰好一个成功：%v", got)
-	}
-	var n int
-	_ = db.NewRaw("SELECT COUNT(*) FROM afv_replicate_share WHERE user_id = ? AND reward_status = 'granted' AND reward_at >= ? AND reward_at < ?",
-		shareITUser, msExpr(from), msExpr(to)).Scan(ctx, &n)
-	if n != 4 {
-		t.Fatalf("本月应恰好 4 条已发放：%d", n)
+	for round := 0; round < 5; round++ { // 重复多轮压并发（每轮复位最后两条）
+		got := make([]ClaimOutcome, 2)
+		var wg sync.WaitGroup
+		for i, id := range ids[3:5] {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				_, oc, err := r.ClaimShareReward(ctx, id, p)
+				if err != nil {
+					t.Error(err)
+				}
+				got[i] = oc
+			}()
+		}
+		wg.Wait()
+		if !(got[0] == ClaimOK && got[1] == ClaimLimitHit) && !(got[1] == ClaimOK && got[0] == ClaimLimitHit) {
+			t.Fatalf("第 %d 轮：并发抢最后一个名额应恰好一个成功：%v", round, got)
+		}
+		var n int
+		_ = db.NewRaw("SELECT COUNT(*) FROM afv_replicate_share WHERE user_id = ? AND reward_status IN ('granted','granting')", shareITUser).Scan(ctx, &n)
+		if n != 4 {
+			t.Fatalf("第 %d 轮：应恰好 4 条已占位：%d", round, n)
+		}
+		for _, id := range ids[3:5] {
+			_, _, _ = r.ReleaseShareReward(ctx, id)
+		}
 	}
 }

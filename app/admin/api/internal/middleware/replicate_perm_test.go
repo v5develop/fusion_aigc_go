@@ -33,6 +33,12 @@ func TestPermForReplicate(t *testing.T) {
 		{"POST", "/api/v1/replicate/admin/shares/3/approve", "replicate:sample"},
 		{"POST", "/api/v1/replicate/admin/shares/3/reject", "replicate:sample"},
 		{"POST", "/api/v1/replicate/admin/shares/3/reward", "replicate:sample"},
+		{"POST", "/api/v1/replicate/admin/shares/3/reward/claim", "replicate:sample"},
+		{"POST", "/api/v1/replicate/admin/shares/3/reward/release", "replicate:sample"},
+		// 分享奖励规则（CONTRACT §U）：读 = view，写 = sample
+		{"GET", "/api/v1/replicate/admin/share-reward-settings", "replicate:view"},
+		{"PUT", "/api/v1/replicate/admin/share-reward-settings", "replicate:sample"},
+		{"DELETE", "/api/v1/replicate/admin/share-reward-settings", "replicate:sample"},
 		// 总开关（Go_V1.0.50）：读 = view，写 = switch
 		{"GET", "/api/v1/replicate/admin/switch", "replicate:view"},
 		{"PUT", "/api/v1/replicate/admin/switch", "replicate:switch"},

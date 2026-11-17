@@ -221,7 +221,7 @@ func TestIntegrationAdminShareRejectAndWithdrawAfterApprove(t *testing.T) {
 	if _, err := s2.ApproveShare(ctx, id2, shITAdmin, ""); reasonOf(err) != ReasonShareNotPending {
 		t.Fatalf("已撤回不能通过：%v", err)
 	}
-	if _, err := s2.MarkRewardGranted(ctx, id2, shITAdmin); reasonOf(err) != ReasonShareNotApproved {
+	if _, err := s2.ClaimReward(ctx, id2, shITAdmin); reasonOf(err) != ReasonShareNotApproved {
 		t.Fatalf("已撤回不能发奖励：%v", err)
 	}
 	// 成片不是完整版：拒绝
@@ -231,7 +231,11 @@ func TestIntegrationAdminShareRejectAndWithdrawAfterApprove(t *testing.T) {
 	}
 }
 
-func TestIntegrationAdminShareRewardMonthlyLimit(t *testing.T) {
+type itRewardSrc struct{ v RewardSettings }
+
+func (s *itRewardSrc) Load(context.Context) RewardSettings { return s.v }
+
+func TestIntegrationAdminShareRewardTwoPhase(t *testing.T) {
 	db := shITDB(t)
 	now := time.Now()
 	var ids []int64
@@ -244,28 +248,67 @@ func TestIntegrationAdminShareRewardMonthlyLimit(t *testing.T) {
 		}
 		ids = append(ids, id)
 	}
+	src := &itRewardSrc{RewardSettings{Enabled: true, Points: 30, MonthlyLimit: 3}}
 	s := shITSvc(r, &itMedia{}, now)
-	for i := 0; i < 3; i++ {
-		row, err := s.MarkRewardGranted(ctx, ids[i], shITAdmin)
-		if err != nil || row.RewardReplay {
-			t.Fatalf("第 %d 次：%+v %v", i, row, err)
+	s.SetRewardSettings(src)
+
+	// 关闭后再占位：不占，状态不变
+	src.v.Enabled = false
+	if _, err := s.ClaimReward(ctx, ids[0], shITAdmin); reasonOf(err) != ReasonRewardDisabled {
+		t.Fatalf("关闭应拒占位：%v", err)
+	}
+	if cur, _ := r.GetShare(ctx, ids[0]); cur.RewardStatus != model.RewardNone {
+		t.Fatalf("关闭时不该占位：%+v", cur)
+	}
+	if _, err := s.MarkRewardGranted(ctx, ids[0], shITAdmin); reasonOf(err) != ReasonRewardNotClaimed {
+		t.Fatalf("没占位不能标记：%v", err)
+	}
+	src.v.Enabled = true
+
+	// 占位 → 占位后运营关闭奖励 / 改点数 → 重试占位沿用快照 → mark 仍成功
+	c, err := s.ClaimReward(ctx, ids[0], shITAdmin)
+	if err != nil || c.RewardStatus != model.RewardGranting || c.RewardPoints != 30 || c.Granted {
+		t.Fatalf("占位：%+v %v", c, err)
+	}
+	src.v.Enabled, src.v.Points = false, 88
+	if again, err := s.ClaimReward(ctx, ids[0], shITAdmin); err != nil || again.RewardPoints != 30 || again.RewardStatus != model.RewardGranting {
+		t.Fatalf("发放中重试占位：%+v %v", again, err)
+	}
+	row, err := s.MarkRewardGranted(ctx, ids[0], shITAdmin)
+	if err != nil || row.RewardStatus != model.RewardGranted || row.RewardReplay || row.RewardPoints != 30 {
+		t.Fatalf("关闭后 mark 发放中的应成功：%+v %v", row, err)
+	}
+	if row, err := s.MarkRewardGranted(ctx, ids[0], shITAdmin); err != nil || !row.RewardReplay {
+		t.Fatalf("mark 重放：%+v %v", row, err)
+	}
+	src.v = RewardSettings{Enabled: true, Points: 30, MonthlyLimit: 3}
+
+	// 月上限：发放 + 发放中都占额度；release 让出
+	for _, id := range ids[1:3] {
+		if _, err := s.ClaimReward(ctx, id, shITAdmin); err != nil {
+			t.Fatal(err)
 		}
 	}
-	if row, err := s.MarkRewardGranted(ctx, ids[0], shITAdmin); err != nil || !row.RewardReplay { // 幂等重放
-		t.Fatalf("重放：%+v %v", row, err)
+	if _, err := s.ClaimReward(ctx, ids[3], shITAdmin); reasonOf(err) != ReasonRewardMonthlyLimit {
+		t.Fatalf("第 4 条应达上限：%v", err)
 	}
-	if _, err := s.MarkRewardGranted(ctx, ids[3], shITAdmin); reasonOf(err) != ReasonRewardMonthlyLimit {
-		t.Fatalf("第 4 次应达上限：%v", err)
+	rel, err := s.ReleaseReward(ctx, ids[2], shITAdmin)
+	if err != nil || rel.RewardStatus != model.RewardNone || rel.MonthRewardCount != 2 {
+		t.Fatalf("release：%+v %v", rel, err)
 	}
-	if cur, _ := r.GetShare(ctx, ids[3]); cur.RewardStatus != model.RewardNone {
-		t.Fatalf("被拒的不落状态：%+v", cur)
+	if _, err := s.ReleaseReward(ctx, ids[0], shITAdmin); reasonOf(err) != ReasonRewardAlreadyGranted {
+		t.Fatalf("已发放不能 release：%v", err)
 	}
-	// 下个月额度重置
+	if _, err := s.ClaimReward(ctx, ids[3], shITAdmin); err != nil {
+		t.Fatalf("让出额度后应可占位：%v", err)
+	}
+	// 次月额度重置
 	next := shITSvc(r, &itMedia{}, now.AddDate(0, 1, 0))
-	if _, err := next.MarkRewardGranted(ctx, ids[3], shITAdmin); err != nil {
-		t.Fatalf("次月应可发：%v", err)
+	next.SetRewardSettings(src)
+	if _, err := next.ClaimReward(ctx, ids[2], shITAdmin); err != nil {
+		t.Fatalf("次月应可占位：%v", err)
 	}
-	if _, err := s.MarkRewardGranted(ctx, 987654321, shITAdmin); err == nil {
+	if _, err := s.ClaimReward(ctx, 987654321, shITAdmin); err == nil {
 		t.Fatal("不存在的投稿应报错")
 	}
 }

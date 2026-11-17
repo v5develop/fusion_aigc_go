@@ -19,10 +19,11 @@ const (
 	ShareWithdrawn = "withdrawn" // 用户已撤回（可重新投）
 )
 
-// 奖励状态（积分在 Java，这里只记运营是否已发放）。
+// 奖励状态（积分在 Java，这里只记运营是否已发放）：none →（claim）→ granting →（mark）→ granted；granting →（release）→ none。
 const (
-	RewardNone    = "none"
-	RewardGranted = "granted"
+	RewardNone     = "none"
+	RewardGranting = "granting" // 已占位（点数快照已定），Java 加积分进行中
+	RewardGranted  = "granted"
 )
 
 // Share afv_replicate_share：一条投稿。
@@ -40,6 +41,10 @@ type Share struct {
 	Industry        string     `bun:"industry"`
 	RewardStatus    string     `bun:"reward_status"`
 	RewardAt        *time.Time `bun:"reward_at"`
+	// RewardPoints 占位时的点数快照；RewardClaimedBy / RewardClaimedAt 占位的管理员与时间
+	RewardPoints    int        `bun:"reward_points"`
+	RewardClaimedBy int64      `bun:"reward_claimed_by"`
+	RewardClaimedAt *time.Time `bun:"reward_claimed_at"`
 	ReviewedBy      int64      `bun:"reviewed_by"`
 	ReviewedAt      *time.Time `bun:"reviewed_at"`
 	CreatedAt       time.Time  `bun:"created_at,nullzero,default:current_timestamp"`
