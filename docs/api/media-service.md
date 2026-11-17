@@ -70,7 +70,7 @@ docker compose -f docker-compose.media.yml --env-file media.env up -d
 
 - 基础路径：`/v1/mediasvc`，`Content-Type: application/json`。
 - `/healthz` 不加前缀，不需要鉴权。
-- **写操作**（`ingest`、`cover`、`watermark`、`video/trim`、`video/conform`、`image/conform`、`image/resize`、`image/watermark`、`image/grid`、`image/crop`、`image/mark`、`compose`、`audio/extract`、`audio/timeline`、`video/replace-audio`、`video/burn-subtitles`、`video/adjust-duration`、`delete`）必须带 `Idempotency-Key` 头，缺失返回 400。幂等规则（按 路由 + 键 索引）：
+- **写操作**（`ingest`、`cover`、`watermark`、`video/trim`、`video/conform`、`image/conform`、`image/resize`、`image/watermark`、`image/grid`、`image/crop`、`image/mark`、`compose`、`audio/extract`、`audio/timeline`、`video/replace-audio`、`video/mux-audio`、`video/burn-subtitles`、`video/adjust-duration`、`delete`）必须带 `Idempotency-Key` 头，缺失返回 400。幂等规则（按 路由 + 键 索引）：
   - 已成功完成、且请求体一致：原样回放上次的状态码、响应头和响应体，响应带 `Idempotent-Replayed: true`，不重复处理；
   - 同一个键但请求体不同：400 `invalid_request`（check=`request.idempotency_key_reused`）；
   - 同一个键正在处理中：503，`Retry-After: 5`，用同一个键稍后重试；
@@ -171,6 +171,8 @@ Content-Type: <可选，仅作提示>
 | POST | `/v1/mediasvc/resources/register` | 直传完成后凭 rid 确认：完整解码校验，返回 `mime`、大小、摘要与媒体属性；内容不合法，或实际内容类型与声明类型不一致（`upload.type_mismatch`），返回 `422 source_rejected`（对象保留，由调用方决定如何处理），对象不存在返回 404 | `MediaResult` |
 | POST | `/v1/mediasvc/audio/timeline` | 配音时间线：多段音频按起点拼成整条音轨（m4a） | `MediaResult` |
 | POST | `/v1/mediasvc/video/replace-audio` | 换音轨：视频流拷贝，按短的一方截断 | `MediaResult` |
+| POST | `/v1/mediasvc/video/mux-audio` | 保留原声贴回（视频做同款 `audio=keep`，必须带 `Idempotency-Key`）。请求体 `{"video": {"rid"}, "audio": {"rid"}, "ranges": [{"start","end"}], "purpose"}`（来源只接受 rid；区间 1~16 个，单个 ≤ 81 秒，单位秒）：取 `audio`（原片）里各区间的音频，按顺序首尾相接成一条音轨，对齐到 `video` 的时间轴后替换它的音轨（视频流 `-c:v copy` 不重编码；音频 AAC、立体声，采样率取原片的 8000~48000，默认 44100）。**对齐规则**：音轨比视频短 → 末尾补静音，**不循环**；比视频长 → 截到视频时长；区间超出原片音轨时长（或整段落在时长之外）→ 该区间没有声音的部分补静音，后面的区间不前移；`video` 原有音轨丢弃（可以没有音轨）。响应 = `MediaResult` 平铺 + `audio_seconds`（原片真正提供的声音秒数）+ `padded_seconds`（补静音的秒数）。判据：`request.ranges_count`（区间数不在 1~16，400）、`request.segment_range`（end<=start / 负数 / NaN / 过长，400）、`request.source_rid_only`（400）、`audio.no_audio_stream`（原片没有音轨，422 `source_rejected`，调用方应回落到不贴回）、`video.*` 同 `video/cut`（无视频流 / 超 80 秒 / 分辨率超限，422）。能力声明 `video_mux_audio: true`。Go 客户端 `mediasvc.Client.MuxAudio` | `MediaResult` + `audio_seconds` / `padded_seconds` |
+| POST | `/v1/mediasvc/video/reframe` | 改画幅（视频做同款「多比例导出」，必须带 `Idempotency-Key`）。请求体 `{"source": {"rid"}, "ratio": "9:16\|1:1\|16:9\|3:4\|4:3", "mode": "pad\|crop"（缺省 pad）, "purpose"}`（来源只接受 rid）：**pad** = 原画面等比缩放、完整居中，空位用「同一画面铺满 → 缩小到 1/8 高斯模糊 → 放大」的底铺满（不出黑边）；**crop** = 铺满目标画幅后居中裁切。**输出尺寸**：长边 = 源长边（上限 3840），短边按目标比例，宽高取偶数；帧率沿用源；视频重编码 H.264 / yuv420p（`veryfast`）；音轨 `-c:a copy` 原样拷贝（源无音轨则成片无音轨）。时长上限 86 秒（= 拼接成片上限 80 + 重叠窗口 5 + 取整 1），分辨率限制同 `video/cut`。响应 = `MediaResult` 平铺 + `ratio` / `mode`（回显）。判据：`request.ratio`（不是支持的五种画幅，400）、`request.mode`（不是 pad / crop，400）、`request.source_rid_only`（400）、`video.*` 同 `video/cut`（422）。能力声明 `video_reframe: true`。Go 客户端 `mediasvc.Client.Reframe`（画幅 / 模式在客户端先校验，`ReframeRatios`） | `MediaResult` + `ratio` / `mode` |
 | POST | `/v1/mediasvc/video/burn-subtitles` | 烧录字幕（固定样式，请求体带 srt 文本） | `MediaResult` |
 | POST | `/v1/mediasvc/resources/urls` | 凭 rid 现签访问地址（`mode=signed|public`）；可选 `process`（OSS 样式，仅 signed）；不传 class | `ResourceURL` |
 

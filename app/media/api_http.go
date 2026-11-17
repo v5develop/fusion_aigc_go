@@ -565,7 +565,7 @@ func (s *Server) capabilities(w http.ResponseWriter, _ *http.Request) {
 		"image_resize": true, "font": true, "video_inspect": true,
 		"image_watermark": true, "image_grid": true, "image_crop": true, "image_mark": true,
 		// 视频做同款：区间切段、多段拼接（含占位段）、视频 / 图片文字叠加。限制见 api_video_replicate.go、api_text.go 头部
-		"video_cut": true, "video_concat": true, "video_concat_placeholder": true, "video_overlay_text": true, "image_text": true,
+		"video_cut": true, "video_concat": true, "video_concat_placeholder": true, "video_overlay_text": true, "image_text": true, "video_mux_audio": true, "video_reframe": true,
 	})
 }
 

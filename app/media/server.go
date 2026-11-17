@@ -141,6 +141,8 @@ func NewServer(cfg Config) (*Server, error) {
 	s.mux.HandleFunc("POST "+apiPrefix+"/video/adjust-duration", s.auth(s.withDeadline(s.idempotent("video/adjust-duration", s.adjustDuration))))
 	s.mux.HandleFunc("POST "+apiPrefix+"/video/cut", s.auth(s.withDeadline(s.idempotent("video/cut", s.videoCut))))
 	s.mux.HandleFunc("POST "+apiPrefix+"/video/concat", s.auth(s.withDeadline(s.idempotent("video/concat", s.videoConcat))))
+	s.mux.HandleFunc("POST "+apiPrefix+"/video/mux-audio", s.auth(s.withDeadline(s.idempotent("video/mux-audio", s.videoMuxAudio))))
+	s.mux.HandleFunc("POST "+apiPrefix+"/video/reframe", s.auth(s.withDeadline(s.idempotent("video/reframe", s.videoReframe))))
 	s.mux.HandleFunc("POST "+apiPrefix+"/video/overlay-text", s.auth(s.withDeadline(s.idempotent("video/overlay-text", s.videoOverlayText))))
 	s.mux.HandleFunc("POST "+apiPrefix+"/image/text", s.auth(s.withDeadline(s.idempotent("image/text", s.imageText))))
 	s.mux.HandleFunc("POST "+apiPrefix+"/resources/restore", s.auth(s.withDeadline(s.restore)))

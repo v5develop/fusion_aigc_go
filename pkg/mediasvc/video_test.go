@@ -155,3 +155,62 @@ func merge(a, b map[string]any) map[string]any {
 	}
 	return a
 }
+
+func TestMuxAudioRequestAndErrors(t *testing.T) {
+	c, f := newFake(t, func(path string, body []byte) (int, any) {
+		return 200, merge(res(ridC, 160, 120), map[string]any{"audio_seconds": 2.5, "padded_seconds": 1.5})
+	})
+	out, err := c.MuxAudio(context.Background(), ridA, ridB, []TimeRange{{0, 2}, {2, 2.5}}, "")
+	if err != nil || out.RID != ridC || out.AudioSeconds != 2.5 || out.PaddedSeconds != 1.5 {
+		t.Fatalf("out=%+v err=%v", out, err)
+	}
+	last := f.last()
+	m := decode(t, last.body)
+	if last.path != "/v1/mediasvc/video/mux-audio" || last.idem == "" || len(m["ranges"].([]any)) != 2 ||
+		m["video"].(map[string]any)["rid"] != ridA || m["audio"].(map[string]any)["rid"] != ridB || m["purpose"] != "intermediate" {
+		t.Fatalf("请求不对：%s %v", last.path, m)
+	}
+	// 同入参同幂等键；入参变化键变化
+	_, _ = c.MuxAudio(context.Background(), ridA, ridB, []TimeRange{{0, 2}, {2, 2.5}}, "")
+	_, _ = c.MuxAudio(context.Background(), ridA, ridB, []TimeRange{{0, 2}, {2, 3}}, "")
+	if f.reqs[0].idem != f.reqs[1].idem || f.reqs[1].idem == f.reqs[2].idem {
+		t.Fatal("自动幂等键应由入参决定")
+	}
+	var e *Error
+	if _, err := c.MuxAudio(context.Background(), ridA, ridB, nil, ""); !errors.As(err, &e) || e.Check != "request.ranges_count" {
+		t.Fatalf("空区间应在客户端被拒: %v", err)
+	}
+	if _, err := c.MuxAudio(context.Background(), ridA, ridB, []TimeRange{{2, 1}}, ""); !errors.As(err, &e) || e.Check != "request.segment_range" {
+		t.Fatalf("反向区间应在客户端被拒: %v", err)
+	}
+}
+
+func TestReframeRequestAndErrors(t *testing.T) {
+	c, f := newFake(t, func(path string, body []byte) (int, any) {
+		return 200, merge(res(ridC, 90, 160), map[string]any{"ratio": "9:16", "mode": "pad"})
+	})
+	out, err := c.Reframe(context.Background(), ridA, "9:16", "", "")
+	if err != nil || out.RID != ridC || out.Width != 90 {
+		t.Fatalf("out=%+v err=%v", out, err)
+	}
+	last := f.last()
+	m := decode(t, last.body)
+	if last.path != "/v1/mediasvc/video/reframe" || last.idem == "" || m["ratio"] != "9:16" || m["mode"] != "pad" ||
+		m["source"].(map[string]any)["rid"] != ridA || m["purpose"] != "intermediate" {
+		t.Fatalf("请求不对：%s %v", last.path, m)
+	}
+	// mode 缺省与显式 pad 同键；换模式 / 换画幅键变化
+	_, _ = c.Reframe(context.Background(), ridA, "9:16", "pad", "")
+	_, _ = c.Reframe(context.Background(), ridA, "9:16", "crop", "")
+	_, _ = c.Reframe(context.Background(), ridA, "1:1", "pad", "")
+	if f.reqs[0].idem != f.reqs[1].idem || f.reqs[1].idem == f.reqs[2].idem || f.reqs[1].idem == f.reqs[3].idem {
+		t.Fatal("自动幂等键应由入参决定")
+	}
+	var e *Error
+	if _, err := c.Reframe(context.Background(), ridA, "21:9", "pad", ""); !errors.As(err, &e) || e.Check != "request.ratio" {
+		t.Fatalf("不支持的画幅应在客户端被拒: %v", err)
+	}
+	if _, err := c.Reframe(context.Background(), ridA, "1:1", "stretch", ""); !errors.As(err, &e) || e.Check != "request.mode" {
+		t.Fatalf("不支持的模式应在客户端被拒: %v", err)
+	}
+}

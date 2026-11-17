@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 )
 
 const (
@@ -196,6 +197,88 @@ func (c *Client) Concat(ctx context.Context, rids []string, p ConcatParams, idem
 	}
 	res, err := c.ConcatItems(ctx, items, p, idem)
 	return res.Resource, err
+}
+
+// MaxMuxRanges 贴回原声一次最多的区间数（与服务端 app/media/api_video_mux_audio.go 一致）。
+const MaxMuxRanges = 16
+
+// MuxResult 贴回原声的结果：成片与实际口径。
+type MuxResult struct {
+	Resource
+	AudioSeconds  float64 // 原片真正提供的声音秒数
+	PaddedSeconds float64 // 补静音的秒数（成片比原片声音长、或区间落在原片之外）
+}
+
+// MuxAudio 把原片（sourceRid）里 ranges 各区间的音频按顺序相接，对齐到视频（videoRid）的时间轴后替换它的音轨
+// （POST /v1/mediasvc/video/mux-audio；视频流拷贝，不重编码）。比视频短的末尾补静音（不循环），比视频长的截断；
+// 视频原有音轨丢弃。原片没有音轨 → 422（Check=audio.no_audio_stream），调用方应回落到不贴回。
+func (c *Client) MuxAudio(ctx context.Context, videoRid, sourceRid string, ranges []TimeRange, idem string) (MuxResult, error) {
+	if len(ranges) < 1 || len(ranges) > MaxMuxRanges {
+		return MuxResult{}, badRequest("request.ranges_count", "贴回原声的区间数需要 1-16")
+	}
+	for _, r := range ranges {
+		if !(r.End > r.Start) || r.Start < 0 {
+			return MuxResult{}, badRequest("request.segment_range", "区间不合法")
+		}
+	}
+	req := map[string]any{"video": map[string]string{"rid": videoRid}, "audio": map[string]string{"rid": sourceRid},
+		"ranges": ranges, "purpose": PurposeIntermediate}
+	idem = pick(idem, "video/mux-audio", req)
+	body, _ := json.Marshal(req)
+	raw, err := c.post(ctx, videoRid, "/v1/mediasvc/video/mux-audio", body, "application/json", idem)
+	if err != nil {
+		return MuxResult{}, err
+	}
+	var resp struct {
+		mediaResult
+		AudioSeconds  float64 `json:"audio_seconds"`
+		PaddedSeconds float64 `json:"padded_seconds"`
+	}
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return MuxResult{}, fmt.Errorf("媒体服务返回无法解析: %w", err)
+	}
+	if resp.Object.RID == "" {
+		return MuxResult{}, fmt.Errorf("媒体服务返回缺少 rid")
+	}
+	return MuxResult{Resource: resp.resource(), AudioSeconds: resp.AudioSeconds, PaddedSeconds: resp.PaddedSeconds}, nil
+}
+
+// 改画幅（Reframe）的画幅与模式。
+const (
+	ReframePad  = "pad"  // 原画面等比缩放居中，空位用同画面高斯模糊铺满
+	ReframeCrop = "crop" // 铺满目标画幅后居中裁切
+)
+
+// ReframeRatios 支持的目标画幅（与服务端 app/media/api_video_reframe.go 一致）。
+var ReframeRatios = []string{"9:16", "1:1", "16:9", "3:4", "4:3"}
+
+// Reframe 把成片改成目标画幅（POST /v1/mediasvc/video/reframe，新 rid）：输出长边 = 源长边（上限 3840）、宽高偶数、
+// 音轨原样拷贝。mode 空 = pad。画幅 / 模式不合法在客户端直接拒（Check=request.ratio / request.mode）。
+func (c *Client) Reframe(ctx context.Context, rid, ratio, mode, idem string) (Resource, error) {
+	if !slices.Contains(ReframeRatios, ratio) {
+		return Resource{}, badRequest("request.ratio", "不支持的画幅")
+	}
+	if mode == "" {
+		mode = ReframePad
+	}
+	if mode != ReframePad && mode != ReframeCrop {
+		return Resource{}, badRequest("request.mode", "改画幅模式只能是 pad 或 crop")
+	}
+	req := map[string]any{"source": map[string]string{"rid": rid}, "ratio": ratio, "mode": mode, "purpose": PurposeIntermediate}
+	idem = pick(idem, "video/reframe", req)
+	body, _ := json.Marshal(req)
+	raw, err := c.post(ctx, rid, "/v1/mediasvc/video/reframe", body, "application/json", idem)
+	if err != nil {
+		return Resource{}, err
+	}
+	var resp mediaResult
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return Resource{}, fmt.Errorf("媒体服务返回无法解析: %w", err)
+	}
+	if resp.Object.RID == "" {
+		return Resource{}, fmt.Errorf("媒体服务返回缺少 rid")
+	}
+	return resp.resource(), nil
 }
 
 // TextBox 文字框，相对画面 0~1。
