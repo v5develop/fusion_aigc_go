@@ -14,6 +14,8 @@ var contractTools = []string{
 	"replicate_try_sample", "replicate_create_plan", "replicate_update_plan", "replicate_get_plan", "replicate_quote",
 	"replicate_confirm", "replicate_get_job", "replicate_list_jobs", "replicate_continue", "replicate_redo_segment",
 	"replicate_stop", "replicate_cancel_rest", "replicate_preview_frame",
+	"replicate_quote_batch", "replicate_confirm_batch", "replicate_get_batch", // CONTRACT §M
+	"replicate_publish_copy", "replicate_export_ratio", // CONTRACT §N
 }
 
 func TestRegistryMatchesContract(t *testing.T) {
@@ -84,11 +86,12 @@ func TestDimKeysMatchCore(t *testing.T) {
 	}
 }
 
-// 扣点工具恰好是 confirm / continue / redo_segment；写 / 只读标注正确。
+// 扣点工具恰好是 confirm / continue / redo_segment / confirm_batch；写 / 只读标注正确。
 func TestChargeAndReadOnlyFlags(t *testing.T) {
-	charges := map[string]bool{"replicate_confirm": true, "replicate_continue": true, "replicate_redo_segment": true}
+	charges := map[string]bool{"replicate_confirm": true, "replicate_continue": true, "replicate_redo_segment": true, "replicate_confirm_batch": true}
 	readOnly := map[string]bool{"replicate_limits": true, "replicate_get_analysis": true, "replicate_list_models": true, "replicate_list_samples": true,
-		"replicate_try_sample": true, "replicate_get_plan": true, "replicate_get_job": true, "replicate_list_jobs": true}
+		"replicate_try_sample": true, "replicate_get_plan": true, "replicate_get_job": true, "replicate_list_jobs": true,
+		"replicate_quote_batch": true, "replicate_get_batch": true}
 	for _, tl := range Tools() {
 		if tl.Charges != charges[tl.Name] {
 			t.Errorf("%s Charges=%v", tl.Name, tl.Charges)
@@ -264,5 +267,25 @@ func TestParseCallShapes(t *testing.T) {
 	}
 	if _, err := ParseCall([]byte(`[]`)); err == nil {
 		t.Error("不是对象应报错")
+	}
+}
+
+// CONTRACT §O1：dims.<维度>.occurrences 逐套换装进了入参 schema（schema 是封闭的，不加就会被拒）；index / refs 有边界。
+func TestDimEditOccurrencesSchema(t *testing.T) {
+	tl, _ := Find("replicate_create_plan")
+	ok := `{"analysis_no":"VRA1","ref_images_from":["图1","图2"],"annotations":{"dims":{"garment":{"mode":"replace","occurrences":[{"index":1,"refs":[1]},{"index":3,"refs":[2]}]}}}}`
+	if _, err := ParseArguments(tl, []byte(ok)); err != nil {
+		t.Fatalf("逐套换装应通过：%v", err)
+	}
+	for name, bad := range map[string]string{
+		"index 0": `"occurrences":[{"index":0,"refs":[1]}]`,
+		"缺 refs":  `"occurrences":[{"index":1}]`,
+		"refs 为空": `"occurrences":[{"index":1,"refs":[]}]`,
+		"多余字段":    `"occurrences":[{"index":1,"refs":[1],"x":1}]`,
+	} {
+		in := `{"analysis_no":"VRA1","ref_images_from":["图1"],"annotations":{"dims":{"garment":{"mode":"replace",` + bad + `}}}}`
+		if _, err := ParseArguments(tl, []byte(in)); err == nil {
+			t.Errorf("%s：应被拒", name)
+		}
 	}
 }

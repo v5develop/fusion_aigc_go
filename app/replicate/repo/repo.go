@@ -438,10 +438,11 @@ func (r *Repo) AddRedo(ctx context.Context, step *model.Step, charge *model.Char
 	return &got, false, nil
 }
 
-// DueJobs 需要推进的 job（租约空闲、next_run_at 已到，按 next_run_at 升序）。拆成四条各走索引的查询再在内存里合并
+// DueJobs 需要推进的 job（租约空闲、next_run_at 已到，按 next_run_at 升序）。拆成五条各走索引的查询再在内存里合并
 // （一条 OR 大查询会退化成全表扫描）：
 //  1. 在途（排队 / 执行中 / 提交中 / 继续中）：idx_status_next_run (status, next_run_at)；
 //  2. 待继续且 continue_deadline 已到：idx_status_deadline (status, continue_deadline)；
+//     待继续且 decision_remind_at 已到（待决策提醒，Go_V1.0.56）：idx_status_remind (status, decision_remind_at)；
 //  3. 任何状态下还有未结镜像（0/1/6）：先走 afv_replicate_charge.idx_status (status, updated_at) 取 job_id，再按主键回 job；
 //     终态后的退点 / 扣除失败靠这条补扫；
 //  4. 成功 / 部分成功里成片未合成（1 天内结束）或合成待重试（7 天内结束）：idx_status_finished (status, finished_at)。
@@ -461,6 +462,7 @@ func (r *Repo) DueJobs(ctx context.Context, limit int) ([]int64, error) {
 	queries := []*bun.SelectQuery{
 		base().Where("j.status IN (?)", bun.In([]int8{model.JobQueued, model.JobRunning, model.JobSubmitting, model.JobContinuing})),
 		base().Where("j.status = ? AND j.continue_deadline <= NOW(3)", model.JobWaiting),
+		base().Where("j.status = ? AND j.decision_remind_at IS NOT NULL AND j.decision_remind_at <= NOW(3)", model.JobWaiting), // 待决策提醒到点：idx_status_remind
 		base().Where("j.id IN (SELECT c.job_id FROM `"+model.TableCharge+"` AS c WHERE c.status IN (?))", bun.In(model.ChargeOpenStatuses)),
 		base().Where("j.status IN (?) AND j.finished_at > NOW() - INTERVAL 7 DAY", bun.In([]int8{model.JobSucceeded, model.JobPartial})).
 			WhereGroup(" AND ", func(q *bun.SelectQuery) *bun.SelectQuery {

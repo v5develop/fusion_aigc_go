@@ -21,6 +21,7 @@ import (
 	"aigc-local-life/app/gateway/api/internal/handler/internalauth"
 	"aigc-local-life/app/gateway/api/internal/svc"
 	"aigc-local-life/app/replicate/agenttool"
+	"aigc-local-life/app/replicate/core"
 	"aigc-local-life/pkg/ctxdata"
 	"aigc-local-life/pkg/jsoncase"
 	"aigc-local-life/pkg/xerr"
@@ -75,9 +76,21 @@ func CallHandler(be Backend, v *svcauth.Verifier) http.HandlerFunc {
 			return
 		}
 		ctx := ctxdata.WithUserID(r.Context(), id.UserID)
+		ctx = core.WithOrigin(ctx, parseOrigin(body)) // 可选来源（签名覆盖）：只用于通知链接，确认类工具建任务时落库
 		res := Execute(ctx, be, id.UserID, c)
 		writeResult(w, r.WithContext(ctx), c, res)
 	}
+}
+
+// parseOrigin 取 body 里可选的 origin {kind, conversation_id, turn_id}；没带 / 形状不对返回 nil（不影响工具调用）。
+func parseOrigin(body []byte) *core.Origin {
+	var b struct {
+		Origin *core.Origin `json:"origin"`
+	}
+	if json.Unmarshal(body, &b) != nil {
+		return nil
+	}
+	return b.Origin
 }
 
 // ToolsHandler 服务间工具定义。

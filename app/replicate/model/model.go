@@ -152,9 +152,13 @@ type Job struct {
 	LeaseOwner        *string         `bun:"lease_owner"`
 	LeaseUntil        *time.Time      `bun:"lease_until"`
 	NextRunAt         *time.Time      `bun:"next_run_at"` // 轮询器下次推进时间（NULL = 立即）
-	CreatedAt         time.Time       `bun:"created_at,nullzero,default:current_timestamp"`
-	UpdatedAt         time.Time       `bun:"updated_at,nullzero,default:current_timestamp"`
-	FinishedAt        *time.Time      `bun:"finished_at"`
+	// OriginJSON 不透明来源 {kind, conversation_id, turn_id}（Go_V1.0.56，仅智能体入口确认的任务有）：只用于拼通知链接，不参与业务判断。
+	OriginJSON json.RawMessage `bun:"origin_json,type:json,nullzero"`
+	// DecisionRemindAt 待决策提醒时刻（Go_V1.0.56）：进入待继续时 = continue_deadline - 提前量，提醒发出 / 离开待继续后置空。
+	DecisionRemindAt *time.Time `bun:"decision_remind_at"`
+	CreatedAt        time.Time  `bun:"created_at,nullzero,default:current_timestamp"`
+	UpdatedAt        time.Time  `bun:"updated_at,nullzero,default:current_timestamp"`
+	FinishedAt       *time.Time `bun:"finished_at"`
 }
 
 // 步骤种类与状态。

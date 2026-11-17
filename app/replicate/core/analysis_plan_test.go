@@ -229,7 +229,7 @@ func TestPlanSingleFlightAndHash(t *testing.T) {
 	if !strings.Contains(p1.Prompts[1], "@图片1") || !strings.Contains(p1.Prompts[1], "第 2 段") || !strings.Contains(p1.Prompts[1], "不要生成任何文字") {
 		t.Fatalf("提示词：%s", p1.Prompts[1])
 	}
-	if len(p3.Risks) == 0 || !strings.Contains(strings.Join(p3.Risks, ""), "原声") {
+	if len(p3.Risks) == 0 || !strings.Contains(strings.Join(p3.Risks, ""), "保留原视频的声音") {
 		t.Fatalf("保留原声应有风险提示：%v", p3.Risks)
 	}
 	if p1.StageQuotes != (StageQuotes{First: 120, Rest: 220, Total: 340}) || p1.ETA.First == nil || p1.ETA.Total.Text != "预计 4–6 分钟" || !p1.ETA.Prior {

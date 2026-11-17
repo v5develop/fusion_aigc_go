@@ -74,7 +74,7 @@ func (s *Service) CancelRest(ctx context.Context, userID, jobID int64) (*JobView
 	}
 	switch j.Status {
 	case model.JobWaiting:
-		if err := s.finishFirstOnly(ctx, j, "user_stop"); err != nil {
+		if err := s.finishFirstOnly(ctx, j, "user_stop", StageCancelRest); err != nil {
 			return nil, err
 		}
 		return s.JobView(ctx, userID, jobID)
@@ -119,6 +119,7 @@ func (s *Service) CancelRest(ctx context.Context, userID, jobID int64) (*JobView
 		return s.JobView(ctx, userID, jobID)
 	}
 	logx.WithContext(ctx).Infof("replicate: 用户取消剩余段 job=%d 段=%v", j.ID, canceledSegs)
+	s.funnel(ctx, funnelEvent{Stage: StageCancelRest, UserID: j.UserID, PlanID: j.PlanID, JobID: j.ID, Dedupe: fmt.Sprintf("fo:%d", j.ID)})
 	cur, err := s.store.GetJob(dctx, j.ID)
 	if err != nil || cur == nil {
 		return nil, err

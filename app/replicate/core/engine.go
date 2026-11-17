@@ -183,6 +183,12 @@ type ConfirmReq struct {
 // Confirm 确认：校验方案指纹与价格 → 建 job（提交中）→ 占方案 → 逐段预留 → 排队。
 // 任一段预留失败：已预留的全部退回、job 置失败、方案回到可确认，返回用户口径错误（如「点数不足，还差 N 点」）。
 func (s *Service) Confirm(ctx context.Context, req ConfirmReq) (*JobView, error) {
+	return s.confirm(ctx, req, false)
+}
+
+// confirm 是 Confirm 的实现。holdOnly=true（批量确认用，batch.go）：预留全部成功后停在「提交中」，不转排队、不记漏斗确认事件，
+// 由调用方在整批都预留成功后统一转排队；任一失败时调用方用 rollbackHeld 把已预留的整批退回。
+func (s *Service) confirm(ctx context.Context, req ConfirmReq, holdOnly bool) (*JobView, error) {
 	key := strings.TrimSpace(req.IdempotencyKey)
 	if key == "" || len(key) > 64 {
 		return nil, xerr.New(xerr.ParamMissing, "缺少请求标识，请刷新页面后重试")
@@ -266,7 +272,8 @@ func (s *Service) Confirm(ctx context.Context, req ConfirmReq) (*JobView, error)
 		}
 	}
 	j := &model.Job{UserID: req.UserID, WorkspaceID: ws, RequestID: key, PlanID: p.ID, PlanNo: p.PlanNo,
-		PlanHash: p.PlanHash, Status: model.JobSubmitting, Staged: staged, Input: inJSON, SegTotal: n}
+		PlanHash: p.PlanHash, Status: model.JobSubmitting, Staged: staged, Input: inJSON, SegTotal: n,
+		OriginJSON: originJSON(ctx)} // 来源只用于拼通知链接（origin.go），不参与业务判断
 	chargeStage := model.ChargeStageAll
 	if staged {
 		chargeStage = model.ChargeStageFirst
@@ -325,12 +332,21 @@ func (s *Service) Confirm(ctx context.Context, req ConfirmReq) (*JobView, error)
 		s.abortSubmit(ctx, got, p.ID, "")
 		return nil, userHoldError(herr)
 	}
+	if holdOnly {
+		return s.JobView(ctx, req.UserID, got.ID)
+	}
 	ok, err = s.store.TransitJob(ctx, got.ID, []int8{model.JobSubmitting}, model.JobQueued, map[string]any{"next_run_at": nil})
 	if err != nil {
 		return nil, err
 	}
 	if !ok {
 		logx.WithContext(ctx).Infof("replicate: 确认收尾时 job 已不在提交中（被回收）判据=SUBMIT_REAPED job=%d", got.ID)
+	} else {
+		cs := StageConfirmAll
+		if staged {
+			cs = StageConfirmFirst
+		}
+		s.funnel(ctx, funnelEvent{Stage: cs, UserID: req.UserID, AnalysisID: p.AnalysisID, PlanID: p.ID, JobID: got.ID, Dedupe: fmt.Sprintf("cf:%d", got.ID)})
 	}
 	return s.JobView(ctx, req.UserID, got.ID)
 }
@@ -762,6 +778,7 @@ func (s *Service) doContinue(ctx context.Context, j *model.Job, key string, expe
 		map[string]any{"continue_request_id": key, "next_run_at": nil}); err != nil {
 		return nil, err
 	}
+	s.funnel(ctx, funnelEvent{Stage: StageContinue, UserID: j.UserID, PlanID: j.PlanID, JobID: j.ID, Dedupe: fmt.Sprintf("ct:%d", j.ID)})
 	return s.JobView(ctx, j.UserID, j.ID)
 }
 
@@ -787,18 +804,22 @@ func (s *Service) Stop(ctx context.Context, userID, jobID int64) (*JobView, erro
 		}
 		return nil, xerr.NewReason(xerr.Conflict, "NOT_WAITING", "这一步已经处理过了")
 	}
-	if err := s.finishFirstOnly(ctx, j, "user_stop"); err != nil {
+	if err := s.finishFirstOnly(ctx, j, "user_stop", StageStop); err != nil {
 		return nil, err
 	}
 	return s.JobView(ctx, userID, jobID)
 }
 
 // finishFirstOnly 待继续 → 成功（只交付第 1 段）。先 CAS job（与「继续」互斥），再收掉 gate 与其余段步骤。
-func (s *Service) finishFirstOnly(ctx context.Context, j *model.Job, reason string) error {
+// stage 是漏斗阶段（空 = 不打点，如后台强制完成）；CAS 没抢到（别的请求已处理）不打点。
+func (s *Service) finishFirstOnly(ctx context.Context, j *model.Job, reason, stage string) error {
 	ok, err := s.store.TransitJob(ctx, j.ID, []int8{model.JobWaiting}, model.JobSucceeded, map[string]any{
 		"stop_reason": reason, "seg_done": 1, "seg_failed": 0, "finished_at": s.now()})
 	if err != nil || !ok {
 		return err
+	}
+	if stage != "" {
+		s.funnel(ctx, funnelEvent{Stage: stage, UserID: j.UserID, PlanID: j.PlanID, JobID: j.ID, Dedupe: fmt.Sprintf("fo:%d", j.ID)})
 	}
 	steps, err := s.store.ListSteps(ctx, j.ID)
 	if err != nil {
@@ -984,6 +1005,11 @@ func (s *Service) Redo(ctx context.Context, req RedoReq) (*JobView, error) {
 		map[string]any{"finished_at": nil, "next_run_at": nil}); err != nil {
 		return nil, err
 	}
+	rs := StageRedo
+	if refine {
+		rs = StageRefine
+	}
+	s.funnel(ctx, funnelEvent{Stage: rs, UserID: j.UserID, PlanID: j.PlanID, JobID: j.ID, SegIndex: req.SegIndex, Dedupe: fmt.Sprintf("rd:%d:%s", j.ID, rid)})
 	return s.JobView(ctx, req.UserID, j.ID)
 }
 
@@ -1055,7 +1081,7 @@ func (s *Service) advance(ctx context.Context, jobID int64) error {
 		return s.reapContinuing(ctx, j)
 	case model.JobWaiting:
 		if j.ContinueDeadline != nil && s.now().After(*j.ContinueDeadline) {
-			if err := s.finishFirstOnly(ctx, j, "continue_expired"); err != nil {
+			if err := s.finishFirstOnly(ctx, j, "continue_expired", StageDecisionTimeout); err != nil {
 				return err
 			}
 		}
@@ -1628,10 +1654,14 @@ func (s *Service) rollup(ctx context.Context, jobID int64) error {
 	}
 	if gate == model.StepWaiting && done == 1 {
 		set["continue_deadline"] = s.now().Add(s.cfg.ContinueWindow)
+		if lead := s.cfg.DecisionReminderLead; !s.cfg.DecisionReminderOff && lead > 0 && lead < s.cfg.ContinueWindow {
+			set["decision_remind_at"] = s.now().Add(s.cfg.ContinueWindow - lead) // 轮询器到点唤醒，发待决策提醒（notify.go）
+		}
 		ok, err := s.store.FinishJob(ctx, j.ID, []int8{model.JobQueued, model.JobRunning}, model.JobWaiting, maxSeg, set)
 		if err != nil || !ok {
 			return err
 		}
+		s.funnel(ctx, funnelEvent{Stage: StageFirstDone, UserID: j.UserID, PlanID: j.PlanID, JobID: j.ID, Dedupe: fmt.Sprintf("fd:%d", j.ID)})
 		// 「以后直接全部做」：第 1 段成功后自动继续（只在进入待继续时尝试一次；余额不够就停在待继续等用户）。
 		// 只认确认时冻结的开关与其余段点数（JobInput.AutoContinue / RestPoints），且用户此刻仍开着；
 		// 现算价与冻结价不一致 → 停在待继续等用户确认，绝不按新价冻结。
@@ -1872,6 +1902,13 @@ func (s *Service) jobDelay(ctx context.Context, id int64, advErr error) time.Dur
 	}
 	if j.Status == model.JobWaiting && j.ContinueDeadline != nil {
 		if d := j.ContinueDeadline.Sub(s.now()); d > 0 {
+			if j.DecisionRemindAt != nil { // 提醒还没发：别睡过提醒时刻（到点由 DueJobs 的待决策提醒查询取出）
+				if r := j.DecisionRemindAt.Sub(s.now()); r > 0 {
+					d = min(d, r)
+				} else {
+					d = min(d, time.Minute)
+				}
+			}
 			return min(d, backoff(s.now().Sub(j.UpdatedAt)))
 		}
 	}

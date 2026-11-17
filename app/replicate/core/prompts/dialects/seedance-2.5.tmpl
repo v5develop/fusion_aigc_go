@@ -1,6 +1,7 @@
 以 {{.Video}} 的动作、走位、运镜和剪辑节奏为参考，重新生成一条视频{{if .Multi}}（原片第 {{printf "%.1f" .GenT0}}–{{printf "%.1f" .GenT1}} 秒，共 {{.Total}} 段中的第 {{.Index}} 段，时长 {{.Duration}} 秒）{{else}}（时长 {{.Duration}} 秒）{{end}}；镜头顺序与 {{.Video}} 一致。
-{{range .Replace}}{{.Label}}：{{.Tags}} 中的{{.Label}}，{{.Hint}}；原片是「{{.Current}}」{{if .Note}}；{{.Note}}{{end}}。
-{{end}}{{range .Describe}}{{.Label}}：改为{{.Note}}。
+{{range .Replace}}{{if .OccText}}{{.OccText}}
+{{else}}{{.Label}}：{{.Tags}} 中的{{.Label}}，{{.Hint}}；原片是「{{.Current}}」{{if .Note}}；{{.Note}}{{end}}。
+{{end}}{{end}}{{range .Describe}}{{.Label}}：改为{{.Note}}。
 {{end}}{{if .KeepNames}}{{.KeepNames}}参考 {{.Video}}，保持不变。
 {{end}}{{if .Shots}}分镜（整数秒）：
 {{range $i, $s := .Shots}}{{inc $i}}. {{printf "%.0f" $s.From}}–{{printf "%.0f" $s.To}}s：{{$s.Text}}{{if $s.Camera}}，{{$s.Camera}}{{end}}

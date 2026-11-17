@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -47,6 +48,9 @@ type DimEdit struct {
 	Mode string `json:"mode"`
 	Note string `json:"note,omitempty"`
 	Refs []int  `json:"refs,omitempty"`
+	// Occurrences 逐套换装（CONTRACT §O1，只有这一项在视频里出现 ≥2 次时才允许）：第 index 套换成 refs 的图，没列出的套保持原样。
+	// 未用时 JSON 不出现，plan_hash 与旧版一致。
+	Occurrences []OccurrenceEdit `json:"occurrences,omitempty"`
 }
 
 // PlanReq 生成方案（POST /api/v1/replicate/plans）。
@@ -160,6 +164,10 @@ func (s *Service) createPlanFrom(ctx context.Context, req PlanReq, a *model.Anal
 		} else if cur != nil {
 			got = cur
 		}
+	}
+	if created {
+		stage := planFunnelStage(o)
+		s.funnel(ctx, funnelEvent{Stage: stage, UserID: req.UserID, AnalysisID: a.ID, PlanID: got.ID, Multi: funnelMulti(an), Dedupe: fmt.Sprintf("%s:%d", stage, got.ID)})
 	}
 	v, err := s.fullPlanView(ctx, got, an, q, true)
 	return v, created, err
@@ -359,7 +367,10 @@ func (s *Service) validate(req PlanReq, an *AnalysisResult) (Annotations, []Gap)
 			if !an.Dims[k].Present {
 				add("DIM_ABSENT", field, label+"：视频里没有这一项")
 			}
-			if len(e.Refs) == 0 {
+			if len(e.Occurrences) > 0 {
+				e.Occurrences = s.validateOccurrences(k, label, field, e, an, len(req.RefImages), add)
+				e.Refs = nil // 逐套说了算，维度级的图忽略
+			} else if len(e.Refs) == 0 {
 				switch k {
 				case "product":
 					add("REF_MISSING", field, "要把商品换掉，需要一张你的商品图。放一张正面清晰的就行")
@@ -375,6 +386,10 @@ func (s *Service) validate(req PlanReq, an *AnalysisResult) (Annotations, []Gap)
 				}
 			}
 		case ModeDescribe:
+			if len(e.Occurrences) > 0 {
+				add("OCCURRENCE_MODE", field, label+"：逐套处理只能用在「换成我的图」上")
+				e.Occurrences = nil
+			}
 			if e.Note == "" {
 				add("NOTE_MISSING", field, label+"：写一句话再继续")
 			} else if len([]rune(e.Note)) > 200 {
@@ -392,6 +407,41 @@ func (s *Service) validate(req PlanReq, an *AnalysisResult) (Annotations, []Gap)
 		add("NOTHING_CHANGED", "dims", "勾出你想换的地方，没勾的保持原样")
 	}
 	return ann, gaps
+}
+
+// validateOccurrences 校验并规范化逐套换装（CONTRACT §O1）：模式已由调用方限定为 replace；
+// 这一项在分析里必须有 ≥2 次出现，index 在 1..套数内且不重复，每套至少一张图且图号在已放的图里。返回按套号升序的规范化结果。
+func (s *Service) validateOccurrences(key, label, field string, e DimEdit, an *AnalysisResult, nRefs int, add func(code, field, msg string)) []OccurrenceEdit {
+	n := len(outfitsOf(an.Dims[key]))
+	if n < 2 {
+		add("OCCURRENCE_UNSUPPORTED", field, label+"：视频里这一项只出现了一次，不能分套处理")
+		return nil
+	}
+	seen := map[int]bool{}
+	out := make([]OccurrenceEdit, 0, len(e.Occurrences))
+	for _, o := range e.Occurrences {
+		switch {
+		case o.Index < 1 || o.Index > n:
+			add("OCCURRENCE_INDEX", field, fmt.Sprintf("%s：视频里一共 %d 套，没有第 %d 套", label, n, o.Index))
+			continue
+		case seen[o.Index]:
+			add("OCCURRENCE_DUPLICATE", field, fmt.Sprintf("%s：第 %d 套重复了，每套只能指定一次", label, o.Index))
+			continue
+		}
+		seen[o.Index] = true
+		if len(o.Refs) == 0 {
+			add("REF_MISSING", field, fmt.Sprintf("%s：第 %d 套需要放一张图", label, o.Index))
+		}
+		for _, r := range o.Refs {
+			if r < 1 || r > nRefs {
+				add("REF_UNKNOWN", field, fmt.Sprintf("%s：第 %d 套用到的图不在已放的图里，请重新选择", label, o.Index))
+				break
+			}
+		}
+		out = append(out, OccurrenceEdit{Index: o.Index, Refs: o.Refs})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Index < out[j].Index })
+	return out
 }
 
 // 清晰度 / 画幅兜底白名单（模型不在目录里时用；在目录里的按 ModelSpec，画幅空 = 跟随原片）。

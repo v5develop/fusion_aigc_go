@@ -436,6 +436,8 @@ type JobSummary struct {
 	CoverRid       string    `json:"coverRid,omitempty"` // 结果封面（成片 / 第一个成功段的首帧）
 	CoverURL       string    `json:"coverUrl,omitempty"`
 	CreatedAt      time.Time `json:"createdAt"`
+	// BatchID 这条任务属于哪一次批量（CONTRACT §M，add-only）；不是批量任务为 0 / 不出现
+	BatchID int64 `json:"batchId,omitempty"`
 }
 
 // JobList 历史列表。
@@ -472,6 +474,13 @@ func (s *Service) ListJobs(ctx context.Context, userID int64, page, size int) (*
 		return nil, err
 	}
 	out := &JobList{Items: make([]JobSummary, 0, len(jobs)), Total: total, Page: page, Size: size}
+	out.Items, out.URLExpiresAt = s.summarize(ctx, jobs)
+	return out, nil
+}
+
+// summarize 任务 → 列表行（历史列表与批量视图共用）：标题 / 点数 / 封面 / 分析编号 / 批次号；封面与缩略图现签。
+func (s *Service) summarize(ctx context.Context, jobs []*model.Job) ([]JobSummary, *time.Time) {
+	items := make([]JobSummary, 0, len(jobs))
 	var rids []string
 	analysisNos := map[int64]string{} // 方案 id → 分析编号（同一页里多个任务常出自同一方案 / 同一分析）
 	for _, j := range jobs {
@@ -513,13 +522,25 @@ func (s *Service) ListJobs(ctx context.Context, userID int64, page, size int) (*
 			}
 		}
 		rids = append(rids, it.SourceThumbRid, it.CoverRid)
-		out.Items = append(out.Items, it)
+		items = append(items, it)
 	}
+	var expires *time.Time
 	if urls, exp := s.signRIDs(ctx, rids); urls != nil {
-		for i := range out.Items {
-			out.Items[i].SourceThumbURL, out.Items[i].CoverURL = urls[out.Items[i].SourceThumbRid], urls[out.Items[i].CoverRid]
+		for i := range items {
+			items[i].SourceThumbURL, items[i].CoverURL = urls[items[i].SourceThumbRid], urls[items[i].CoverRid]
 		}
-		out.URLExpiresAt = exp
+		expires = exp
 	}
-	return out, nil
+	if s.batches != nil && len(jobs) > 0 {
+		ids := make([]int64, len(jobs))
+		for i, j := range jobs {
+			ids[i] = j.ID
+		}
+		if m, err := s.batches.BatchIDsOfJobs(ctx, ids); err == nil {
+			for i := range items {
+				items[i].BatchID = m[items[i].JobID]
+			}
+		}
+	}
+	return items, expires
 }

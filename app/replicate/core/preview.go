@@ -150,6 +150,7 @@ func (s *Service) PreviewFrame(ctx context.Context, userID int64, planNo string)
 		logx.WithContext(ctx).Errorf("replicate: 定妆图落库失败 判据=PREVIEW_FINISH_FAILED user=%d plan=%s ok=%v: %v", userID, p.PlanNo, ok, err)
 	}
 	claim.Status, claim.ImageRid, claim.CallID = model.PreviewDone, rid, callID
+	s.funnel(ctx, funnelEvent{Stage: StagePreview, UserID: userID, AnalysisID: p.AnalysisID, PlanID: p.ID, Multi: funnelMulti(an), Dedupe: fmt.Sprintf("pv:%d", p.ID)})
 	return s.previewView(ctx, p.PlanNo, claim, day, false)
 }
 
@@ -258,7 +259,7 @@ func buildPreviewPrompt(frame FrameOut, edits []previewEdit, an *AnalysisResult,
 		switch e.Edit.Mode {
 		case ModeReplace:
 			var refs []string
-			for _, r := range e.Edit.Refs {
+			for _, r := range editRefs(e.Edit) {
 				if r >= 1 && r <= nRefs {
 					refs = append(refs, fmt.Sprintf("图%d", r+1))
 				}

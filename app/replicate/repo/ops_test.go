@@ -258,3 +258,27 @@ func TestIntegrationModerationAndAudit(t *testing.T) {
 		t.Fatal("没有流水")
 	}
 }
+
+// 集成（REPLICATE_TEST_DSN，已执行 Go_V1.0.53）：漏斗事件 INSERT IGNORE 去重、系统事件继承用户入口的渠道。
+func TestIntegrationFunnelEvents(t *testing.T) {
+	r, db := integrationRepo(t)
+	t.Cleanup(func() { _, _ = db.ExecContext(ctx, "DELETE FROM afv_replicate_funnel WHERE user_id = 990078") })
+	ev := func(stage, channel, key string, job int64) *model.FunnelEvent {
+		return &model.FunnelEvent{Stage: stage, Channel: channel, UserID: 990078, JobID: job, DedupeKey: key}
+	}
+	if ok, err := r.InsertFunnelEvent(ctx, ev("confirm_first", "agent", "t-cf:1", 990078001)); err != nil || !ok {
+		t.Fatalf("首次写入：%v %v", ok, err)
+	}
+	if ok, err := r.InsertFunnelEvent(ctx, ev("confirm_first", "agent", "t-cf:1", 990078001)); err != nil || ok {
+		t.Fatalf("同键不重复写：%v %v", ok, err)
+	}
+	if _, err := r.InsertFunnelEvent(ctx, ev("first_done", "system", "t-fd:1", 990078001)); err != nil {
+		t.Fatal(err)
+	}
+	if ch, err := r.FunnelChannel(ctx, 0, 990078001); err != nil || ch != "agent" {
+		t.Fatalf("系统事件应继承用户入口渠道：%q %v", ch, err)
+	}
+	if ch, err := r.FunnelChannel(ctx, 0, 990078999); err != nil || ch != "" {
+		t.Fatalf("没有用户事件返回空：%q %v", ch, err)
+	}
+}

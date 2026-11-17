@@ -44,6 +44,14 @@ const (
 	KeyPreviewEnabled    = "replicate.preview.enabled"     // bool，定妆图开关
 	KeyPreviewDailyQuota = "replicate.preview.daily_quota" // int 1~1000，每人每个自然日免费次数
 
+	// 发布文案（Go_V1.0.55）：库里有且合法时覆盖 Replicate.Copy.*（数据库 > 文件配置；60 秒内生效），缺省 / 非法用 yaml
+	KeyCopyEnabled    = "replicate.copy.enabled"     // bool，发布文案开关
+	KeyCopyDailyQuota = "replicate.copy.daily_quota" // int 1~10000，每人每个自然日次数（默认 20）
+
+	// 待决策提醒（Go_V1.0.56，CONTRACT §O2）：库里有且合法时覆盖 Replicate.DecisionReminder.*（数据库 > 文件配置；60 秒内生效）
+	KeyDecisionReminderEnabled   = "replicate.decision_reminder.enabled"    // bool，待决策提醒开关（默认 true）
+	KeyDecisionReminderLeadHours = "replicate.decision_reminder.lead_hours" // int 1~168：离自动结束还剩多少小时时提醒（默认 4；不比待继续窗口短才生效）
+
 	// 坏片判定（J4）：整段黑屏 / 定格 / 解不开的段按失败处理并退点。库里有且合法时覆盖 Replicate.BadOutput.*
 	KeyBadOutputEnabled     = "replicate.bad_output.enabled"      // bool，坏片判定开关（默认 true）
 	KeyBadOutputBlackRatio  = "replicate.bad_output.black_ratio"  // 小数 (0,1]：黑屏占时长比例 ≥ 它判坏片（默认 0.6）
@@ -252,6 +260,18 @@ func applyParams(base core.Config, longformYAML bool, kv map[string]string) Para
 	if v, ok := intOf(KeyPreviewDailyQuota, 1, 1000); ok {
 		p.Cfg.PreviewDailyQuota = v
 	}
+	if v, ok := boolOf(KeyCopyEnabled); ok {
+		p.Cfg.CopyOff = !v
+	}
+	if v, ok := intOf(KeyCopyDailyQuota, 1, 10000); ok {
+		p.Cfg.CopyDailyQuota = v
+	}
+	if v, ok := boolOf(KeyDecisionReminderEnabled); ok {
+		p.Cfg.DecisionReminderOff = !v
+	}
+	if v, ok := intOf(KeyDecisionReminderLeadHours, 1, 168); ok {
+		p.Cfg.DecisionReminderLead = time.Duration(v) * time.Hour
+	}
 	if v, ok := boolOf(KeyBadOutputEnabled); ok {
 		p.Cfg.BadOutputOff = !v
 	}
@@ -409,7 +429,8 @@ func signature(p Params) string {
 		strconv.FormatBool(c.ModerationOff), strconv.FormatBool(c.ModerationFailOpen), strconv.FormatBool(c.ModerationReviewPass),
 		c.ModerationTextGroup, c.ModerationImageGroup, c.ModerationRejectTTL.String(),
 		c.ModerationConfirmWait.String(), c.ModerationPlanWait.String(),
-		strconv.FormatBool(c.PreviewOff), strconv.Itoa(c.PreviewDailyQuota),
+		strconv.FormatBool(c.PreviewOff), strconv.Itoa(c.PreviewDailyQuota), strconv.FormatBool(c.CopyOff), strconv.Itoa(c.CopyDailyQuota),
+		strconv.FormatBool(c.DecisionReminderOff), c.DecisionReminderLead.String(),
 		strconv.FormatBool(c.BadOutputOff), strconv.FormatFloat(c.BadOutputBlackRatio, 'f', 3, 64), strconv.FormatFloat(c.BadOutputFreezeRatio, 'f', 3, 64),
 		strconv.FormatInt(c.ConfirmThresholdPoints, 10), analysisfix.VersionOf(c.AnalysisRules),
 	}, "|")

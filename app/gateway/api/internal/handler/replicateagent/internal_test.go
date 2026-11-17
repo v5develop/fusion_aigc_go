@@ -35,6 +35,19 @@ type fakeSession struct {
 	curPlan  *core.PlanView
 	preview  *core.PreviewView
 	patchReq core.PatchReq
+	// batchReplay ConfirmBatch 返回的批次是否标记为重放
+	batchReplay bool
+	copyReplay  bool
+	// origins 确认类调用收到的来源（ctx 里的 origin，没有为 ""）
+	origins []string
+}
+
+func (f *fakeSession) noteOrigin(ctx context.Context) {
+	if o, ok := core.OriginOf(ctx); ok {
+		f.origins = append(f.origins, o.Kind+"|"+o.ConversationID+"|"+o.TurnID)
+		return
+	}
+	f.origins = append(f.origins, "")
 }
 
 func (f *fakeSession) rec(name string, arg any) {
@@ -71,7 +84,8 @@ func (f *fakeSession) QuotePlan(_ context.Context, n string) (*core.PlanView, er
 	f.rec("QuotePlan", n)
 	return &core.PlanView{PlanNo: n}, f.err
 }
-func (f *fakeSession) Confirm(_ context.Context, a httpapi.ConfirmArgs) (*core.JobView, error) {
+func (f *fakeSession) Confirm(ctx context.Context, a httpapi.ConfirmArgs) (*core.JobView, error) {
+	f.noteOrigin(ctx)
 	f.rec("Confirm", a)
 	return f.jobOr(), f.err
 }
@@ -129,6 +143,29 @@ func (f *fakeSession) PatchAnnotations(_ context.Context, r core.PatchReq, has b
 	f.rec("PatchAnnotations", [2]any{r, has})
 	f.patchReq = r
 	return &core.PlanView{PlanNo: "VRP2"}, f.err
+}
+
+func (f *fakeSession) QuoteBatch(_ context.Context, no string, vs []httpapi.BatchVariantArgs) (*core.BatchQuoteView, error) {
+	f.rec("QuoteBatch", [2]any{no, vs})
+	return &core.BatchQuoteView{PlanNo: no, Count: len(vs), Total: 100}, f.err
+}
+func (f *fakeSession) ConfirmBatch(ctx context.Context, a httpapi.BatchConfirmArgs) (*core.BatchView, error) {
+	f.noteOrigin(ctx)
+	f.rec("ConfirmBatch", a)
+	return &core.BatchView{BatchID: 7, PlanNo: a.PlanNo, Status: "running", Replay: f.batchReplay}, f.err
+}
+func (f *fakeSession) GetBatch(_ context.Context, id int64) (*core.BatchView, error) {
+	f.rec("GetBatch", id)
+	return &core.BatchView{BatchID: id}, f.err
+}
+
+func (f *fakeSession) PublishCopy(_ context.Context, jobID int64, platform string) (*core.PublishCopyView, error) {
+	f.rec("PublishCopy", [2]any{jobID, platform})
+	return &core.PublishCopyView{JobID: jobID, Platform: platform, Replay: f.copyReplay}, f.err
+}
+func (f *fakeSession) ExportRatio(_ context.Context, jobID int64, ratio, mode string) (*core.ExportView, error) {
+	f.rec("ExportRatio", [3]any{jobID, ratio, mode})
+	return &core.ExportView{JobID: jobID, Ratio: ratio, Mode: mode}, f.err
 }
 
 type fakeBackend struct {
@@ -401,6 +438,16 @@ func TestDispatchEveryTool(t *testing.T) {
 			want{"Continue", true, eq(httpapi.ContinueArgs{JobID: 42, PlanHash: "h", ExpectedPoints: pts(220), IdempotencyKey: "call-x"})}},
 		{"replicate_redo_segment", `{"job_id":42,"seg_index":2,"note":" 动作再大一点 ","expected_points":80}`,
 			want{"Redo", true, eq(httpapi.RedoArgs{JobID: 42, SegIndex: 2, Note: "动作再大一点", ExpectedPoints: pts(80), IdempotencyKey: "call-x"})}},
+		{"replicate_quote_batch", `{"plan_no":"VRP1","variants":[{"ref_images_from":["图1"],"ref_images":["mr://r1"]},{"ref_images_from":["图2"],"ref_images":["mr://r2"]}]}`,
+			want{"QuoteBatch", false, eq([2]any{"VRP1", []httpapi.BatchVariantArgs{{RefImages: []string{"mr://r1"}}, {RefImages: []string{"mr://r2"}}}})}},
+		{"replicate_confirm_batch", `{"plan_no":"VRP1","variants":[{"ref_images_from":["图1"],"ref_images":["mr://r1"]}],"expected_points":600}`,
+			want{"ConfirmBatch", true, eq(httpapi.BatchConfirmArgs{PlanNo: "VRP1", Variants: []httpapi.BatchVariantArgs{{RefImages: []string{"mr://r1"}}},
+				ExpectedPoints: pts(600), IdempotencyKey: "call-x"})}},
+		{"replicate_get_batch", `{"batch_id":"12"}`, want{"GetBatch", false, eq(int64(12))}},
+		{"replicate_publish_copy", `{"job_id":42,"platform":"xiaohongshu"}`, want{"PublishCopy", true, eq([2]any{int64(42), "xiaohongshu"})}},
+		{"replicate_publish_copy", `{"job_id":42}`, want{"PublishCopy", true, eq([2]any{int64(42), ""})}},
+		{"replicate_export_ratio", `{"job_id":42,"ratio":"9:16","mode":"crop"}`, want{"ExportRatio", true, eq([3]any{int64(42), "9:16", "crop"})}},
+		{"replicate_export_ratio", `{"job_id":42,"ratio":"1:1"}`, want{"ExportRatio", true, eq([3]any{int64(42), "1:1", ""})}},
 	}
 	for _, c := range cases {
 		t.Run(c.tool, func(t *testing.T) {
@@ -683,5 +730,115 @@ func TestSharedVerifierSharesNonces(t *testing.T) {
 	}
 	if rec, e := do(t, b, mk()); rec.Code != 401 || e.Reason != svcauth.ReasonReplay {
 		t.Fatalf("同一个 nonce 在共享校验器下应被拒：%s", rec.Body.String())
+	}
+}
+
+// 批量：只给序号没有系统注入的地址 → PARAM_INVALID，不动手；重放标记透传；batch_id 不是数字 → PARAM_INVALID。
+func TestBatchDispatchGuards(t *testing.T) {
+	for name, a := range map[string]string{
+		"只有序号":  `{"plan_no":"VRP1","variants":[{"ref_images_from":["图1"]}],"expected_points":100}`,
+		"序号地址数": `{"plan_no":"VRP1","variants":[{"ref_images_from":["图1","图2"],"ref_images":["mr://r1"]}],"expected_points":100}`,
+	} {
+		be := newBackend()
+		call, _ := chain(t, be)
+		_, e := do(t, call, signed(body("b-"+name, "replicate_confirm_batch", a), 7))
+		if !e.Data.IsError || e.Data.Result["error_code"] != "PARAM_INVALID" || len(be.s.calls) != 0 {
+			t.Fatalf("%s 应 PARAM_INVALID 且不下单：%+v", name, e.Data)
+		}
+	}
+	be := newBackend()
+	call, _ := chain(t, be)
+	_, e := do(t, call, signed(body("b3", "replicate_get_batch", `{"batch_id":"abc"}`), 7))
+	if !e.Data.IsError || e.Data.Result["error_code"] != "PARAM_INVALID" {
+		t.Fatalf("batch_id 非数字：%+v", e.Data)
+	}
+	// 变体为空 / 超 10 条被 Schema 挡住；缺 expected_points 在动手前被拦
+	be = newBackend()
+	call, _ = chain(t, be)
+	_, e = do(t, call, signed(body("b4", "replicate_confirm_batch", `{"plan_no":"VRP1","variants":[{"ref_images_from":["图1"],"ref_images":["mr://r1"]}]}`), 7))
+	if !e.Data.IsError || e.Data.Result["error_code"] != "PARAM_INVALID" || len(be.s.calls) != 0 {
+		t.Fatalf("缺合计点数应拦下：%+v", e.Data)
+	}
+	be = newBackend()
+	call, _ = chain(t, be)
+	_, e = do(t, call, signed(body("b5", "replicate_quote_batch", `{"plan_no":"VRP1","variants":[]}`), 7))
+	if !e.Data.IsError || len(be.s.calls) != 0 {
+		t.Fatalf("空变体应被 Schema 拦下：%+v", e.Data)
+	}
+	// 重放
+	be = newBackend()
+	be.s.batchReplay = true
+	call, _ = chain(t, be)
+	rec, e := do(t, call, signed(body("b6", "replicate_confirm_batch", `{"plan_no":"VRP1","variants":[{"ref_images_from":["图1"],"ref_images":["mr://r1"]}],"expected_points":100}`), 7))
+	if rec.Code != 200 || e.Data.IsError || !e.Data.Replayed {
+		t.Fatalf("重放应带 replayed：%s", rec.Body.String())
+	}
+}
+
+// §N：文案 / 导出的参数校验（平台、比例、模式不在枚举内 → PARAM_INVALID，不动手）；错误码原样透出：
+// 成片未交付 JOB_NOT_DELIVERED、额度用完 COPY_QUOTA_EXHAUSTED 都不可重试；回放标记透传。
+func TestPublishCopyExportDispatch(t *testing.T) {
+	for name, c := range map[string][2]string{
+		"平台不在枚举": {"replicate_publish_copy", `{"job_id":1,"platform":"weibo"}`},
+		"比例不在枚举": {"replicate_export_ratio", `{"job_id":1,"ratio":"21:9"}`},
+		"模式不在枚举": {"replicate_export_ratio", `{"job_id":1,"ratio":"1:1","mode":"stretch"}`},
+		"缺比例":    {"replicate_export_ratio", `{"job_id":1}`},
+	} {
+		be := newBackend()
+		call, _ := chain(t, be)
+		_, e := do(t, call, signed(body("n-"+name, c[0], c[1]), 7))
+		if !e.Data.IsError || e.Data.Result["error_code"] != "PARAM_INVALID" || len(be.s.calls) != 0 {
+			t.Fatalf("%s 应 PARAM_INVALID：%+v", name, e.Data)
+		}
+	}
+	for reason, tool := range map[string]string{"JOB_NOT_DELIVERED": "replicate_export_ratio", "COPY_QUOTA_EXHAUSTED": "replicate_publish_copy"} {
+		be := newBackend()
+		be.s.err = xerr.NewReason(xerr.Conflict, reason, "中文提示")
+		call, _ := chain(t, be)
+		args := `{"job_id":1,"ratio":"1:1"}`
+		if tool == "replicate_publish_copy" {
+			args = `{"job_id":1}`
+		}
+		_, e := do(t, call, signed(body("n-"+reason, tool, args), 7))
+		if !e.Data.IsError || e.Data.Result["error_code"] != reason || e.Data.Result["retryable"] == true {
+			t.Fatalf("%s 应原样透出且不可重试：%+v", reason, e.Data)
+		}
+	}
+	be := newBackend()
+	be.s.copyReplay = true
+	call, _ := chain(t, be)
+	rec, _ := do(t, call, signed(body("n-replay", "replicate_publish_copy", `{"job_id":1}`), 7))
+	if !strings.Contains(rec.Body.String(), `"replayed":true`) {
+		t.Fatalf("回放标记应透传：%s", rec.Body.String())
+	}
+}
+
+// CONTRACT §O2：body 里可选的 origin（签名覆盖）带到确认类写工具的 ctx；没带 / kind 不是 agent / 形状不对一律当没有，工具照常执行。
+func TestCallOriginThreadedToConfirm(t *testing.T) {
+	cases := []struct {
+		name, origin, want string
+	}{
+		{"智能体", `,"origin":{"kind":"agent","conversation_id":"c-9","turn_id":"t-3"}`, "agent|c-9|t-3"},
+		{"数字会话号", `,"origin":{"kind":"agent","conversation_id":9001}`, "agent|9001|"},
+		{"没带", ``, ""},
+		{"非 agent", `,"origin":{"kind":"web","conversation_id":"c-9"}`, ""},
+		{"会话号非法", `,"origin":{"kind":"agent","conversation_id":"c&9"}`, ""},
+		{"形状不对", `,"origin":"agent"`, ""},
+	}
+	for i, c := range cases {
+		be := newBackend()
+		call, _ := chain(t, be)
+		b := fmt.Sprintf(`{"call_id":"k%d","tool":"replicate_confirm","arguments":{"plan_no":"VRP1","stage":"first","plan_hash":"h1","expected_points":120}%s}`, i, c.origin)
+		rec, e := do(t, call, signed(b, 42))
+		if rec.Code != 200 || e.Data.IsError || len(be.s.origins) != 1 || be.s.origins[0] != c.want {
+			t.Errorf("%s：%d %s origins=%v", c.name, rec.Code, rec.Body.String(), be.s.origins)
+		}
+	}
+	// 批量确认同样带来源
+	be := newBackend()
+	call, _ := chain(t, be)
+	b := `{"call_id":"kb","tool":"replicate_confirm_batch","arguments":{"plan_no":"VRP1","variants":[{"ref_images_from":["图1"],"ref_images":["mr://a"]}],"expected_points":130},"origin":{"kind":"agent","conversation_id":"c-1"}}`
+	if rec, e := do(t, call, signed(b, 42)); e.Data.IsError || len(be.s.origins) != 1 || be.s.origins[0] != "agent|c-1|" {
+		t.Fatalf("批量确认来源：%s origins=%v", rec.Body.String(), be.s.origins)
 	}
 }

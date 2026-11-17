@@ -20,8 +20,15 @@ const (
 	ToolStop         = "replicate_stop"
 	ToolCancelRest   = "replicate_cancel_rest"
 	ToolPreviewFrame = "replicate_preview_frame"
+	ToolQuoteBatch   = "replicate_quote_batch"
+	ToolConfirmBatch = "replicate_confirm_batch"
+	ToolGetBatch     = "replicate_get_batch"
+	ToolPublishCopy  = "replicate_publish_copy"
+	ToolExportRatio  = "replicate_export_ratio"
 	NoteMaxRunes     = 200
 	maxRefImages     = 9
+	maxOutfits       = 20 // 一项逐套换装最多列几套
+	maxBatchVariants = 10
 	maxTexts         = 4
 	maxTextRunes     = 30
 	maxDimNoteRunes  = 500
@@ -117,6 +124,12 @@ func dimEdit() Schema {
 		"mode": enum("keep 保持原样 / replace 换成参考图里的（须配 refs）/ describe 按文字描述改（须配 note）", "keep", "replace", "describe"),
 		"note": strMax("describe 时写要改成什么（用户口径的一句话，如「改成红色连衣裙」）；replace 时可补充说明", maxDimNoteRunes),
 		"refs": arr("replace 时用哪几张参考图（ref_images_from 数组里的位置，从 1 起）", integer("位置序号", 1, maxRefImages), 0, maxRefImages),
+		"occurrences": arr("逐套换装：这一项在视频里出现多次（如服装换了 3 套，见分析结果 outfits）时，指定第几套换成哪张图；没列出的套保持原样。"+
+			"只在 mode=replace 且分析里这一项有 2 套以上时用；用了它就不要再写 refs。只想把整条视频的服装都换成同一张图时不要用它，直接写 refs",
+			obj("某一套的换法", Props{
+				"index": integer("第几套（从 1 起，与分析结果 outfits 的 index 一致）", 1, maxOutfits),
+				"refs":  arr("这一套用哪几张参考图（ref_images_from 数组里的位置，从 1 起）", integer("位置序号", 1, maxRefImages), 1, maxRefImages),
+			}, "index", "refs"), 0, maxOutfits),
 	}, "mode")
 }
 
@@ -146,6 +159,16 @@ func annotationsSchema(action string) Schema {
 			"audio": enum("声音处理", "regenerate", "keep", "mute"),
 			"texts": arr("成片叠字", textOverlay(), 0, maxTexts),
 		})
+}
+
+// batchVariants 批量的变体数组：每项 {ref_images_from（模型写）, ref_images（系统注入）}。
+func batchVariants() Schema {
+	return arr("变体：每一项 = 一条要做的视频，ref_images_from 写这一条用的参考图（用户消息里的图片附件序号，如 [\"图2\"]；张数 = 方案里被替换那一项原来引用的图数，"+
+		"一般 1 张）。系统会换成真实地址，你只写序号。最多 10 条，顺序即第 1、2… 条",
+		obj("一个变体", Props{
+			"ref_images_from": arr("这一条的参考图：图片附件序号数组", strMax("附件序号，如 图1", maxAttachOrdinal), 1, maxRefImages),
+			"ref_images":      refImagesInjected(),
+		}, "ref_images_from"), 1, maxBatchVariants)
 }
 
 func readOnly(t Tool) Tool { t.ReadOnly, t.Idempotent = true, true; return t }
@@ -291,6 +314,69 @@ func buildRegistry() []Tool {
 			}, "plan_no"),
 			Output:  viewOut("JobView"),
 			Charges: true,
+		},
+		readOnly(Tool{
+			Name:  ToolQuoteBatch,
+			Title: "批量报价",
+			Description: "批量做多条的报价（只读，不扣点）：「这个方案满意了，换几个商品 / 模特各做一条」。**只有同一方案已经有一条成功成片后才能用**（否则 BATCH_NOT_READY：先做出一条再批量）。" +
+				"每一条只换方案里「主替换项」（有换图的那一项，优先 人物 > 商品 > 服装）的参考图，其余改法 / 模型 / 清晰度 / 画幅 / 声音完全沿用，直接做全部段。" +
+				"variants 每项给这一条的 ref_images_from，最多 10 条；张数不对返回 PARAM_INVALID。返回 rows（每条点数，与 variants 同序同长）与 total（合计）。",
+			Input:  obj("", Props{"plan_no": planNo(), "variants": batchVariants()}, "plan_no", "variants"),
+			Output: out("BatchQuoteView：planNo、planHash、rows[{index,points}]、total、mainDim、refsPerVariant", Props{}),
+		}),
+		{
+			Name:  ToolConfirmBatch,
+			Title: "确认批量生成",
+			Description: "确认批量生成 N 条（会按合计扣点）。" + ruleCharge + "expected_points 是整批合计（replicate_quote_batch 的 total），整批原子：" +
+				"点数不够一条都不做、不部分扣；合计与现算不一致返回 QUOTE_CHANGED。必须先 replicate_quote_batch，variants 与报价时完全一致；" +
+				"源方案没有成功成片返回 BATCH_NOT_READY；一批 1~10 条，参考图张数不对返回 PARAM_INVALID；点数不足返回 INSUFFICIENT_POINTS。" +
+				"返回 BatchView（batchId、jobs、total、status）。生成要几分钟，" + ruleNoPoll,
+			Input: obj("", Props{
+				"plan_no":         planNo(),
+				"variants":        batchVariants(),
+				"expected_points": Schema{"type": "integer", "description": "整批合计要冻结的点数（" + sysFilled + "；必须与同意卡一致）", "minimum": 1},
+			}, "plan_no", "variants"),
+			Output:  viewOut("BatchView"),
+			Charges: true,
+		},
+		readOnly(Tool{
+			Name:  ToolGetBatch,
+			Title: "查一批任务的进度",
+			Description: "查批量任务的整体进度：每条任务的状态与合计点数，整体 status：running 进行中 / succeeded 全部成功 / partial 部分成功 / failed 全部没成功。" +
+				"batch_id 取 replicate_confirm_batch 返回的 batchId。只在用户问进度、或系统发来通知后调用；" + ruleNoPoll + "不扣点。",
+			Input:  obj("", Props{"batch_id": strMax("批次编号（replicate_confirm_batch 返回的 batchId，数字的字符串形式）", 20)}, "batch_id"),
+			Output: viewOut("BatchView"),
+		}),
+		{
+			Name:  ToolPublishCopy,
+			Title: "生成发布文案",
+			Description: "给已经做好的成片写发布文案：3 个不同风格的标题（≤30 字）、话题标签（≤8 个，# 开头）、描述（≤200 字）和一个建议的封面时刻。" +
+				"【免费，不扣点，不需要同意卡】每人每天 20 次，同一条成片同一个平台再次调用直接返回已写好的，不占次数。" +
+				"只对已交付的成片可用（完整成片，或用户选择结束后拼好的部分成片）；预览版 / 没做好的任务返回 JOB_NOT_DELIVERED，如实告诉用户成片做好后再来。" +
+				"platform：douyin 抖音（缺省）/ kuaishou 快手 / xiaohongshu 小红书 / shipinhao 视频号；用户没说平台就用抖音，并告诉用户可以换别的平台。" +
+				"今天的次数用完返回 COPY_QUOTA_EXHAUSTED（明天恢复，不可重试）。文案由模型写出，向用户呈现时让用户自己再看一遍、按需修改后再发布。",
+			Input: obj("", Props{
+				"job_id":   Schema{"type": "integer", "description": "任务编号（replicate_confirm / replicate_get_job 返回的 jobId）", "minimum": 1},
+				"platform": enum("发布平台，缺省 douyin", "douyin", "kuaishou", "xiaohongshu", "shipinhao"),
+			}, "job_id"),
+			Output:     out("PublishCopyView：jobId、platform、titles[3]、hashtags[≤8]、description、coverAtSec、quotaUsed、quotaTotal", Props{}),
+			Idempotent: true,
+		},
+		{
+			Name:  ToolExportRatio,
+			Title: "导出其它比例",
+			Description: "把已经做好的成片导出成另一个画幅（9:16 竖屏 / 1:1 方形 / 16:9 横屏 / 3:4 / 4:3），用于不同平台发布。" +
+				"【免费，不扣点，不需要同意卡】不重新生成，只是重新排版：mode=pad（缺省）= 原画面完整保留、居中，空出来的地方用同一画面的模糊放大铺底；" +
+				"mode=crop = 居中裁切铺满（可能裁掉画面边缘）。声音原样保留。每条成片每种比例（每种模式）只做一次，再调用直接返回已做好的；结果会自动保存到素材库。" +
+				"与成片比例相同时返回成片本身。只对已交付的成片可用（预览版 / 没做好的任务返回 JOB_NOT_DELIVERED）。导出要几十秒，等它返回。" +
+				"返回 ExportView（videoUrl 是短时有效的预览 / 下载地址，library 是保存到素材库的状态）。",
+			Input: obj("", Props{
+				"job_id": Schema{"type": "integer", "description": "任务编号（replicate_confirm / replicate_get_job 返回的 jobId）", "minimum": 1},
+				"ratio":  enum("目标比例", "9:16", "1:1", "16:9", "3:4", "4:3"),
+				"mode":   enum("pad = 模糊底铺满（缺省，不裁画面）/ crop = 居中裁切", "pad", "crop"),
+			}, "job_id", "ratio"),
+			Output:     out("ExportView：jobId、ratio、mode、videoUrl、urlExpiresAt、library{status,state,text}", Props{}),
+			Idempotent: true,
 		},
 		readOnly(Tool{
 			Name:  ToolGetJob,

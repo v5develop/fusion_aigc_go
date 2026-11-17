@@ -44,6 +44,7 @@ type Moderation struct {
 const (
 	DeliveryFinal   = "final"   // 整条成片（完整版，或用户不继续 / 到期的部分成片）
 	DeliveryPreview = "preview" // 预览版成片（失败段占位；同 job 只入一次，之后完整版另入一条 final，预览版保留）
+	DeliveryRatio   = "ratio"   // 多比例导出（CONTRACT §N）：seg_index=0，version 编码「代数 + 比例 + 模式」见 core/export_ratio.go
 	DeliverySegment = "segment" // 单段（收尾时已确认扣费的段自动入；用户手动保存走同一行）
 )
 
@@ -133,4 +134,24 @@ type AdminRefundLine struct {
 	Error          *string   `bun:"error" json:"error,omitempty"`
 	CreatedAt      time.Time `bun:"created_at,nullzero,default:current_timestamp" json:"createdAt"`
 	UpdatedAt      time.Time `bun:"updated_at,nullzero,default:current_timestamp" json:"updatedAt"`
+}
+
+// TableFunnel 业务漏斗事件表（deploy/sql/Go_V1.0.53__replicate_funnel.sql）。
+const TableFunnel = "afv_replicate_funnel"
+
+// FunnelEvent afv_replicate_funnel：一次漏斗事件（只增不改；dedupe_key 唯一，重放 / 并发只落一行）。
+type FunnelEvent struct {
+	bun.BaseModel `bun:"table:afv_replicate_funnel,alias:fe"`
+
+	ID          int64     `bun:"id,pk,autoincrement"`
+	Stage       string    `bun:"stage"`
+	Channel     string    `bun:"channel"` // agent / web / system
+	UserID      int64     `bun:"user_id"`
+	AnalysisID  int64     `bun:"analysis_id"`
+	PlanID      int64     `bun:"plan_id"`
+	JobID       int64     `bun:"job_id"`
+	SegIndex    int       `bun:"seg_index"`
+	MultiPerson int8      `bun:"multi_person"` // 原片拆解主体 ≥ 2（分析成功 / 方案事件上有值）
+	DedupeKey   string    `bun:"dedupe_key"`
+	CreatedAt   time.Time `bun:"created_at,nullzero,default:current_timestamp"`
 }

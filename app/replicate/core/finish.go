@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -28,6 +29,12 @@ type Composer interface {
 	OverlayText(ctx context.Context, rid string, slots []mediasvc.TextSlot, idem string) (mediasvc.Resource, error)
 }
 
+// AudioMuxer 保留原声贴回（*mediasvc.Client 满足）：把原片若干区间的音频按顺序拼成音轨，对齐后替换视频音轨。
+// 独立成可选接口：合成器没实现它时，keep 的成片退回「不贴回」（判据=keep_audio_mux_failed），不影响拼接 / 叠字。
+type AudioMuxer interface {
+	MuxAudio(ctx context.Context, videoRid, sourceRid string, ranges []mediasvc.TimeRange, idem string) (mediasvc.MuxResult, error)
+}
+
 // WithComposer 成片合成（拼接 / 占位 / 叠字）。不装配时多段任务只有逐段视频，没有整条成片。
 func WithComposer(c Composer) Option { return func(s *Service) { s.composer = c } }
 
@@ -46,6 +53,13 @@ const (
 	ResultFull    = "full"    // 全部段成功的整条成片
 	ResultPreview = "preview" // 有失败段：失败处是占位画面（预览版），重做成功后自动替换为完整成片
 	ResultPartial = "partial" // 用户不继续 / 到期结束：只拼已做好的段（没做的段不占位）
+)
+
+// 原声贴回结果（ResultDoc.Audio）。
+const (
+	AudioResultKept   = "kept"
+	AudioResultFailed = "failed"
+	AudioResultNone   = "none"
 )
 
 // 默认占位文案（EXPERIENCE：失败段「这一段还在重做」）；没配中文字体时用英文，避免方块字。
@@ -68,6 +82,8 @@ type ResultDoc struct {
 	Error    string                 `json:"error,omitempty"`
 	Warnings []string               `json:"warnings,omitempty"`
 	Segments []resultSegmentContrib `json:"segments,omitempty"`
+	// Audio 原声贴回结果（只在方案 audio=keep 时有值）：kept 已贴回 / failed 贴回失败（成片退回没有原声）/ none 原片本身没有声音
+	Audio string `json:"audio,omitempty"`
 }
 
 type resultSegmentContrib struct {
@@ -87,6 +103,9 @@ type ResultView struct {
 	CoverURL string `json:"coverUrl,omitempty"`
 	Missing  []int  `json:"missing,omitempty"`
 	Text     string `json:"text,omitempty"`
+	// Audio / AudioNote 方案选了「保留原声」时的贴回结果：Audio = kept | failed | none；failed / none 时 AudioNote 是给用户的一句话。add-only。
+	Audio     string `json:"audio,omitempty"`
+	AudioNote string `json:"audioNote,omitempty"`
 }
 
 func resultView(raw json.RawMessage) *ResultView {
@@ -97,7 +116,13 @@ func resultView(raw json.RawMessage) *ResultView {
 	if json.Unmarshal(raw, &d) != nil || d.Status == "" {
 		return nil
 	}
-	v := &ResultView{Status: d.Status, Kind: d.Kind, VideoRid: d.VideoRid, CoverRid: d.CoverRid, Missing: d.Missing}
+	v := &ResultView{Status: d.Status, Kind: d.Kind, VideoRid: d.VideoRid, CoverRid: d.CoverRid, Missing: d.Missing, Audio: d.Audio}
+	switch d.Audio {
+	case AudioResultFailed:
+		v.AudioNote = "原视频的声音这次没能保留，这条成片没有原声"
+	case AudioResultNone:
+		v.AudioNote = "原视频本身没有声音，成片也没有声音"
+	}
 	switch {
 	case d.Status == ResultReady && d.Kind == ResultPreview:
 		v.Text = fmt.Sprintf("预览版：第 %s 段还没做好，先用占位画面代替；重做成功后会自动换成完整成片", joinInts(d.Missing))
@@ -293,6 +318,9 @@ func (s *Service) finalize(ctx context.Context, jobID int64) error {
 	}
 	b, _ := json.Marshal(doc)
 	_, err = s.store.TransitJob(ctx, j.ID, []int8{j.Status}, j.Status, map[string]any{"result_document": json.RawMessage(b)})
+	if err == nil && doc.Status == ResultReady {
+		s.funnel(ctx, funnelEvent{Stage: StageDelivered, UserID: j.UserID, PlanID: j.PlanID, JobID: j.ID, Dedupe: fmt.Sprintf("dl:%d", j.ID)})
+	}
 	return err
 }
 
@@ -329,9 +357,14 @@ func (s *Service) compose(ctx context.Context, j *model.Job, in *JobInput, outs 
 	default:
 		doc.Kind = ResultFull
 	}
+	keep := in.Audio == AudioKeep
 	if !multi && len(in.Texts) == 0 {
 		doc.Segments = []resultSegmentContrib{{Index: outs[0].seg.Index, VideoRid: outs[0].rid, Kind: "source"}}
-		return composed{RID: outs[0].rid}, nil
+		one := composed{RID: outs[0].rid}
+		if keep { // 单段且无叠字也要贴回原声（没有合成器 → 回落，不拦交付）
+			one.RID = s.keepOriginalAudio(ctx, j, in, keepRanges(outs), one.RID, idem("mux"), doc)
+		}
+		return one, nil
 	}
 	if s.composer == nil {
 		return composed{}, errNoComposer
@@ -380,11 +413,16 @@ func (s *Service) compose(ctx context.Context, j *model.Job, in *JobInput, outs 
 	if len(items) == 1 && sources == 1 {
 		out.RID = items[0].RID
 	} else {
+		// 只有 mute 去声。keep 不去声：贴回算子只取原片音轨、丢弃输入视频自带的音轨，贴回成功时生成的声音自然被替换；
+		// 贴回失败时拼接成片仍带模型生成的声音（契约 L2 回落口径），不会交付一条静音片
 		res, err := s.composer.ConcatItems(ctx, items, mediasvc.ConcatParams{DropAudio: in.Audio == AudioMute}, idem("concat"))
 		if err != nil {
 			return composed{}, fmt.Errorf("拼接失败: %w", err)
 		}
 		out.RID, out.Timeline = res.RID, res.Timeline
+	}
+	if keep { // 原声贴回在叠字之前：叠字算子只改画面，音轨一路带过去
+		out.RID = s.keepOriginalAudio(ctx, j, in, keepRanges(outs), out.RID, idem("mux"), doc)
 	}
 	if len(in.Texts) > 0 {
 		if font == "" {
@@ -409,4 +447,62 @@ func (s *Service) compose(ctx context.Context, j *model.Job, in *JobInput, outs 
 		doc.Texts = len(slots)
 	}
 	return out, nil
+}
+
+// keepRanges 成片时间轴对应的原片区间：按段顺序取每个没被「不继续 / 不做剩下的段」略过的段的 [T0, T1]（失败占位段也占它那一段时间，
+// 原声照常对应），首尾相接的相邻区间合并成一段，贴回时音频不会在衔接处断开。
+func keepRanges(outs []segOutcome) []mediasvc.TimeRange {
+	var rs []mediasvc.TimeRange
+	for _, o := range outs {
+		if o.omitted {
+			continue
+		}
+		r := mediasvc.TimeRange{Start: o.seg.T0, End: o.seg.T1}
+		if !(r.End > r.Start) {
+			continue
+		}
+		if n := len(rs); n > 0 && r.Start-rs[n-1].End < 0.001 && r.Start-rs[n-1].End > -0.001 {
+			rs[n-1].End = r.End
+			continue
+		}
+		rs = append(rs, r)
+	}
+	return rs
+}
+
+// keepOriginalAudio 方案 audio=keep：用原片对应区间的音轨替换成片音轨，返回贴回后的视频 rid。
+// 任何失败（没装配、区间为空、媒体服务出错）都回落到传入的 videoRid（交付不丢），记 判据=keep_audio_mux_failed 并把结果标成
+// failed；原片本身没有声音标 none（不算故障）。视图据此告诉用户原声没能保留。
+func (s *Service) keepOriginalAudio(ctx context.Context, j *model.Job, in *JobInput, ranges []mediasvc.TimeRange, videoRid, idem string, doc *ResultDoc) string {
+	fail := func(why string, err error) string {
+		doc.Audio = AudioResultFailed
+		logx.WithContext(ctx).Errorf("replicate: 原声贴回失败，成片退回没有原声 判据=keep_audio_mux_failed job=%d 原因=%s: %v", j.ID, why, err)
+		return videoRid
+	}
+	var m AudioMuxer
+	if s.composer != nil {
+		m, _ = s.composer.(AudioMuxer)
+	}
+	switch {
+	case m == nil:
+		return fail("没装配贴回算子", errNoComposer)
+	case strings.TrimSpace(in.SourceRid) == "":
+		return fail("方案里没有原片 rid", errNoComposer)
+	case len(ranges) == 0:
+		return fail("没有可贴回的区间", errNoComposer)
+	case len(ranges) > mediasvc.MaxMuxRanges:
+		return fail("区间过多", fmt.Errorf("%d 个区间", len(ranges)))
+	}
+	res, err := m.MuxAudio(ctx, videoRid, in.SourceRid, ranges, idem)
+	if err != nil {
+		var me *mediasvc.Error
+		if errors.As(err, &me) && me.Check == "audio.no_audio_stream" {
+			doc.Audio = AudioResultNone // 原片没有声音：不是故障，如实告诉用户
+			logx.WithContext(ctx).Infof("replicate: 原片没有音轨，成片保持无声 job=%d", j.ID)
+			return videoRid
+		}
+		return fail("媒体服务出错", err)
+	}
+	doc.Audio = AudioResultKept
+	return res.RID
 }

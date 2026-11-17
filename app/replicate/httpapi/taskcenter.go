@@ -27,7 +27,7 @@ func TaskSource() taskcenter.Source {
 	// 已入库的产物里挑一个：完整成片（final）> 预览版（preview）> 第 1 个已入库的段（段号最小；同段多版本取最新），部分成功的任务也有可点开的成品
 	// 封面取同一行（没有封面回退该行成品地址），不会出现「成片地址 + 某一段的封面」
 	pick := func(expr string) string {
-		return "(SELECT " + expr + " FROM afv_replicate_delivery d WHERE d.job_id = s.id AND d.status = 1 AND d.video_url IS NOT NULL" +
+		return "(SELECT " + expr + " FROM afv_replicate_delivery d WHERE d.job_id = s.id AND d.status = 1 AND d.video_url IS NOT NULL AND d.kind IN ('final', 'preview', 'segment')" +
 			" ORDER BY FIELD(d.kind, 'final', 'preview', 'segment'), d.seg_index, d.version DESC LIMIT 1)"
 	}
 	video, cover := pick("d.video_url"), pick("COALESCE(d.cover_url, d.video_url)")

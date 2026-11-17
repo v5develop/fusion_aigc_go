@@ -71,5 +71,6 @@ func (s *Service) checkBadOutput(ctx context.Context, j *model.Job, st *model.St
 	}
 	logx.WithContext(ctx).Errorf("replicate: 坏片 判据=bad_output job=%d step=%s rid=%s 原因=%s 时长=%.1fs 平台承担成本=%s",
 		j.ID, st.StepKey, out.VideoRid, why, res.DurationS, out.CostCNY)
+	s.funnel(ctx, funnelEvent{Stage: StageBadOutput, UserID: j.UserID, PlanID: j.PlanID, JobID: j.ID, SegIndex: st.SegIndex, Dedupe: fmt.Sprintf("bo:%d:%s", j.ID, st.StepKey)})
 	return true
 }

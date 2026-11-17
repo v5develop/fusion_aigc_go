@@ -1,7 +1,7 @@
 总体描述：参考 {{.Video}} 的动作、走位、运镜与节奏，重新生成一条 {{.Duration}} 秒的视频{{if .Multi}}（原片第 {{printf "%.1f" .GenT0}}–{{printf "%.1f" .GenT1}} 秒，共 {{.Total}} 段中的第 {{.Index}} 段）{{end}}{{if .ChangedLabels}}，{{.ChangedLabels}}按参考图重建{{end}}。
-参考素材引用：{{.Video}} 是动作与运镜参考{{range .Replace}}；{{.Tags}} 为整段{{.Label}}参考（{{.Hint}}）{{end}}。
+参考素材引用：{{.Video}} 是动作与运镜参考{{range .Replace}}；{{if .OccText}}{{.OccText}}{{else}}{{.Tags}} 为整段{{.Label}}参考（{{.Hint}}）{{end}}{{end}}。
 {{range .Describe}}{{.Label}}：{{.Note}}。
-{{end}}{{range $i, $s := .Shots}}分镜{{inc $i}}（{{printf "%.1f" $s.From}}-{{printf "%.1f" $s.To}}秒）：{{if $.Camera}}{{$.Camera}}。{{end}}{{$s.Text}}{{if $.Replace}}；{{range $j, $c := $.Replace}}{{if $j}}、{{end}}{{$c.Label}}为 {{$c.Tags}} 中的内容{{end}}{{end}}，其余保持不变。
+{{end}}{{range $i, $s := .Shots}}分镜{{inc $i}}（{{printf "%.1f" $s.From}}-{{printf "%.1f" $s.To}}秒）：{{if $.Camera}}{{$.Camera}}。{{end}}{{$s.Text}}{{if $.Replace}}；{{range $j, $c := $.Replace}}{{if $j}}、{{end}}{{$c.ShotText}}{{end}}{{end}}，其余保持不变。
 {{end}}{{if .Style}}风格情绪：{{.Style}}。
 {{end}}{{if eq .Audio "keep"}}声音：不生成新的声音。
 {{else if eq .Audio "mute"}}声音：保持无声。

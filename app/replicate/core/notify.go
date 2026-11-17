@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"fmt"
+	"math"
 	"strconv"
 	"sync"
 
@@ -27,6 +28,8 @@ const (
 	KindFirstReady = "replicate.first_ready"
 	KindDone       = "replicate.done"
 	KindSegFailed  = "replicate.seg_failed"
+	// KindDecisionReminder 第 1 段做好后一直没处理，离 24 小时自动结束只剩约 4 小时时提醒一次（CONTRACT §O2）。
+	KindDecisionReminder = "replicate.decision_reminder"
 )
 
 // Notifier 站内通知发送（*notify.Service 直接满足）。
@@ -59,28 +62,25 @@ func (c *sentCache) add(k string) {
 	c.m[k] = struct{}{}
 }
 
-// JobLink 用户端任务页（EXPERIENCE：用 ?job= 回到任务）。
-func JobLink(jobID int64) string {
-	return "/local-life/video-replicate?job=" + strconv.FormatInt(jobID, 10)
-}
-
 func dedupeKey(jobID int64, kind string) string { return fmt.Sprintf("replicate:%d:%s", jobID, kind) }
 
-func (s *Service) send(ctx context.Context, j *model.Job, kind, title, body string) {
+// send 发一条站内通知；返回 true = 已发出或此前已发过（含库里去重命中），false = 这次没发成。
+func (s *Service) send(ctx context.Context, j *model.Job, kind, title, body string) bool {
 	key := dedupeKey(j.ID, kind)
 	if s.sent.has(key) {
-		return
+		return true
 	}
 	out, err := s.notifier.Send(context.WithoutCancel(ctx), notify.Message{UserID: j.UserID, Kind: kind, Title: title, Body: body,
-		Link: JobLink(j.ID), BizType: "replicate_job", BizID: strconv.FormatInt(j.ID, 10), DedupeKey: key})
+		Link: JobLinkFor(j), BizType: "replicate_job", BizID: strconv.FormatInt(j.ID, 10), DedupeKey: key})
 	if err != nil {
 		logx.WithContext(ctx).Errorf("replicate: 站内通知发送失败（不影响任务） 判据=NOTIFY_FAILED job=%d kind=%s: %v", j.ID, kind, err)
-		return
+		return false
 	}
 	s.sent.add(key)
 	if out == notify.Sent {
 		logx.WithContext(ctx).Infof("replicate: 站内通知已发 job=%d kind=%s", j.ID, kind)
 	}
+	return true
 }
 
 // notifyJob 按 job 当前状态补发应发的通知（幂等）。任何错误只打日志。
@@ -103,6 +103,7 @@ func (s *Service) notifyJob(ctx context.Context, jobID int64) {
 	}
 	if j.Status == model.JobWaiting && j.SegTotal > 1 {
 		s.send(ctx, j, KindFirstReady, "第 1 段做好了", "视频做同款：第 1 段做好了，来看看再决定要不要继续")
+		s.remindDecision(ctx, j)
 	}
 	steps, err := s.store.ListSteps(ctx, j.ID)
 	if err != nil {
@@ -204,5 +205,31 @@ func (s *Service) notifyJob(ctx context.Context, jobID int64) {
 			money = fmt.Sprintf("已退回 %d 点", refunded)
 		}
 		s.send(ctx, j, KindDone, "视频做同款部分完成", fmt.Sprintf("做好了 %d 段，%d 段没成功，%s。点击查看", j.SegDone, failed, money))
+	}
+}
+
+// remindDecision 待决策提醒（CONTRACT §O2）：待继续、还没到期、距到期 ≤ 提前量（默认 4 小时）时提醒一次。
+// 幂等靠通知唯一键（每 job 每类 1 次）；发出后顺手把 decision_remind_at 置空，轮询器不再为它唤醒。
+// 窗口本身不比提前量长（提醒会在刚做好就发）时不提醒。
+func (s *Service) remindDecision(ctx context.Context, j *model.Job) {
+	lead := s.cfg.DecisionReminderLead
+	if s.cfg.DecisionReminderOff || lead <= 0 || lead >= s.cfg.ContinueWindow || j.ContinueDeadline == nil {
+		return
+	}
+	left := j.ContinueDeadline.Sub(s.now())
+	if left <= 0 || left > lead {
+		return
+	}
+	remainH := int(math.Ceil(left.Hours()))
+	doneH := max(1, int(math.Round((s.cfg.ContinueWindow - left).Hours())))
+	title := "第 1 段快到期了"
+	body := fmt.Sprintf("视频做同款：第 1 段已经做好 %d 小时了，%d 小时后会自动结束，只保留第 1 段。想继续做剩下的，现在点「继续」", doneH, remainH)
+	if !s.send(ctx, j, KindDecisionReminder, title, body) {
+		return // 没发出去（通知失败）：保留 decision_remind_at，下一轮再试
+	}
+	if j.DecisionRemindAt != nil {
+		if _, err := s.store.TransitJob(ctx, j.ID, []int8{model.JobWaiting}, model.JobWaiting, map[string]any{"decision_remind_at": nil}); err != nil {
+			logx.WithContext(ctx).Errorf("replicate: 清待决策提醒时刻失败（不影响提醒，通知已去重） job=%d: %v", j.ID, err)
+		}
 	}
 }

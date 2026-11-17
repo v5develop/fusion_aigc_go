@@ -110,3 +110,16 @@ func TestIdemKeyHeader(t *testing.T) {
 		t.Fatal("优先 Idempotency-Key")
 	}
 }
+
+// CONTRACT §O2：待决策提醒的开关与提前量走 afv_system_config（数据库 > yaml）；越界 / 非法忽略。
+func TestApplyParamsDecisionReminder(t *testing.T) {
+	base := core.DefaultConfig()
+	p := applyParams(base, true, map[string]string{KeyDecisionReminderEnabled: "false", KeyDecisionReminderLeadHours: "6"})
+	if !p.Cfg.DecisionReminderOff || p.Cfg.DecisionReminderLead != 6*time.Hour {
+		t.Fatalf("合法项应覆盖：%+v", p.Cfg)
+	}
+	q := applyParams(base, true, map[string]string{KeyDecisionReminderLeadHours: "0"})
+	if q.Cfg.DecisionReminderOff || q.Cfg.DecisionReminderLead != base.DecisionReminderLead {
+		t.Fatalf("越界忽略，沿用 yaml / 默认：%+v", q.Cfg)
+	}
+}

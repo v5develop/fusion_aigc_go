@@ -234,6 +234,13 @@ func pcases() []pcase {
 			ops: func(sc *Scope) (any, error) { return sc.GetPreview(context.Background(), "VRPx") }, wantSub: `"code":4001`},
 		{name: "读定妆图-方案号过长", fn: func(h *handlers) handlerFn { return h.getPreview }, method: "GET", path: "/x", vars: map[string]string{"no": strings.Repeat("x", 65)},
 			ops: func(sc *Scope) (any, error) { return sc.GetPreview(context.Background(), strings.Repeat("x", 65)) }, wantSub: "no 不合法"},
+		// 多比例导出清单（§N，只读）：REST 与 Ops 同口径；没导出过 / 成片未交付 → 空数组（别人的任务 → 4001，由内核测试覆盖）；总开关关着照常可读；任务号不合法 → 参数错
+		{name: "读导出清单-没有导出回空数组", fn: func(h *handlers) handlerFn { return h.exports }, method: "GET", path: "/x", vars: map[string]string{"id": "42"},
+			ops: func(sc *Scope) (any, error) { return sc.Exports(context.Background(), 42) }, wantStatus: 200, wantSub: `"exports":[]`},
+		{name: "读导出清单-总开关关着照常可读", kv: off, fn: func(h *handlers) handlerFn { return h.exports }, method: "GET", path: "/x", vars: map[string]string{"id": "42"},
+			ops: func(sc *Scope) (any, error) { return sc.Exports(context.Background(), 42) }, wantStatus: 200, wantSub: `"exports":[]`},
+		{name: "读导出清单-任务号不合法", fn: func(h *handlers) handlerFn { return h.exports }, method: "GET", path: "/x", vars: map[string]string{"id": "0"},
+			ops: func(sc *Scope) (any, error) { return sc.Exports(context.Background(), 0) }, wantSub: "id 不合法"},
 		// 写成功才 Kick：停止任务走到内核的 Stop（stub 没实现 → 这里只验证「写入口开着时能走到内核」改由上面重放用例覆盖）
 	}
 }
@@ -406,5 +413,24 @@ func TestPageQueryAndDefaults(t *testing.T) {
 	}
 	if _, _, err := pageOf(-1, 0); err == nil {
 		t.Fatal("负数不合法")
+	}
+}
+
+// 渠道透传：REST 的 Enter 记 web，智能体入口 EnterAs 记 agent；渠道只进 ctx，不改业务口径。
+func TestEnterChannels(t *testing.T) {
+	e := newPEnv(map[string]string{})
+	sc, err := e.m.Ops().Enter(context.Background(), 9, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sc.channel != core.ChannelWeb || core.ChannelOf(sc.ctx(context.Background())) != core.ChannelWeb {
+		t.Fatalf("REST 入口应是 web：%q", sc.channel)
+	}
+	sc, err = e.m.Ops().EnterAs(context.Background(), 9, false, core.ChannelAgent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sc.channel != core.ChannelAgent || core.ChannelOf(sc.ctx(context.Background())) != core.ChannelAgent {
+		t.Fatalf("智能体入口应是 agent：%q", sc.channel)
 	}
 }

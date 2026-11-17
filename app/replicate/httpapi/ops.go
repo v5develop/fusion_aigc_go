@@ -31,10 +31,17 @@ type Scope struct {
 	uid     int64
 	write   bool
 	enabled bool
+	channel string // 调用渠道（core.ChannelWeb / core.ChannelAgent），漏斗埋点按它切分
 }
 
-// Enter 取内核与登录用户，写入口另查运行时总开关（关着回 7003；读入口照常，已有任务能看）。
+// Enter REST 入口：渠道记为 web。
 func (o *Ops) Enter(ctx context.Context, uid int64, write bool) (*Scope, error) {
+	return o.EnterAs(ctx, uid, write, core.ChannelWeb)
+}
+
+// EnterAs 取内核与登录用户，写入口另查运行时总开关（关着回 7003；读入口照常，已有任务能看）。
+// channel 是调用渠道（智能体内部入口传 core.ChannelAgent），只用于漏斗埋点，不改变任何业务口径。
+func (o *Ops) EnterAs(ctx context.Context, uid int64, write bool, channel string) (*Scope, error) {
 	if o == nil || o.m == nil || o.m.rt == nil {
 		return nil, errNotReady()
 	}
@@ -45,8 +52,11 @@ func (o *Ops) Enter(ctx context.Context, uid int64, write bool) (*Scope, error) 
 	if s == nil || (write && !enabled) {
 		return nil, errNotReady()
 	}
-	return &Scope{o: o, s: s, uid: uid, write: write, enabled: enabled}, nil
+	return &Scope{o: o, s: s, uid: uid, write: write, enabled: enabled, channel: channel}, nil
 }
+
+// ctx 把调用渠道带进内核（漏斗埋点读取）；写方法调内核前都过一遍。
+func (sc *Scope) ctx(ctx context.Context) context.Context { return core.WithChannel(ctx, sc.channel) }
 
 // take 限频（ratelimit.go）：命中返回 *RateLimitError。
 func (sc *Scope) take(ctx context.Context, action string) (func(), error) {
@@ -122,7 +132,7 @@ func (sc *Scope) CreateAnalysis(ctx context.Context, sourceURL string) (*core.An
 	if err != nil {
 		return nil, err
 	}
-	v, err := sc.s.CreateAnalysis(ctx, core.CreateAnalysisReq{UserID: sc.uid, SourceURL: sourceURL})
+	v, err := sc.s.CreateAnalysis(sc.ctx(ctx), core.CreateAnalysisReq{UserID: sc.uid, SourceURL: sourceURL})
 	if err != nil || (v != nil && v.Cached) {
 		refund() // 失败不计次；同一条视频复用已有分析（单飞）也不计次（EXPERIENCE 计次口径 F-22）
 	}
@@ -148,7 +158,7 @@ func (sc *Scope) CreatePlan(ctx context.Context, req core.PlanReq) (*core.PlanVi
 		return nil, err
 	}
 	req.UserID = sc.uid
-	v, err := sc.s.CreatePlan(ctx, req)
+	v, err := sc.s.CreatePlan(sc.ctx(ctx), req)
 	if err != nil {
 		refund() // 缺项 / 失败不占方案次数
 	}
@@ -194,7 +204,7 @@ func (sc *Scope) Confirm(ctx context.Context, a ConfirmArgs) (*core.JobView, err
 	if err != nil {
 		return nil, err
 	}
-	v, err := sc.s.Confirm(ctx, core.ConfirmReq{UserID: sc.uid, PlanNo: no, PlanHash: a.PlanHash, Stage: a.Stage,
+	v, err := sc.s.Confirm(sc.ctx(ctx), core.ConfirmReq{UserID: sc.uid, PlanNo: no, PlanHash: a.PlanHash, Stage: a.Stage,
 		IdempotencyKey: a.IdempotencyKey, ExpectedPoints: pts})
 	if err != nil || (v != nil && v.Replay) {
 		refund() // 没确认成功（审核没过 / 价变 / 余额不足…）或只是重放已有 job：不占次数
@@ -252,7 +262,7 @@ func (sc *Scope) Continue(ctx context.Context, a ContinueArgs) (*core.JobView, e
 	if err != nil {
 		return nil, err
 	}
-	v, err := sc.s.Continue(ctx, core.ContinueReq{UserID: sc.uid, JobID: a.JobID, PlanHash: a.PlanHash,
+	v, err := sc.s.Continue(sc.ctx(ctx), core.ContinueReq{UserID: sc.uid, JobID: a.JobID, PlanHash: a.PlanHash,
 		IdempotencyKey: a.IdempotencyKey, ExpectedPoints: pts})
 	return v, sc.done(err)
 }
@@ -262,7 +272,7 @@ func (sc *Scope) Stop(ctx context.Context, id int64) (*core.JobView, error) {
 	if err := checkID(id, "id"); err != nil {
 		return nil, err
 	}
-	v, err := sc.s.Stop(ctx, sc.uid, id)
+	v, err := sc.s.Stop(sc.ctx(ctx), sc.uid, id)
 	return v, sc.done(err)
 }
 
@@ -271,7 +281,7 @@ func (sc *Scope) CancelRest(ctx context.Context, id int64) (*core.JobView, error
 	if err := checkID(id, "id"); err != nil {
 		return nil, err
 	}
-	v, err := sc.s.CancelRest(ctx, sc.uid, id)
+	v, err := sc.s.CancelRest(sc.ctx(ctx), sc.uid, id)
 	return v, sc.done(err)
 }
 
@@ -302,7 +312,7 @@ func (sc *Scope) Redo(ctx context.Context, a RedoArgs) (*core.JobView, error) {
 	if err != nil {
 		return nil, err
 	}
-	v, err := sc.s.Redo(ctx, core.RedoReq{UserID: sc.uid, JobID: a.JobID, SegIndex: int(a.SegIndex), IdempotencyKey: a.IdempotencyKey,
+	v, err := sc.s.Redo(sc.ctx(ctx), core.RedoReq{UserID: sc.uid, JobID: a.JobID, SegIndex: int(a.SegIndex), IdempotencyKey: a.IdempotencyKey,
 		ExpectedPoints: pts, Note: a.Note})
 	return v, sc.done(err)
 }
@@ -327,7 +337,7 @@ func (sc *Scope) SaveSegment(ctx context.Context, jobID, k int64) (*core.SaveSeg
 	if err := checkID(k, "k"); err != nil {
 		return nil, err
 	}
-	v, err := sc.s.SaveSegment(ctx, sc.uid, jobID, int(k))
+	v, err := sc.s.SaveSegment(sc.ctx(ctx), sc.uid, jobID, int(k))
 	return v, sc.done(err)
 }
 
@@ -364,7 +374,7 @@ func (sc *Scope) PreviewFrame(ctx context.Context, no string) (*core.PreviewView
 	if err != nil {
 		return nil, err
 	}
-	return sc.s.PreviewFrame(ctx, sc.uid, no)
+	return sc.s.PreviewFrame(sc.ctx(ctx), sc.uid, no)
 }
 
 // GetPreview 只读已存的定妆图并现签新地址（不出图、不占额度、不看总开关；没有 → 4001）。
@@ -390,7 +400,7 @@ func (sc *Scope) PatchAnnotations(ctx context.Context, req core.PatchReq, hasAnn
 		return nil, err
 	}
 	req.UserID, req.PlanNo = sc.uid, no
-	v, created, err := sc.s.PatchAnnotations(ctx, req)
+	v, created, err := sc.s.PatchAnnotations(sc.ctx(ctx), req)
 	if err != nil || !created {
 		refund() // 缺项 / 失败 / 同一改动的重放不占方案次数
 	}
@@ -438,9 +448,94 @@ func (sc *Scope) ReuseSavedPlan(ctx context.Context, req core.ReuseReq) (*core.P
 		return nil, err
 	}
 	req.UserID = sc.uid
-	v, created, err := sc.s.ReuseSavedPlan(ctx, req)
+	v, created, err := sc.s.ReuseSavedPlan(sc.ctx(ctx), req)
 	if err != nil || !created {
 		refund() // 失败 / 同键重放不占方案次数
 	}
 	return v, sc.done(err)
+}
+
+// PublishCopy 发布文案（CONTRACT §N，免费、无同意卡；每人每天 N 次，同成片同平台回放不占次数，额度与回放在内核里）。写入口：运行时总开关关着回 7003。
+func (sc *Scope) PublishCopy(ctx context.Context, jobID int64, platform string) (*core.PublishCopyView, error) {
+	if err := checkID(jobID, "job_id"); err != nil {
+		return nil, err
+	}
+	return sc.s.PublishCopy(sc.ctx(ctx), sc.uid, jobID, platform)
+}
+
+// ExportRatio 多比例导出（CONTRACT §N，免费、无同意卡；每成片每比例每模式一次，结果自动入素材库）。写入口。
+func (sc *Scope) ExportRatio(ctx context.Context, jobID int64, ratio, mode string) (*core.ExportView, error) {
+	if err := checkID(jobID, "job_id"); err != nil {
+		return nil, err
+	}
+	return sc.s.ExportRatio(sc.ctx(ctx), sc.uid, jobID, ratio, mode)
+}
+
+// Exports 当前成片的已导出清单并现签新地址（只读，不看总开关；GET /jobs/:id/exports）。
+func (sc *Scope) Exports(ctx context.Context, jobID int64) (*core.ExportList, error) {
+	if err := checkID(jobID, "id"); err != nil {
+		return nil, err
+	}
+	return sc.s.ListExports(ctx, sc.uid, jobID)
+}
+
+// BatchVariantArgs 批量的一个变体：替换主替换项的参考图。
+type BatchVariantArgs struct{ RefImages []string }
+
+func batchVariants(vs []BatchVariantArgs) []core.BatchVariant {
+	out := make([]core.BatchVariant, len(vs))
+	for i, v := range vs {
+		out[i] = core.BatchVariant{RefImages: v.RefImages}
+	}
+	return out
+}
+
+// QuoteBatch 批量报价（CONTRACT §M，只读：不建方案、不动钱、不限频、不看总开关）。
+func (sc *Scope) QuoteBatch(ctx context.Context, planNo string, variants []BatchVariantArgs) (*core.BatchQuoteView, error) {
+	no, err := checkStr(planNo, "plan_no")
+	if err != nil {
+		return nil, err
+	}
+	return sc.s.QuoteBatch(ctx, sc.uid, no, batchVariants(variants))
+}
+
+// BatchConfirmArgs 批量确认的入参。
+type BatchConfirmArgs struct {
+	PlanNo         string
+	Variants       []BatchVariantArgs
+	ExpectedPoints *int64 // 合计点数，必填 >0
+	IdempotencyKey string
+}
+
+// ConfirmBatch 批量确认（扣点，整批原子）：expectedPoints 必填 >0 → 重放直接返回已有批次（不限频不计次）→ 限频 confirm（一批算一次）→ 内核。
+func (sc *Scope) ConfirmBatch(ctx context.Context, a BatchConfirmArgs) (*core.BatchView, error) {
+	no, err := checkStr(a.PlanNo, "plan_no")
+	if err != nil {
+		return nil, err
+	}
+	pts, err := requirePoints(a.ExpectedPoints, "批量确认合计")
+	if err != nil {
+		return nil, err
+	}
+	if v, err := sc.s.ExistingBatch(ctx, sc.uid, a.IdempotencyKey); err != nil || v != nil {
+		return v, sc.done(err)
+	}
+	refund, err := sc.take(ctx, ActionConfirm)
+	if err != nil {
+		return nil, err
+	}
+	v, err := sc.s.ConfirmBatch(sc.ctx(ctx), core.BatchConfirmReq{UserID: sc.uid, PlanNo: no, Variants: batchVariants(a.Variants),
+		ExpectedPoints: pts, IdempotencyKey: a.IdempotencyKey})
+	if err != nil || (v != nil && v.Replay) {
+		refund() // 没提交成功（价变 / 审核 / 余额不足 / 整批回滚…）或只是重放：不占次数
+	}
+	return v, sc.done(err)
+}
+
+// GetBatch 取一批任务。
+func (sc *Scope) GetBatch(ctx context.Context, id int64) (*core.BatchView, error) {
+	if err := checkID(id, "batch_id"); err != nil {
+		return nil, err
+	}
+	return sc.s.GetBatch(ctx, sc.uid, id)
 }

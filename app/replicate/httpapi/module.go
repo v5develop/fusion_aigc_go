@@ -135,6 +135,18 @@ func MustBuild(c Conf, conn sqlx.SqlConn, opts ...BuildOption) *Module {
 	if c.Preview.WaitSeconds > 0 {
 		base.PreviewWait = time.Duration(min(c.Preview.WaitSeconds, 120)) * time.Second
 	}
+	base.CopyOff = !c.Copy.Enabled
+	base.CopyModelGroup = strings.TrimSpace(c.Copy.ModelGroup)
+	if c.Copy.DailyQuota > 0 {
+		base.CopyDailyQuota = c.Copy.DailyQuota
+	}
+	if c.Copy.WaitSeconds > 0 {
+		base.CopyWait = time.Duration(min(c.Copy.WaitSeconds, 120)) * time.Second
+	}
+	base.DecisionReminderOff = !c.DecisionReminder.Enabled
+	if c.DecisionReminder.LeadHours > 0 {
+		base.DecisionReminderLead = time.Duration(min(c.DecisionReminder.LeadHours, 168)) * time.Hour
+	}
 	base.BadOutputOff = !c.BadOutput.Enabled
 	base.BadOutputBlackRatio, base.BadOutputFreezeRatio = c.BadOutput.BlackRatio, c.BadOutput.FreezeRatio
 	base.Models, base.DefaultModel = c.Models, strings.TrimSpace(c.DefaultModel)
@@ -157,7 +169,7 @@ func MustBuild(c Conf, conn sqlx.SqlConn, opts ...BuildOption) *Module {
 				opts = append(opts, core.WithDelivery(store, media, assets, core.DeliveryConfig{EntryCode: c.Asset.EntryCode}))
 			}
 		}
-		opts = append(opts, core.WithModeration(store, store, words), core.WithNotifier(notifier), core.WithLibrary(store), core.WithPreview(store), core.WithEtaCalibrator(etaCal),
+		opts = append(opts, core.WithModeration(store, store, words), core.WithNotifier(notifier), core.WithLibrary(store), core.WithPreview(store), core.WithFunnel(store), core.WithBatch(store), core.WithPublishCopy(store), core.WithExport(store), core.WithEtaCalibrator(etaCal),
 			core.WithWorkspace(func(ctx context.Context, uid int64) (int64, error) { return workspace.PersonalID(ctx, conn, uid) }))
 		return core.New(cfg, store, ledger, opts...)
 	}

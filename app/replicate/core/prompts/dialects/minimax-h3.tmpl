@@ -1,12 +1,13 @@
 subject_definitions:
-{{range $i, $c := .Replace}}<Subject {{inc $i}}> is the new {{$c.Noun}} in {{$c.Tags}}{{if $c.Note}} ({{$c.Note}}){{end}}; it replaces the original {{$c.Noun}} ({{$c.Current}}). Only the {{$c.Attrs}} are referenced; background, pose and watermark in the picture are ignored.
-{{end}}{{.Video}} is the motion, blocking, camera and pacing reference; its cuts and rhythm are followed rather than its pixels.
+{{range $c := .Replace}}{{if $c.OccText}}{{$c.OccText}}
+{{else}}<Subject {{$c.SubjNo}}> is the new {{$c.Noun}} in {{$c.Tags}}{{if $c.Note}} ({{$c.Note}}){{end}}; it replaces the original {{$c.Noun}} ({{$c.Current}}). Only the {{$c.Attrs}} are referenced; background, pose and watermark in the picture are ignored.
+{{end}}{{end}}{{.Video}} is the motion, blocking, camera and pacing reference; its cuts and rhythm are followed rather than its pixels.
 
 summary:
 [reference generation] A {{.Duration}}-second video that regenerates the action, blocking and camera work of {{.Video}}{{if .Multi}} (source {{printf "%.1f" .GenT0}}-{{printf "%.1f" .GenT1}}s, segment {{.Index}} of {{.Total}}){{end}}.{{if .Describe}} Changes described in text:{{range .Describe}} {{.Label}}: {{.Note}};{{end}}{{end}}
 
 retention_analysis:
-{{range $i, $c := .Replace}}<Subject {{inc $i}}>: identity must stay consistent in every shot.
+{{range $c := .Replace}}{{$c.Retain}}
 {{end}}{{if .KeepNames}}Kept from {{.Video}}: {{.KeepNames}}.
 {{end}}
 detailed_description:

@@ -39,6 +39,13 @@ type Service struct {
 	etaCal *EtaCalibrator
 	// previews 定妆图读写与每日额度（preview.go，可选；不装配时定妆图回 7003）
 	previews PreviewStore
+	// funnelStore 业务漏斗事件落库（funnel.go，可选；不装配只有 Prometheus 计数）
+	funnelStore FunnelStore
+	// batches 批量做多条的批次读写（batch.go，可选；不装配时批量接口回 7003）
+	batches BatchStore
+	// copies / exports 发布文案与多比例导出（publish_copy.go / export_ratio.go，可选；不装配时对应工具回 7003）
+	copies  CopyStore
+	exports ExportStore
 }
 
 // Option 装配可选依赖。

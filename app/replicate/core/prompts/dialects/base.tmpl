@@ -1,6 +1,6 @@
 {{if .Multi}}参考 {{.Video}}（原片第 {{printf "%.1f" .GenT0}}–{{printf "%.1f" .GenT1}} 秒，共 {{.Total}} 段中的第 {{.Index}} 段），保持它的镜头、构图、运镜、节奏与动作。{{else}}参考 {{.Video}}，保持它的镜头、构图、运镜、节奏与动作。{{end}}
 {{if .Replace}}需要替换：
-{{range .Replace}}- {{.Label}}：把视频里的{{.Current}}换成 {{.Tags}} 中的{{.Label}}{{if .Note}}（{{.Note}}）{{end}}
+{{range .Replace}}- {{if .OccText}}{{.OccText}}{{else}}{{.Label}}：把视频里的{{.Current}}换成 {{.Tags}} 中的{{.Label}}{{if .Note}}（{{.Note}}）{{end}}{{end}}
 {{end}}{{end}}{{if .Describe}}按描述修改：
 {{range .Describe}}- {{.Label}}：{{.Note}}
 {{end}}{{end}}{{if .Keep}}保持不变：{{range $i, $k := .Keep}}{{if $i}}；{{end}}{{$k.Label}}（{{$k.Desc}}）{{end}}。

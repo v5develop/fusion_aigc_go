@@ -89,7 +89,7 @@ func (s *Service) ForceFinish(ctx context.Context, jobID int64) (*ForceFinishRes
 	defer cancel()
 	switch j.Status {
 	case model.JobWaiting:
-		if err := s.finishFirstOnly(dctx, j, codeAdminForce); err != nil {
+		if err := s.finishFirstOnly(dctx, j, codeAdminForce, ""); err != nil {
 			return nil, err
 		}
 	case model.JobQueued, model.JobRunning:

@@ -141,10 +141,15 @@ func applyAnalysisRules(in *visionOut, st *AnalysisState, r *AnalysisResult, cfg
 
 // userAnalysis 用户视图里的分析结果：去掉纠偏明细（只给后台看）。
 func userAnalysis(r *AnalysisResult) *AnalysisResult {
-	if r == nil || len(r.Corrections) == 0 {
+	if r == nil {
+		return r
+	}
+	ov := outfitsView(r)
+	if len(r.Corrections) == 0 && ov == nil {
 		return r
 	}
 	c := *r
 	c.Corrections = nil
+	c.Outfits = ov // 逐套服装摘要（CONTRACT §O1），读取时现算，不进落库的原始结果
 	return &c
 }

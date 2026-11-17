@@ -136,6 +136,9 @@ func (s *Service) CreateAnalysis(ctx context.Context, req CreateAnalysisReq) (*A
 	if err != nil {
 		return nil, err
 	}
+	if created {
+		s.funnel(ctx, funnelEvent{Stage: StageAnalysisCreate, UserID: req.UserID, AnalysisID: got.ID, Dedupe: fmt.Sprintf("ac:%d", got.ID)})
+	}
 	if !created && got.Status == model.AnalysisFailed {
 		if _, err := s.store.RestartAnalysis(ctx, got.ID, got.Attempt); err != nil {
 			return nil, err
@@ -251,6 +254,9 @@ func (s *Service) advanceAnalysis(ctx context.Context, id int64) (more, temp boo
 	ok, err := s.store.UpdateAnalysis(ctx, a.ID, a.Stage, a.Attempt, set)
 	if err != nil || !ok {
 		return !ok, false, err
+	}
+	if next == model.StageDone {
+		s.funnelAnalysisDone(ctx, a, set)
 	}
 	return next != model.StageDone, false, nil
 }
@@ -636,4 +642,17 @@ func filterUserWarnings(ws []string) []string {
 		}
 	}
 	return out
+}
+
+// funnelAnalysisDone 分析成功的漏斗事件：按刚写入的 state / result 判断是否多人原片（主体 ≥ 2）；解析失败按单人记，不影响推进。
+func (s *Service) funnelAnalysisDone(ctx context.Context, a *model.Analysis, set map[string]any) {
+	cur := *a
+	if v, ok := set["state"].(json.RawMessage); ok {
+		cur.State = v
+	}
+	if v, ok := set["result"].(json.RawMessage); ok {
+		cur.Result = v
+	}
+	an, _ := s.ResolveAnalysis(&cur)
+	s.funnel(ctx, funnelEvent{Stage: StageAnalysisSucceed, UserID: a.UserID, AnalysisID: a.ID, Multi: funnelMulti(an), Dedupe: fmt.Sprintf("as:%d", a.ID)})
 }

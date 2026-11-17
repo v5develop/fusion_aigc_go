@@ -19,6 +19,22 @@ type fakeComposer struct {
 	concats  [][]mediasvc.ConcatItem
 	overlays [][]mediasvc.TextSlot
 	failN    int // 前 N 次拼接失败
+	drops    []bool
+	muxes    []muxCall
+	muxErr   error // 非空：贴回一律失败
+}
+
+type muxCall struct {
+	video, source string
+	ranges        []mediasvc.TimeRange
+}
+
+func (c *fakeComposer) MuxAudio(_ context.Context, video, source string, ranges []mediasvc.TimeRange, idem string) (mediasvc.MuxResult, error) {
+	if c.muxErr != nil {
+		return mediasvc.MuxResult{}, c.muxErr
+	}
+	c.muxes = append(c.muxes, muxCall{video, source, ranges})
+	return mediasvc.MuxResult{Resource: mediasvc.Resource{RID: "mux(" + video + ")"}}, nil
 }
 
 func (c *fakeComposer) Cut(_ context.Context, src string, t0, t1 float64, idem string) (string, error) {
@@ -26,12 +42,13 @@ func (c *fakeComposer) Cut(_ context.Context, src string, t0, t1 float64, idem s
 	return fmt.Sprintf("trim(%s)", src), nil
 }
 
-func (c *fakeComposer) ConcatItems(_ context.Context, items []mediasvc.ConcatItem, _ mediasvc.ConcatParams, idem string) (mediasvc.ConcatResult, error) {
+func (c *fakeComposer) ConcatItems(_ context.Context, items []mediasvc.ConcatItem, p mediasvc.ConcatParams, idem string) (mediasvc.ConcatResult, error) {
 	if c.failN > 0 {
 		c.failN--
 		return mediasvc.ConcatResult{}, errors.New("media 503")
 	}
 	c.concats = append(c.concats, items)
+	c.drops = append(c.drops, p.DropAudio)
 	return mediasvc.ConcatResult{Resource: mediasvc.Resource{RID: fmt.Sprintf("final-%d", len(c.concats))}}, nil
 }
 

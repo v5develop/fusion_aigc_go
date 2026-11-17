@@ -37,6 +37,7 @@ func Register(server *rest.Server, auth rest.Middleware, m *Module) {
 		r(po, "/plans/:no/confirm", h.confirm, true),
 		r(g, "/jobs", h.jobs, false),
 		r(g, "/jobs/:id", h.job, false),
+		r(g, "/jobs/:id/exports", h.exports, false), // 当前成片的多比例导出清单（只读，现签新地址；§N）
 		r(po, "/jobs/:id/continue", h.cont, true),
 		r(po, "/jobs/:id/stop", h.stop, true),
 		r(po, "/jobs/:id/cancel-rest", h.cancelRest, true),
@@ -213,6 +214,15 @@ func (h *handlers) job(_ http.ResponseWriter, r *http.Request, sc *Scope) (any, 
 		return nil, err
 	}
 	return sc.JobView(r.Context(), id)
+}
+
+// exports GET /jobs/{id}/exports：当前成片已导出的各比例（只读，仅本人；成片未交付 / 没导出过 = 空数组）。
+func (h *handlers) exports(_ http.ResponseWriter, r *http.Request, sc *Scope) (any, error) {
+	id, err := pathInt(r, "id")
+	if err != nil {
+		return nil, err
+	}
+	return sc.Exports(r.Context(), id)
 }
 
 // jobs GET /jobs?page=&size=：本人历史（创建倒序；page 从 1 起，size 默认 20、最大 50）。

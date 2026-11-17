@@ -108,6 +108,10 @@ func writerBrief(d *Dialect, an *AnalysisResult, ann Annotations, refCount int, 
 	}
 	b.WriteString("【用户改动】\n")
 	for _, c := range v.Replace {
+		if c.OccText != "" { // 逐套换装：模板稿里已逐套写好，这里原样给出，要求写手保持逐套对应
+			fmt.Fprintf(&b, "- 逐套替换%s（只换指定的套，其余套保持原样）：%s\n", c.Label, strings.ReplaceAll(c.OccText, "\n", " "))
+			continue
+		}
 		fmt.Fprintf(&b, "- 替换%s：原片是「%s」，换成 %s（%s）", c.Label, c.Current, c.Tags, c.Hint)
 		if c.Note != "" {
 			fmt.Fprintf(&b, "；补充：%s", c.Note)

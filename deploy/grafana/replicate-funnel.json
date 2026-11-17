@@ -1,0 +1,750 @@
+{
+  "__comment": "视频做同款业务漏斗。数据源：Prometheus 抓取 gateway-api 的 go-zero metrics（replicate_funnel_total{stage,channel}）。导入前把 DS_PROMETHEUS 变量指向你的 Prometheus 数据源。部署里没有 MySQL 数据源，按天的历史、严格同批次转化率、定妆图→确认转化率见同目录 replicate-funnel.sql（在 DB 控制台或后续接入的 MySQL 数据源里跑）。计数在进程内累加、重启归零，rate / increase 已处理计数器重置；多实例按 sum 汇总。",
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "graphTooltip": 1,
+  "schemaVersion": 39,
+  "title": "Fusion AIGC · Replicate Funnel",
+  "tags": [
+    "replicate",
+    "funnel"
+  ],
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "DS_PROMETHEUS",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": {},
+        "hide": 0
+      },
+      {
+        "name": "channel",
+        "type": "query",
+        "datasource": "${DS_PROMETHEUS}",
+        "query": "label_values(replicate_funnel_total, channel)",
+        "includeAll": true,
+        "multi": true,
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "refresh": 2
+      },
+      {
+        "name": "stage",
+        "type": "query",
+        "datasource": "${DS_PROMETHEUS}",
+        "query": "label_values(replicate_funnel_total, stage)",
+        "includeAll": false,
+        "multi": false,
+        "current": {
+          "text": "confirm_first",
+          "value": "confirm_first"
+        },
+        "refresh": 2
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "row",
+      "title": "漏斗：各阶段人次（所选时间范围内）",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "type": "bargauge",
+      "title": "各阶段计数（replicate_funnel_total）",
+      "description": "漏斗口径：拆解发起 → 拆解成功 → 方案出卡 → 定妆图 → 确认（先做第 1 段 / 全部）→ 第 1 段完成 → 继续 → 成片交付 → 保存 → 重做 / 精修 → 坏片 → 取消。plan_edit（改标注 / 再做一条产生的新方案）不进主漏斗。「下载」发生在浏览器端，后端看不到，用「保存」与「交付」近似。",
+      "datasource": "${DS_PROMETHEUS}",
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 0,
+        "y": 1
+      },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (stage) (increase(replicate_funnel_total{channel=~\"$channel\"}[$__range]))",
+          "legendFormat": "{{stage}}",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "type": "bargauge",
+      "title": "渠道切分（agent 智能体入口 / web REST / system 系统推进）",
+      "description": "system 是轮询器推进的阶段（第 1 段完成、成片交付、坏片…）在查不到用户入口渠道时的兜底；正常情况下它们继承同一任务确认时的渠道。",
+      "datasource": "${DS_PROMETHEUS}",
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 12,
+        "y": 1
+      },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (stage, channel) (increase(replicate_funnel_total{stage=~\"$stage\"}[$__range]))",
+          "legendFormat": "{{stage}} / {{channel}}",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "各阶段每小时人次（按阶段）",
+      "description": "",
+      "datasource": "${DS_PROMETHEUS}",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 11
+      },
+      "fieldConfig": {
+        "defaults": {}
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (stage) (increase(replicate_funnel_total{channel=~\"$channel\"}[1h]))",
+          "legendFormat": "{{stage}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "所选阶段按渠道（$stage）",
+      "description": "用上方变量 stage 选阶段，看 agent / web 的占比与走势。",
+      "datasource": "${DS_PROMETHEUS}",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 11
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "stacking": {
+              "mode": "normal"
+            },
+            "fillOpacity": 30
+          }
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (channel) (increase(replicate_funnel_total{stage=~\"$stage\"}[1h]))",
+          "legendFormat": "{{channel}}"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "转化率（所选时间范围，事件口径；严格同批次口径见 replicate-funnel.sql）",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 19
+      }
+    },
+    {
+      "type": "stat",
+      "title": "拆解成功率",
+      "description": "analysis_succeed / analysis_create。复用已有分析的不计入 analysis_create。",
+      "datasource": "${DS_PROMETHEUS}",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 20
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 1
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(increase(replicate_funnel_total{stage=\"analysis_succeed\",channel=~\"$channel\"}[$__range]))) / clamp_min((sum(increase(replicate_funnel_total{stage=\"analysis_create\",channel=~\"$channel\"}[$__range]))), 1)"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "方案出卡率",
+      "description": "plan_create / analysis_succeed。",
+      "datasource": "${DS_PROMETHEUS}",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 20
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 1
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(increase(replicate_funnel_total{stage=\"plan_create\",channel=~\"$channel\"}[$__range]))) / clamp_min((sum(increase(replicate_funnel_total{stage=\"analysis_succeed\",channel=~\"$channel\"}[$__range]))), 1)"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "确认转化率",
+      "description": "（confirm_first + confirm_all）/ plan_create。",
+      "datasource": "${DS_PROMETHEUS}",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 20
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 1
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(increase(replicate_funnel_total{stage=~\"confirm_first|confirm_all\",channel=~\"$channel\"}[$__range]))) / clamp_min((sum(increase(replicate_funnel_total{stage=\"plan_create\",channel=~\"$channel\"}[$__range]))), 1)"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "第 1 段后继续率",
+      "description": "continue / first_done：先做第 1 段的任务里，看完第 1 段决定继续的比例（含自动继续）。",
+      "datasource": "${DS_PROMETHEUS}",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 20
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 1
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(increase(replicate_funnel_total{stage=\"continue\",channel=~\"$channel\"}[$__range]))) / clamp_min((sum(increase(replicate_funnel_total{stage=\"first_done\",channel=~\"$channel\"}[$__range]))), 1)"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "先做第 1 段占确认比",
+      "description": "confirm_first /（confirm_first + confirm_all）。",
+      "datasource": "${DS_PROMETHEUS}",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 24
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 1
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(increase(replicate_funnel_total{stage=\"confirm_first\",channel=~\"$channel\"}[$__range]))) / clamp_min((sum(increase(replicate_funnel_total{stage=~\"confirm_first|confirm_all\",channel=~\"$channel\"}[$__range]))), 1)"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "成片交付率",
+      "description": "delivered / 确认数。成片合成成功的任务占已确认任务的比例。",
+      "datasource": "${DS_PROMETHEUS}",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 24
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 1
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(increase(replicate_funnel_total{stage=\"delivered\",channel=~\"$channel\"}[$__range]))) / clamp_min((sum(increase(replicate_funnel_total{stage=~\"confirm_first|confirm_all\",channel=~\"$channel\"}[$__range]))), 1)"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "重做 / 精修率",
+      "description": "（redo + refine）/ delivered：按次数，一个任务可以多次。",
+      "datasource": "${DS_PROMETHEUS}",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 24
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 1
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(increase(replicate_funnel_total{stage=~\"redo|refine\",channel=~\"$channel\"}[$__range]))) / clamp_min((sum(increase(replicate_funnel_total{stage=\"delivered\",channel=~\"$channel\"}[$__range]))), 1)"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "坏片率",
+      "description": "bad_output / 确认数：按段计，一个任务可以有多段坏片。",
+      "datasource": "${DS_PROMETHEUS}",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 24
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 1
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(increase(replicate_funnel_total{stage=\"bad_output\",channel=~\"$channel\"}[$__range]))) / clamp_min((sum(increase(replicate_funnel_total{stage=~\"confirm_first|confirm_all\",channel=~\"$channel\"}[$__range]))), 1)"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "取消率（取消剩余段 + 用户不继续）",
+      "description": "（stop + cancel_rest）/ 确认数。",
+      "datasource": "${DS_PROMETHEUS}",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 28
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 1
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(increase(replicate_funnel_total{stage=~\"stop|cancel_rest\",channel=~\"$channel\"}[$__range]))) / clamp_min((sum(increase(replicate_funnel_total{stage=~\"confirm_first|confirm_all\",channel=~\"$channel\"}[$__range]))), 1)"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "定妆图使用率",
+      "description": "preview / plan_create。",
+      "datasource": "${DS_PROMETHEUS}",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 28
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 1
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(increase(replicate_funnel_total{stage=\"preview\",channel=~\"$channel\"}[$__range]))) / clamp_min((sum(increase(replicate_funnel_total{stage=\"plan_create\",channel=~\"$channel\"}[$__range]))), 1)"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "定妆图总数",
+      "description": "精确的「定妆图 → 确认转化」是同一方案先出图后确认的比例，需要按 plan_id 关联，见 replicate-funnel.sql 的 preview_to_confirm 查询。",
+      "datasource": "${DS_PROMETHEUS}",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 28
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 1
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(replicate_funnel_total{stage=\"preview\",channel=~\"$channel\"}[$__range]))"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "改标注 / 再做一条方案数",
+      "description": "",
+      "datasource": "${DS_PROMETHEUS}",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 28
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 1
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(replicate_funnel_total{stage=\"plan_edit\",channel=~\"$channel\"}[$__range]))"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "决策指标",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 32
+      }
+    },
+    {
+      "type": "stat",
+      "title": "多人原片占比",
+      "description": "拆解成功的原片里，主体（人物）数 ≥ 2 的比例。≥ 阈值时再投入「点名替换其中一位」（AGENT 13.8）。",
+      "datasource": "${DS_PROMETHEUS}",
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 0,
+        "y": 33
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 1
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(increase(replicate_funnel_total{stage=\"analysis_succeed_multi\",channel=~\"$channel\"}[$__range]))) / clamp_min((sum(increase(replicate_funnel_total{stage=\"analysis_succeed\",channel=~\"$channel\"}[$__range]))), 1)"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "多人原片数",
+      "description": "",
+      "datasource": "${DS_PROMETHEUS}",
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 8,
+        "y": 33
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 1
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(replicate_funnel_total{stage=\"analysis_succeed_multi\",channel=~\"$channel\"}[$__range]))"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "拆解成功数",
+      "description": "",
+      "datasource": "${DS_PROMETHEUS}",
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 16,
+        "y": 33
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 1
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(replicate_funnel_total{stage=\"analysis_succeed\",channel=~\"$channel\"}[$__range]))"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "多人原片占比走势（按小时）",
+      "description": "",
+      "datasource": "${DS_PROMETHEUS}",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 39
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(replicate_funnel_total{stage=\"analysis_succeed_multi\",channel=~\"$channel\"}[1h])) / clamp_min(sum(increase(replicate_funnel_total{stage=\"analysis_succeed\",channel=~\"$channel\"}[1h])), 1)",
+          "legendFormat": "多人原片占比"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "确认转化率走势（按小时）",
+      "description": "",
+      "datasource": "${DS_PROMETHEUS}",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 39
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(replicate_funnel_total{stage=~\"confirm_first|confirm_all\",channel=~\"$channel\"}[1h])) / clamp_min(sum(increase(replicate_funnel_total{stage=\"plan_create\",channel=~\"$channel\"}[1h])), 1)",
+          "legendFormat": "确认 / 方案"
+        }
+      ]
+    }
+  ]
+}

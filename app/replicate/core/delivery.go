@@ -101,6 +101,15 @@ type LibraryView struct {
 	Text   string `json:"text,omitempty"`
 }
 
+// MarshalJSON 同时输出 status 与 state（同值）：state 是 §N 契约口径（saved / saving / failed），status 是历史字段，两者都保留（add-only）。
+func (l LibraryView) MarshalJSON() ([]byte, error) {
+	type plain LibraryView
+	return json.Marshal(struct {
+		plain
+		State string `json:"state"`
+	}{plain(l), l.Status})
+}
+
 func libraryView(d *model.Delivery) *LibraryView {
 	if d == nil {
 		return nil
@@ -283,8 +292,12 @@ func (s *Service) SaveSegment(ctx context.Context, userID, jobID int64, k int) (
 	if p.coverRid != "" {
 		d.CoverRid = ptr(p.coverRid)
 	}
-	if _, err := s.delivery.store.EnqueueDelivery(ctx, d); err != nil {
+	created, err := s.delivery.store.EnqueueDelivery(ctx, d)
+	if err != nil {
 		return nil, err
+	}
+	if created {
+		s.funnel(ctx, funnelEvent{Stage: StageSegmentSave, UserID: j.UserID, PlanID: j.PlanID, JobID: j.ID, SegIndex: k, Dedupe: fmt.Sprintf("ss:%d:%d:%d", j.ID, k, ver)})
 	}
 	if v, err := find(); err != nil || v != nil {
 		return v, err
@@ -317,6 +330,10 @@ func deliverySysTags(d *model.Delivery, in JobInput) []string {
 		t.Extra = []string{asset.SegmentTag(d.SegIndex)}
 	case model.DeliveryPreview:
 		t.Extra = []string{asset.TagPartial}
+	case model.DeliveryRatio:
+		if r, _, ok := exportOfVersion(d.Version); ok {
+			t.Extra = []string{r}
+		}
 	}
 	return t.List()
 }
@@ -416,16 +433,28 @@ func (s *Service) runDelivery(parent context.Context, id int64) {
 		name = trimRunes(fmt.Sprintf("%s · 第 %d 段", name, d.SegIndex), 128)
 	case model.DeliveryPreview:
 		name = trimRunes(name+" · 部分完成", 128)
+	case model.DeliveryRatio:
+		if r, m, ok := exportOfVersion(d.Version); ok { // 名称带比例后缀；裁切版另加「裁切」，与同比例的模糊底版区分
+			name = trimRunes(name+" · "+r+map[bool]string{true: " 裁切"}[m == mediasvc.ReframeCrop], 128)
+		}
 	}
 	// 写素材库前确认认领还在并续期（复制可能很慢）：被接手就不写，接手者会用同一幂等键复制、按地址查重写库
 	if ok, err := dl.store.RenewDelivery(ctx, d.ID, token, dl.cfg.ClaimTTL); err != nil || !ok {
 		logx.WithContext(ctx).Infof("replicate: 入库认领已失效，本轮不写素材库 判据=DELIVERY_CLAIM_LOST job=%d ok=%v err=%v", d.JobID, ok, err)
 		return
 	}
-	props, _ := json.Marshal(map[string]any{"source": "replicate", "jobId": d.JobID, "planNo": j.PlanNo, "kind": d.Kind,
-		"segIndex": d.SegIndex, "rid": d.SrcRid, "preview": d.Kind == model.DeliveryPreview})
+	pm := map[string]any{"source": "replicate", "jobId": d.JobID, "planNo": j.PlanNo, "kind": d.Kind,
+		"segIndex": d.SegIndex, "rid": d.SrcRid, "preview": d.Kind == model.DeliveryPreview}
+	if r, m, ok := exportOfVersion(d.Version); ok && d.Kind == model.DeliveryRatio {
+		pm["ratio"], pm["mode"] = r, m
+	}
+	props, _ := json.Marshal(pm)
+	aspect := in.AspectRatio
+	if r, _, ok := exportOfVersion(d.Version); ok && d.Kind == model.DeliveryRatio {
+		aspect = r
+	}
 	if _, err := dl.assets.InsertOnceByURL(ctx, asset.Asset{UserID: j.UserID, SourceTaskID: deref(j.TaskID), Type: "video",
-		EntryCode: dl.cfg.EntryCode, Name: name, CoverURL: coverURL, ResultURL: lib.URL, AspectRatio: in.AspectRatio,
+		EntryCode: dl.cfg.EntryCode, Name: name, CoverURL: coverURL, ResultURL: lib.URL, AspectRatio: aspect,
 		Properties: string(props), SysTags: deliverySysTags(d, in)}); err != nil {
 		fail(fmt.Errorf("写素材库失败: %w", err), false)
 		return

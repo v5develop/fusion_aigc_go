@@ -13,7 +13,8 @@ import (
 //
 // 移植来源：Java VideoClonePrompt（seedance 线上写法 @视频1 / @图片n，零行为变化的标签）与 v4 studio/engine.py 的
 // 参考生成渲染器（render_seedance25_ref / render_seedance20_ref / render_minimax_ref / _wan3_body）。
-// 不移植：编辑式（video_editing）渲染、<Audio 1> 引用（我们不向网关传参考音频）、逐套服装 occurrence 分段写法。
+// 不移植：编辑式（video_editing）渲染、<Audio 1> 引用（我们不向网关传参考音频）。
+// 逐套换装（CONTRACT §O1）：方案标注了 DimEdit.Occurrences 时，每段按时间重叠找到出现的各套，逐套写「第 N 套换成图 X」（occText 见 outfitsText）。
 // 网关不改写提示词里的素材标签（已核实 ai-gateway adapters 无标签转换），所以标签必须是各家原生写法。
 
 //go:embed prompts/dialects/*.tmpl
@@ -81,6 +82,11 @@ func DialectFor(group string) *Dialect {
 
 type changeView struct {
 	Key, Label, Noun, Attrs, Current, Tags, Note, Hint string
+	// 逐套换装（CONTRACT §O1，仅标注了 Occurrences 的项有值）：OccText 是本段逐套写法（各方言措辞自带）；
+	// SubjNo 本项第一个主体编号（seedance-2 / minimax 的「主体 k」连续编号，逐套时一项占多个）；
+	// ShotText 分镜尾注里这一项的写法；Retain 保持一致性的主体描述（minimax）。
+	OccText, ShotText, Retain string
+	SubjNo                    int
 }
 
 type keepView struct{ Label, Desc string }
@@ -120,6 +126,7 @@ func buildPromptView(d *Dialect, an *AnalysisResult, ann Annotations, refCount i
 	v := promptView{Multi: total > 1, Index: seg.Index, Total: total, Duration: seg.GenDuration, GenT0: seg.GenT0, GenT1: seg.GenT1,
 		Video: d.VideoTag, Audio: ann.Audio}
 	var keepNames, changed []string
+	subjNo := 1
 	for _, k := range an.DimOrder {
 		dim := an.Dims[k]
 		e := ann.Dims[k]
@@ -132,8 +139,33 @@ func buildPromptView(d *Dialect, an *AnalysisResult, ann Annotations, refCount i
 					tags = append(tags, fmt.Sprintf(d.ImageFmt, r))
 				}
 			}
-			v.Replace = append(v.Replace, changeView{Key: k, Label: label, Noun: dimNounEn[k], Attrs: orText(dimAttrsEn[k], "appearance"),
-				Current: orText(dim.Desc, label), Tags: strings.Join(tags, "、"), Note: strings.TrimSpace(e.Note), Hint: orText(refHint[k], "按参考图重建")})
+			cv := changeView{Key: k, Label: label, Noun: dimNounEn[k], Attrs: orText(dimAttrsEn[k], "appearance"),
+				Current: orText(dim.Desc, label), Tags: strings.Join(tags, "、"), Note: strings.TrimSpace(e.Note), Hint: orText(refHint[k], "按参考图重建"),
+				SubjNo: subjNo}
+			if len(e.Occurrences) > 0 {
+				// 逐套换装：本段没有任何被换的套（只露出保持原样的套）就当「不改」处理
+				slices := outfitsInSegment(dim, e, seg)
+				replaced := 0
+				for _, o := range slices {
+					if len(o.Refs) > 0 {
+						replaced++
+					}
+				}
+				if replaced == 0 {
+					if dim.Present && dim.Desc != "" {
+						v.Keep = append(v.Keep, keepView{Label: label, Desc: dim.Desc})
+						keepNames = append(keepNames, label)
+					}
+					continue
+				}
+				fillOutfits(d, &cv, slices, refCount)
+				subjNo += replaced
+			} else {
+				cv.ShotText = fmt.Sprintf("%s为 %s 中的内容", label, cv.Tags)
+				cv.Retain = fmt.Sprintf("<Subject %d>: identity must stay consistent in every shot.", subjNo)
+				subjNo++
+			}
+			v.Replace = append(v.Replace, cv)
 			changed = append(changed, label)
 			if k == "line" {
 				v.LineChanged = true
@@ -194,4 +226,92 @@ func renderBase(an *AnalysisResult, ann Annotations, refCount int, seg segment.S
 	var b strings.Builder
 	_ = dialectBase.tmpl.Execute(&b, buildPromptView(dialectBase, an, ann, refCount, seg, total))
 	return strings.TrimSpace(b.String())
+}
+
+// fillOutfits 逐套换装：按本段露出的各套写逐套指令（被换的套「换成图 X 的样子」，没被换的套「保持原样」）。
+// Tags 取本段用到的图（去重，供「参考素材」类汇总行用）。
+func fillOutfits(d *Dialect, cv *changeView, slices []outfitSlice, refCount int) {
+	tagOf := func(refs []int) string {
+		var ts []string
+		for _, r := range refs {
+			if r >= 1 && r <= refCount {
+				ts = append(ts, fmt.Sprintf(d.ImageFmt, r))
+			}
+		}
+		return strings.Join(ts, "、")
+	}
+	var all []int
+	for _, o := range slices {
+		all = append(all, o.Refs...)
+	}
+	cv.Tags = strings.Join(uniqTags(all, tagOf), "、")
+	cv.ShotText = "各套" + cv.Label + "按上面逐套指定的图处理，没指定的套保持原样"
+	en := d.Code == "minimax-h3"
+	total := len(slices)
+	var parts, keeps, retain []string
+	subj := cv.SubjNo
+	for _, o := range slices {
+		span := fmt.Sprintf("%.1f–%.1f", o.From, o.To)
+		if len(o.Refs) == 0 {
+			if en {
+				keeps = append(keeps, fmt.Sprintf("%s %d", cv.Noun, o.N))
+			} else {
+				keeps = append(keeps, fmt.Sprintf("第 %d 套", o.N))
+			}
+			continue
+		}
+		tags := tagOf(o.Refs)
+		switch {
+		case en:
+			parts = append(parts, fmt.Sprintf("<Subject %d> is the new %s in %s; it replaces %s %d (%ss in this clip, originally: %s). Only the %s are referenced; background, pose and watermark in the picture are ignored.",
+				subj, cv.Noun, tags, cv.Noun, o.N, span, orText(o.Desc, cv.Noun), cv.Attrs))
+			retain = append(retain, fmt.Sprintf("<Subject %d>: identity must stay consistent in every shot.", subj))
+		case d.Code == "seedance-2":
+			parts = append(parts, fmt.Sprintf("将 %s 中的%s定义为<主体%d>，用于替换原片第 %d 套%s（本段第 %s 秒，原片是「%s」），%s",
+				tags, cv.Label, subj, o.N, cv.Label, span, orText(o.Desc, cv.Label), cv.Hint))
+		default:
+			parts = append(parts, fmt.Sprintf("第 %d 套%s（本段第 %s 秒，原片是「%s」）换成 %s 的样子，%s", o.N, cv.Label, span, orText(o.Desc, cv.Label), tags, cv.Hint))
+		}
+		subj++
+	}
+	switch {
+	case en:
+		cv.OccText = strings.Join(parts, "\n")
+		if len(keeps) > 0 {
+			cv.OccText += fmt.Sprintf("\nKeep %s exactly as in the source; do not replace.", strings.Join(keeps, ", "))
+		}
+		cv.Retain = strings.Join(retain, "\n")
+	case d.Code == "seedance-2":
+		cv.OccText = strings.Join(parts, "。\n") + "。"
+		if len(keeps) > 0 {
+			cv.OccText += fmt.Sprintf("\n%s%s保持原样，不要替换。", strings.Join(keeps, "、"), cv.Label)
+		}
+	default:
+		head := fmt.Sprintf("%s在本段出现 %d 套，逐套处理：", cv.Label, total)
+		cv.OccText = head + strings.Join(parts, "；")
+		if len(keeps) > 0 {
+			cv.OccText += fmt.Sprintf("；%s%s保持原样，不要替换", strings.Join(keeps, "、"), cv.Label)
+		}
+		if d.Code != "wan-3.0" { // 万相模板自己收句号
+			cv.OccText += "。"
+		}
+	}
+	if n := strings.TrimSpace(cv.Note); n != "" && !en {
+		cv.OccText += "补充要求：" + n + "。"
+	}
+}
+
+func uniqTags(refs []int, tagOf func([]int) string) []string {
+	seen := map[int]bool{}
+	var out []string
+	for _, r := range refs {
+		if seen[r] {
+			continue
+		}
+		seen[r] = true
+		if t := tagOf([]int{r}); t != "" {
+			out = append(out, t)
+		}
+	}
+	return out
 }

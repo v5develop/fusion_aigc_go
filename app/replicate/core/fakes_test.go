@@ -475,7 +475,7 @@ func (m *memStore) DueJobs(_ context.Context, limit int) ([]int64, error) {
 		case model.JobQueued, model.JobRunning, model.JobSubmitting, model.JobContinuing:
 			ok = true
 		case model.JobWaiting:
-			ok = x.ContinueDeadline != nil && !x.ContinueDeadline.After(now)
+			ok = (x.ContinueDeadline != nil && !x.ContinueDeadline.After(now)) || (x.DecisionRemindAt != nil && !x.DecisionRemindAt.After(now))
 		case model.JobSucceeded, model.JobPartial:
 			var d ResultDoc
 			_ = json.Unmarshal(x.ResultDocument, &d)

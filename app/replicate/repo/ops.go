@@ -331,3 +331,39 @@ func (r *Repo) GetAdminAction(ctx context.Context, jobID int64, action, key stri
 	a := new(model.AdminAction)
 	return noRows(a, r.db.NewSelect().Model(a).Where("aa.job_id = ? AND aa.action = ? AND aa.request_key = ?", jobID, action, key).Limit(1).Scan(ctx))
 }
+
+// ---------------------------------------------------------------- 业务漏斗（Go_V1.0.53）
+
+var _ core.FunnelStore = (*Repo)(nil)
+
+// InsertFunnelEvent INSERT IGNORE（dedupe_key 唯一）：已有同键事件不再写，返回 inserted=false。
+func (r *Repo) InsertFunnelEvent(ctx context.Context, e *model.FunnelEvent) (bool, error) {
+	res, err := r.db.NewInsert().Model(e).ExcludeColumn("id", "created_at").Ignore().Exec(ctx)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
+}
+
+// FunnelChannel 同一分析 / job 上最早一条用户事件（agent / web）的渠道；没有返回空串。
+// 系统推进的事件（第 1 段做完、成片交付、坏片…）据此继承用户入口的渠道。
+func (r *Repo) FunnelChannel(ctx context.Context, analysisID, jobID int64) (string, error) {
+	q := r.db.NewSelect().Model((*model.FunnelEvent)(nil)).Column("channel").Where("channel <> 'system'").OrderExpr("id ASC").Limit(1)
+	switch {
+	case jobID > 0:
+		q = q.Where("job_id = ?", jobID)
+	case analysisID > 0:
+		q = q.Where("analysis_id = ?", analysisID)
+	default:
+		return "", nil
+	}
+	var ch string
+	if err := q.Scan(ctx, &ch); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", nil
+		}
+		return "", err
+	}
+	return ch, nil
+}

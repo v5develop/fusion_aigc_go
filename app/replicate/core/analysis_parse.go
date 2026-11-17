@@ -46,6 +46,8 @@ type AnalysisResult struct {
 	// Corrections 被纠偏的项（后台查看；用户视图里去掉）。都是读取时现算，不进分析缓存键。
 	RulesVersion string                   `json:"rulesVersion,omitempty"`
 	Corrections  []analysisfix.Correction `json:"corrections,omitempty"`
+	// Outfits 服装套数摘要（读取时由 userAnalysis 现算；落库的原始结果为空）。见 outfits.go。
+	Outfits *OutfitsView `json:"outfits,omitempty"`
 }
 
 // Dim 一项的现状。

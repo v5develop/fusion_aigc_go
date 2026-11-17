@@ -80,6 +80,21 @@ type Conf struct {
 		DailyQuota  int    `json:",default=3"`
 		WaitSeconds int    `json:",default=60"`
 	} `json:",optional"`
+	// Copy 发布文案（CONTRACT §N，免费；agent 工具 replicate_publish_copy；需配 AiGateway）。ModelGroup 写文案的网关 chat 模型组（空 = 用写手模型组，
+	// 再回落画面理解模型组）；DailyQuota 每人每个自然日（Asia/Shanghai）次数（默认 20）；WaitSeconds 等网关的上限。
+	// 运行时 replicate.copy.enabled / daily_quota 覆盖。
+	Copy struct {
+		Enabled     bool   `json:",default=true"`
+		ModelGroup  string `json:",optional"`
+		DailyQuota  int    `json:",default=20"`
+		WaitSeconds int    `json:",default=60"`
+	} `json:",optional"`
+	// DecisionReminder 待决策提醒（CONTRACT §O2）：第 1 段做好后一直没处理，离自动结束（Cfg.ContinueWindow，默认 24 小时）还剩 LeadHours（默认 4）
+	// 小时时站内通知提醒一次。运行时 replicate.decision_reminder.enabled / lead_hours 覆盖。
+	DecisionReminder struct {
+		Enabled   bool `json:",default=true"`
+		LeadHours int  `json:",default=4"`
+	} `json:",optional"`
 	// BadOutput 坏片判定（J4）：段视频落桶后、确认扣点前检查黑屏 / 定格 / 解不开，命中按失败退点且不自动重试。
 	// BlackRatio / FreezeRatio 为占视频时长的比例阈值（≥ 即判坏片）。运行时 replicate.bad_output.enabled / black_ratio / freeze_ratio 覆盖。
 	BadOutput struct {

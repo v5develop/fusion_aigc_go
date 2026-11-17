@@ -34,6 +34,11 @@ type Session interface {
 	GetPlan(ctx context.Context, no string) (*core.PlanView, error)
 	PreviewFrame(ctx context.Context, no string) (*core.PreviewView, error)
 	PatchAnnotations(ctx context.Context, req core.PatchReq, hasAnnotations bool) (*core.PlanView, error)
+	QuoteBatch(ctx context.Context, planNo string, variants []httpapi.BatchVariantArgs) (*core.BatchQuoteView, error)
+	ConfirmBatch(ctx context.Context, a httpapi.BatchConfirmArgs) (*core.BatchView, error)
+	GetBatch(ctx context.Context, id int64) (*core.BatchView, error)
+	PublishCopy(ctx context.Context, jobID int64, platform string) (*core.PublishCopyView, error)
+	ExportRatio(ctx context.Context, jobID int64, ratio, mode string) (*core.ExportView, error)
 }
 
 // Backend 取调用上下文（模块在 / 已登录 / 写工具另查总开关）。
@@ -47,7 +52,7 @@ type opsBackend struct{ o *httpapi.Ops }
 func OpsBackend(o *httpapi.Ops) Backend { return opsBackend{o} }
 
 func (b opsBackend) Enter(ctx context.Context, uid int64, write bool) (Session, error) {
-	sc, err := b.o.Enter(ctx, uid, write)
+	sc, err := b.o.EnterAs(ctx, uid, write, core.ChannelAgent)
 	if err != nil {
 		return nil, err
 	}
@@ -97,6 +102,15 @@ func Execute(ctx context.Context, be Backend, uid int64, c agenttool.Call) *agen
 	res := &agenttool.Result{Data: b}
 	if jv, ok := v.(*core.JobView); ok && jv != nil {
 		res.Replayed = jv.Replay // 同 call_id 重放 / 方案已确认：返回的是已有任务
+	}
+	if bv, ok := v.(*core.BatchView); ok && bv != nil {
+		res.Replayed = bv.Replay // 同 call_id 重放：返回的是已有批次，没有重复扣点
+	}
+	if cv, ok := v.(*core.PublishCopyView); ok && cv != nil {
+		res.Replayed = cv.Replay // 同成片同平台已写过：回放，没占额度
+	}
+	if ev, ok := v.(*core.ExportView); ok && ev != nil {
+		res.Replayed = ev.Replay || ev.Original
 	}
 	if pv, ok := v.(*core.PreviewView); ok && pv != nil {
 		res.Replayed = pv.Replay // 同一方案已出过图：回放，没占额度
@@ -228,6 +242,29 @@ func (a args) refImages() ([]string, bool, error) {
 	return out, true, nil
 }
 
+// batchVariants 取批量的变体：variants[].ref_images 是系统按 ref_images_from 注入的真实地址；
+// 只给了序号没有地址 = 没能对应到用户上传的图，如实报错而不是静默丢图。
+func (a args) batchVariants() ([]httpapi.BatchVariantArgs, error) {
+	xs, _ := a["variants"].([]any)
+	out := make([]httpapi.BatchVariantArgs, 0, len(xs))
+	for _, x := range xs {
+		m, _ := x.(map[string]any)
+		from, _ := m["ref_images_from"].([]any)
+		imgs, hasImgs := m["ref_images"].([]any)
+		if (len(from) > 0 && !hasImgs) || (len(from) > 0 && len(from) != len(imgs)) {
+			return nil, paramErr("参考图没能对应到你上传的图片，请重新上传图片后再试")
+		}
+		v := httpapi.BatchVariantArgs{}
+		for _, i := range imgs {
+			if s, ok := i.(string); ok && strings.TrimSpace(s) != "" {
+				v.RefImages = append(v.RefImages, strings.TrimSpace(s))
+			}
+		}
+		out = append(out, v)
+	}
+	return out, nil
+}
+
 // mergeAnnotations 把本次给的标注按维度合并进当前方案的标注：dims 逐个覆盖，audio 给了才换，texts 出现（含空数组）就整体替换。
 func mergeAnnotations(cur *core.Annotations, patch core.Annotations, hasAudio, hasTexts bool) core.Annotations {
 	out := core.Annotations{Dims: map[string]core.DimEdit{}}
@@ -303,6 +340,36 @@ var handlers = map[string]tool{
 		pts, _ := a.int("expected_points")
 		return s.Confirm(ctx, httpapi.ConfirmArgs{PlanNo: a.str("plan_no"), PlanHash: a.str("plan_hash"), Stage: a.str("stage"),
 			ExpectedPoints: &pts, IdempotencyKey: key})
+	}},
+	agenttool.ToolQuoteBatch: {run: func(ctx context.Context, s Session, a args, _ string) (any, error) {
+		vs, err := a.batchVariants()
+		if err != nil {
+			return nil, err
+		}
+		return s.QuoteBatch(ctx, a.str("plan_no"), vs)
+	}},
+	agenttool.ToolConfirmBatch: {write: true, run: func(ctx context.Context, s Session, a args, key string) (any, error) {
+		vs, err := a.batchVariants()
+		if err != nil {
+			return nil, err
+		}
+		pts, _ := a.int("expected_points")
+		return s.ConfirmBatch(ctx, httpapi.BatchConfirmArgs{PlanNo: a.str("plan_no"), Variants: vs, ExpectedPoints: &pts, IdempotencyKey: key})
+	}},
+	agenttool.ToolGetBatch: {run: func(ctx context.Context, s Session, a args, _ string) (any, error) {
+		id, err := core.ParseBatchID(a.str("batch_id"))
+		if err != nil {
+			return nil, err
+		}
+		return s.GetBatch(ctx, id)
+	}},
+	agenttool.ToolPublishCopy: {write: true, run: func(ctx context.Context, s Session, a args, _ string) (any, error) {
+		id, _ := a.int("job_id")
+		return s.PublishCopy(ctx, id, a.str("platform"))
+	}},
+	agenttool.ToolExportRatio: {write: true, run: func(ctx context.Context, s Session, a args, _ string) (any, error) {
+		id, _ := a.int("job_id")
+		return s.ExportRatio(ctx, id, a.str("ratio"), a.str("mode"))
 	}},
 	agenttool.ToolGetJob: {run: func(ctx context.Context, s Session, a args, _ string) (any, error) {
 		id, _ := a.int("job_id")

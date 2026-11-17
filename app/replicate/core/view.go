@@ -127,6 +127,9 @@ type DimLine struct {
 	Note      string `json:"note,omitempty"`
 	Refs      []int  `json:"refs,omitempty"`
 	Risk      string `json:"risk,omitempty"`
+	// Occurrences / OccurrenceText 逐套换装（CONTRACT §O1）：结构化的「第 N 套 → 图 X」与可读文案「第 1 套 → 图 2；第 3 套 → 图 3」
+	Occurrences    []OccurrenceEdit `json:"occurrences,omitempty"`
+	OccurrenceText string           `json:"occurrenceText,omitempty"`
 }
 
 // TimelineView 分段时间线。
@@ -195,6 +198,9 @@ func (s *Service) planView(p *model.Plan, an *AnalysisResult, q QuoteSnapshot, a
 		line := DimLine{Key: k, Label: DimLabel[k], Mode: ModeKeep, Current: dim.Desc, Risk: dim.Risk}
 		if edited {
 			line.Mode, line.Note, line.Refs = e.Mode, e.Note, e.Refs
+			if line.Mode == ModeReplace && len(e.Occurrences) > 0 {
+				line.Occurrences, line.OccurrenceText = e.Occurrences, occText(e)
+			}
 		}
 		line.ModeLabel = modeLabel[line.Mode]
 		if !dim.Present && line.Mode == ModeKeep {
@@ -209,7 +215,9 @@ func (s *Service) planView(p *model.Plan, an *AnalysisResult, q QuoteSnapshot, a
 		if dim.Risk == "high" {
 			v.Risks = append(v.Risks, fmt.Sprintf("%s比较难换（涉及人脸或细节），效果可能和预期有出入", DimLabel[k]))
 		}
-		if k == "garment" && len(dim.Occurrences) > 1 {
+		if k == "garment" && len(dim.Occurrences) > 1 && len(e.Occurrences) > 0 {
+			v.Risks = append(v.Risks, fmt.Sprintf("视频里的服装换了 %d 套，只换你指定的几套，其余保持原样", len(dim.Occurrences)))
+		} else if k == "garment" && len(dim.Occurrences) > 1 {
 			v.Risks = append(v.Risks, fmt.Sprintf("视频里的服装换了 %d 套，会按同一张图替换", len(dim.Occurrences)))
 		}
 	}
@@ -217,7 +225,7 @@ func (s *Service) planView(p *model.Plan, an *AnalysisResult, q QuoteSnapshot, a
 		v.Risks = append(v.Risks, fmt.Sprintf("视频里有 %d 个人，替换只针对你选中的那位", len(an.Subjects)))
 	}
 	if ann.Audio == AudioKeep {
-		v.Risks = append(v.Risks, "原声里的台词、店名、电话会原样保留；画面换了人或店之后，口型和内容可能对不上。原片的声音和音乐可能有版权，发布前请自行确认可用")
+		v.Risks = append(v.Risks, "保留原视频的声音（口型可能对不上）")
 	}
 	if len(an.OnScreenText) > 0 {
 		v.Risks = append(v.Risks, "画面文字将在生成后由系统叠加，不会交给 AI 画")

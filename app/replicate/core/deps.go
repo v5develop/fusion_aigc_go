@@ -31,11 +31,15 @@ type Config struct {
 	RedoMaxPerSegment int           // 每段用户重做上限（默认 3）
 	RedoMaxPerJob     int           // 每 job 用户重做总上限（默认 10）
 	ContinueWindow    time.Duration // 待继续窗口（默认 24 小时）
-	PlanTTL           time.Duration // 方案有效期（默认 7 天）
-	QuoteTTL          time.Duration // 报价有效期（默认 10 分钟）
-	SegmentDeadline   time.Duration // 每段网关时限（默认 25 分钟，文案「每一段最长等 25 分钟」）
-	ReapAfter         time.Duration // 提交中 / 继续中崩溃回收阈值（默认 5 分钟）
-	VisionModelGroup  string        // 画面理解（chat.completion，vlm.*）
+	// 待决策提醒（notify.go remindDecision，CONTRACT §O2）：待继续离到期还剩 DecisionReminderLead（默认 4 小时）时提醒一次；
+	// DecisionReminderOff 关闭。Replicate.DecisionReminder.*，运行时 afv_system_config.replicate.decision_reminder.*。
+	DecisionReminderOff  bool
+	DecisionReminderLead time.Duration
+	PlanTTL              time.Duration // 方案有效期（默认 7 天）
+	QuoteTTL             time.Duration // 报价有效期（默认 10 分钟）
+	SegmentDeadline      time.Duration // 每段网关时限（默认 25 分钟，文案「每一段最长等 25 分钟」）
+	ReapAfter            time.Duration // 提交中 / 继续中崩溃回收阈值（默认 5 分钟）
+	VisionModelGroup     string        // 画面理解（chat.completion，vlm.*）
 	// Models 开放的出片模型组（空 = 目录里全部，见 models.go）；DefaultModel 推荐模型（空 / 未开放 = 第一个开放的）。
 	Models       []string
 	DefaultModel string
@@ -107,6 +111,13 @@ type Config struct {
 	PreviewDailyQuota int
 	PreviewWait       time.Duration
 
+	// 发布文案（publish_copy.go；Replicate.Copy.*，运行时 afv_system_config.replicate.copy.*）：CopyOff 关闭；CopyModelGroup 写文案的网关 chat 模型组
+	// （空 = 回落写手模型组，再回落画面理解模型组）；CopyDailyQuota 每人每个自然日（Asia/Shanghai）次数（默认 20）；CopyWait 等网关的上限（默认 60 秒）。
+	CopyOff        bool
+	CopyModelGroup string
+	CopyDailyQuota int
+	CopyWait       time.Duration
+
 	// 坏片判定（badoutput.go，CONTRACT §J4；Replicate.BadOutput.*，运行时 afv_system_config.replicate.bad_output.*）：
 	// 段视频落桶后、确认扣点前调媒体服务 video/inspect。BadOutputOff 关闭；黑屏占时长比例 ≥ BadOutputBlackRatio（默认 0.6）
 	// 或定格占比 ≥ BadOutputFreezeRatio（默认 0.8）或解不开 → 判坏片（BAD_OUTPUT：退点、不自动重试）。检测器自身故障 / 没装配媒体服务 → 放行。
@@ -134,6 +145,9 @@ func (c Config) withDefaults() Config {
 	}
 	if c.ContinueWindow <= 0 {
 		c.ContinueWindow = 24 * time.Hour
+	}
+	if c.DecisionReminderLead <= 0 {
+		c.DecisionReminderLead = 4 * time.Hour
 	}
 	if c.PlanTTL <= 0 {
 		c.PlanTTL = 7 * 24 * time.Hour
@@ -221,6 +235,12 @@ func (c Config) withDefaults() Config {
 	}
 	if c.PreviewWait <= 0 {
 		c.PreviewWait = 60 * time.Second
+	}
+	if c.CopyDailyQuota <= 0 {
+		c.CopyDailyQuota = 20
+	}
+	if c.CopyWait <= 0 {
+		c.CopyWait = 60 * time.Second
 	}
 	if c.BadOutputBlackRatio <= 0 || c.BadOutputBlackRatio > 1 {
 		c.BadOutputBlackRatio = 0.6
