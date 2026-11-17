@@ -109,7 +109,38 @@ func ParseSnapshot(b []byte, maxBytes int) (*Doc, error) {
 		}
 		d.Edges = append(d.Edges, e)
 	}
+	d.repairVideoSourceEdges()
 	return d, nil
+}
+
+// repairVideoSourceEdges 旧规则下视频素材节点（type=video）只能连图片类输入口，运行时一定取不到图；
+// 现在它应连参考视频口。读快照时一次性纠正：目标是视频模型且参考视频口空着 → 改连 video；
+// 其余（图片模型 / 工具 / 视频模型的参考视频口已占用）这条线从来没生效过，直接去掉。下次保存即落库。
+func (d *Doc) repairVideoSourceEdges() {
+	nodes := make(map[string]*Node, len(d.Nodes))
+	for _, n := range d.Nodes {
+		nodes[n.ID] = n
+	}
+	videoUsed := map[string]bool{}
+	for _, e := range d.Edges {
+		if e.TargetHandle == HandleVideo {
+			videoUsed[e.Target] = true
+		}
+	}
+	kept := d.Edges[:0]
+	for _, e := range d.Edges {
+		src, dst := nodes[e.Source], nodes[e.Target]
+		if src == nil || dst == nil || src.Type != "video" || NormalizeHandle(e.TargetHandle) != HandleImage {
+			kept = append(kept, e)
+			continue
+		}
+		if isVideoModel(dst) && !videoUsed[dst.ID] {
+			videoUsed[dst.ID] = true
+			e.TargetHandle = HandleVideo
+			kept = append(kept, e)
+		}
+	}
+	d.Edges = kept
 }
 
 // Marshal 写回 JSON（节点 data 与 id、连线 id/source/target 以结构体为准）。
@@ -140,6 +171,9 @@ func (d *Doc) Marshal() []byte {
 		m["id"] = mustJSON(e.ID)
 		m["source"] = mustJSON(e.Source)
 		m["target"] = mustJSON(e.Target)
+		if e.TargetHandle != "" {
+			m["targetHandle"] = mustJSON(e.TargetHandle)
+		}
 		edges = append(edges, m)
 	}
 	top["nodes"] = mustJSON(nodes)

@@ -356,7 +356,7 @@ func buildRegistry() []Tool {
 		{
 			Name: ToolConnect, Title: "连线",
 			Description: "批量连线（一次最多 50 条）。规则：prompt 口只收文字节点或反推工具；image 口收图片 / 模型 / 工具输出（不超过模型参考图上限）；" +
-				"video 口只收视频模型输出；image1/image2 为视频首帧 / 尾帧；不能连自己、不能成环。单槽口（prompt、image1、image2、video、garment、image-in、工具输入）已有连线时自动替换。",
+				"video 口（参考视频）收视频素材节点（type=video）或视频模型输出，视频素材只能连 video 口、不能连 image / image1 / image2；image1/image2 为视频首帧 / 尾帧；不能连自己、不能成环。单槽口（prompt、image1、image2、video、garment、image-in、工具输入）已有连线时自动替换。",
 			Input: obj("", Props{
 				"canvas_id":     canvasID(),
 				"base_revision": baseRevision(),

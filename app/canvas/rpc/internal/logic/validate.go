@@ -75,6 +75,9 @@ func isResultImage(n *Node) bool { return n.Type == "image" && n.Kind() == "resu
 func isInputTool(n *Node) bool  { return n.Type == "tool" && n.Tool() != "tryon" }
 func isVideoModel(n *Node) bool { return n.Type == "model" && n.Kind() == "video" }
 
+// isVideoSource 能喂参考视频口的来源：视频模型（含 inputOnly 参考视频素材）的输出，或用户上传的视频素材节点（type=video）。
+func isVideoSource(n *Node) bool { return isVideoModel(n) || n.Type == "video" }
+
 // accepts 归一口接受的来源节点类型。
 func accepts(handle string, src *Node) error {
 	switch handle {
@@ -84,16 +87,19 @@ func accepts(handle string, src *Node) error {
 		}
 		return xerr.Param("提示词端口只收文字节点或反推提示词")
 	case HandleImage:
+		// 视频素材节点只有视频没有图：连到图片口运行时一定取不到图（曾让智能体把视频接到参考图、报价报「没有素材」）
 		switch src.Type {
-		case "image", "model", "video", "tool":
+		case "image", "model", "tool":
 			return nil
+		case "video":
+			return xerr.Param("视频素材请连到参考视频口（video），图片类输入口只收图片")
 		}
 		return xerr.Param("参考图端口只收图片或模型输出")
 	case HandleVideo:
-		if isVideoModel(src) {
+		if isVideoSource(src) {
 			return nil
 		}
-		return xerr.Param("参考视频端口只收视频模型的输出")
+		return xerr.Param("参考视频端口只收视频素材或视频模型的输出")
 	case HandleAudio:
 		return xerr.Param("音频参考暂未接入")
 	}

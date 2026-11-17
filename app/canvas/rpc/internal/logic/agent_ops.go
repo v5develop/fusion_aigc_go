@@ -769,7 +769,7 @@ func inferTargetHandle(src, dst *Node) (string, error) {
 		return "image", nil
 	case isResultImage(dst):
 		return "image-in", nil
-	case isVideoModel(src):
+	case isVideoSource(src):
 		return "video", nil
 	}
 	return "image", nil

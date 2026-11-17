@@ -424,7 +424,7 @@ func agentReferences(d *Doc, n *Node, done map[string]*model.NodeRun) ([]*canvas
 			imageIdx++
 			ref.Index = int32(imageIdx)
 			switch src.Type {
-			case "image", "video":
+			case "image":
 				ref.Image = strings.TrimSpace(strData(src.Data, "image"))
 				ref.AssetId, ref.MediaId = strData(src.Data, "assetId"), strData(src.Data, "mediaId")
 				if ref.Image == "" {
@@ -442,7 +442,14 @@ func agentReferences(d *Doc, n *Node, done map[string]*model.NodeRun) ([]*canvas
 				ref.CandidateIndex = candidateIndexOf(e, r)
 			}
 		case HandleVideo:
-			if done[src.ID] == nil {
+			if src.Type == "video" {
+				// 用户上传的视频素材：节点自带地址（与 web 运行时 sourceMediaOf 同一份字段），服务端按引用现签
+				ref.Video = strings.TrimSpace(strData(src.Data, "video"))
+				ref.AssetId, ref.MediaId = strData(src.Data, "assetId"), strData(src.Data, "mediaId")
+				if ref.Video == "" {
+					return nil, xerr.Param(fmt.Sprintf("视频素材节点 %s 还没有上传视频", src.ID))
+				}
+			} else if done[src.ID] == nil {
 				return nil, xerr.Param(fmt.Sprintf("参考视频节点 %s 还没有生成结果", src.ID))
 			}
 		default:

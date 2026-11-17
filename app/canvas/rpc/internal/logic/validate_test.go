@@ -68,7 +68,6 @@ func TestValidateDocOK(t *testing.T) {
 		e("e10", "i2", "image", "y1", "models"),
 		e("e11", "i3", "image", "y1", "models"),
 		e("e12", "m2", "image-out", "r1", "image-in"),
-		e("e13", "vi", "video", "m2", "image"),
 	))
 	if err := ValidateDoc(d, 0, nil); err != nil {
 		t.Fatal(err)
