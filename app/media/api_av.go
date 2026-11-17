@@ -19,12 +19,14 @@ const (
 )
 
 type audioTimelineReq struct {
-	Sources      []SourceRef `json:"sources"`
-	Starts       []float64   `json:"starts"`
-	TotalSeconds float64     `json:"total_seconds"`
-	SampleRate   int         `json:"sample_rate"`
-	Channels     int         `json:"channels"`
-	Purpose      string      `json:"purpose"`
+	Sources []SourceRef `json:"sources"`
+	Starts  []float64   `json:"starts"`
+	// MaxSeconds 可选：每段最长时长（秒，与 sources 等长，0 = 不截），超出的尾部截掉（视频做同款换声音按句限窗）
+	MaxSeconds   []float64 `json:"max_seconds"`
+	TotalSeconds float64   `json:"total_seconds"`
+	SampleRate   int       `json:"sample_rate"`
+	Channels     int       `json:"channels"`
+	Purpose      string    `json:"purpose"`
 }
 
 type replaceAudioReq struct {
@@ -46,6 +48,16 @@ func checkTimeline(req audioTimelineReq) error {
 	for _, st := range req.Starts {
 		if math.IsNaN(st) || math.IsInf(st, 0) || st < 0 {
 			return invalid("request.timeline_starts")
+		}
+	}
+	if len(req.MaxSeconds) > 0 {
+		if len(req.MaxSeconds) != len(req.Sources) {
+			return invalid("request.timeline_max_seconds")
+		}
+		for _, m := range req.MaxSeconds {
+			if math.IsNaN(m) || math.IsInf(m, 0) || m < 0 || m > maxTimelineSeconds {
+				return invalid("request.timeline_max_seconds")
+			}
 		}
 	}
 	if !(req.TotalSeconds > 0 && req.TotalSeconds <= maxTimelineSeconds) {
@@ -90,7 +102,7 @@ func (s *Server) audioTimeline(w http.ResponseWriter, r *http.Request) {
 			files = append(files, path)
 		}
 		out := workFile(dir, "timeline.m4a")
-		if err := s.svc.AudioTimeline(ctx, files, req.Starts, req.TotalSeconds, req.SampleRate, req.Channels, out); err != nil {
+		if err := s.svc.AudioTimelineMax(ctx, files, req.Starts, req.MaxSeconds, req.TotalSeconds, req.SampleRate, req.Channels, out); err != nil {
 			return nil, ffmpegFailure(ctx, err, "media.audio_timeline_failed")
 		}
 		return s.storeFile(ctx, req.Purpose, out)

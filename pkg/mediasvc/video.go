@@ -243,6 +243,52 @@ func (c *Client) MuxAudio(ctx context.Context, videoRid, sourceRid string, range
 	return MuxResult{Resource: resp.resource(), AudioSeconds: resp.AudioSeconds, PaddedSeconds: resp.PaddedSeconds}, nil
 }
 
+// MaxTimelineClips 音轨时间线一次最多的音频片段数（与服务端 app/media/api_av.go 一致）。
+const MaxTimelineClips = 256
+
+// AudioClip 音轨时间线上的一段：音频资源（rid）、起点（秒）、最长时长（秒，0 = 不截）。
+type AudioClip struct {
+	RID        string
+	Start      float64
+	MaxSeconds float64
+}
+
+// AudioTimeline 把若干音频片段按起点铺成一条总长 total 秒的音轨（POST /v1/mediasvc/audio/timeline，m4a）：
+// 各段先按 MaxSeconds 截尾（>0 时），再延迟到起点，重叠处直接相加（不归一），不足 total 补静音、超出截断。
+// 视频做同款「换声音」把每句配音铺到原句在成片上的位置，再用 MuxAudio（音轨 rid 当 audio，区间 [0,total]）替换成片音轨。
+func (c *Client) AudioTimeline(ctx context.Context, clips []AudioClip, total float64, idem string) (Resource, error) {
+	if len(clips) < 1 || len(clips) > MaxTimelineClips {
+		return Resource{}, badRequest("request.timeline_segments", "音频片段数量需要 1-256")
+	}
+	if !(total > 0 && total <= 600) {
+		return Resource{}, badRequest("request.total_seconds_range", "总时长不合法")
+	}
+	srcs := make([]map[string]string, len(clips))
+	starts := make([]float64, len(clips))
+	maxes := make([]float64, len(clips))
+	for i, cl := range clips {
+		if cl.RID == "" || cl.Start < 0 || cl.MaxSeconds < 0 {
+			return Resource{}, badRequest("request.timeline_starts", "音频片段不合法")
+		}
+		srcs[i], starts[i], maxes[i] = map[string]string{"rid": cl.RID}, cl.Start, cl.MaxSeconds
+	}
+	req := map[string]any{"sources": srcs, "starts": starts, "max_seconds": maxes, "total_seconds": total, "purpose": PurposeIntermediate}
+	idem = pick(idem, "audio/timeline", req)
+	body, _ := json.Marshal(req)
+	raw, err := c.post(ctx, clips[0].RID, "/v1/mediasvc/audio/timeline", body, "application/json", idem)
+	if err != nil {
+		return Resource{}, err
+	}
+	var resp mediaResult
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return Resource{}, fmt.Errorf("媒体服务返回无法解析: %w", err)
+	}
+	if resp.Object.RID == "" {
+		return Resource{}, fmt.Errorf("媒体服务返回缺少 rid")
+	}
+	return resp.resource(), nil
+}
+
 // 改画幅（Reframe）的画幅与模式。
 const (
 	ReframePad  = "pad"  // 原画面等比缩放居中，空位用同画面高斯模糊铺满

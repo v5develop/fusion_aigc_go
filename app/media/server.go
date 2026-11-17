@@ -115,6 +115,7 @@ func NewServer(cfg Config) (*Server, error) {
 	s.mux.HandleFunc("POST "+apiPrefix+"/ingest", s.auth(s.withDeadline(s.stageTimed(s.idempotent("ingest", s.ingest)))))
 	s.mux.HandleFunc("POST "+apiPrefix+"/probe", s.auth(s.withDeadline(s.probe)))
 	s.mux.HandleFunc("POST "+apiPrefix+"/video/inspect", s.auth(s.withDeadline(s.videoInspect)))
+	s.mux.HandleFunc("POST "+apiPrefix+"/video/motion-profile", s.auth(s.withDeadline(s.videoMotionProfile)))
 	s.mux.HandleFunc("POST "+apiPrefix+"/frames", s.auth(s.withDeadline(s.frames)))
 	s.mux.HandleFunc("POST "+apiPrefix+"/cover", s.auth(s.withDeadline(s.idempotent("cover", s.cover))))
 	s.mux.HandleFunc("POST "+apiPrefix+"/watermark", s.auth(s.withDeadline(s.idempotent("watermark", s.watermark))))

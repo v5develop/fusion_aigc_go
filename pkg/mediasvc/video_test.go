@@ -214,3 +214,47 @@ func TestReframeRequestAndErrors(t *testing.T) {
 		t.Fatalf("不支持的模式应在客户端被拒: %v", err)
 	}
 }
+
+func TestAudioTimelineRequest(t *testing.T) {
+	c, f := newFake(t, func(string, []byte) (int, any) { return 200, res(ridC, 0, 0) })
+	out, err := c.AudioTimeline(context.Background(), []AudioClip{{RID: ridA, Start: 0.5, MaxSeconds: 2}, {RID: ridB, Start: 3}}, 6, "")
+	if err != nil || out.RID != ridC {
+		t.Fatalf("out=%+v err=%v", out, err)
+	}
+	m := decode(t, f.last().body)
+	srcs := m["sources"].([]any)
+	if f.last().path != "/v1/mediasvc/audio/timeline" || len(srcs) != 2 || srcs[1].(map[string]any)["rid"] != ridB ||
+		m["starts"].([]any)[0].(float64) != 0.5 || m["max_seconds"].([]any)[0].(float64) != 2 || m["max_seconds"].([]any)[1].(float64) != 0 ||
+		m["total_seconds"].(float64) != 6 || m["purpose"] != PurposeIntermediate {
+		t.Fatalf("请求不对：%v", m)
+	}
+	var e *Error
+	if _, err := c.AudioTimeline(context.Background(), nil, 6, ""); !errors.As(err, &e) || e.Check != "request.timeline_segments" {
+		t.Fatalf("err = %v", err)
+	}
+	if _, err := c.AudioTimeline(context.Background(), []AudioClip{{RID: ridA}}, 0, ""); !errors.As(err, &e) || e.Check != "request.total_seconds_range" {
+		t.Fatalf("err = %v", err)
+	}
+	if _, err := c.AudioTimeline(context.Background(), []AudioClip{{RID: "", Start: 0}}, 5, ""); !errors.As(err, &e) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestVideoMotionProfileRequest(t *testing.T) {
+	c, f := newFake(t, func(path string, body []byte) (int, any) {
+		return 200, map[string]any{"fps": 4, "from_s": 0, "duration_s": 1, "scores": []float64{0, 0, 3.5, 0.1, 0}}
+	})
+	out, err := c.VideoMotionProfile(context.Background(), ridA, 0, 0, 0)
+	if err != nil || out.FPS != 4 || len(out.Scores) != 5 || out.Scores[2] != 3.5 {
+		t.Fatalf("out=%+v err=%v", out, err)
+	}
+	m := decode(t, f.last().body)
+	if f.last().path != "/v1/mediasvc/video/motion-profile" || m["source"].(map[string]any)["rid"] != ridA || m["fps"] != nil || m["from_s"] != nil {
+		t.Fatalf("缺省不带 fps / 区间：%s %v", f.last().path, m)
+	}
+	_, _ = c.VideoMotionProfile(context.Background(), ridA, 2, 1.5, 4)
+	m = decode(t, f.last().body)
+	if m["fps"] != float64(2) || m["from_s"] != 1.5 || m["to_s"] != float64(4) {
+		t.Fatalf("%v", m)
+	}
+}

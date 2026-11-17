@@ -224,7 +224,14 @@ func (s *Service) ExtractAudio(ctx context.Context, file, out string) error {
 // AudioTimeline 按开始时间把配音片段拼成整条音轨（aac，m4a）。sampleRate / channels 为 0 时不指定。
 func (s *Service) AudioTimeline(ctx context.Context, files []string, starts []float64, total float64,
 	sampleRate, channels int, out string) error {
-	filter, err := TimelineFilter(starts, total)
+	return s.AudioTimelineMax(ctx, files, starts, nil, total, sampleRate, channels, out)
+}
+
+// AudioTimelineMax 同 AudioTimeline，每段可再限一个最长时长（maxSeconds[i] > 0 时该段超出部分截掉；nil / 0 = 不截）。
+// 视频做同款「换声音」用它把每句配音限在原句的时间窗里，不压到下一句。
+func (s *Service) AudioTimelineMax(ctx context.Context, files []string, starts, maxSeconds []float64, total float64,
+	sampleRate, channels int, out string) error {
+	filter, err := TimelineFilterMax(starts, maxSeconds, total)
 	if err != nil {
 		return badInput(err.Error())
 	}
@@ -245,15 +252,28 @@ func (s *Service) AudioTimeline(ctx context.Context, files []string, starts []fl
 
 // TimelineFilter 与原 Java FfmpegCommands.audioTimelineFilter 一致：adelay 各段 → amix（不归一）→ apad → atrim 到总时长。
 func TimelineFilter(starts []float64, total float64) (string, error) {
+	return TimelineFilterMax(starts, nil, total)
+}
+
+// TimelineFilterMax 在 TimelineFilter 上增加每段最长时长：maxSeconds 为 nil 或该项 ≤ 0 时与 TimelineFilter 逐字相同（金样不变）；
+// 否则该段先 atrim 到 maxSeconds 秒、重置时间戳，再 adelay。
+func TimelineFilterMax(starts, maxSeconds []float64, total float64) (string, error) {
 	if len(starts) == 0 {
 		return "", errors.New("音频片段不能为空")
+	}
+	if maxSeconds != nil && len(maxSeconds) != len(starts) {
+		return "", errors.New("每段最长时长的数量必须与音频片段一致")
 	}
 	var parts []string
 	var mixed strings.Builder
 	for i, st := range starts {
 		start := math.Max(st, 0)
 		delayMs := max(int64(math.RoundToEven(start*1000)), 0)
-		parts = append(parts, fmt.Sprintf("[%d:a]adelay=%d:all=1[a%d]", i, delayMs, i))
+		if maxSeconds != nil && maxSeconds[i] > 0 {
+			parts = append(parts, fmt.Sprintf("[%d:a]atrim=duration=%s,asetpts=PTS-STARTPTS,adelay=%d:all=1[a%d]", i, ffmpegNumber(maxSeconds[i]), delayMs, i))
+		} else {
+			parts = append(parts, fmt.Sprintf("[%d:a]adelay=%d:all=1[a%d]", i, delayMs, i))
+		}
 		fmt.Fprintf(&mixed, "[a%d]", i)
 	}
 	parts = append(parts, fmt.Sprintf("%samix=inputs=%d:normalize=0,apad,atrim=duration=%s,asetpts=N/SR/TB[aout]",

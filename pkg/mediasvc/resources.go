@@ -59,6 +59,16 @@ type VideoInspect struct {
 	FreezeSeconds float64 `json:"freeze_seconds"`
 }
 
+// MotionProfile 画面运动量曲线（POST /v1/mediasvc/video/motion-profile，CONTRACT §R）。
+// Scores[i] = 第 i-1 与第 i 个采样帧的平均绝对亮度差（0~255；静止 ≈ 0，硬切通常 > 30），采样时刻 FromS + i/FPS；Scores[0] 取 Scores[1]。
+// 没有视频流 / 解不开时 Scores 为空（调用方按「没有曲线」处理）。
+type MotionProfile struct {
+	FPS       float64   `json:"fps"`
+	FromS     float64   `json:"from_s"`
+	DurationS float64   `json:"duration_s"`
+	Scores    []float64 `json:"scores"`
+}
+
 // 服务端 purpose 取值。
 const (
 	PurposeUserInput    = "user_input"    // 用户输入，落 user 类别私有桶
@@ -180,6 +190,31 @@ func (c *Client) InspectVideo(ctx context.Context, rid string) (VideoInspect, er
 	var v VideoInspect
 	if err := json.Unmarshal(raw, &v); err != nil {
 		return VideoInspect{}, fmt.Errorf("媒体服务返回无法解析: %w", err)
+	}
+	return v, nil
+}
+
+// VideoMotionProfile 取 rid 视频 [fromS, toS) 的画面运动量曲线（只读不落桶，不带幂等键）。fps<=0 用服务端缺省（4）；toS<=0 = 到片尾。
+// 来源取不到 / 超时 / 服务不可用返回 error，调用方应按「没有曲线」处理（退回原来的切点规则，不拦分析）。
+func (c *Client) VideoMotionProfile(ctx context.Context, rid string, fps, fromS, toS float64) (MotionProfile, error) {
+	req := map[string]any{"source": map[string]string{"rid": rid}}
+	if fps > 0 {
+		req["fps"] = fps
+	}
+	if fromS > 0 {
+		req["from_s"] = fromS
+	}
+	if toS > 0 {
+		req["to_s"] = toS
+	}
+	body, _ := json.Marshal(req)
+	raw, err := c.post(ctx, rid, "/v1/mediasvc/video/motion-profile", body, "application/json", "")
+	if err != nil {
+		return MotionProfile{}, err
+	}
+	var v MotionProfile
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return MotionProfile{}, fmt.Errorf("媒体服务返回无法解析: %w", err)
 	}
 	return v, nil
 }

@@ -39,8 +39,8 @@ RUN ffmpeg -hide_banner -version | head -1 | grep -q "ffmpeg version ${FFMPEG_VE
  && ffprobe -hide_banner -version >/dev/null \
  && for e in libx264 aac libmp3lame png mjpeg; do \
       ffmpeg -hide_banner -encoders 2>/dev/null | grep -qw "$e" || { echo "缺少编码器 $e"; exit 1; }; done \
- && for f in zscale tonemap subtitles drawtext overlay blackdetect freezedetect amix concat crop pad scale gblur split setsar atrim apad anullsrc aresample asetpts; do \
-      ffmpeg -hide_banner -filters 2>/dev/null | grep -qw "$f" || { echo "缺少滤镜 $f"; exit 1; }; done \
+ && for f in zscale tonemap subtitles drawtext overlay blackdetect freezedetect tblend signalstats metadata fps format amix concat crop pad scale gblur split setsar atrim apad anullsrc aresample asetpts adelay; do \
+      ffmpeg -hide_banner -filters 2>/dev/null | grep -Eq "^ [TSC.]+ +$f +" || { echo "缺少滤镜 $f"; exit 1; }; done \
  || (echo "ffmpeg / ffprobe 未装好或缺能力" && exit 1)
 ENV TZ=Asia/Shanghai \
     MEDIA_LISTEN=127.0.0.1:18090 \
