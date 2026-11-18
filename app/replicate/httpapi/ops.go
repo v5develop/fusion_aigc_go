@@ -504,10 +504,23 @@ func (sc *Scope) ClassifyRefs(ctx context.Context, analysisNo string, images []c
 		return nil, err
 	}
 	v, err := sc.s.ClassifyRefs(sc.ctx(ctx), core.ClassifyReq{UserID: sc.uid, AnalysisNo: analysisNo, Images: images})
-	if err != nil || allDegraded(v) {
+	if err != nil || allDegraded(v) || allRejected(v) {
 		refund()
 	}
 	return v, err
+}
+
+// allRejected 每张图都被拒收（没调视觉模型，不该占额度）。
+func allRejected(v *core.ClassifyView) bool {
+	if v == nil || len(v.Items) == 0 {
+		return false
+	}
+	for _, it := range v.Items {
+		if !it.Rejected {
+			return false
+		}
+	}
+	return true
 }
 
 func allDegraded(v *core.ClassifyView) bool {

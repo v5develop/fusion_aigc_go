@@ -28,7 +28,7 @@ job 的取数口径（四条各走索引的查询，内存合并按 `next_run_at
 | `GET /jobs?page=&size=` | `ListJobs` | page 从 1 起；size 默认 20、最大 50 | `JobList`（§5.2） |
 | `GET /jobs/{id}` | `JobView` | — | `JobView` |
 | `GET /jobs/{id}/exports` | `ListExports` | — | `ExportList`（§14：当前成片已导出的各比例，现签新地址；只读、仅本人；成片未交付 / 没导出过 = `exports: []`） |
-| `POST /refs:classify` | `ClassifyRefs` | `{images:[{rid}\|{url}], analysisNo?}`（≤9 张；§23） | `{items:[{index, kind, subjectId?, confidence, label}], degraded?}` |
+| `POST /refs:classify` | `ClassifyRefs` | `{images:[{rid}\|{url}], analysisNo?}`（≤9 张；§23） | `{items:[{index, kind, subjectId?, confidence, label, rejected?, reason?}], degraded?}` |
 | `POST /analyses/{no}/wish` | `Wish` | `{text(≤300), refs:[{index, kind, subjectId?}]}`（§23） | `{draft:{dims, lines?, texts?, audio?, continuity?}, explain[], items[], unsupported?[], degraded?}` |
 | `POST /jobs/{id}/continue` | `Continue` | `{planHash, expectedPoints}`（**必填**） | `JobView` |
 | `POST /jobs/{id}/stop` | `Stop` | — | `JobView`（只交付第 1 段） |
@@ -1037,13 +1037,14 @@ warning `VOICE_LINE_TRUNCATED:<句号>`）。音轨用媒体服务 `audio/timeli
 
 请求 `{analysisNo?, images:[{rid} | {url}]}`：
 - 1~9 张（0 → `1002`，>9 → `1003`），每张 `rid`（或 `mr://rid`）与 `url` **二选一**。
-- 归属同参考图（`resolveRefs`）：`rid` 必须是本站上传类别；`url` 必须是本站存储且属于当前用户（`URLOwner`，不设第三方白名单），再经媒体服务拉入私有桶（幂等键同参考图，重复识别不重复拉入）。**来源不合规 = 整个请求 `1003` 拒收**（归属不降级）；`analysisNo` 不是本人的 → `4001`。
+- 归属同参考图（`resolveRefs`）：`rid` 必须是本站上传类别；`url` 必须是本站存储且属于当前用户（`URLOwner`，不设第三方白名单），再经媒体服务拉入私有桶（幂等键同参考图，重复识别不重复拉入）。**来源不合规 = 只拒收该张图**（见响应 `rejected` / `reason`，该图不送视觉模型、不缓存，其余图照常识别；全部被拒也是 200 且不调模型、退回限频额度）；请求形状不合规（0 张 / >9 张 / 同一张 rid 与 url 都给或都不给）仍整个请求拒收；`analysisNo` 不是本人的 → `4001`。
 - `analysisNo` 可空；给了且分析已成功时，才做人物指派。
 
-响应 `{items:[{index, kind, subjectId?, confidence, label}], degraded?}`：
+响应 `{items:[{index, kind, subjectId?, confidence, label, rejected?, reason?}], degraded?}`：
 - `index` 从 1 起，与 `images` 顺序一一对应（也是之后 wish / 方案 `refImages` 的图号）。
 - `kind`：`person | product | garment | scene | other`。`confidence` 0~1。`label` 给用户看的短标签（≤12 字；有 `subjectId` 时是人物称呼，如「左侧白衣女生」；模型没给就用类别中文名）。
 - `subjectId` 只在 `kind` 为 `person` / `garment`、给了 `analysisNo`、模型给出的 id 存在于分析人物里且 `confidence ≥ 0.6` 时才有；否则一律不给（宁缺毋滥，丢弃时日志 `判据=CLASSIFY_SUBJECT_*`）。
+- **单张拒收**（add-only）：来源不是本人在本站上传的（`rid` 非上传类别 / `url` 非本站或不属于当前用户）→ 该图 `{index, kind:"other", confidence:0, label:"其他", rejected:true, reason:"第 N 张图不是你在本站上传的，请重新上传"}`（`rid` 入口措辞为「不是从本站上传的」）。`rejected` / `reason` 仅被拒收的图才有；拒收不算降级，不置 `degraded`。前端应提示用户替换该图，且不要把它用于后续 wish / 方案。日志 `判据=CLASSIFY_URL_NOT_OWNED` / `CLASSIFY_RID_NOT_UPLOAD` 带序号。
 - **降级**：图片读不出 / 网关故障 / 模型输出读不懂 / 漏识别 → 该图 `{kind:"other", confidence:0, label:"其他"}`，整体 `degraded:true`，HTTP 200 不报错。
 
 实现：一次 `chat.completion`（画面理解模型组 `Replicate.VisionModelGroup`，复用，无新配置），图片以 `mr://rid` 引用；人物列表放进「=====」数据块并声明是资料；输出用代码约束（类别白名单、置信度夹紧、label 清洗截断）。解析宽容（围栏 / 前后废话 / 顶层数组 / snake·camel / 类别同义词 / 字符串数字）。

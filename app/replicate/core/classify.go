@@ -27,7 +27,8 @@ import (
 // 口径：
 //   - 只读、免费、不动账、不建方案；限频在 Ops 层（ActionClassify）。
 //   - 图片来源：rid（本站上传类别）或 url（只认本站存储且属于当前用户，经媒体服务拉入私有桶，幂等键同参考图 resolveRefs）。
-//     来源不合规 = 整个请求拒收（归属问题不降级）；图片读不出 / 网关故障 / 输出读不懂 = 降级：该图 kind=other、confidence=0，degraded=true，不报错。
+//     来源不合规 = 只拒收该图（item.rejected=true + reason，kind=other、confidence=0，不送视觉模型、不缓存），其余图照常识别；
+//     请求形状不合规（0 张 / 超 9 张 / rid 与 url 同给或都不给）仍整个请求拒收；图片读不出 / 网关故障 / 输出读不懂 = 降级：该图 kind=other、confidence=0，degraded=true，不报错。
 //   - 缓存：按 (图片指纹, analysisNo) 缓存成功结果。图片指纹优先取媒体服务给的 sha256，没有就用 rid（rid 是不可变对象，等价）。
 //     进程内带过期与容量上限的缓存（classifyCache）：识别是免费的纯优化，丢了只是多调一次视觉模型，不值得为它加表 / 迁移；
 //     多实例各自一份；缓存是进程级单例，运行参数变化重建 Service 不丢。降级结果不缓存。
@@ -82,6 +83,9 @@ type ClassifyItem struct {
 	SubjectID  string  `json:"subjectId,omitempty"`
 	Confidence float64 `json:"confidence"`
 	Label      string  `json:"label"`
+	// Rejected 这张图的来源不是当前用户在本站上传的，已被拒收（不送视觉模型）；Reason 是给用户看的原因。add-only，未拒收时不出现。
+	Rejected bool   `json:"rejected,omitempty"`
+	Reason   string `json:"reason,omitempty"`
 }
 
 // ClassifyView 素材识别响应。Degraded=true 表示至少有一张没识别出来（已按 other / 0 给出，用户可手选类别）。
@@ -145,7 +149,8 @@ func (c *classifyCache) size() int { c.mu.Lock(); defer c.mu.Unlock(); return le
 
 // ---- 主流程 ----
 
-// ClassifyRefs 批量识别素材图。参数 / 归属不合规返回错误（日志带判据）；识别失败降级，不报错。
+// ClassifyRefs 批量识别素材图。请求形状不合规返回错误（日志带判据）；单张来源不合规只拒收该张（rejected）；识别失败降级，不报错。
+// 全部被拒收时不调视觉模型，照常 200 返回。
 func (s *Service) ClassifyRefs(ctx context.Context, req ClassifyReq) (*ClassifyView, error) {
 	n := len(req.Images)
 	switch {
@@ -183,20 +188,21 @@ func (s *Service) ClassifyRefs(ctx context.Context, req ClassifyReq) (*ClassifyV
 			}
 		}
 	}
-	// 来源 → rid（归属不合规整体拒收；读不出降级）
+	// 来源 → rid（归属不合规逐张拒收；读不出降级）
 	rids := make([]string, n)
 	fps := make([]string, n)
+	rejects := make([]string, n) // 非空 = 该图被拒收，值为给用户的原因
 	for i, im := range req.Images {
-		rid, fp, err := s.classifySource(ctx, req.UserID, i, im)
-		if err != nil {
-			return nil, err
-		}
-		rids[i], fps[i] = rid, fp
+		rids[i], fps[i], rejects[i] = s.classifySource(ctx, req.UserID, i, im)
 	}
 	view := &ClassifyView{Items: make([]ClassifyItem, n)}
 	now := s.now()
 	var todo []int // 需要调模型的图（下标）
 	for i := range rids {
+		if rejects[i] != "" { // 拒收：不降级标记、不进模型、不缓存
+			view.Items[i] = classifyRejected(i+1, rejects[i])
+			continue
+		}
 		if rids[i] == "" {
 			view.Items[i], view.Degraded = classifyDegraded(i+1), true
 			continue
@@ -232,31 +238,35 @@ func classifyDegraded(index int) ClassifyItem {
 	return ClassifyItem{Index: index, Kind: RefKindOther, Confidence: 0, Label: refKindLabel[RefKindOther]}
 }
 
+func classifyRejected(index int, reason string) ClassifyItem {
+	return ClassifyItem{Index: index, Kind: RefKindOther, Confidence: 0, Label: refKindLabel[RefKindOther], Rejected: true, Reason: reason}
+}
+
 func classifyCacheKey(fp, analysisNo string) string { return fp + "|" + analysisNo }
 
-// classifySource 一张图的来源 → (rid, 缓存指纹)。归属不合规返回错误；读不出返回 rid=""（降级）。
+// classifySource 一张图的来源 → (rid, 缓存指纹, 拒收原因)。归属不合规返回非空拒收原因（该图单独拒收）；读不出返回 rid=""（降级）。
 // 规则同参考图（resolveRefs）：rid 必须是本站上传类别；url 必须是本站存储且属于当前用户，再经媒体服务拉入私有桶（同一个幂等键，重复识别不重复拉入）。
-func (s *Service) classifySource(ctx context.Context, userID int64, i int, im ClassifyImageIn) (string, string, error) {
+func (s *Service) classifySource(ctx context.Context, userID int64, i int, im ClassifyImageIn) (string, string, string) {
 	if u := strings.TrimSpace(im.URL); u != "" {
 		if !(strings.HasPrefix(u, "https://") || strings.HasPrefix(u, "http://")) || len(u) > maxSourceURLLen || s.urlOwner == nil || !s.urlOwner(ctx, userID, u) {
 			logx.WithContext(ctx).Infof("replicate: 素材识别拒收 判据=CLASSIFY_URL_NOT_OWNED user=%d 序号=%d 校验已装配=%v", userID, i+1, s.urlOwner != nil)
-			return "", "", xerr.Param(fmt.Sprintf("第 %d 张图不是你在本站上传的，请重新上传", i+1))
+			return "", "", fmt.Sprintf("第 %d 张图不是你在本站上传的，请重新上传", i+1)
 		}
 		if s.media == nil {
 			logx.WithContext(ctx).Errorf("replicate: 素材识别降级 判据=CLASSIFY_MEDIA_UNAVAILABLE user=%d 序号=%d", userID, i+1)
-			return "", "", nil
+			return "", "", ""
 		}
 		sum := sha256.Sum256([]byte(fmt.Sprintf("%d|%s", userID, u)))
 		res, err := s.media.IngestURL(ctx, u, mediasvc.PurposeUserInput, s.cfg.KeyPrefix+"rpl-ref:"+hex.EncodeToString(sum[:16]))
 		if err != nil {
 			logx.WithContext(ctx).Errorf("replicate: 素材识别降级 判据=CLASSIFY_INGEST_FAILED user=%d 序号=%d: %v", userID, i+1, err)
-			return "", "", nil
+			return "", "", ""
 		}
 		fp := res.SHA256
 		if fp == "" {
 			fp = res.RID
 		}
-		return res.RID, fp, nil
+		return res.RID, fp, ""
 	}
 	rid := strings.TrimSpace(im.Rid)
 	if x := aigateway.RidOf(rid); x != "" {
@@ -264,9 +274,9 @@ func (s *Service) classifySource(ctx context.Context, userID int64, i int, im Cl
 	}
 	if !userUploadRID(rid) {
 		logx.WithContext(ctx).Infof("replicate: 素材识别拒收 判据=CLASSIFY_RID_NOT_UPLOAD user=%d 序号=%d rid=%q", userID, i+1, rid)
-		return "", "", xerr.Param(fmt.Sprintf("第 %d 张图不是从本站上传的，请重新上传", i+1))
+		return "", "", fmt.Sprintf("第 %d 张图不是从本站上传的，请重新上传", i+1)
 	}
-	return rid, rid, nil
+	return rid, rid, ""
 }
 
 // classifyByVision 一次视觉调用识别 todo 里的图。返回 下标 → 结果；没出结果的图不在 map 里（调用方降级）。

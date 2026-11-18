@@ -76,7 +76,7 @@ func TestClassifyHappyPathOneBatchedCall(t *testing.T) {
 	if v.Degraded || len(v.Items) != 3 {
 		t.Fatalf("不应降级：%+v", v)
 	}
-	want := []ClassifyItem{{1, "person", "", 0.92, "长发女生"}, {2, "product", "", 0.8, "白色运动鞋"}, {3, "garment", "", 1, "服装"}}
+	want := []ClassifyItem{{Index: 1, Kind: "person", Confidence: 0.92, Label: "长发女生"}, {Index: 2, Kind: "product", Confidence: 0.8, Label: "白色运动鞋"}, {Index: 3, Kind: "garment", Confidence: 1, Label: "服装"}}
 	for i, w := range want {
 		if v.Items[i] != w {
 			t.Fatalf("第 %d 项 got=%+v want=%+v", i+1, v.Items[i], w)
@@ -199,9 +199,6 @@ func TestClassifyRejectsOwnershipAndLimits(t *testing.T) {
 	}{
 		{"没有图", ClassifyReq{UserID: uid}, xerr.ParamMissing},
 		{"超过 9 张", ClassifyReq{UserID: uid, Images: ten}, xerr.ParamError},
-		{"别人的 url", ClassifyReq{UserID: uid, Images: []ClassifyImageIn{{URL: "https://own.test/8/x.png"}}}, xerr.ParamError},
-		{"第三方 url", ClassifyReq{UserID: uid, Images: []ClassifyImageIn{{URL: "https://evil.example.com/x.png"}}}, xerr.ParamError},
-		{"非上传 rid", ClassifyReq{UserID: uid, Images: []ClassifyImageIn{{Rid: workRid("x")}}}, xerr.ParamError},
 		{"rid 与 url 都给", ClassifyReq{UserID: uid, Images: []ClassifyImageIn{{Rid: testRid("a"), URL: "https://own.test/7/x.png"}}}, xerr.ParamError},
 		{"rid 与 url 都不给", ClassifyReq{UserID: uid, Images: []ClassifyImageIn{{}}}, xerr.ParamError},
 		{"别人的分析", ClassifyReq{UserID: uid, AnalysisNo: other.AnalysisNo, Images: []ClassifyImageIn{ridImg("a")}}, xerr.NotFound},
@@ -219,6 +216,50 @@ func TestClassifyRejectsOwnershipAndLimits(t *testing.T) {
 	e.gw.analysis["chat.completion"] = chatResult(`{"items":[]}`)
 	if _, err := e.svc.ClassifyRefs(e.ctx, ClassifyReq{UserID: uid, Images: ten[:9]}); err != nil {
 		t.Fatalf("9 张应放行（降级也不报错）：%v", err)
+	}
+}
+
+// 来源不合规只拒收该张：其余照常识别，被拒的不进模型、不缓存、不标 degraded；全拒时不调模型。
+func TestClassifyRejectsPerImage(t *testing.T) {
+	e, _ := newWishEnv(t)
+	e.gw.analysis["chat.completion"] = chatResult(`{"items":[{"index":1,"kind":"product","confidence":0.9,"label":"水杯"}]}`)
+	v, err := e.svc.ClassifyRefs(e.ctx, ClassifyReq{UserID: uid, Images: []ClassifyImageIn{
+		{URL: "https://own.test/8/x.png"}, ridImg("a"), {URL: "https://evil.example.com/x.png"}, {Rid: workRid("x")}}})
+	if err != nil {
+		t.Fatalf("单张拒收不应整体报错：%v", err)
+	}
+	if v.Degraded || len(v.Items) != 4 {
+		t.Fatalf("拒收不算降级：%+v", v)
+	}
+	if it := v.Items[1]; it.Rejected || it.Kind != "product" || it.Index != 2 {
+		t.Fatalf("第 2 张应正常识别：%+v", it)
+	}
+	for _, i := range []int{0, 2, 3} {
+		it := v.Items[i]
+		if !it.Rejected || it.Index != i+1 || it.Kind != "other" || it.Confidence != 0 || it.Label != "其他" || !strings.Contains(it.Reason, fmt.Sprintf("第 %d 张图不是", i+1)) {
+			t.Fatalf("第 %d 张应被拒收：%+v", i+1, it)
+		}
+	}
+	if n := e.chatCalls("rpl-cls-"); n != 1 {
+		t.Fatalf("只应为合规那张调一次模型：%d", n)
+	}
+	if b, _ := json.Marshal(e.chatReq("rpl-cls-").Input); strings.Count(string(b), `"uri":"mr://`) != 1 {
+		t.Fatalf("被拒的图不得送模型：%s", b)
+	}
+	if e.media.ingests != 0 {
+		t.Fatalf("被拒的 url 不得拉入媒体：%d", e.media.ingests)
+	}
+	if got := e.svc.classifyCache.size(); got != 1 {
+		t.Fatalf("拒收项不缓存，缓存应只有 1 条：%d", got)
+	}
+	// 全部被拒：200、不调模型
+	before := e.chatCalls("rpl-cls-")
+	v, err = e.svc.ClassifyRefs(e.ctx, ClassifyReq{UserID: uid, Images: []ClassifyImageIn{{URL: "https://own.test/8/x.png"}, {Rid: "mr://abc"}}})
+	if err != nil || len(v.Items) != 2 || !v.Items[0].Rejected || !v.Items[1].Rejected || v.Degraded {
+		t.Fatalf("全拒应 200 且全 rejected：%+v %v", v, err)
+	}
+	if e.chatCalls("rpl-cls-") != before {
+		t.Fatal("全部被拒不得调视觉模型")
 	}
 }
 

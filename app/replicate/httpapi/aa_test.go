@@ -6,6 +6,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"aigc-local-life/app/replicate/core"
+
 	"github.com/zeromicro/go-zero/rest/pathvar"
 	"github.com/zeromicro/go-zero/rest/router"
 )
@@ -38,6 +40,18 @@ func TestClassifyAndWishRateLimitFixedAndIndependent(t *testing.T) {
 	// 日上限文案是各自的（用户能分清是哪个功能用完了）
 	if dayText[ActionClassify] == "" || dayText[ActionWish] == "" || dayText[ActionClassify] == dayText[ActionWish] {
 		t.Fatal("两个动作应各有每日用完的文案")
+	}
+}
+
+// 全部被拒收的识别结果要退额度（没调模型）；有一张被识别就不退。
+func TestClassifyAllRejectedRefundsQuota(t *testing.T) {
+	rej := core.ClassifyItem{Index: 1, Kind: "other", Label: "其他", Rejected: true, Reason: "r"}
+	ok := core.ClassifyItem{Index: 2, Kind: "product", Confidence: 0.9, Label: "水杯"}
+	if !allRejected(&core.ClassifyView{Items: []core.ClassifyItem{rej, rej}}) {
+		t.Fatal("全拒应退额度")
+	}
+	if allRejected(&core.ClassifyView{Items: []core.ClassifyItem{rej, ok}}) || allRejected(nil) || allRejected(&core.ClassifyView{}) {
+		t.Fatal("有识别成功的 / 空结果不应判全拒")
 	}
 }
 
