@@ -1,0 +1,15 @@
+# multi builder（docker-container driver）的 BuildKit 配置。
+# 独立 BuildKit 容器不继承 OrbStack 的镜像源与 insecure-registries，需单独配：
+#   - docker.io 走可用镜像源（DaoCloud 对部分镜像白名单 403）
+#   - 私有仓库走 HTTP（insecure）
+#
+# 一次性创建 multi builder（ffmpeg-base 多架构构建需要）：
+#   docker buildx create --name multi --driver docker-container \
+#     --config deploy/docker/buildkitd.multi.toml --bootstrap
+#   （若 multi 已存在：先 docker buildx rm multi）
+[registry."docker.io"]
+  mirrors = ["docker.1ms.run"]
+
+[registry."uniontest.pengqiwl.com:5000"]
+  http = true
+  insecure = true

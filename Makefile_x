@@ -8,8 +8,13 @@
 #   make -f Makefile_x push-all           # 构建并推送全部镜像
 #   make -f Makefile_x deploy             # push-all + 触发部署 hook
 #   make -f Makefile_x clean              # 清理本机上带仓库前缀的镜像
-#   make -f Makefile_x media              # 单独构建共享媒体服务镜像 aigc-media（含 FFmpeg，见 deploy/docker/Dockerfile.media）
+#   make -f Makefile_x ffmpeg-base        # 一次性：编译 ffmpeg 基础镜像（amd64+arm64）并推送（ffmpeg 升级时才重跑）
+#   make -f Makefile_x media              # 构建媒体镜像 aigc-media（跨编译 linux/amd64，用 _Dockerfile.media）
 #   make -f Makefile_x deploy-media       # 构建 + 推送 + 触发媒体服务部署（部署单元名见 MEDIA_HOOK_PARAM）
+#
+# 前置（仅 ffmpeg-base 需要，一次性）：创建支持多架构的 buildx builder（orbstack 的 docker driver 不支持）
+#   docker buildx create --name multi --driver docker-container \
+#     --config deploy/docker/buildkitd.multi.toml --bootstrap
 #
 # 常用覆盖：make -f Makefile_x deploy TAG=v1.0.0 REGISTRY=<仓库> HOOK_PARAM=<部署单元>
 # 镜像与服务器侧部署单元的对应：<REGISTRY>/aigc-local-life-<服务>:<TAG>，prepare 用 aigc-local-life-ops。
@@ -17,7 +22,7 @@
 # 与本地生活栈分开上线、分开回滚 —— 不在 build-all / push-all 里，单独用 media / deploy-media。
 
 .PHONY: copywriting-rpc digitalhuman-rpc note-rpc imagegen-rpc studio-rpc assetlib-rpc canvas-rpc prompt-reverse gateway-api admin-api ops \
-	media push-media deploy-media \
+	ffmpeg-base media push-media deploy-media \
 	build-all push-all login deploy clean
 
 TAG ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
@@ -104,13 +109,36 @@ ops:
 		--build-arg VERSION=$(TAG) -t $(REGISTRY)/aigc-local-life-ops:$(TAG) \
 		-f deploy/docker/_Dockerfile.ops --load .
 
+# ---- ffmpeg 基础镜像：源码编译一次推送到私有仓库，aigc-media 直接复用，不再每次重编 ----
+# 版本 / sha256 与 Dockerfile.ffmpeg-base 保持一致；升级 ffmpeg 时两个文件一起改，再重跑 ffmpeg-base。
+FFMPEG_VERSION ?= 9.0.2
+FFMPEG_SHA256 ?= 8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e
+FFMPEG_BASE_IMAGE ?= $(REGISTRY)/aigc-base/static-ffmpeg
+# 基础镜像要多架构：aigc-media 既有跨编译 amd64 版，也有本机原生版（Mac 上是 arm64），
+# 两者 FROM 同一个基础镜像，故基础镜像须同时含 amd64 + arm64。
+FFMPEG_PLATFORMS ?= linux/amd64,linux/arm64
+# 多架构必须走 docker-container driver（orbstack 的 docker driver 不支持 --push 多架构）；
+# multi builder 用 deploy/docker/buildkitd.multi.toml 配了镜像源（docker.1ms.run）与私有仓库 insecure。
+# 首次需建 builder：见本文件头部说明。
+MULTI_BUILDER ?= multi
+# Apple 芯片上源码编译需经 QEMU（尤其 arm64 在 amd64 宿主上模拟），耗时较长，但只需跑一次；
+# 结果推到仓库后所有机器复用。需要先 make -f Makefile_x login 登录私有仓库。
+ffmpeg-base:
+	@echo "编译并推送 ffmpeg 基础镜像 $(FFMPEG_BASE_IMAGE):$(FFMPEG_VERSION)（$(FFMPEG_PLATFORMS)，仅首次 / ffmpeg 升级时需要）"
+	docker buildx build --builder $(MULTI_BUILDER) --platform $(FFMPEG_PLATFORMS) --provenance=false \
+		--build-arg FFMPEG_VERSION=$(FFMPEG_VERSION) --build-arg FFMPEG_SHA256=$(FFMPEG_SHA256) \
+		-t $(FFMPEG_BASE_IMAGE):$(FFMPEG_VERSION) -f deploy/docker/Dockerfile.ffmpeg-base --push .
+
 # ---- 媒体服务镜像：aigc-media（封面 / 水印 / 合成 / 探测 / 抽帧 / 解码校验）----
 # 源码在本仓 app/media/cmd，只有这个镜像装 FFmpeg 与 ffprobe；本地生活主服务镜像不带。
 # 部署是独立栈（docker-compose.media.yml，project aigc-media），与本地生活栈分开上线、分开回滚。
 media:
 	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --provenance=false \
-		-t $(REGISTRY)/aigc-media:$(TAG) -f deploy/docker/Dockerfile.media --load .
+		--build-arg FFMPEG_VERSION=$(FFMPEG_VERSION) --build-arg FFMPEG_BASE_IMAGE=$(FFMPEG_BASE_IMAGE) \
+		-t $(REGISTRY)/aigc-media:$(TAG) -f deploy/docker/_Dockerfile.media --load .
 
+# 说明：Mac（Apple 芯片）本地构建 amd64 直接用 media 目标即可（PLATFORM 默认 linux/amd64，
+# _Dockerfile.media 用 TARGETARCH 跨编译），无需单独的 amd64 专用 Dockerfile。
 push-media: media
 	docker push $(REGISTRY)/aigc-media:$(TAG)
 

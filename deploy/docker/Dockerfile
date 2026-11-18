@@ -4,7 +4,7 @@
 #   本地联调（含 mock）：由 docker-compose.dev.yml 构建，INCLUDE_MOCKS=1
 #
 # 构建上下文是仓库根目录。配置不打进镜像：由 prepare 服务在启动时生成到挂载的 etc/。
-ARG GO_VERSION=1.26
+ARG GO_VERSION=1.27.3
 
 # 编译阶段跑在构建机本机架构（Apple Silicon 上不走 QEMU 模拟），用 GOOS/GOARCH 交叉编译到目标平台；
 # 全部 CGO_ENABLED=0，交叉编译出的二进制与在目标架构上编译的一致。运行时阶段仍是目标平台。

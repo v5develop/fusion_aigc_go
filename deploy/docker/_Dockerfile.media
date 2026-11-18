@@ -1,43 +1,42 @@
-# 媒体服务镜像（alpine 版，封面 / 水印 / 合成）。与 Dockerfile.media（debian 版）功能一致，体积更小。
-# 只有这个镜像装 FFmpeg 与 ffprobe；主服务镜像（_Dockerfile.svc）不带。
+# 媒体服务镜像（封面 / 水印 / 合成）。只有这个镜像装 FFmpeg 与 ffprobe；主服务镜像（Dockerfile）不带。
 #
-#   docker buildx build --platform linux/amd64 --provenance=false \
+#   make -f Makefile_x media TAG=v1.0.0   # 推荐：buildx 跨编译 linux/amd64 并 --load
+#   或：docker buildx build --platform linux/amd64 --provenance=false \
 #     -f deploy/docker/_Dockerfile.media -t <仓库>/aigc-media:v1.0.0 --load .
 #   运行与配置见 docker-compose.media.yml、media.env.example；契约见 docs/api/media-service.md
 #
 # 构建上下文是仓库根目录。配置直接打进镜像（deploy/docker/media/media-svc.yaml），
 # 里面的 Token、Listen 由环境变量注入（go-zero 会展开 ${VAR}）；水印 logo 用挂载提供。
-#
-# ffmpeg 版本说明：alpine 3.20 提供 ffmpeg 6.1.1，debian bookworm 为 5.1.9。
-# 滤镜输出可能有像素级差异，上线前需用同一批样例对两个镜像做一次输出对比。
 ARG GO_VERSION=1.27.3
+# FFmpeg 固定 9.0.2，与开发机一致（检测算子 blackdetect / freezedetect 的输出解析按 9.0 验证）。
+# 源码编译已剥离为独立基础镜像（make -f Makefile_x ffmpeg-base 构建并推送到私有仓库），
+# 这里只引用成品，日常打 aigc-media 包不再重复编译 ffmpeg（在 Apple 芯片上经 QEMU 编译非常慢）。
+# 可用 --build-arg FFMPEG_BASE_IMAGE=... 覆盖，例如本地调试时指回 docker.1ms.run/mwader/static-ffmpeg。
+ARG FFMPEG_VERSION=9.0.2
+ARG FFMPEG_BASE_IMAGE=uniontest.pengqiwl.com:5000/aigc-base/static-ffmpeg
 
-# ---------- Stage 1：跨编译 linux/amd64 ----------
-FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine AS build
+FROM ${FFMPEG_BASE_IMAGE}:${FFMPEG_VERSION} AS ffmpeg
+
+# 编译阶段跑在构建机本机架构，用 GOOS/GOARCH 交叉编译到目标平台（CGO_ENABLED=0）；运行时阶段仍是目标平台。
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-bookworm AS build
+ARG TARGETOS TARGETARCH
 WORKDIR /src
-ARG GOPROXY=https://goproxy.cn,direct
-ENV GOPROXY=${GOPROXY}
-RUN apk add --no-cache git
 COPY go.mod go.sum ./
+# 模块与编译缓存用 BuildKit 缓存挂载，跨次构建保留（缓存不进镜像层）
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
-COPY . .
-# 强制 GOARCH=amd64：构建容器跑在主机架构上（Apple 芯片是 arm64），不指定的话产物架构会错。
-RUN --mount=type=cache,target=/go/pkg/mod CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
-    go build -tags timetzdata -trimpath -ldflags '-s -w' -o /out/media ./app/media/cmd
+# 只拷编译需要的源码
+COPY app/ app/
+COPY pkg/ pkg/
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS="$TARGETOS" GOARCH="$TARGETARCH" go build -trimpath -ldflags '-s -w' -o /out/media ./app/media/cmd
 
-# ---------- Stage 2：最小运行时 ----------
-FROM alpine:3.20
-# ffmpeg（自带 ffprobe，含 libass 的 subtitles 与 drawtext 滤镜）；
-# font-noto-cjk：烧录字幕与水印文字用的中文字体，fontconfig 供 ffmpeg 按名称找字体；
-# curl：健康检查；ca-certificates / tzdata：外部 HTTPS 与时区兜底。
-RUN apk add --no-cache ffmpeg font-noto-cjk fontconfig ca-certificates tzdata curl
-# 构建期生成系统字体缓存：非 root 运行时 fontconfig 不必写缓存目录，首次查字体也不现算
-RUN fc-cache -f
-ENV TZ=Asia/Shanghai \
-    MEDIA_LISTEN=127.0.0.1:18090 \
+# 运行时直接沿用预置基础镜像：debian trixie 运行库 / 中文字体 / fontconfig / curl / ffmpeg / ffprobe 都已在其中，
+# 且 ffmpeg 的编码器 / 滤镜能力在构建该基础镜像时已自检过。这里只叠加业务二进制与配置，不再装依赖、不再编译。
+FROM ffmpeg
+ENV MEDIA_LISTEN=127.0.0.1:18090 \
     MEDIA_LOGO_PATH=/app/logo.png
-RUN addgroup -g 10001 -S app \
- && adduser -u 10001 -S -G app -h /app -s /sbin/nologin -H app
+RUN groupadd --system --gid 10001 app \
+ && useradd --system --uid 10001 --gid 10001 --home-dir /app --shell /usr/sbin/nologin app
 WORKDIR /app
 COPY --from=build /out/media /app/media
 # 服务启动时会在 /app 下建 ./data（本地存储目录）：目录交给运行用户，否则 mkdir 权限被拒

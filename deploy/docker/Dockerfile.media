@@ -1,67 +1,36 @@
-# 媒体服务镜像（封面 / 水印 / 合成）。只有这个镜像装 FFmpeg 与 ffprobe；主服务镜像（Dockerfile）不带。
+# 媒体服务镜像 —— 本机架构原生构建版（不带下划线）。
 #
-#   docker build -f deploy/docker/Dockerfile.media -t <仓库>/aigc-media:v1.0.0 .
+# 与 _Dockerfile.media 成对，唯一差别在 Go 构建阶段：
+#   本文件（不带线）：FROM golang:bookworm 原生构建，GOOS/GOARCH 用本机架构 → 供本地 build 调试。
+#   _Dockerfile.media（带线）：FROM --platform=$BUILDPLATFORM + TARGETOS/TARGETARCH 跨编译 → 推私有仓库部署。
+# ffmpeg 基础镜像两版共用（私有仓库预置，见 make -f Makefile_x ffmpeg-base）。
+#
+#   docker buildx build --load -f deploy/docker/Dockerfile.media \
+#     -t aigc-media:dev .
 #   运行与配置见 docker-compose.media.yml、media.env.example；契约见 docs/api/media-service.md
 #
-# 构建上下文是仓库根目录。配置直接打进镜像（deploy/docker/media/media-svc.yaml），
-# 里面的 Token、Listen 由环境变量注入（go-zero 会展开 ${VAR}）；水印 logo 用挂载提供。
+# 注意：本机架构构建要求 FFMPEG_BASE_IMAGE 也有对应架构的 manifest（Mac arm64 需基础镜像含 arm64，
+# 见 Dockerfile.ffmpeg-base 的多架构构建）；跨编译版无此限制。可用 --build-arg FFMPEG_BASE_IMAGE=... 覆盖。
 ARG GO_VERSION=1.27.3
-# FFmpeg 固定 9.0.2，与开发机一致（检测算子 blackdetect / freezedetect 的输出解析按 9.0 验证）。
-# debian 源只有 7.1；第三方静态构建镜像（如 mwader/static-ffmpeg）不在国内镜像站白名单，改为从 ffmpeg.org 官方源码编译：
-# 源码包按 sha256 校验，编译依赖与运行库都走 debian 软件源。只依赖版本号的层会被 BuildKit 缓存，版本不变就不重编。
 ARG FFMPEG_VERSION=9.0.2
-ARG FFMPEG_SHA256=8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e
+ARG FFMPEG_BASE_IMAGE=uniontest.pengqiwl.com:5000/aigc-base/static-ffmpeg
 
-FROM debian:trixie-slim AS ffmpeg
-ARG FFMPEG_VERSION FFMPEG_SHA256
-RUN apt-get update \
- && apt-get install -y --no-install-recommends build-essential pkg-config nasm curl ca-certificates xz-utils \
-      libx264-dev libmp3lame-dev libzimg-dev libass-dev libfreetype-dev libfontconfig-dev libfribidi-dev libharfbuzz-dev \
- && rm -rf /var/lib/apt/lists/*
-WORKDIR /build
-RUN curl -fsSL --retry 3 -o ffmpeg.tar.xz "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz" \
- && echo "${FFMPEG_SHA256}  ffmpeg.tar.xz" | sha256sum -c - \
- && tar -xf ffmpeg.tar.xz --strip-components=1 && rm ffmpeg.tar.xz
-# 只开媒体服务用到的外部库：libx264（出片）、libmp3lame（mp3）、libzimg（zscale / HDR 转换）、libass（字幕烧录）、
-# freetype / fontconfig / harfbuzz / fribidi（drawtext 叠中文字）；aac、png、mjpeg 与各检测滤镜是内置的
-RUN ./configure --prefix=/opt/ffmpeg --enable-gpl --disable-debug --disable-doc --disable-ffplay \
-      --enable-libx264 --enable-libmp3lame --enable-libzimg --enable-libass \
-      --enable-libfreetype --enable-libfontconfig --enable-libharfbuzz --enable-libfribidi \
- && make -j"$(nproc)" && make install && strip /opt/ffmpeg/bin/ffmpeg /opt/ffmpeg/bin/ffprobe
+FROM ${FFMPEG_BASE_IMAGE}:${FFMPEG_VERSION} AS ffmpeg
 
-# 编译阶段跑在构建机本机架构，用 GOOS/GOARCH 交叉编译到目标平台（CGO_ENABLED=0）；运行时阶段仍是目标平台。
-FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-bookworm AS build
-ARG TARGETOS TARGETARCH
+# 编译阶段用本机架构原生构建（与 _Dockerfile.media 的跨编译版唯一差别）
+FROM golang:${GO_VERSION}-bookworm AS build
 WORKDIR /src
 COPY go.mod go.sum ./
-# 模块与编译缓存用 BuildKit 缓存挂载，跨次构建保留（缓存不进镜像层）
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
 # 只拷编译需要的源码
 COPY app/ app/
 COPY pkg/ pkg/
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 GOOS="$TARGETOS" GOARCH="$TARGETARCH" go build -trimpath -ldflags '-s -w' -o /out/media ./app/media/cmd
+    CGO_ENABLED=0 go build -trimpath -ldflags '-s -w' -o /out/media ./app/media/cmd
 
-FROM debian:trixie-slim
-ARG FFMPEG_VERSION
-# 运行时基础镜像 debian trixie；ffmpeg / ffprobe 来自上面的源码编译（不用 apt 的 7.1），这里只装它链接的运行库。curl 给健康检查用
-# fonts-noto-cjk：烧录字幕 / 叠字用的中文字体（字幕样式默认 Noto Sans CJK SC）；fontconfig 提供 /etc/fonts 配置
-RUN apt-get update \
- && apt-get install -y --no-install-recommends fontconfig fonts-noto-cjk ca-certificates tzdata curl \
-      libx264-164 libmp3lame0 libzimg2 libass9 libfreetype6 libfontconfig1 libharfbuzz0b libfribidi0 \
- && rm -rf /var/lib/apt/lists/* \
- && fc-cache -f
-COPY --from=ffmpeg /opt/ffmpeg/bin/ffmpeg /opt/ffmpeg/bin/ffprobe /usr/local/bin/
-# 构建期自检：版本必须是固定的那个，媒体服务用到的编码器 / 滤镜缺一个就构建失败（不留到上线才发现）
-RUN ffmpeg -hide_banner -version | head -1 | grep -q "ffmpeg version ${FFMPEG_VERSION}" \
- && ffprobe -hide_banner -version >/dev/null \
- && for e in libx264 aac libmp3lame png mjpeg; do \
-      ffmpeg -hide_banner -encoders 2>/dev/null | grep -qw "$e" || { echo "缺少编码器 $e"; exit 1; }; done \
- && for f in zscale tonemap subtitles drawtext overlay blackdetect freezedetect tblend signalstats metadata fps format amix concat crop pad scale gblur split setsar atrim apad anullsrc aresample asetpts adelay; do \
-      ffmpeg -hide_banner -filters 2>/dev/null | grep -Eq "^ [TSC.]+ +$f +" || { echo "缺少滤镜 $f"; exit 1; }; done \
- || (echo "ffmpeg / ffprobe 未装好或缺能力" && exit 1)
-ENV TZ=Asia/Shanghai \
-    MEDIA_LISTEN=127.0.0.1:18090 \
+# 运行时沿用预置基础镜像（运行库 / 中文字体 / ffmpeg / ffprobe 都在其中）
+FROM ffmpeg
+ENV MEDIA_LISTEN=127.0.0.1:18090 \
     MEDIA_LOGO_PATH=/app/logo.png
 RUN groupadd --system --gid 10001 app \
  && useradd --system --uid 10001 --gid 10001 --home-dir /app --shell /usr/sbin/nologin app

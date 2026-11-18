@@ -1,0 +1,53 @@
+# aigc-local-life 单服务镜像 —— 本机架构原生构建版（不带下划线）。
+#
+# 与 _Dockerfile.svc 成对，唯一差别在构建阶段：
+#   本文件（不带线）：FROM golang:alpine 原生构建，GOOS=linux 不指定 GOARCH → 产物为构建机本机架构，
+#                     供本地 build 后直接在本地跑/调试（Mac 上即 linux/arm64）。
+#   _Dockerfile.svc（带线）：FROM --platform=$BUILDPLATFORM + GOARCH=amd64 跨编译 → 产物固定 linux/amd64，
+#                     供 Makefile_x 推私有仓库部署。
+# 两版的运行时 stage、非 root 用户、ENTRYPOINT 完全一致。
+#
+# 用法（本地原生构建，本机架构）：
+#   docker buildx build --load -f deploy/docker/Dockerfile.svc \
+#     --build-arg SERVICE=copywriting/rpc --build-arg BIN=copywriting-rpc \
+#     -t aigc-local-life-copywriting-rpc:dev .
+#
+# SERVICE：app/ 下的服务目录，如 copywriting/rpc、gateway/api
+# BIN：产物二进制名，同时决定默认配置文件名 <BIN>.yaml
+ARG GO_VERSION=1.27.3
+
+# ---------- Stage 1：本机架构原生构建 ----------
+FROM golang:${GO_VERSION}-alpine AS build
+WORKDIR /src
+# 模块代理：容器里默认的 proxy.golang.org 国内拉不动，走 goproxy.cn（可 --build-arg GOPROXY=... 覆盖）
+ARG GOPROXY=https://goproxy.cn,direct
+ENV GOPROXY=${GOPROXY}
+RUN apk add --no-cache git
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
+COPY . .
+ARG SERVICE
+ARG BIN
+# 不指定 GOARCH：构建机是什么架构就产出什么架构（Mac 上是 arm64），本地直接跑
+ENV SVC_DIR=${SERVICE} APP_BIN=${BIN}
+RUN --mount=type=cache,target=/go/pkg/mod CGO_ENABLED=0 GOOS=linux \
+    go build -tags timetzdata -trimpath -ldflags '-s -w' -o /out/$APP_BIN ./app/$SVC_DIR
+
+# ---------- Stage 2：最小运行时（与 _Dockerfile.svc 一致）----------
+FROM alpine:3.20
+# ca-certificates：调外部 HTTPS 接口；curl：api 健康检查；bash：rpc 健康检查探端口（</dev/tcp）
+# 时区已用 -tags timetzdata 内嵌进二进制，这里装一份给读 /usr/share/zoneinfo 的代码兜底
+RUN apk add --no-cache ca-certificates tzdata curl bash
+ENV TZ=Asia/Shanghai
+WORKDIR /app
+ARG BIN
+COPY --from=build /out/${BIN} /app/${BIN}
+RUN addgroup -g 10001 -S appgroup \
+ && adduser -u 10001 -S -G appgroup -h /app -s /sbin/nologin -H appuser \
+ && printf '#!/bin/sh\n# 统一入口：用 ENV 里的服务名拼出二进制与配置路径。\n# 写成脚本 + ENTRYPOINT 用 JSON 形式，既能让 buildkit 满意（免掉 JSONArgsRecommended 提示），\n# 里面的 exec 也保证服务进程顶替 shell 成为主进程，SIGTERM 直达、优雅退出生效。\nexec "/app/$APP_BIN" -f "/app/etc/$APP_BIN.yaml"\n' > /app/entrypoint.sh \
+ && chmod +x /app/entrypoint.sh \
+ && chown -R appuser:appgroup /app
+ENV APP_BIN=${BIN}
+USER appuser
+# 端口由配置里的 ListenOn 决定（rpc 19201–19204，api 18888/18889），部署时用 command 覆盖
+ENTRYPOINT ["/app/entrypoint.sh"]

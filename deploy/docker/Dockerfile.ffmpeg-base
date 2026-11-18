@@ -1,0 +1,64 @@
+# static-ffmpeg 基础镜像：从 ffmpeg.org 源码编译一次，推送到私有仓库后长期复用。
+#
+#   make -f Makefile_x ffmpeg-base        # 构建 + 自检 + 推送（只有升级 FFmpeg 版本才需要重跑）
+#
+# 目的：把昂贵的源码编译从 aigc-media 的日常打包中剥离。打 aigc-media 包时直接 FROM 私有仓库的
+# 这个镜像（见 Dockerfile.media 的 FFMPEG_BASE_IMAGE），只剩 Go 交叉编译 + 业务配置，大幅提速。
+# 源码包按 sha256 校验；编译依赖与运行库都走 debian 软件源，不依赖第三方 ffmpeg 静态镜像。
+ARG FFMPEG_VERSION=9.0.2
+ARG FFMPEG_SHA256=8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e
+# debian 软件源走国内镜像加速（deb.debian.org 在国内很慢，双架构编译下载量又大）；
+# 设为空则保留官方源。deb822 格式的 /etc/apt/sources.list.d/debian.sources 里替换域名即可。
+ARG DEBIAN_MIRROR=mirrors.aliyun.com
+# ffmpeg 源码走国内 debian 镜像（ffmpeg.org 在国内极慢，~6KB/s）；
+# 该镜像的 ffmpeg_<ver>.orig.tar.xz 与官方 tar 内容一致（已比对 sha256），设为空则回退 ffmpeg.org。
+ARG FFMPEG_SRC_MIRROR=mirrors.aliyun.com
+
+# ---------- 编译阶段（在目标架构上执行；Apple 芯片下经 QEMU，故只做一次）----------
+FROM debian:trixie-slim AS builder
+ARG FFMPEG_VERSION FFMPEG_SHA256 DEBIAN_MIRROR FFMPEG_SRC_MIRROR
+RUN if [ -n "$DEBIAN_MIRROR" ]; then \
+      sed -i "s|http://deb.debian.org|http://$DEBIAN_MIRROR|g" /etc/apt/sources.list.d/debian.sources; \
+    fi \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends build-essential pkg-config nasm curl ca-certificates xz-utils \
+      libx264-dev libmp3lame-dev libzimg-dev libass-dev libfreetype-dev libfontconfig-dev libfribidi-dev libharfbuzz-dev \
+ && rm -rf /var/lib/apt/lists/*
+WORKDIR /build
+# 国内 debian 镜像文件名是 ffmpeg_<ver>.orig.tar.xz，ffmpeg.org 是 ffmpeg-<ver>.tar.xz；内容一致，统一存成 ffmpeg.tar.xz
+RUN if [ -n "$FFMPEG_SRC_MIRROR" ]; then \
+      SRC_URL="https://$FFMPEG_SRC_MIRROR/debian/pool/main/f/ffmpeg/ffmpeg_${FFMPEG_VERSION}.orig.tar.xz"; \
+    else \
+      SRC_URL="https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz"; \
+    fi \
+ && curl -fsSL --retry 3 -o ffmpeg.tar.xz "$SRC_URL" \
+ && echo "${FFMPEG_SHA256}  ffmpeg.tar.xz" | sha256sum -c - \
+ && tar -xf ffmpeg.tar.xz --strip-components=1 && rm ffmpeg.tar.xz
+# 只开媒体服务用到的外部库：libx264（出片）、libmp3lame（mp3）、libzimg（zscale / HDR 转换）、libass（字幕烧录）、
+# freetype / fontconfig / harfbuzz / fribidi（drawtext 叠中文字）；aac、png、mjpeg 与各检测滤镜是内置的
+RUN ./configure --prefix=/opt/ffmpeg --enable-gpl --disable-debug --disable-doc --disable-ffplay \
+      --enable-libx264 --enable-libmp3lame --enable-libzimg --enable-libass \
+      --enable-libfreetype --enable-libfontconfig --enable-libharfbuzz --enable-libfribidi \
+ && make -j"$(nproc)" && make install && strip /opt/ffmpeg/bin/ffmpeg /opt/ffmpeg/bin/ffprobe
+
+# ---------- 运行时基础镜像：ffmpeg 二进制 + 链接库 + 中文字体 ----------
+FROM debian:trixie-slim
+ARG FFMPEG_VERSION DEBIAN_MIRROR
+RUN if [ -n "$DEBIAN_MIRROR" ]; then \
+      sed -i "s|http://deb.debian.org|http://$DEBIAN_MIRROR|g" /etc/apt/sources.list.d/debian.sources; \
+    fi \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends fontconfig fonts-noto-cjk ca-certificates tzdata curl \
+      libx264-164 libmp3lame0 libzimg2 libass9 libfreetype6 libfontconfig1 libharfbuzz0b libfribidi0 \
+ && rm -rf /var/lib/apt/lists/* \
+ && fc-cache -f
+COPY --from=builder /opt/ffmpeg/bin/ffmpeg /opt/ffmpeg/bin/ffprobe /usr/local/bin/
+# 自检：版本 / 编码器 / 滤镜缺一个就构建失败，不把坏镜像推到仓库（不留到上线才发现）
+RUN ffmpeg -hide_banner -version | head -1 | grep -q "ffmpeg version ${FFMPEG_VERSION}" \
+ && ffprobe -hide_banner -version >/dev/null \
+ && for e in libx264 aac libmp3lame png mjpeg; do \
+      ffmpeg -hide_banner -encoders 2>/dev/null | grep -qw "$e" || { echo "缺少编码器 $e"; exit 1; }; done \
+ && for f in zscale tonemap subtitles drawtext overlay blackdetect freezedetect tblend signalstats metadata fps format amix concat crop pad scale gblur split setsar atrim apad anullsrc aresample asetpts adelay; do \
+      ffmpeg -hide_banner -filters 2>/dev/null | grep -Eq "^ [TSC.]+ +$f +" || { echo "缺少滤镜 $f"; exit 1; }; done \
+ || (echo "ffmpeg / ffprobe 未装好或缺能力" && exit 1)
+ENV TZ=Asia/Shanghai

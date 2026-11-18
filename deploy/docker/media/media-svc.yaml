@@ -20,7 +20,7 @@ Registry:
   Advertise: ${MEDIA_ADVERTISE_URL}
 FFmpeg: ffmpeg
 FFprobe: ffprobe
-# 水印 logo 路径：镜像 ENV 固定为 /app/logo.png（挂载提供，见 Dockerfile.media）；为空则水印接口返回 logo_unavailable
+# 水印 logo 路径：镜像 ENV 固定为 /app/logo.png（挂载提供，见 _Dockerfile.media）；为空则水印接口返回 logo_unavailable
 LogoPath: ${MEDIA_LOGO_PATH}
 # 单个输入的体积上限（字节）。大视频下载慢，默认 1 GiB；由 compose 的 MEDIA_MAX_INPUT_BYTES 提供默认值
 MaxInputBytes: ${MEDIA_MAX_INPUT_BYTES}

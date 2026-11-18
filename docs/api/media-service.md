@@ -34,7 +34,9 @@
 FFmpeg 与 ffprobe 只装在这个容器里，宿主机和其它服务不需要装。
 
 ```bash
-docker build -f deploy/docker/Dockerfile.media -t <仓库>/aigc-media:v1.0.0 .
+# 本机原生构建（arm64/x86 本机架构）：
+docker build -f deploy/docker/Dockerfile.media -t <仓库>/aigc-media:dev .
+# 推仓库的 linux/amd64 版走 buildx 跨编译：make -f Makefile_x media TAG=v1.0.0
 cd deploy/docker
 cp media.env.example media.env && chmod 600 media.env   # 填 AIGC_MEDIA_IMAGE、MEDIA_SERVICE_TOKEN
 # 水印：把 PNG 放到 MEDIA_LOGO_FILE 指定的路径（默认 ./logo.png），不需要水印就不放
