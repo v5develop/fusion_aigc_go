@@ -368,8 +368,8 @@ Go 网关的登录态只解析出 `userId`（共用会话的 `currentWorkspaceId
 
 | 方法 路径 | 请求 | 响应 |
 |---|---|---|
-| `GET /jobs?userId&status&from&to&jobId&taskId&planNo&page&size` | `status` 为对外码（`succeeded,partial` 可多选）或数字；`from/to` 为 RFC3339 / `2006-01-02 15:04:05` / `2006-01-02`（北京时间，日期形式的 `to` 含当天）；size 默认 20 最大 100 | `{items:[{jobId,taskId,planNo,userId,status,statusLabel,title,modelGroup,segTotal,segDone,segFailed,redoCount,error,stopReason,createdAt,finishedAt}],total,page,size}` |
-| `GET /jobs/{id}` | — | `{job, input, result, refundLines（人工退点逐单明细）, segments:[{index,state,gatewayCallIds,failReason,steps,charges,refundablePoints,canRefund}], steps:[{id,stepKey,kind,segIndex,status,attempt,billingRequestId,gatewayCallId,gatewayStatus,errorClass,errorCode,errorMsg,retryOf,createdAt,startedAt,finishedAt}], charges:[{id,segIndex,stage,requestId,seconds,points,mirrorStatus,mirrorLabel,reason,billingStatus,reservationNo,mismatch,refundablePoints,blockedReason,settledAt}], moderations, moderationLogs, deliveries, actions, billingOn, canRefund, canForce, forceBlocker}` |
+| `GET /jobs?userId&status&from&to&jobId&taskId&planNo&page&size` | `status` 为对外码（`succeeded,partial` 可多选）或数字；`from/to` 为 RFC3339 / `2006-01-02 15:04:05` / `2006-01-02`（北京时间，日期形式的 `to` 含当天）；size 默认 20 最大 100 | `{items:[{jobId,taskId,planNo,userId,status,statusLabel,title,modelGroup,segTotal,segDone,segFailed,redoCount,error,stopReason,continuity,createdAt,finishedAt}],total,page,size}`（`continuity` fast / smooth，CONTRACT §AB） |
+| `GET /jobs/{id}` | — | `{job, input, result, refundLines（人工退点逐单明细）, segments:[{index,state,gatewayCallIds,failReason,steps,charges,refundablePoints,canRefund,bridge?}], steps:[{id,stepKey,kind,segIndex,status,attempt,billingRequestId,gatewayCallId,gatewayStatus,errorClass,errorCode,errorMsg,retryOf,createdAt,startedAt,finishedAt}], charges:[{id,segIndex,stage,requestId,seconds,points,mirrorStatus,mirrorLabel,reason,billingStatus,reservationNo,mismatch,refundablePoints,blockedReason,settledAt}], moderations, moderationLogs, deliveries, actions, billingOn, canRefund, canForce, forceBlocker, plan?:{subjectText:[string]}, feedback?:[反馈行]}`（§AB 新增，全部 omitempty：`job.continuity`；`segments[].bridge` = used / skipped_prev_failed / skipped_no_frame / skipped_refs_full，仅 smooth 任务第 2 段起；`plan.subjectText[]` 按人点名的逐行说明，口径同用户端 `changes[].subjectText`，没点名不出现；`feedback[]` 该任务全部用户反馈，段号升序，行结构见 §9.y） |
 | `POST /jobs/{id}/refund` | `{segIndexes:[1,2], reason（必填 ≤200 字）, expectedPoints（必填，页面展示的「现在还能退」合计，只算尚未退成的单）}` | `{actionId, points（本动作累计）, thisPoints（这一次请求）, lines:[{id,segIndex,requestId,reservationNo,before,expectedPoints,points,status:PENDING\|DONE\|FAILED,error}], replay, status}` |
 | `POST /jobs/{id}/force-finish` | `{reason（必填）}` | `{actionId, replay, jobId, fromStatus, status, canceledSteps, openCharges, message}` |
 
@@ -382,6 +382,20 @@ Go 网关的登录态只解析出 `userId`（共用会话的 `currentWorkspaceId
 - 部分单退失败 → `code=5001`「有 N 张预留单没退成（这次已退回 X 点，累计 Y 点）。刷新页面后用同一请求重试，只会补退剩下的」，**`data` 同时带逐单明细**（与成功时同形）+ 审计 FAILED；同键重试接管同一个动作：DONE 明细保留，FAILED 明细重置为 PENDING 并按当前状态刷新可退点数 / 退前状态，只退剩下的。
 - 处理中崩溃：动作带 `lease_until`（2 分钟，强制大于脱离上下文时限 60 秒 + 30 秒）与认领令牌 `lease_token`，过期后同键可接管（换新令牌）；明细与审计的结果写回都带令牌条件，被接管的旧执行者写入落空。接管时遗留的非 DONE 明细对账：只有真实状态已是退回类终态或流水归属本动作才记完成，否则保持 FAILED 并写明原因（如「这一段还在排队 / 生成中」）。
 - 强制收尾：只收非在途（提交中 / 继续中、有段 RUNNING / DELIVERING / HOLDING → 409 `IN_FLIGHT` + 原因）；待继续 → 只交付第 1 段；排队 / 执行中 → 取消没开始的段 → 按步骤状态结清镜像（成功的确认扣除、其余退回）→ 汇总终态；终态但有未结镜像 → 只结清。结清不了的（扣费 / 退点调用失败）在 `openCharges` 如实返回，轮询器继续补扫。收尾后按新状态补发站内通知：被取消的段计入「没做成」（排队被收尾 → 「这次没有生成成功，已全部退回 N 点」）。
+
+### 9.y 成片反馈管理（CONTRACT §AB，只读，无迁移）
+
+权限：`GET` → `replicate:view`（本权限体系按动作细分、不按资源细分——view / refund / force / sample / switch，没有按资源的 `:view` 码，所以**没有新增 `replicate:feedback:view`**，沿用 `replicate:view`；无需权限种子或迁移，路由由前缀映射自动覆盖，`replicate_perm_test` 已加用例）。
+时间范围按反馈首次提交时间 `created_at`（有索引），左闭右开；`from/to` 格式同 `/jobs`；都不给 = 最近 30 天，只给 `from` = 到现在，只给 `to` = 往前 30 天；`from` 必须早于 `to`，跨度最长 180 天（超出 400 参数错误）。
+
+| 方法 路径 | 请求 | 响应 |
+|---|---|---|
+| `GET /feedback?page&pageSize&rating&reason&continuity&from&to&userId&jobId` | `rating` up / down；`reason` 六个原因码之一（匹配 reasons 数组包含）；`continuity` fast / smooth；`pageSize` 默认 20、最大 100（超出夹到 100；兼容别名 `size`）；非法枚举 / 数字回 400 | `{items:[{id,userId,userIdMasked,jobId,segIndex,rating,reasons,note,continuity,createdAt,updatedAt}],total,page,pageSize,from,to}`，id 倒序；`segIndex` 0 = 整条；`from/to` 为实际生效窗口；`userId` 给原值（筛选要用）并附遮掩串；`note` 原样（已过审核） |
+| `GET /feedback/summary?from&to` | 同上时间窗口 | `{total,up,down,byReason:[{reason,count,smooth,fast}],byContinuity:[{continuity,up,down}],from,to}` |
+
+- 汇总全在库里一条 SQL 算完（条件聚合，无行数上限、不截断）：reasons 是 JSON 数组、原因枚举固定，所以每个原因用 `SUM(JSON_CONTAINS(reasons,'"code"'))`，不依赖 `JSON_TABLE`（MySQL 8.0.4+）、也不拉行回应用层；新增原因码只需进 `core.FeedbackReasons`。
+- 统计单位是反馈行（同一用户同一任务同一段一行）。`byReason` 只统计「不满意」行，一行多个原因各计一次，所以各项之和可能大于 `down`；固定返回全部 6 个原因（没有则 0），`smooth` / `fast` 为该原因下两种连贯度各自的行数。`byContinuity` 固定 fast、smooth 两项；「接缝跳变」占比 = `byReason[seam_jump].smooth ÷ byContinuity[smooth].(up+down)`（前端算）。
+- 原因码：`face_mismatch` 人不像、`product_deformed` 商品变形、`motion_weird` 动作奇怪、`seam_jump` 接缝跳变、`text_garbled` 画面有乱码、`other` 其他。
 
 ## 10 示例 / 我的方案 / 改标注（迁移 `Go_V1.0.41__replicate_samples.sql`）
 

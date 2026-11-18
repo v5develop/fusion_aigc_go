@@ -124,22 +124,24 @@ type ListReq struct {
 
 // JobRow 列表一行。
 type JobRow struct {
-	JobID       int64      `json:"jobId"`
-	TaskID      string     `json:"taskId"`
-	PlanNo      string     `json:"planNo"`
-	UserID      int64      `json:"userId"`
-	Status      string     `json:"status"`
-	StatusLabel string     `json:"statusLabel"`
-	Title       string     `json:"title"`
-	ModelGroup  string     `json:"modelGroup"`
-	SegTotal    int        `json:"segTotal"`
-	SegDone     int        `json:"segDone"`
-	SegFailed   int        `json:"segFailed"`
-	RedoCount   int        `json:"redoCount"`
-	Error       string     `json:"error,omitempty"`
-	StopReason  string     `json:"stopReason,omitempty"`
-	CreatedAt   time.Time  `json:"createdAt"`
-	FinishedAt  *time.Time `json:"finishedAt,omitempty"`
+	JobID       int64  `json:"jobId"`
+	TaskID      string `json:"taskId"`
+	PlanNo      string `json:"planNo"`
+	UserID      int64  `json:"userId"`
+	Status      string `json:"status"`
+	StatusLabel string `json:"statusLabel"`
+	Title       string `json:"title"`
+	ModelGroup  string `json:"modelGroup"`
+	SegTotal    int    `json:"segTotal"`
+	SegDone     int    `json:"segDone"`
+	SegFailed   int    `json:"segFailed"`
+	RedoCount   int    `json:"redoCount"`
+	Error       string `json:"error,omitempty"`
+	StopReason  string `json:"stopReason,omitempty"`
+	// Continuity 画面连贯度 fast / smooth（CONTRACT §Y；单段任务恒为 fast）
+	Continuity string     `json:"continuity,omitempty"`
+	CreatedAt  time.Time  `json:"createdAt"`
+	FinishedAt *time.Time `json:"finishedAt,omitempty"`
 }
 
 // ListResp 列表。
@@ -160,7 +162,7 @@ func jobRow(j *model.Job) JobRow {
 	}
 	return JobRow{JobID: j.ID, TaskID: deref(j.TaskID), PlanNo: j.PlanNo, UserID: j.UserID, Status: code, StatusLabel: label,
 		Title: title, ModelGroup: in.ModelGroup, SegTotal: j.SegTotal, SegDone: j.SegDone, SegFailed: j.SegFailed,
-		RedoCount: j.RedoCount, Error: deref(j.ErrorReason), StopReason: deref(j.StopReason), CreatedAt: j.CreatedAt, FinishedAt: j.FinishedAt}
+		RedoCount: j.RedoCount, Error: deref(j.ErrorReason), StopReason: deref(j.StopReason), Continuity: core.ContinuityOf(j.Input), CreatedAt: j.CreatedAt, FinishedAt: j.FinishedAt}
 }
 
 // List 检索（id 倒序；size 默认 20、最大 100）。
@@ -251,6 +253,8 @@ type SegmentRow struct {
 	Charges          []ChargeRow `json:"charges"`
 	RefundablePoints int64       `json:"refundablePoints"`
 	CanRefund        bool        `json:"canRefund"`
+	// Bridge 连贯模式下本段衔接帧情况（CONTRACT §Y）：used / skipped_prev_failed / skipped_no_frame / skipped_refs_full；仅 smooth 任务第 2 段起有
+	Bridge string `json:"bridge,omitempty"`
 }
 
 // Detail 任务详情。
@@ -270,6 +274,10 @@ type Detail struct {
 	CanRefund    bool                     `json:"canRefund"`
 	CanForce     bool                     `json:"canForce"`
 	ForceBlocker string                   `json:"forceBlocker,omitempty"`
+	// Plan 方案摘要（按人点名说明；没有可说的不出现）
+	Plan *PlanBrief `json:"plan,omitempty"`
+	// Feedback 用户对这条成片 / 各段的反馈（CONTRACT §Z / §AB；没有不出现）
+	Feedback []FeedbackRow `json:"feedback,omitempty"`
 }
 
 var mirrorLabels = map[int8]string{
@@ -379,14 +387,17 @@ func (s *Service) Detail(ctx context.Context, jobID int64) (*Detail, error) {
 		d.Charges = append(d.Charges, row)
 		bySeg[c.SegIndex] = append(bySeg[c.SegIndex], row)
 	}
+	smooth := d.Job.Continuity == core.ContinuitySmooth
 	for k := 1; k <= j.SegTotal; k++ {
 		seg := SegmentRow{Index: k, Charges: bySeg[k]}
+		var tail *model.Step
 		for _, st := range steps {
 			if st.Kind != model.StepKindGateway || st.SegIndex != k {
 				continue
 			}
 			r := stepRow(st)
 			seg.Steps = append(seg.Steps, r)
+			tail = st
 			seg.State = st.Status
 			if r.GatewayCallID != "" {
 				seg.GatewayCallIDs = append(seg.GatewayCallIDs, r.GatewayCallID)
@@ -394,6 +405,9 @@ func (s *Service) Detail(ctx context.Context, jobID int64) (*Detail, error) {
 			if st.Status == model.StepFailed {
 				seg.FailReason = strings.TrimSpace(r.ErrorCode + " " + r.ErrorMsg)
 			}
+		}
+		if smooth && k > 1 && tail != nil {
+			seg.Bridge = core.BridgeLabel(tail.Output)
 		}
 		for _, c := range seg.Charges {
 			seg.RefundablePoints += c.Refundable
@@ -407,6 +421,7 @@ func (s *Service) Detail(ctx context.Context, jobID int64) (*Detail, error) {
 	}
 	d.CanForce = d.ForceBlocker == ""
 	if p, err := s.store.AdminGetPlan(ctx, j.PlanID); err == nil && p != nil {
+		d.Plan = s.planBrief(ctx, p)
 		if d.Moderations, err = s.store.ListModerations(ctx, p.ID); err != nil {
 			logx.WithContext(ctx).Errorf("replicate admin: 读审核结论失败 job=%d: %v", j.ID, err)
 		}
@@ -419,6 +434,15 @@ func (s *Service) Detail(ctx context.Context, jobID int64) (*Detail, error) {
 	}
 	if d.Actions, err = s.store.ListAdminActions(ctx, j.ID); err != nil {
 		return nil, err
+	}
+	if fs, ok := s.store.(FeedbackStore); ok {
+		if fbs, err := fs.ListJobFeedback(ctx, j.ID); err != nil {
+			logx.WithContext(ctx).Errorf("replicate admin: 读成片反馈失败 job=%d: %v", j.ID, err) // 辅助信息，不拖垮详情
+		} else {
+			for _, f := range fbs {
+				d.Feedback = append(d.Feedback, feedbackRow(f))
+			}
+		}
 	}
 	if d.RefundLines, err = s.store.ListJobRefundLines(ctx, j.ID); err != nil {
 		return nil, err

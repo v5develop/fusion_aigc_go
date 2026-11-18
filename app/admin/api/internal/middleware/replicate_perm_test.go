@@ -39,6 +39,10 @@ func TestPermForReplicate(t *testing.T) {
 		{"GET", "/api/v1/replicate/admin/share-reward-settings", "replicate:view"},
 		{"PUT", "/api/v1/replicate/admin/share-reward-settings", "replicate:sample"},
 		{"DELETE", "/api/v1/replicate/admin/share-reward-settings", "replicate:sample"},
+		// 成片反馈（CONTRACT §AB）：只读，沿用 view；写（本不存在）从严
+		{"GET", "/api/v1/replicate/admin/feedback", "replicate:view"},
+		{"GET", "/api/v1/replicate/admin/feedback/summary", "replicate:view"},
+		{"POST", "/api/v1/replicate/admin/feedback", "replicate:force"},
 		// 总开关（Go_V1.0.50）：读 = view，写 = switch
 		{"GET", "/api/v1/replicate/admin/switch", "replicate:view"},
 		{"PUT", "/api/v1/replicate/admin/switch", "replicate:switch"},

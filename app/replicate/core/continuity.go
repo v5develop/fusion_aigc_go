@@ -134,3 +134,15 @@ func continuityText(c string) string {
 
 var _ = fmt.Sprintf
 var _ = strings.TrimSpace
+
+// BridgeLabel 步骤 output 里的衔接情况：used / skipped_prev_failed / skipped_no_frame / skipped_refs_full；没有可说的返回空（后台任务详情用）。
+func BridgeLabel(out json.RawMessage) string { return bridgeLabel(out) }
+
+// ContinuityOf 任务输入（afv_replicate_job.input）里的画面连贯度：smooth 或 fast（没写 = fast）。
+func ContinuityOf(input json.RawMessage) string {
+	var in JobInput
+	if json.Unmarshal(input, &in) == nil && in.smooth() {
+		return ContinuitySmooth
+	}
+	return ContinuityFast
+}

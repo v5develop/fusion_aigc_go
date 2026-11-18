@@ -501,3 +501,26 @@ func previewSubjectLines(key string, e DimEdit, an *AnalysisResult, nRefs int, f
 	}
 	return lines
 }
+
+// SubjectTexts 方案里按人点名的逐行说明（后台任务详情用）：与 PlanView.changes[].subjectText 同一口径
+// （只收「换成我的图 / 按我写的改」且点了人的维度，按分析里的维度顺序，每个维度一行）。没点名返回 nil。
+func SubjectTexts(an *AnalysisResult, ann Annotations) []string {
+	if an == nil {
+		return nil
+	}
+	var out []string
+	for _, k := range an.DimOrder {
+		e, ok := ann.Dims[k]
+		if !ok || len(e.Subjects) == 0 || (e.Mode != ModeReplace && e.Mode != ModeDescribe) {
+			continue
+		}
+		if t := subjectText(an, e); t != "" {
+			// 带维度前缀（「人物：…」「服装：…」）：管理端同时有换人与换装时要分得清哪行是哪项
+			if label := DimLabel[k]; label != "" {
+				t = label + "：" + t
+			}
+			out = append(out, t)
+		}
+	}
+	return out
+}

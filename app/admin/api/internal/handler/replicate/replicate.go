@@ -1,6 +1,7 @@
 // Package replicate 视频做同款后台接口（/api/v1/replicate/admin/**）：任务检索、详情、按段人工退点、强制收尾、总开关。
 //
 // 手写路由（不走 admin.api 的 goctl 生成），响应沿用 Go 默认信封（pkg/result）。业务在 app/replicate/admin。
+// 成片反馈只读接口（GET /feedback、/feedback/summary）见 feedback.go，同属 replicate:view。
 // 权限：前缀映射 replicate:view（GET）；退点 replicate:refund、强制收尾 replicate:force、示例写 replicate:sample 走路由级覆盖
 // （middleware.replicateRoutePerm，迁移 Go_V1.0.39 / Go_V1.0.41）。幂等键只认 Idempotency-Key（没带由业务派生）。契约：docs/api/api-replicate.md §9、§11。
 package replicate
@@ -41,6 +42,7 @@ func Register(server *rest.Server, c *svc.ServiceContext) {
 	registerSwitch(server, c)
 	registerSamples(server, c, h)
 	registerShares(server, c, h)
+	registerFeedback(server, c, h)
 	registerSampleMedia(server, c, h)
 }
 
