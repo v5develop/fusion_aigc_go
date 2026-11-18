@@ -241,6 +241,28 @@ func pcases() []pcase {
 			ops: func(sc *Scope) (any, error) { return sc.Exports(context.Background(), 42) }, wantStatus: 200, wantSub: `"exports":[]`},
 		{name: "读导出清单-任务号不合法", fn: func(h *handlers) handlerFn { return h.exports }, method: "GET", path: "/x", vars: map[string]string{"id": "0"},
 			ops: func(sc *Scope) (any, error) { return sc.Exports(context.Background(), 0) }, wantSub: "id 不合法"},
+		// 独立页素材识别 / 想怎么改（CONTRACT §AA，REST 专有，不对应智能体工具）：写入口（总开关关着回 7003）；参数在内核最前面拦下，不碰库 / 网关
+		{name: "素材识别-没有图", write: true, fn: func(h *handlers) handlerFn { return h.classifyRefs }, method: "POST", path: "/x", body: `{"images":[]}`,
+			ops: func(sc *Scope) (any, error) { return sc.ClassifyRefs(context.Background(), "", nil) }, wantSub: "请先放入要识别的图片"},
+		{name: "素材识别-超过9张", write: true, fn: func(h *handlers) handlerFn { return h.classifyRefs }, method: "POST", path: "/x",
+			body: `{"images":[` + strings.Repeat(`{"rid":"a"},`, 9) + `{"rid":"a"}]}`,
+			ops: func(sc *Scope) (any, error) {
+				return sc.ClassifyRefs(context.Background(), "", make([]core.ClassifyImageIn, 10))
+			}, wantSub: "一次最多识别 9 张"},
+		{name: "素材识别-总开关关着回7003", kv: off, write: true, fn: func(h *handlers) handlerFn { return h.classifyRefs }, method: "POST", path: "/x", body: `{"images":[{"rid":"a"}]}`,
+			ops: func(sc *Scope) (any, error) { return sc.ClassifyRefs(context.Background(), "", nil) }, wantSub: `"code":7003`},
+		{name: "想怎么改-写空", write: true, fn: func(h *handlers) handlerFn { return h.wish }, method: "POST", path: "/x", vars: map[string]string{"no": "VRA1"}, body: `{"text":"  "}`,
+			ops: func(sc *Scope) (any, error) {
+				return sc.Wish(context.Background(), core.WishReq{AnalysisNo: "VRA1", Text: "  "})
+			}, wantSub: "先写一句想怎么改"},
+		{name: "想怎么改-分析号过长", write: true, fn: func(h *handlers) handlerFn { return h.wish }, method: "POST", path: "/x", vars: map[string]string{"no": strings.Repeat("x", 65)}, body: `{"text":"冬天"}`,
+			ops: func(sc *Scope) (any, error) {
+				return sc.Wish(context.Background(), core.WishReq{AnalysisNo: strings.Repeat("x", 65), Text: "冬天"})
+			}, wantSub: "no 不合法"},
+		{name: "想怎么改-总开关关着回7003", kv: off, write: true, fn: func(h *handlers) handlerFn { return h.wish }, method: "POST", path: "/x", vars: map[string]string{"no": "VRA1"}, body: `{"text":"冬天"}`,
+			ops: func(sc *Scope) (any, error) {
+				return sc.Wish(context.Background(), core.WishReq{AnalysisNo: "VRA1", Text: "冬天"})
+			}, wantSub: `"code":7003`},
 		// 写成功才 Kick：停止任务走到内核的 Stop（stub 没实现 → 这里只验证「写入口开着时能走到内核」改由上面重放用例覆盖）
 	}
 }

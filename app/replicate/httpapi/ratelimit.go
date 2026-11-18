@@ -35,12 +35,25 @@ const (
 	ActionAnnotate = "annotate"
 	// ActionFeedback 成片反馈：轻量固定限频（不读配置，只为防刷）
 	ActionFeedback = "feedback"
+	// ActionClassify 素材识别（CONTRACT §AA）：每次请求算一次（一次最多 9 张），固定限频，免费但有视觉模型成本
+	ActionClassify = "classify"
+	// ActionWish 「想怎么改」翻译（CONTRACT §AA）：每次请求算一次，固定限频，免费但有文本模型成本
+	ActionWish = "wish"
 )
 
 // 成片反馈的固定限额：每分钟 / 每日（北京时间自然日）。覆盖更新也占次数，正常用户远用不到。
 const (
 	feedbackPerMinute = 20
 	feedbackPerDay    = 300
+)
+
+// 素材识别 / 想怎么改的固定限额（每分钟 / 每日，北京时间自然日）。识别一次最多 9 张图，用户反复增删素材会多次触发，所以比文本口宽；
+// 写手调用更贵、正常用户一份方案很少超过几次，收紧。失败（含降级）退回本次额度。
+const (
+	classifyPerMinute = 20
+	classifyPerDay    = 400
+	wishPerMinute     = 8
+	wishPerDay        = 120
 )
 
 // RateLimitError 限频命中（writeErr 写成 HTTP 429）。
@@ -71,6 +84,8 @@ var dayText = map[string]string{
 	ActionConfirm:  "今天提交生成的次数用完了，明天 0 点恢复",
 	ActionAnnotate: "今天修改方案的次数用完了，明天 0 点恢复。已有方案仍然可以确认生成",
 	ActionFeedback: "今天提交反馈的次数用完了，明天 0 点恢复，谢谢你的反馈",
+	ActionClassify: "今天的素材自动识别次数用完了，明天 0 点恢复。你仍可以手动选择每张图的类别",
+	ActionWish:     "今天的「想怎么改」智能翻译次数用完了，明天 0 点恢复。你仍可以在方案页里手动选择要改的地方",
 }
 
 const (
@@ -106,6 +121,10 @@ func perOf(p RateParams, action string) (int, int) {
 		return p.AnnotatePerMinute, p.AnnotatePerDay
 	case ActionFeedback:
 		return feedbackPerMinute, feedbackPerDay
+	case ActionClassify:
+		return classifyPerMinute, classifyPerDay
+	case ActionWish:
+		return wishPerMinute, wishPerDay
 	}
 	return 0, 0
 }

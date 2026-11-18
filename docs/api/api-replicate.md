@@ -28,6 +28,8 @@ job 的取数口径（四条各走索引的查询，内存合并按 `next_run_at
 | `GET /jobs?page=&size=` | `ListJobs` | page 从 1 起；size 默认 20、最大 50 | `JobList`（§5.2） |
 | `GET /jobs/{id}` | `JobView` | — | `JobView` |
 | `GET /jobs/{id}/exports` | `ListExports` | — | `ExportList`（§14：当前成片已导出的各比例，现签新地址；只读、仅本人；成片未交付 / 没导出过 = `exports: []`） |
+| `POST /refs:classify` | `ClassifyRefs` | `{images:[{rid}\|{url}], analysisNo?}`（≤9 张；§23） | `{items:[{index, kind, subjectId?, confidence, label}], degraded?}` |
+| `POST /analyses/{no}/wish` | `Wish` | `{text(≤300), refs:[{index, kind, subjectId?}]}`（§23） | `{draft:{dims, lines?, texts?, audio?, continuity?}, explain[], items[], unsupported?[], degraded?}` |
 | `POST /jobs/{id}/continue` | `Continue` | `{planHash, expectedPoints}`（**必填**） | `JobView` |
 | `POST /jobs/{id}/stop` | `Stop` | — | `JobView`（只交付第 1 段） |
 | `POST /jobs/{id}/segments/{k}/redo` | `Redo` | `{expectedPoints}`（**必填**） | `JobView` |
@@ -682,6 +684,7 @@ Go 网关的登录态只解析出 `userId`（共用会话的 `currentWorkspaceId
 | `retry_audio` | 免费重做声音（每次真正重做记一次，成功失败都算；同 call_id 重放不记） | `RetryAudio` |
 | `publish_copy` / `export_ratio` | 生成发布文案（每成片每平台首次）/ 多比例导出（每成片每比例每模式首次；回放与同比例返回成片本身不记） | `PublishCopy` / `ExportRatio` |
 | `share_sample` / `withdraw_sample` | 成片分享为示例（建待审核投稿；一成片一次，撤回后重新投不再记）/ 撤回投稿（一投稿一次） | `ShareSample` / `WithdrawSample` |
+| `classify` / `wish` | 独立页素材识别 / 「想怎么改」翻译（每次请求一条，含降级；参数 / 归属 / 审核拒收不记）。`wish` 带 `multi_person` | `ClassifyRefs` / `Wish` |
 | `stop` / `cancel_rest` / `decision_timeout` | 决策卡选择不继续 / 取消剩余段 / 24 小时未决定自动结束 | `Stop` / `CancelRest` / 到期推进 |
 
 「下载」发生在浏览器端，后端看不到，用 `segment_save` 与 `delivered` 近似。
@@ -1024,3 +1027,44 @@ warning `VOICE_LINE_TRUNCATED:<句号>`）。音轨用媒体服务 `audio/timeli
 - 任务还没有任何段做完（且不是已成功 / 部分成功）→ `4002`（Conflict）`reason=JOB_NOT_FINISHED`。
 - 回执 `FeedbackView`：`{jobId, segIndex, rating, reasons[], note?, continuity, updated, noteDropped?, message}`；`continuity` 取任务确认时冻结的连贯度，同时冗余存在反馈行上。
 - 漏斗阶段 `feedback_up` / `feedback_down`（`seg_index` = 段号，`continuity` = 任务连贯度）：同一段同一评价只记一次，改主意换了评价才再记一条。
+
+## 23 独立页素材识别与「想怎么改」（CONTRACT §AA，无迁移）
+
+两个**只读、免费、不动账、不建方案**的 REST 接口（独立页专用；智能体在对话里自己出方案，**不经此入口**，所以没有对应工具，也不在智能体 / Ops 一致性清单里——`Ops` 上有 `ClassifyRefs` / `Wish` 供 REST 用，`ops_parity_test` 覆盖了参数口径与总开关）。
+都是写入口口径：运行时总开关关着回 `7003`（暂停期间不烧模型成本）。未登录 `401`。固定限频（不读运行参数，同反馈）：素材识别 每分钟 20 / 每日 400；想怎么改 每分钟 8 / 每日 120（北京时间自然日），超限 429 `RATE_LIMITED`，被拒（参数 / 归属 / 审核）与整体降级都退回本次额度。漏斗阶段 `classify` / `wish`。
+
+### 23.1 `POST /api/v1/replicate/refs:classify`
+
+请求 `{analysisNo?, images:[{rid} | {url}]}`：
+- 1~9 张（0 → `1002`，>9 → `1003`），每张 `rid`（或 `mr://rid`）与 `url` **二选一**。
+- 归属同参考图（`resolveRefs`）：`rid` 必须是本站上传类别；`url` 必须是本站存储且属于当前用户（`URLOwner`，不设第三方白名单），再经媒体服务拉入私有桶（幂等键同参考图，重复识别不重复拉入）。**来源不合规 = 整个请求 `1003` 拒收**（归属不降级）；`analysisNo` 不是本人的 → `4001`。
+- `analysisNo` 可空；给了且分析已成功时，才做人物指派。
+
+响应 `{items:[{index, kind, subjectId?, confidence, label}], degraded?}`：
+- `index` 从 1 起，与 `images` 顺序一一对应（也是之后 wish / 方案 `refImages` 的图号）。
+- `kind`：`person | product | garment | scene | other`。`confidence` 0~1。`label` 给用户看的短标签（≤12 字；有 `subjectId` 时是人物称呼，如「左侧白衣女生」；模型没给就用类别中文名）。
+- `subjectId` 只在 `kind` 为 `person` / `garment`、给了 `analysisNo`、模型给出的 id 存在于分析人物里且 `confidence ≥ 0.6` 时才有；否则一律不给（宁缺毋滥，丢弃时日志 `判据=CLASSIFY_SUBJECT_*`）。
+- **降级**：图片读不出 / 网关故障 / 模型输出读不懂 / 漏识别 → 该图 `{kind:"other", confidence:0, label:"其他"}`，整体 `degraded:true`，HTTP 200 不报错。
+
+实现：一次 `chat.completion`（画面理解模型组 `Replicate.VisionModelGroup`，复用，无新配置），图片以 `mr://rid` 引用；人物列表放进「=====」数据块并声明是资料；输出用代码约束（类别白名单、置信度夹紧、label 清洗截断）。解析宽容（围栏 / 前后废话 / 顶层数组 / snake·camel / 类别同义词 / 字符串数字）。
+**缓存**：键 `(图片指纹, analysisNo)`，指纹取媒体服务返回的 `sha256`（url 入口），rid 入口没有哈希就用 `rid` 本身（对象不可变，等价）；进程内带 24 小时过期与 4096 条上限的缓存（`classifyCache`，进程级单例，运行参数重建不丢）。识别免费且只是优化，丢了只多调一次模型，所以不加表 / 迁移；多实例各自一份。**降级结果不缓存**。
+
+### 23.2 `POST /api/v1/replicate/analyses/{no}/wish`
+
+请求 `{text, refs:[{index, kind, subjectId?}]}`：
+- `text` 去控制字符压空白后 1~300 字（空 → `1002`，超长 → `1003`）；`refs` ≤9，`index` 1~9 不重复、`kind` 在 `person|product|garment|scene|other` 内，否则 `1003`（素材图描述来自前端，类别以用户最终选择为准）。
+- 分析必须是本人的（否则 `4001`）且已成功（否则 `4002`）。`text` 过文本审核（关键词库 + 网关 `moderation.text`，复用精修备注口径，现抽成 `moderateUserText`）：违规 `1003 MODERATION_REJECTED`，**在调写手模型之前**；审核服务故障按现有策略（默认 fail-close `MODERATION_UNAVAILABLE`）。
+
+响应：
+```
+{ draft:{ dims:{<dim>:DimEdit…}, lines?:[{index,text}], texts?:[TextOverlay], audio?:"revoice", continuity?:"smooth|fast" },
+  explain:[string], items:[{kind:"dim|line|text|continuity", key, explain}], unsupported?:[string], degraded?:true }
+```
+- `draft.dims` 就是 `annotations.dims`（含 `subjects`（§X）/ `occurrences`（§O1），refs 是请求里的图号）；`lines` 是逐句改台词（= `annotations.voice.lines`，`index` 1 起；**应用时需要 `audio=revoice` + 选音色**，所以有 `lines` 时 `audio` 回 `revoice`，说明里也写明）；`texts` 是叠加文字（= `annotations.texts`，店名 / 价格 / 标题用它）；`continuity` 是顶层画面连贯度。后三者是相对契约草案的只增字段（原 `店名 / 电话` 两个固定框去掉后叠字需要落点）。
+- `explain` 与 `items` **同序逐条对应**（`items[i].explain == explain[i]`，Web 据 `kind/key` 撤销某条）。`explain` 由系统按**校验后的草稿**确定性生成（不采信模型自述，避免说的与做的不一致）。
+- `unsupported`：被丢掉的项与中文原因（图类别对不上、引用了没上传的图、视频里没有这一项、逐套 / 按人越界、台词句号不存在或超字数、叠字过长 / 超 4 处、模型自己声明做不了的）；全部没内容时回一句「没能从这句话里找到可以直接改的地方…」。
+- **降级**：写手模型不可用 / 输出两次都读不懂 → `degraded:true`、草稿为空、`unsupported` 一句提示，HTTP 200。
+
+校验：每一项逐个过现有方案校验（`Service.validate` 单项、`validateTexts`、`validateVoiceEdit`，过滤只与整份方案相关的 `MODEL_UNKNOWN` / `NOTHING_CHANGED`），外加「引用的图必须在请求 `refs` 里、类别说得通」（人物←person，服装←garment，商品←product，场景←scene，配饰←product/garment；`other` 不拦）。过的才进草稿，规范化结果（如点名都「保持不变」的项直接省略）与出方案时一致，草稿的 `dims` / `texts` 可原样塞进 `POST /plans`（测试覆盖）。
+模型组：写手 `Replicate.WriterModelGroup` → 回落画面理解模型组，无新配置。提示词 `core/prompts/replicate-wish.system.md`；用户的话与视频里的内容（台词 / 画面描述 / 人物称呼）分别放进「=====」数据块，伪造的分界标记被去掉，系统提示词声明块内一律当资料；输出按固定结构解码，结构之外的字段 / 键直接丢（测试：注入文本 + 模型被带偏时响应里没有任何结构之外的字段）。
+日志：拒收 / 丢弃都带判据与原因（`WISH_TEXT_TOO_LONG` / `WISH_REF_*` / `WISH_DIM_UNKNOWN` / `WISH_DIM_ABSENT` / `WISH_REF_NOT_PROVIDED` / `WISH_REF_KIND_MISMATCH` / `WISH_VALIDATE_<gap 码>` / `WISH_CALL_FAILED` / `WISH_OUTPUT_INVALID*`；识别侧 `CLASSIFY_*`）。

@@ -726,24 +726,29 @@ func (s *Service) moderateRedoNote(ctx context.Context, userID, jobID int64, not
 
 // moderateJobNote 任务上的一句用户自由文字的审核（精修备注 / 成片反馈备注共用）：tag 区分请求号与幂等键，scene 给关键词库分场景。
 func (s *Service) moderateJobNote(ctx context.Context, userID, jobID int64, note, tag, scene string) error {
+	return s.moderateUserText(ctx, userID, fmt.Sprintf("job%d-%s", jobID, tag), note, scene)
+}
+
+// moderateUserText 一句用户自由文字的审核（关键词库 + 网关 moderation.text）：ref 是业务引用（请求号 / 幂等键 / 日志都带它，如 job12-redo、analysis3-wish）。
+func (s *Service) moderateUserText(ctx context.Context, userID int64, ref, note, scene string) error {
 	if note == "" || !s.moderationEnabled() {
 		return nil
 	}
-	reqID := fmt.Sprintf(modRequestIDFmt, fmt.Sprintf("job%d-%s", jobID, tag))
+	reqID := fmt.Sprintf(modRequestIDFmt, ref)
 	if s.mod.words != nil {
 		if r, err := s.mod.words.Check(ctx, scene, note); err != nil {
-			logx.WithContext(ctx).Errorf("replicate: 关键词库读取失败（跳过关键词，继续网关审核） 判据=MOD_WORDS_UNAVAILABLE job=%d: %v", jobID, err)
+			logx.WithContext(ctx).Errorf("replicate: 关键词库读取失败（跳过关键词，继续网关审核） 判据=MOD_WORDS_UNAVAILABLE ref=%s: %v", ref, err)
 		} else if !r.Passed {
-			logx.WithContext(ctx).Infof("replicate: 重做备注审核未通过 判据=MODERATION_REJECTED provider=keyword job=%d", jobID)
+			logx.WithContext(ctx).Infof("replicate: 文字审核未通过 判据=MODERATION_REJECTED provider=keyword ref=%s", ref)
 			s.logMod(ctx, ModerationLog{UserID: userID, BizType: ModBizText, Provider: ModProviderKeyword, ResultStatus: ModResultRejected,
 				Scene: "keyword", Label: r.Label, RejectedTarget: summarizeText(note), Reason: modTextWords, RequestContent: note, RequestID: reqID})
 			return xerr.NewReason(xerr.ParamError, ReasonModerationRejected, modTextWords)
 		}
 	}
-	b, err := s.gatewayModerate(ctx, fmt.Sprintf("job%d-%s", jobID, tag), ModBizText, s.moderationPolicySig(), 0, false, []string{note})
+	b, err := s.gatewayModerate(ctx, ref, ModBizText, s.moderationPolicySig(), 0, false, []string{note})
 	var de *errModerationDown
 	if errors.As(err, &de) {
-		logx.WithContext(ctx).Errorf("replicate: 重做备注审核服务故障 判据=%s job=%d failOpen=%v call=%s", de.check, jobID, s.cfg.ModerationFailOpen, de.callID)
+		logx.WithContext(ctx).Errorf("replicate: 文字审核服务故障 判据=%s ref=%s failOpen=%v call=%s", de.check, ref, s.cfg.ModerationFailOpen, de.callID)
 		s.logMod(ctx, ModerationLog{UserID: userID, BizType: ModBizText, Provider: ModProviderGateway, Passed: s.cfg.ModerationFailOpen,
 			ResultStatus: ModResultError, Scene: "error", Label: de.check, Reason: "审核服务故障：" + de.check, RequestContent: note,
 			RawResponse: de.raw, RequestID: reqID, OutTaskID: de.callID})
@@ -761,7 +766,7 @@ func (s *Service) moderateJobNote(ctx context.Context, userID, jobID int64, note
 	if rejected {
 		l.ResultStatus, l.RejectedTarget, l.Reason = ModResultRejected, strings.Join(hits, ", "), modTextWords
 		s.logMod(ctx, l)
-		logx.WithContext(ctx).Infof("replicate: 重做备注审核未通过 判据=MODERATION_REJECTED provider=gateway job=%d 标签=%s", jobID, strings.Join(labels, ","))
+		logx.WithContext(ctx).Infof("replicate: 文字审核未通过 判据=MODERATION_REJECTED provider=gateway ref=%s 标签=%s", ref, strings.Join(labels, ","))
 		return xerr.NewReason(xerr.ParamError, ReasonModerationRejected, modTextWords)
 	}
 	l.ResultStatus = ModResultPassed

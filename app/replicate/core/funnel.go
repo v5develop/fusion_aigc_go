@@ -51,6 +51,8 @@ const (
 	StageWithdrawSample  = "withdraw_sample"  // 撤回已分享的示例（一投稿一次）
 	StageFeedbackUp      = "feedback_up"      // 成片反馈：满意（同一用户同一任务同一段只记一次；换了评价才再记）
 	StageFeedbackDown    = "feedback_down"    // 成片反馈：不满意
+	StageClassify        = "classify"         // 独立页素材识别（CONTRACT §AA；每次请求一条，含降级；不含参数 / 归属拒收）
+	StageWish            = "wish"             // 独立页「想怎么改」翻译成改法草稿（每次请求一条，含降级；不含拒收）
 
 	// StageAnalysisSucceedMulti 仅计数用的派生阶段：拆解成功且原片多人（主体 ≥ 2），与 analysis_succeed 同时加一，
 	// 看板据此算「多人原片占比」；不单独落库（库里用 analysis_succeed.multi_person）。

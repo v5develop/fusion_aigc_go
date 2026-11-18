@@ -72,8 +72,10 @@ func matchPrefix(prefixes []string, u *url.URL) bool {
 	return false
 }
 
-// uploadDirOwned 路径必须以 /<image|video>/<userID>/<8 位日期>/<文件名> 结尾（storage.ObjectKey 布局），且 userID 等于当前用户。
-// 不符合布局一律 false。
+// uploadDirOwned 路径必须以下面两种上传布局之一结尾，且路径里的用户 ID 等于当前用户；不符合布局一律 false（证明不了属于谁）：
+//   - Go 上传（storage.ObjectKey）：…/<image|video>/<userID>/<8 位日期>/<文件名>
+//   - Java 上传（直传 / creaft v1，fusion-aigc ObjectKeyLayout）：…/<images|videos|creaft-v1>/u<userID>/<8 位日期>/<文件名>
+//     ——「我的模特」模特库、智能体附件等经 Java 上传的图走这种布局，同样在键里写明了归属。
 func uploadDirOwned(path string, userID int64) bool {
 	segs := strings.Split(strings.TrimPrefix(path, "/"), "/")
 	n := len(segs)
@@ -81,15 +83,26 @@ func uploadDirOwned(path string, userID int64) bool {
 		return false
 	}
 	kind, uidSeg, date, file := segs[n-4], segs[n-3], segs[n-2], segs[n-1]
-	if kind != storage.KindImage && kind != storage.KindVideo {
+	if len(date) != 8 || !digits(date) || file == "" {
+		return false
+	}
+	switch {
+	case kind == storage.KindImage || kind == storage.KindVideo:
+		// Go 布局：用户 ID 是纯数字段
+	case javaUploadDirs[kind] && strings.HasPrefix(uidSeg, "u"):
+		uidSeg = uidSeg[1:] // Java 布局：u<userID>
+	default:
+		return false
+	}
+	if !digits(uidSeg) {
 		return false
 	}
 	uid, err := strconv.ParseInt(uidSeg, 10, 64)
-	if err != nil || !digits(uidSeg) || len(date) != 8 || !digits(date) || file == "" {
-		return false
-	}
-	return uid == userID
+	return err == nil && uid == userID
 }
+
+// javaUploadDirs Java 上传布局的目录段（fusion-aigc ObjectKeyLayout：直传 images / videos，creaft v1 STS 直传 creaft-v1）。
+var javaUploadDirs = map[string]bool{"images": true, "videos": true, "creaft-v1": true}
 
 func digits(s string) bool {
 	for _, c := range s {

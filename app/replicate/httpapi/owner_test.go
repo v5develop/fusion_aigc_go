@@ -32,6 +32,17 @@ func TestURLOwner(t *testing.T) {
 		"https://lib.example.cn/asset/image/7/20261113/a.png?sign=1":    true,
 		"https://cdn.douyin.com/v.mp4":                                  false,
 		"ftp://127.0.0.1:8888/files/aigc/video/7/20261113/ab.mp4":       false,
+		// Java 上传布局（直传 images|videos/u<uid>/，creaft v1 creaft-v1/u<uid>/）
+		"http://127.0.0.1:8888/files/aigc/images/u7/20261113/a.png":            true,
+		"http://127.0.0.1:8888/files/aigc/videos/u7/20261113/a.mp4":            true,
+		"http://127.0.0.1:8888/files/aigc/creaft-v1/u7/20261113/abc":           true,
+		"http://127.0.0.1:8888/files/aigc/images/u8/20261113/a.png":            false, // 别人的
+		"http://127.0.0.1:8888/files/aigc/images/7/20261113/a.png":             false, // Java 目录却没有 u 前缀
+		"http://127.0.0.1:8888/files/aigc/image/u7/20261113/a.png":             false, // Go 目录却带 u 前缀
+		"http://127.0.0.1:8888/files/aigc/images/u/20261113/a.png":             false, // 只有 u
+		"http://127.0.0.1:8888/files/aigc/images/u7x/20261113/a.png":           false,
+		"http://127.0.0.1:8888/files/aigc/staging-pub/images/u7/2026111/a.png": false, // 日期不是 8 位
+		"https://cdn.other.com/aigc/images/u7/20261113/a.png":                  false, // 不是本站存储
 	}
 	for u, want := range cases {
 		if got := own(ctx, 7, u); got != want {

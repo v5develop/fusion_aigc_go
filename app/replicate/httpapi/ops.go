@@ -491,6 +491,56 @@ func (sc *Scope) SubmitFeedback(ctx context.Context, req core.FeedbackReq) (*cor
 	return v, err
 }
 
+// ClassifyRefs 素材识别（CONTRACT §AA，免费、只读、不动账）。写入口口径（总开关关着回 7003：它会调视觉模型，暂停期间不烧成本）；限频 classify，
+// 请求被拒（参数 / 归属）或识别整体降级时退回本次额度。仅 REST 使用，智能体走对话里的附件，不经此入口。
+func (sc *Scope) ClassifyRefs(ctx context.Context, analysisNo string, images []core.ClassifyImageIn) (*core.ClassifyView, error) {
+	if analysisNo = strings.TrimSpace(analysisNo); analysisNo != "" {
+		if _, err := checkStr(analysisNo, "analysisNo"); err != nil {
+			return nil, err
+		}
+	}
+	refund, err := sc.take(ctx, ActionClassify)
+	if err != nil {
+		return nil, err
+	}
+	v, err := sc.s.ClassifyRefs(sc.ctx(ctx), core.ClassifyReq{UserID: sc.uid, AnalysisNo: analysisNo, Images: images})
+	if err != nil || allDegraded(v) {
+		refund()
+	}
+	return v, err
+}
+
+func allDegraded(v *core.ClassifyView) bool {
+	if v == nil || !v.Degraded {
+		return false
+	}
+	for _, it := range v.Items {
+		if it.Confidence > 0 {
+			return false
+		}
+	}
+	return true
+}
+
+// Wish 「想怎么改」翻译成改法草稿（CONTRACT §AA，免费、只读：不建方案、不预留、不扣点）。写入口口径（同上）；限频 wish，请求被拒或降级时退回额度。
+// 仅 REST 使用（独立页）；智能体在对话里自己出方案，不经此入口。
+func (sc *Scope) Wish(ctx context.Context, req core.WishReq) (*core.WishView, error) {
+	no, err := checkStr(req.AnalysisNo, "no")
+	if err != nil {
+		return nil, err
+	}
+	req.AnalysisNo, req.UserID = no, sc.uid
+	refund, err := sc.take(ctx, ActionWish)
+	if err != nil {
+		return nil, err
+	}
+	v, err := sc.s.Wish(sc.ctx(ctx), req)
+	if err != nil || (v != nil && v.Degraded) {
+		refund()
+	}
+	return v, err
+}
+
 // ExportRatio 多比例导出（CONTRACT §N，免费、无同意卡；每成片每比例每模式一次，结果自动入素材库）。写入口。
 func (sc *Scope) ExportRatio(ctx context.Context, jobID int64, ratio, mode string) (*core.ExportView, error) {
 	if err := checkID(jobID, "job_id"); err != nil {

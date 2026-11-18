@@ -56,6 +56,8 @@ type Service struct {
 	shares ShareStore
 	// feedback 成片反馈（feedback.go，可选；不装配时反馈回 7003）
 	feedback FeedbackStore
+	// classifyCache 素材识别结果缓存（classify.go；默认进程级单例，测试可换）
+	classifyCache *classifyCache
 }
 
 // Option 装配可选依赖。
@@ -96,7 +98,7 @@ func WithOwner(o string) Option { return func(s *Service) { s.owner = o } }
 
 // New 装配。store 与 ledger 必填。
 func New(cfg Config, store Store, ledger Ledger, opts ...Option) *Service {
-	s := &Service{cfg: cfg.withDefaults(), store: store, ledger: ledger, now: time.Now, policy: DefaultPolicy{}}
+	s := &Service{cfg: cfg.withDefaults(), store: store, ledger: ledger, now: time.Now, policy: DefaultPolicy{}, classifyCache: sharedClassifyCache}
 	for _, o := range opts {
 		o(s)
 	}

@@ -35,6 +35,8 @@ func Register(server *rest.Server, auth rest.Middleware, m *Module) {
 		r(po, "/plans", h.createPlan, true),
 		r(po, "/plans/:no/quote", h.quotePlan, true),
 		r(po, "/plans/:no/confirm", h.confirm, true),
+		r(po, "/refs:classify", h.classifyRefs, true), // 独立页素材识别（CONTRACT §AA）：免费、只读、限频；批量 ≤9 张一次视觉调用
+		r(po, "/analyses/:no/wish", h.wish, true),     // 独立页「想怎么改」→ 改法草稿（CONTRACT §AA）：免费、不建方案、不扣点、限频
 		r(g, "/jobs", h.jobs, false),
 		r(g, "/jobs/:id", h.job, false),
 		r(g, "/jobs/:id/exports", h.exports, false), // 当前成片的多比例导出清单（只读，现签新地址；§N）
@@ -364,4 +366,47 @@ func (h *handlers) feedback(_ http.ResponseWriter, r *http.Request, sc *Scope) (
 		return nil, err
 	}
 	return sc.SubmitFeedback(r.Context(), core.FeedbackReq{JobID: id, Rating: body.Rating, Reasons: body.Reasons, SegIndex: body.SegIndex, Note: body.Note})
+}
+
+// classifyRefs POST /refs:classify：素材识别（CONTRACT §AA）。images[i] = {rid} 或 {url}（二选一）；index 从 1 起，按 images 顺序。
+func (h *handlers) classifyRefs(_ http.ResponseWriter, r *http.Request, sc *Scope) (any, error) {
+	var body struct {
+		AnalysisNo string `json:"analysisNo"`
+		Images     []struct {
+			Rid string `json:"rid"`
+			URL string `json:"url"`
+		} `json:"images"`
+	}
+	if err := decode(r, &body); err != nil {
+		return nil, err
+	}
+	imgs := make([]core.ClassifyImageIn, len(body.Images))
+	for i, im := range body.Images {
+		imgs[i] = core.ClassifyImageIn{Rid: im.Rid, URL: im.URL}
+	}
+	return sc.ClassifyRefs(r.Context(), body.AnalysisNo, imgs)
+}
+
+// wish POST /analyses/:no/wish：「想怎么改」翻译（CONTRACT §AA）。不创建方案、不扣点。
+func (h *handlers) wish(_ http.ResponseWriter, r *http.Request, sc *Scope) (any, error) {
+	no, err := pathStr(r, "no")
+	if err != nil {
+		return nil, err
+	}
+	var body struct {
+		Text string `json:"text"`
+		Refs []struct {
+			Index     int    `json:"index"`
+			Kind      string `json:"kind"`
+			SubjectID string `json:"subjectId"`
+		} `json:"refs"`
+	}
+	if err := decode(r, &body); err != nil {
+		return nil, err
+	}
+	refs := make([]core.WishRefIn, len(body.Refs))
+	for i, x := range body.Refs {
+		refs[i] = core.WishRefIn{Index: x.Index, Kind: x.Kind, SubjectID: x.SubjectID}
+	}
+	return sc.Wish(r.Context(), core.WishReq{AnalysisNo: no, Text: body.Text, Refs: refs})
 }

@@ -245,26 +245,36 @@ func (s *Service) generateCopy(ctx context.Context, j *model.Job, doc *ResultDoc
 
 // chatText 调网关 chat.completion 并等到终态，返回正文。超时 / 失败 / 无正文 → error。
 func (s *Service) chatText(ctx context.Context, key, system, user string, labels map[string]string, maxCost, trace string) (string, string, error) {
-	req := aigateway.CallRequest{Operation: "chat.completion", ModelGroup: s.copyModelGroup(),
-		Input: map[string]any{"messages": []map[string]any{{"role": "system", "content": system}, {"role": "user", "content": user}},
-			"temperature": 0.7},
+	msgs := []map[string]any{{"role": "system", "content": system}, {"role": "user", "content": user}}
+	return s.chatCall(ctx, s.copyModelGroup(), s.cfg.CopyWait, 0.7, key, msgs, labels, maxCost, trace)
+}
+
+// chatCall 通用的网关 chat.completion 同步调用（发布文案 / 素材识别 / 想怎么改共用）：group 模型组，wait 总等待上限，
+// messages 已按网关格式组好（content 可以是字符串，也可以是带 image_url 的分段数组）。
+func (s *Service) chatCall(ctx context.Context, group string, wait time.Duration, temperature float64, key string, messages []map[string]any,
+	labels map[string]string, maxCost, trace string) (string, string, error) {
+	if s.gw == nil || strings.TrimSpace(group) == "" {
+		return "", "", fmt.Errorf("网关或模型组未配置")
+	}
+	req := aigateway.CallRequest{Operation: "chat.completion", ModelGroup: group,
+		Input:  map[string]any{"messages": messages, "temperature": temperature},
 		Labels: labels}
 	if mc := strings.TrimSpace(maxCost); mc != "" {
 		req.Limits = &aigateway.Limits{MaxCost: mc}
 	} else if mc := strings.TrimSpace(s.cfg.MaxCostCNY); mc != "" {
 		req.Limits = &aigateway.Limits{MaxCost: mc}
 	}
-	wctx, cancel := context.WithTimeout(ctx, s.cfg.CopyWait)
+	wctx, cancel := context.WithTimeout(ctx, wait)
 	defer cancel()
-	call, err := s.gw.Submit(wctx, req, aigateway.SubmitOptions{IdempotencyKey: key, Wait: min(s.cfg.CopyWait, 60*time.Second), TraceID: trace, RetryFailed: true})
+	call, err := s.gw.Submit(wctx, req, aigateway.SubmitOptions{IdempotencyKey: key, Wait: min(wait, 60*time.Second), TraceID: trace, RetryFailed: true})
 	if err != nil {
 		return "", "", err
 	}
 	for call != nil && !call.IsTerminal() {
 		if wctx.Err() != nil {
-			return "", call.ID, fmt.Errorf("等待超过 %s", s.cfg.CopyWait)
+			return "", call.ID, fmt.Errorf("等待超过 %s", wait)
 		}
-		if call, err = s.gw.Get(wctx, call.ID, min(25*time.Second, s.cfg.CopyWait)); err != nil {
+		if call, err = s.gw.Get(wctx, call.ID, min(25*time.Second, wait)); err != nil {
 			return "", "", err
 		}
 	}
