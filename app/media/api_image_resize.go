@@ -126,7 +126,7 @@ func (s *Service) ResizeImage(ctx context.Context, in string, width, height int,
 	}
 	// -update 1：image2 muxer 对没有序号模式的单文件输出要求显式声明，否则不写文件
 	args = append(args, "-map", "[out]", "-frames:v", "1", "-update", "1", out)
-	if err := s.run(ctx, s.ffmpeg(), args...); err != nil {
+	if err := s.runLight(ctx, s.ffmpeg(), args...); err != nil {
 		return classifyFFmpeg(ctx, err, "图片缩放失败")
 	}
 	return nil
@@ -135,7 +135,7 @@ func (s *Service) ResizeImage(ctx context.Context, in string, width, height int,
 // hasTranslucent 任一像素 alpha != 255 即为 true（与 Java hasTranslucentPixel 同口径）。在计算名额内执行。
 func (s *Service) hasTranslucent(ctx context.Context, file string) (bool, error) {
 	var found bool
-	err := s.compute(ctx, func() error {
+	err := s.computeLight(ctx, func() error {
 		var err error
 		found, err = s.scanTranslucent(ctx, file)
 		return err

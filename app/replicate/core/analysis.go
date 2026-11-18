@@ -440,7 +440,7 @@ func (s *Service) callGateway(ctx context.Context, fz *AnalysisFrozen, callID *s
 		return nil, errors.New("ai-gateway 未配置")
 	}
 	if *callID != "" {
-		return s.gw.Get(ctx, *callID, s.cfg.PollWait)
+		return s.pollCall(ctx, *callID)
 	}
 	if mc := strings.TrimSpace(fz.MaxCostCNY); mc != "" {
 		req.Limits = &aigateway.Limits{MaxCost: mc}

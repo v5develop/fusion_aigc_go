@@ -11,7 +11,7 @@ import (
 )
 
 func TestResolveDefaults(t *testing.T) {
-	cases := map[string]int{"canvas": 30, "studio": 30, "admin-api": 10, "gateway-api": 20, "note": 10, "unknown": 10}
+	cases := map[string]int{"canvas": 30, "studio": 30, "admin-api": 10, "gateway-api": 48, "note": 10, "unknown": 10}
 	for svc, want := range cases {
 		l := Resolve(svc, Config{})
 		if l.MaxOpen != want || l.MaxIdle != min(want, 10) || l.Lifetime != 30*time.Minute {
@@ -71,7 +71,7 @@ func TestDefaultsTotal(t *testing.T) {
 	for _, v := range ServiceDefaults {
 		sum += v
 	}
-	if sum != 140 {
+	if sum != 168 {
 		t.Fatalf("total=%d", sum)
 	}
 }

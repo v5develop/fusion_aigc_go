@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"strings"
 	"sync"
@@ -74,6 +75,12 @@ const (
 	KeyModerationConfirmWait = "replicate.moderation.confirm_wait_ms"   // int 500~10000，默认 3000：确认时等后台预审结论的上限
 	KeyModerationPlanWait    = "replicate.moderation.plan_wait_ms"      // int 0~5000，默认 0：生成方案时等预审结论（0 = 不等，立即返回）
 
+	// 后台调度器（CONTRACT §AC）：三条车道的并发上限，库里有且合法时覆盖 Replicate.EngineConcurrency / AnalysisConcurrency / DeliveryConcurrency
+	// （数据库 > 文件配置；60 秒内生效，调小只是暂停补位、不打断在途的）。调大前先核 DB 连接池（docs/api/db-pool.md）。
+	KeyEngineConcurrency   = "replicate.engine.concurrency"          // int 1~64，job 车道（默认 16）
+	KeyAnalysisConcurrency = "replicate.engine.analysis_concurrency" // int 1~32，分析车道（默认 8）
+	KeyDeliveryConcurrency = "replicate.engine.delivery_concurrency" // int 1~32，入素材库车道（默认 8）
+
 	// 限频（P0-4）：每用户 分析 / 方案 / 确认 的每分钟与每日上限（0 = 不限），全局在途 job 上限（0 = 不限）
 	KeyRateAnalysisPerMinute = "replicate.rate.analysis_per_minute" // 默认 5
 	KeyRateAnalysisPerDay    = "replicate.rate.analysis_per_day"    // 默认 20
@@ -111,6 +118,8 @@ type Params struct {
 	Longform *bool
 	Cfg      core.Config
 	Rate     RateParams
+	// Engine 后台调度器车道并发（只记库里有且合法的项，其余为 0 = 用 yaml / 默认）
+	Engine core.EngineSizes
 }
 
 // loader 读 afv_system_config 里 replicate 相关的全部行：返回 键 → 值。
@@ -317,6 +326,15 @@ func applyParams(base core.Config, longformYAML bool, kv map[string]string) Para
 			*x.dst = v
 		}
 	}
+	for _, x := range []struct {
+		key string
+		hi  int
+		dst *int
+	}{{KeyEngineConcurrency, 64, &p.Engine.Job}, {KeyAnalysisConcurrency, 32, &p.Engine.Analysis}, {KeyDeliveryConcurrency, 32, &p.Engine.Delivery}} {
+		if v, ok := intOf(x.key, 1, x.hi); ok {
+			*x.dst = v
+		}
+	}
 	if raw, ok := kv[KeyConfirmThreshold]; ok {
 		if v, err := strconv.ParseInt(raw, 10, 64); err != nil || v < 0 || v > 100000000 {
 			warn(KeyConfirmThreshold, raw, "不是 0~100000000 的整数")
@@ -347,18 +365,24 @@ type Runtime struct {
 	longformYAML bool
 	// enabledYAML 总开关的文件默认值（Replicate.Enabled）：库里 replicate.enabled 缺省或非法时用它
 	enabledYAML bool
-	build       func(cfg core.Config, longform bool) *core.Service
-	load        loader
-	now         func() time.Time
+	// engineYAML 调度器车道并发的文件配置（Replicate.EngineConcurrency 等）；库里有且合法的项覆盖
+	engineYAML core.EngineSizes
+	build      func(cfg core.Config, longform bool) *core.Service
+	load       loader
+	now        func() time.Time
 
 	mu      sync.Mutex
 	at      time.Time
 	svc     *core.Service
 	enabled bool
 	rate    RateParams
-	loaded  bool // 至少成功读过一次运行参数（后台强制收尾据此拒绝在没读到参数时动钱）
-	sig     string
-	warned  time.Time
+	engine  core.EngineSizes
+	// poolMax DB 连接池上限（nil / 0 = 不封顶）；capWarned 上次压低告警的原因（去重）
+	poolMax   func() int
+	capWarned string
+	loaded    bool // 至少成功读过一次运行参数（后台强制收尾据此拒绝在没读到参数时动钱）
+	sig       string
+	warned    time.Time
 }
 
 func newRuntime(base core.Config, longformYAML bool, load loader, build func(core.Config, bool) *core.Service) *Runtime {
@@ -407,7 +431,79 @@ func (r *Runtime) Service(ctx context.Context) (*core.Service, bool) {
 	}
 	r.enabled = p.Enabled
 	r.rate = p.Rate
+	r.engine = mergeSizes(r.engineYAML, p.Engine)
 	return r.svc, r.enabled
+}
+
+// mergeSizes 库里有的项（>0）覆盖文件配置。
+func mergeSizes(yaml, db core.EngineSizes) core.EngineSizes {
+	if db.Job > 0 {
+		yaml.Job = db.Job
+	}
+	if db.Analysis > 0 {
+		yaml.Analysis = db.Analysis
+	}
+	if db.Delivery > 0 {
+		yaml.Delivery = db.Delivery
+	}
+	return yaml
+}
+
+// EngineSizes 当前调度器车道并发（文件配置 ← 库里覆盖，随运行参数 60 秒刷新），再按 DB 连接池封顶（capPool）。
+func (r *Runtime) EngineSizes() core.EngineSizes {
+	r.mu.Lock()
+	z := r.engine
+	if r.svc == nil {
+		z = r.engineYAML
+	}
+	pool := r.poolMax
+	r.mu.Unlock()
+	maxOpen := 0
+	if pool != nil {
+		maxOpen = pool()
+	}
+	capped, why := capPool(z, maxOpen)
+	if why != "" {
+		r.warnCap(why)
+	}
+	return capped
+}
+
+// 连接余量（调度器 worker 之外同时可能占连接的）：HTTP 请求 dbHTTPReserve + 后台 dbBackgroundConns
+// （3 个取数协程、1 个在途调用批量查（InFlightCalls）、2 个租约心跳、1 个任务中心同步 / 灵感推荐协程）。
+const (
+	dbHTTPReserve     = 8
+	dbBackgroundConns = 7
+)
+
+// capPool 车道并发合计不得超过「连接池上限 − 余量」：超了按比例压低（每车道至少 1），返回压低原因（没压为空）。
+// maxOpen ≤ 0（不限 / 读不到）不封顶。
+func capPool(z core.EngineSizes, maxOpen int) (core.EngineSizes, string) {
+	z = z.Normalized()
+	if maxOpen <= 0 {
+		return z, ""
+	}
+	allowed := max(maxOpen-dbHTTPReserve-dbBackgroundConns, 3)
+	total := z.Job + z.Analysis + z.Delivery
+	if total <= allowed {
+		return z, ""
+	}
+	scale := func(v int) int { return max(1, v*allowed/total) }
+	c := core.EngineSizes{Job: scale(z.Job), Analysis: scale(z.Analysis), Delivery: scale(z.Delivery)}
+	why := fmt.Sprintf("配置并发 job=%d 分析=%d 入库=%d 合计 %d > 连接池 %d − 余量 %d（HTTP %d + 后台 %d），按比例压到 job=%d 分析=%d 入库=%d",
+		z.Job, z.Analysis, z.Delivery, total, maxOpen, dbHTTPReserve+dbBackgroundConns, dbHTTPReserve, dbBackgroundConns, c.Job, c.Analysis, c.Delivery)
+	return c, why
+}
+
+// warnCap 压低时告警（同一原因只打一次；运行时覆盖改了、池变了会再打）。
+func (r *Runtime) warnCap(why string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if why == r.capWarned {
+		return
+	}
+	r.capWarned = why
+	logx.Errorf("replicate: WARN 判据=ENGINE_DB_POOL_CAP %s；调大 gateway-api 的 DB.MaxOpenConns 或调小 Replicate.*Concurrency / replicate.engine.*（docs/api/db-pool.md）", why)
 }
 
 // validBool 库里的布尔值能否识别（与 applyParams 的 boolOf 同一套写法；空串缺省按「没配」）。

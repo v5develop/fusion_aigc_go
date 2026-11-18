@@ -194,11 +194,14 @@ func MustBuild(c Conf, conn sqlx.SqlConn, opts ...BuildOption) *Module {
 	}
 	rt := newRuntime(base, c.LongformEnabled, systemConfigLoader(conn), build)
 	rt.enabledYAML = c.Enabled
+	rt.engineYAML = core.EngineSizes{Job: c.EngineConcurrency, Analysis: c.AnalysisConcurrency, Delivery: c.DeliveryConcurrency}
+	rt.poolMax = dbPoolMax(conn)
 	ttl := time.Duration(c.LeaseSeconds) * time.Second
 	if ttl < 30*time.Second {
 		ttl = 120 * time.Second
 	}
-	m := &Module{rt: rt, Poller: newPoller(rt, newLeaseGuard(db, ttl), time.Duration(c.PollIntervalMs)*time.Millisecond, c.BatchSize),
+	m := &Module{rt: rt, Poller: newPoller(rt, newLeaseGuard(db, ttl), time.Duration(c.PollIntervalMs)*time.Millisecond, c.BatchSize,
+		time.Duration(c.StopGraceMs)*time.Millisecond),
 		limiter: newRateLimiter(bo.rds, store.CountInFlight)}
 	if c.TaskCenterEnabled {
 		sy := taskcenter.New(conn, 10*time.Minute, TaskSource())
@@ -208,6 +211,17 @@ func MustBuild(c Conf, conn sqlx.SqlConn, opts ...BuildOption) *Module {
 		logx.Info("replicate: Replicate.TaskCenterEnabled=false，视频做同款不进任务中心")
 	}
 	return m
+}
+
+// dbPoolMax gateway-api 共享连接池上限（每次现读：dbpool 设限可能在库恢复后才生效）；0 = 不限 / 读不到。
+func dbPoolMax(conn sqlx.SqlConn) func() int {
+	return func() int {
+		raw, err := conn.RawDB()
+		if err != nil || raw == nil {
+			return 0
+		}
+		return raw.Stats().MaxOpenConnections
+	}
 }
 
 // blockWords 敏感词：与 AI 文案 / studio 共用 afv_copywriting_option 的 BLOCKWORD 词库（运营维护）。

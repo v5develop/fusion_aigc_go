@@ -145,11 +145,42 @@ const dueOrder = "next_run_at IS NOT NULL, next_run_at, id"
 
 // DueAnalyses 排队 / 进行中、租约空闲、next_run_at 已到的分析，按 next_run_at 升序。
 func (r *Repo) DueAnalyses(ctx context.Context, limit int) ([]int64, error) {
-	var ids []int64
-	err := r.db.NewSelect().Table(model.TableAnalysis).Column("id").
+	items, err := r.DueAnalysesAt(ctx, limit)
+	return dueIDs(items), err
+}
+
+// dueRow 到期查询的一行（id + next_run_at，后者给调度器打排队时长指标）。
+type dueRow struct {
+	ID        int64      `bun:"id"`
+	NextRunAt *time.Time `bun:"next_run_at"`
+}
+
+func dueItems(rows []dueRow) []core.DueItem {
+	out := make([]core.DueItem, len(rows))
+	for i, x := range rows {
+		out[i] = core.DueItem{ID: x.ID, NextRunAt: x.NextRunAt}
+	}
+	return out
+}
+
+func dueIDs(items []core.DueItem) []int64 {
+	if items == nil {
+		return nil
+	}
+	ids := make([]int64, len(items))
+	for i, x := range items {
+		ids[i] = x.ID
+	}
+	return ids
+}
+
+// DueAnalysesAt 同 DueAnalyses，带 next_run_at（core.DueAtStore）。
+func (r *Repo) DueAnalysesAt(ctx context.Context, limit int) ([]core.DueItem, error) {
+	var rows []dueRow
+	err := r.db.NewSelect().Table(model.TableAnalysis).Column("id", "next_run_at").
 		Where("status IN (?)", bun.In([]int8{model.AnalysisQueued, model.AnalysisRunning})).Where(lease.FreeCond("")).
-		Where(dueCond).OrderExpr(dueOrder).Limit(int64(limit)).Scan(ctx, &ids)
-	return ids, err
+		Where(dueCond).OrderExpr(dueOrder).Limit(int64(limit)).Scan(ctx, &rows)
+	return dueItems(rows), err
 }
 
 // reschedule next_run_at = 库时钟 + delay；显式 updated_at = updated_at，不触发自动更新（updated_at 是提交 / 继续的心跳）。
@@ -455,10 +486,13 @@ func (r *Repo) AddRedo(ctx context.Context, step *model.Step, charge *model.Char
 //
 // 推过的 job 由 Service 写回 next_run_at（在途 3 秒、有未结镜像 ≤2 分钟、其余按年龄退避），排到后面，limit 再小也不会饿死。
 func (r *Repo) DueJobs(ctx context.Context, limit int) ([]int64, error) {
-	type row struct {
-		ID        int64      `bun:"id"`
-		NextRunAt *time.Time `bun:"next_run_at"`
-	}
+	items, err := r.DueJobsAt(ctx, limit)
+	return dueIDs(items), err
+}
+
+// DueJobsAt 同 DueJobs，带 next_run_at（core.DueAtStore）。
+func (r *Repo) DueJobsAt(ctx context.Context, limit int) ([]core.DueItem, error) {
+	type row = dueRow
 	const due = "(j.next_run_at IS NULL OR j.next_run_at <= NOW(3))"
 	order := "j.next_run_at IS NOT NULL, j.next_run_at, j.id"
 	base := func() *bun.SelectQuery {
@@ -500,14 +534,32 @@ func (r *Repo) DueJobs(ctx context.Context, limit int) ([]int64, error) {
 		}
 		return all[a].ID < all[b].ID
 	})
-	ids := make([]int64, 0, min(len(all), limit))
-	for _, x := range all {
-		if len(ids) >= limit {
-			break
-		}
-		ids = append(ids, x.ID)
+	if len(all) > limit {
+		all = all[:limit]
 	}
-	return ids, nil
+	return dueItems(all), nil
+}
+
+// InFlightCalls 这批 job 里在途（RUNNING 且已有网关调用号）的步骤（出片 / 写手）的调用号（core.InFlightCallStore；走步骤表 job_id 索引）。
+func (r *Repo) InFlightCalls(ctx context.Context, jobIDs []int64) (map[int64][]string, error) {
+	if len(jobIDs) == 0 {
+		return nil, nil
+	}
+	var rows []struct {
+		JobID  int64  `bun:"job_id"`
+		CallID string `bun:"gateway_call_id"`
+	}
+	err := r.db.NewSelect().Table(model.TableStep).Column("job_id", "gateway_call_id").
+		Where("job_id IN (?)", bun.In(jobIDs)).Where("status = ?", model.StepRunning).
+		Where("gateway_call_id IS NOT NULL AND gateway_call_id <> ''").Scan(ctx, &rows)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[int64][]string, len(rows))
+	for _, x := range rows {
+		out[x.JobID] = append(out[x.JobID], x.CallID)
+	}
+	return out, nil
 }
 
 // AcquireJobLease / ReleaseJobLease Poller 用：同一 job 同一时刻只由一个实例推进。

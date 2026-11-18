@@ -49,9 +49,22 @@ type Config struct {
 	MaxSourcePixels int64 `json:",default=100000000"`
 	// MaxComposeInputs 合成一次最多拼几段
 	MaxComposeInputs int `json:",default=50"`
-	// MaxConcurrent 同时执行的计算（ffmpeg / ffprobe / 图像运算）数；下载与上传另有输入名额（4 倍）。
-	// 排队超过 min(OpTimeoutSeconds, 120s) 返回 503 让调用方稍后重试
-	MaxConcurrent int `json:",default=4"`
+	// 名额分三条通道，互不排队（见 lanes.go）：视频算力 / 轻算力 / I/O。排队超过 min(OpTimeoutSeconds, QueueWaitSeconds)
+	// 返回 503 transient 让调用方稍后重试。三个值都为 0（不配）时按机器核数推导。
+	//
+	// VideoCompute 视频 ffmpeg（转码 / 合成 / 重构图 / 抽帧 / 抽音轨 / 视频解码检查）并发数。
+	// 默认 max(4, 有效核数 / FFmpegThreads)（有效核数取 min(GOMAXPROCS, cgroup 配额)；不低于旧默认 4）。
+	VideoCompute int `json:",optional"`
+	// LightCompute 轻算力（ffprobe 与图片 ffmpeg / 像素处理）并发数。默认 有效核数 * 2。
+	LightCompute int `json:",optional"`
+	// LightThreads 轻通道里每个 ffmpeg 进程的线程数，默认 1（图片单帧处理多线程没有收益，且轻通道名额多，避免 CPU 超订）。
+	LightThreads int `json:",optional"`
+	// IO 下载、请求体读取、对象存储读写与服务端复制的并发数。默认 32。
+	IO int `json:",optional"`
+	// MaxConcurrent 旧配置项，向后兼容：仅当 VideoCompute 未配置时作为 VideoCompute 的别名；对 LightCompute / IO 不再有影响。
+	MaxConcurrent int `json:",optional"`
+	// QueueWaitSeconds 排队等名额的时长上限（秒），默认 120；实际取它与 OpTimeoutSeconds 的较小值。超时返回 503 transient
+	QueueWaitSeconds int `json:",optional"`
 	// FetchTimeoutSeconds 单个输入下载的总时长上限，默认 1800（生产值，大视频下载慢）。必须为正数：0 会让下载不设时限（Validate 拒绝）
 	FetchTimeoutSeconds int `json:",default=1800"`
 	// OpTimeoutSeconds 单次请求（下载之外的处理，含 ffmpeg 与校验）的时长上限，也是 deadline_ms 的上限，默认 1800（生产值）。

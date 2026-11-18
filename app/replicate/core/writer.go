@@ -273,7 +273,7 @@ func (s *Service) advanceWriter(ctx context.Context, j *model.Job, in *JobInput,
 			return
 		}
 		st.GatewayCallID = ptr(call.ID)
-	} else if call, err = s.gw.Get(ctx, *st.GatewayCallID, s.cfg.PollWait); err != nil {
+	} else if call, err = s.pollCall(ctx, *st.GatewayCallID); err != nil {
 		return
 	}
 	if !call.IsTerminal() {

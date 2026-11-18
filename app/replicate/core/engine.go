@@ -1401,7 +1401,7 @@ func (s *Service) pollStep(ctx context.Context, j *model.Job, in *JobInput, st *
 		}
 		st.GatewayCallID = ptr(call.ID)
 	} else {
-		call, err = s.gw.Get(ctx, *st.GatewayCallID, s.cfg.PollWait)
+		call, err = s.pollCall(ctx, *st.GatewayCallID) // 调度器批量查过的直接用，否则单个 Get
 		if err != nil {
 			return
 		}
@@ -1865,47 +1865,27 @@ func (s *Service) generateRequest(ctx context.Context, j *model.Job, in *JobInpu
 }
 
 // Guard 推进前抢行租约（生产实现见 app/replicate/httpapi：pkg/lease.Set，表 afv_replicate_analysis / afv_replicate_job）。
-// Acquire=false 表示别的实例正在推进这一行，本轮跳过；推进完成后 Release。
+// Acquire：ok=false 且 err=nil 表示别的执行者正在推进这一行，本轮跳过；err 非空是抢租约本身出错（库故障），调用方应短暂退避。
+// 抢到时返回租约派生的 ctx：租约丢失（被别人持有 / 长时间续不上）时取消，推进随之停手。推进完成后 Release（也会取消该 ctx）。
 type Guard interface {
-	Acquire(ctx context.Context, table string, id int64) bool
+	Acquire(ctx context.Context, table string, id int64) (lctx context.Context, ok bool, err error)
 	Release(ctx context.Context, table string, id int64)
 }
 
-// Tick Poller 一轮：取到期的分析与 job，逐个推进（不抢租约，单实例 / 单测用；多实例用 TickGuarded）。
+// Tick 取到期的分析与 job，单协程逐个推进（不抢租约，单测用）。生产由 scheduler.go 的 Engine 分车道并发推进（CONTRACT §AC）。
 func (s *Service) Tick(ctx context.Context, limit int) { s.TickGuarded(ctx, limit, nil) }
 
 // TickGuarded 同 Tick，但每一行推进前先经 g 抢行租约（g 为 nil 时不抢）。
 // 每推进一行就写回 next_run_at（在途短间隔、其余按年龄退避），DueJobs / DueAnalyses 按它升序取，任何一行都不会被饿死。
 func (s *Service) TickGuarded(ctx context.Context, limit int, g Guard) {
-	if ids, err := s.store.DueAnalyses(ctx, limit); err == nil {
-		for _, id := range ids {
-			if g != nil && !g.Acquire(ctx, model.TableAnalysis, id) {
-				continue
-			}
-			delay := s.advanceAnalysisBurst(ctx, id)
-			if err := s.store.RescheduleAnalysis(ctx, id, delay); err != nil {
-				logx.WithContext(ctx).Errorf("replicate: 写分析 next_run_at 失败 analysis=%d: %v", id, err)
-			}
-			if g != nil {
-				g.Release(ctx, model.TableAnalysis, id)
-			}
+	if items, err := s.DueAnalysisItems(ctx, limit); err == nil {
+		for _, it := range items {
+			s.ProcessAnalysis(ctx, it.ID, g)
 		}
 	}
-	if ids, err := s.store.DueJobs(ctx, limit); err == nil {
-		for _, id := range ids {
-			if g != nil && !g.Acquire(ctx, model.TableJob, id) {
-				continue
-			}
-			err := s.Advance(ctx, id)
-			if err != nil {
-				logx.WithContext(ctx).Errorf("replicate: 推进 job=%d 失败: %v", id, err)
-			}
-			if rerr := s.store.RescheduleJob(ctx, id, s.jobDelay(ctx, id, err)); rerr != nil {
-				logx.WithContext(ctx).Errorf("replicate: 写 job next_run_at 失败 job=%d: %v", id, rerr)
-			}
-			if g != nil {
-				g.Release(ctx, model.TableJob, id)
-			}
+	if items, err := s.DueJobItems(ctx, limit); err == nil {
+		for _, it := range items {
+			s.ProcessJob(ctx, it.ID, g)
 		}
 	}
 }

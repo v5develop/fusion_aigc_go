@@ -247,7 +247,7 @@ func (s *Server) imageWatermark(w http.ResponseWriter, r *http.Request) {
 			args = append(args, "-q:v", "3")
 		}
 		args = append(args, "-update", "1", out)
-		if err := s.svc.run(ctx, s.svc.ffmpeg(), args...); err != nil {
+		if err := s.svc.runLight(ctx, s.svc.ffmpeg(), args...); err != nil {
 			return nil, imageFailure(ctx, err, "image.watermark_failed")
 		}
 		return s.storeFile(ctx, req.Purpose, out)
@@ -480,7 +480,7 @@ func (s *Server) imageGrid(w http.ResponseWriter, r *http.Request) {
 		}
 		out := workFile(dir, "grid.png")
 		args = append(args, "-filter_complex", b.String(), "-map", "[out]", "-frames:v", "1", "-update", "1", out)
-		if err := s.svc.run(ctx, s.svc.ffmpeg(), args...); err != nil {
+		if err := s.svc.runLight(ctx, s.svc.ffmpeg(), args...); err != nil {
 			return nil, imageFailure(ctx, err, "image.grid_failed")
 		}
 		return s.storeFile(ctx, req.Purpose, out)
@@ -576,7 +576,7 @@ func (s *Server) imageCrop(w http.ResponseWriter, r *http.Request) {
 		for i := range rects {
 			args = append(args, "-map", fmt.Sprintf("[o%d]", i), "-frames:v", "1", "-update", "1", outs[i])
 		}
-		if err := s.svc.run(ctx, s.svc.ffmpeg(), args...); err != nil {
+		if err := s.svc.runLight(ctx, s.svc.ffmpeg(), args...); err != nil {
 			return nil, imageFailure(ctx, err, "image.crop_failed")
 		}
 		base := idemKeyOf(ctx)

@@ -61,7 +61,11 @@ func newFetcher(cfg Config) *fetcher {
 			return nil
 		},
 	}
-	transport := &http.Transport{DialContext: dialer.DialContext, Proxy: nil}
+	// 下载经网关转存时对同一批 CDN 主机并发很高；默认每主机空闲连接只有 2，调大以复用连接
+	transport := &http.Transport{
+		DialContext: dialer.DialContext, Proxy: nil,
+		MaxIdleConns: 256, MaxIdleConnsPerHost: 32, IdleConnTimeout: 90 * time.Second,
+	}
 	return &fetcher{
 		client: &http.Client{
 			Transport: transport,

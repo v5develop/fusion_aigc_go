@@ -1,6 +1,10 @@
 Name: gateway-api
 Host: 0.0.0.0
 Port: 8888
+# go-zero 收到 SIGTERM 后的强杀时间（默认 5.5s）。视频做同款后台调度器停机最长 = Replicate.StopGraceMs(4s) + 释放租约 / 认领 1s + 等 worker 1s + 兜底释放 0.5s ≈ 6.5s，
+# 须小于它，否则租约放不掉、要等 LeaseSeconds 过期才能被其它实例接手（docs/api/api-replicate.md §5.2）。
+Shutdown:
+  WaitTime: 10s
 Mode: dev
 Timeout: 60000
 MaxBytes: 11534336   # 请求体上限 11MB（上传照片 10MB）
@@ -42,9 +46,10 @@ NoteRpc:
   NonBlock: true
 # 仅 Storage.Mode=oss 时需要（读 afv_system_config 的公有桶配置）
 DataSource: root:123456@tcp(127.0.0.1:3306)/fusion_aigc?charset=utf8mb4&parseTime=true&loc=Asia%2FShanghai&time_zone=%27%2B08%3A00%27
-# 连接池上限（可选，不写即用默认：MaxOpenConns=20，MaxIdleConns=min(open,10)，ConnMaxLifetimeSeconds=1800；全服务汇总见 docs/api/db-pool.md）
-# DB:
-#   MaxOpenConns: 20
+# 连接池上限（不写即用 pkg/dbpool 默认 MaxOpenConns=40，MaxIdleConns=min(open,10)，ConnMaxLifetimeSeconds=1800；全服务汇总见 docs/api/db-pool.md）。
+# 视频做同款调度器默认 32 个 worker + 余量 15 = 47，这里显式给 48；不配的话调度器会按比例压到约 25 个 worker 并告警。
+DB:
+  MaxOpenConns: 48
 Storage:                # 须与 digitalhuman-rpc 一致
   Mode: local
   Prefix: aigc-local-life
@@ -89,6 +94,16 @@ CanvasRpc:              # 画布 + 提示词库（/api/v1/canvas、/api/v1/promp
 Replicate:              # 视频做同款（/api/v1/replicate/**，docs/api/api-replicate.md）；默认关，运行参数见 afv_system_config 的 replicate.*
   Enabled: false        # 总开关默认值：afv_system_config.replicate.enabled 存在时以库为准（数据库 > 文件配置）；关着只拦新提交，读接口 / 轮询器照常
   Billing: {Mode: "off"} # off / shadow / on（加引号：YAML 里裸 off 是布尔）
+  # 后台调度器（CONTRACT §AC）：job / 分析 / 入素材库三条车道各自有界并发、持续补位、互不阻塞；库里 replicate.engine.concurrency /
+  # analysis_concurrency / delivery_concurrency 覆盖（60 秒内生效）。三者合计须 ≤ DB.MaxOpenConns − 15（HTTP 8 + 后台取数 / 批量查 / 心跳 7），
+  # 超了运行时按比例压低并告警（判据=ENGINE_DB_POOL_CAP），见 docs/api/db-pool.md。
+  # PollIntervalMs 无积压时的取数间隔；BatchSize 每次取到期行上限（0 = 车道并发 × 2）。
+  StopGraceMs: 4000     # 停机时等在途 worker 做完的时长；到点取消并统一释放租约 / 认领。与上面 Shutdown.WaitTime 一起调
+  EngineConcurrency: 16
+  AnalysisConcurrency: 8
+  DeliveryConcurrency: 8
+  PollIntervalMs: 2000
+  BatchSize: 0
   AiGateway: {BaseURL: "", KeyID: "", Secret: ""}
   Media: {BaseURL: "", Token: ""}
   Preview: {Enabled: true, ModelGroup: "img.gpt-image-2.5-sunburst", DailyQuota: 3, WaitSeconds: 60} # 定妆图（免费，agent 工具 replicate_preview_frame）：image.edit 模型组 / 每人每自然日（Asia/Shanghai）次数 / 等出图上限

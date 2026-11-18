@@ -19,6 +19,10 @@ var (
 	_ core.ModerationStore  = (*Repo)(nil)
 	_ core.ModerationLogger = (*Repo)(nil)
 	_ core.DeliveryStore    = (*Repo)(nil)
+	// 并发调度器（core/scheduler.go）的可选能力：带 next_run_at 的到期查询、在途调用号批量列出
+	_ core.DueAtStore           = (*Repo)(nil)
+	_ core.DueDeliveriesAtStore = (*Repo)(nil)
+	_ core.InFlightCallStore    = (*Repo)(nil)
 )
 
 // ---------------------------------------------------------------- 审核
@@ -117,13 +121,19 @@ func (r *Repo) ListDeliveries(ctx context.Context, jobID int64) ([]*model.Delive
 }
 
 func (r *Repo) DueDeliveries(ctx context.Context, limit int) ([]int64, error) {
-	var ids []int64
-	err := r.db.NewSelect().Model((*model.Delivery)(nil)).Column("d.id").
+	items, err := r.DueDeliveriesAt(ctx, limit)
+	return dueIDs(items), err
+}
+
+// DueDeliveriesAt 同 DueDeliveries，带 next_run_at（core.DueDeliveriesAtStore）。
+func (r *Repo) DueDeliveriesAt(ctx context.Context, limit int) ([]core.DueItem, error) {
+	var rows []dueRow
+	err := r.db.NewSelect().Model((*model.Delivery)(nil)).Column("d.id", "d.next_run_at").
 		Where("d.status = ?", model.DeliveryPending).
 		Where("(d.next_run_at IS NULL OR d.next_run_at <= NOW(3))").
 		Where("(d.lease_until IS NULL OR d.lease_until < NOW(3))").
-		OrderExpr("d.next_run_at IS NOT NULL, d.next_run_at, d.id").Limit(int64(limit)).Scan(ctx, &ids)
-	return ids, err
+		OrderExpr("d.next_run_at IS NOT NULL, d.next_run_at, d.id").Limit(int64(limit)).Scan(ctx, &rows)
+	return dueItems(rows), err
 }
 
 func (r *Repo) ClaimDelivery(ctx context.Context, id int64, token string, ttl time.Duration) (*model.Delivery, error) {

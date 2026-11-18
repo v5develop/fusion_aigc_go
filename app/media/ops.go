@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -31,17 +32,12 @@ type Service struct {
 	cfg   Config
 	fetch *fetcher
 	cache *inputCache
-	// slots 计算名额（ffmpeg / ffprobe / 图像运算）；只在叶子调用处占用，不跨越下载与上传。
-	slots chan struct{}
-	// ioSlots 输入的下载与字节读取名额。I/O 不占计算名额，但仍设上限，防止大量并发下载写满磁盘。
-	ioSlots chan struct{}
+	// lanes 三条名额通道（视频算力 / 轻算力 / I/O），见 lanes.go。名额只在叶子调用处占用，不跨越下载与上传，
+	// 通道之间互不排队：图片轻操作不会排在视频 ffmpeg 后面。
+	lanes [laneCount]chan struct{}
 }
 
 func NewService(cfg Config) *Service {
-	n := cfg.MaxConcurrent
-	if n <= 0 {
-		n = 1
-	}
 	f := newFetcher(cfg)
 	removeOrphanCaches(cfg.TempDir)
 	svc := &Service{
@@ -49,8 +45,7 @@ func NewService(cfg Config) *Service {
 		fetch: f,
 		cache: newInputCache(cfg.TempDir, time.Duration(cfg.InputCacheMinutes)*time.Minute,
 			effectiveCacheCap(cfg.InputCacheMaxBytes, cfg.TempDir), f),
-		slots:   make(chan struct{}, n),
-		ioSlots: make(chan struct{}, ioSlotFactor*n),
+		lanes: newLanes(cfg),
 	}
 	go func() {
 		// 后台清扫过期的缓存文件；正在使用的文件不会被删
@@ -66,63 +61,85 @@ func NewService(cfg Config) *Service {
 // queueWaitCap 名额排队等待的上限：超过就返回 503 transient，不把请求挂满整个处理时长。
 const queueWaitCap = 120 * time.Second
 
-// ioSlotFactor 输入名额数 = ioSlotFactor × MaxConcurrent。
-const ioSlotFactor = 4
-
 // 名额排队等待的阶段名（与 probe、place_object 等同为下划线风格）。
 const (
 	stageQueueCompute = "queue_compute"
 	stageQueueIO      = "queue_io"
 )
 
-// queueWait 排队上限 = min(OpTimeoutSeconds, 120s)；OpTimeoutSeconds 未配置时取 120s。
+// queueWait 排队上限 = min(OpTimeoutSeconds, QueueWaitSeconds)；QueueWaitSeconds 未配置时取 120s，
+// OpTimeoutSeconds 未配置时只受前者约束。
 func (s *Service) queueWait() time.Duration {
+	limit := queueWaitCap
+	if s.cfg.QueueWaitSeconds > 0 {
+		limit = time.Duration(s.cfg.QueueWaitSeconds) * time.Second
+	}
 	if s.cfg.OpTimeoutSeconds > 0 {
-		if d := time.Duration(s.cfg.OpTimeoutSeconds) * time.Second; d < queueWaitCap {
+		if d := time.Duration(s.cfg.OpTimeoutSeconds) * time.Second; d < limit {
 			return d
 		}
 	}
-	return queueWaitCap
+	return limit
 }
 
-// takeSlot 占 ch 里的一个名额。满了就排队，但不超过 queueWait，也不超过 ctx 的截止时间。
+// takeSlot 占 l 通道里的一个名额。满了就排队，但不超过 queueWait，也不超过 ctx 的截止时间。
 // 等不到返回 unavailable（503 transient，带 Retry-After），调用方可用同一键重试。
-// 排队等待时长记成 stage 阶段（日志 + 响应 timings）：只记等到名额或超时为止，不含拿到名额后的执行；
-// 每次等待各记一条，超时也记。
-func (s *Service) takeSlot(ctx context.Context, ch chan struct{}, stage string) (func(), error) {
+// 排队等待时长记成该通道的阶段（日志 + 响应 timings）与 media_lane_wait_seconds 指标：只记等到名额或超时为止，
+// 不含拿到名额后的执行；每次等待各记一条，超时也记。
+func (s *Service) takeSlot(ctx context.Context, l laneKind) (func(), error) {
+	ch := s.lanes[l]
 	waitStart := time.Now()
-	defer logStage(ctx, stage, waitStart)
+	defer logStage(ctx, laneStages[l], waitStart)
 	timer := time.NewTimer(s.queueWait())
 	defer timer.Stop()
+	take := func() (func(), error) {
+		observeWait(l, waitStart, "ok")
+		laneInUse.WithLabelValues(laneNames[l]).Inc()
+		return func() {
+			<-ch
+			laneInUse.WithLabelValues(laneNames[l]).Dec()
+		}, nil
+	}
 	select {
 	case ch <- struct{}{}:
-		return func() { <-ch }, nil
+		return take()
+	default:
+	}
+	select {
+	case ch <- struct{}{}:
+		return take()
 	case <-ctx.Done():
+		observeWait(l, waitStart, "canceled")
 		return nil, unavailable("处理任务过多，请稍后重试")
 	case <-timer.C:
+		observeWait(l, waitStart, "timeout")
 		return nil, unavailable("处理任务过多，请稍后重试")
 	}
 }
 
-// acquire 占一个计算名额。
+// acquire 占一个视频算力名额。
 func (s *Service) acquire(ctx context.Context) (func(), error) {
-	return s.takeSlot(ctx, s.slots, stageQueueCompute)
+	return s.takeSlot(ctx, laneVideo)
 }
 
-// compute 在计算名额内执行 fn。只用于叶子操作（单次 ffmpeg / ffprobe / 图像进程），叶子之间不嵌套，
+// compute 在视频算力名额内执行 fn。只用于叶子操作（单次 ffmpeg 视频进程），叶子之间不嵌套，
 // 否则同一个请求会占着名额再去等名额，并发为 1 时就死锁。
 func (s *Service) compute(ctx context.Context, fn func() error) error {
-	release, err := s.acquire(ctx)
-	if err != nil {
-		return err
-	}
-	defer release()
-	return fn()
+	return s.inLane(ctx, laneVideo, fn)
 }
 
-// withIO 在输入名额内执行 fn（下载、读取请求体、读取对象存储）。与计算名额互不占用。
+// computeLight 在轻算力名额内执行 fn（ffprobe、图片处理）。规则同 compute。
+func (s *Service) computeLight(ctx context.Context, fn func() error) error {
+	return s.inLane(ctx, laneLight, fn)
+}
+
+// withIO 在 I/O 名额内执行 fn（下载、读取请求体、对象存储读写）。与算力名额互不占用。
 func (s *Service) withIO(ctx context.Context, fn func() error) error {
-	release, err := s.takeSlot(ctx, s.ioSlots, stageQueueIO)
+	return s.inLane(ctx, laneIO, fn)
+}
+
+func (s *Service) inLane(ctx context.Context, l laneKind, fn func() error) error {
+	release, err := s.takeSlot(ctx, l)
 	if err != nil {
 		return err
 	}
@@ -347,7 +364,7 @@ func (s *Service) concatFilter(ctx context.Context, files []string, out string) 
 // hasAudio 用 ffprobe 看有没有音轨；探测失败按无音轨处理（宁可丢声音，也不让整段合成失败）。
 func (s *Service) hasAudio(ctx context.Context, file string) (bool, error) {
 	var has bool
-	err := s.compute(ctx, func() error {
+	err := s.computeLight(ctx, func() error {
 		out, err := exec.CommandContext(ctx, binOr(s.cfg.FFprobe, "ffprobe"), "-v", "error",
 			"-select_streams", "a", "-show_entries", "stream=index", "-of", "csv=p=0", file).Output()
 		has = err == nil && len(bytes.TrimSpace(out)) > 0
@@ -356,8 +373,54 @@ func (s *Service) hasAudio(ctx context.Context, file string) (bool, error) {
 	return has, err
 }
 
+// run 在视频算力名额内跑命令（视频 ffmpeg）。图片的 ffmpeg 用 runLight。
 func (s *Service) run(ctx context.Context, bin string, args ...string) error {
-	return s.compute(ctx, func() error {
+	return s.runLane(ctx, laneVideo, bin, args...)
+}
+
+// lightThreads 轻通道 ffmpeg 的线程数（默认 1）。
+func (s *Service) lightThreads() string {
+	return strconv.Itoa(max(1, s.cfg.LightThreads))
+}
+
+// lightFFmpegArgs 给轻通道的 ffmpeg 命令行统一限制线程：已有 -threads 的改写成轻通道线程数；
+// 没有的在最前加 -threads（作用于输入解码）并在输出文件前再加一个（作用于编码）；另限制滤镜图线程。
+// 不然 ffmpeg 默认用满所有核，而轻通道名额有 有效核数*2 个。
+func (s *Service) lightFFmpegArgs(args []string) []string {
+	n := s.lightThreads()
+	out := make([]string, 0, len(args)+8)
+	has := false
+	for i := 0; i < len(args); i++ {
+		out = append(out, args[i])
+		if args[i] == "-threads" && i+1 < len(args) {
+			has = true
+			out = append(out, n)
+			i++
+		}
+	}
+	extra := []string{"-filter_threads", n, "-filter_complex_threads", n}
+	if has {
+		return append(extra, out...)
+	}
+	// 输出文件是最后一个参数
+	if len(out) == 0 {
+		return out
+	}
+	last := out[len(out)-1]
+	res := append(append([]string{"-threads", n}, extra...), out[:len(out)-1]...)
+	return append(res, "-threads", n, last)
+}
+
+// runLight 在轻算力名额内跑命令（图片 ffmpeg）。
+func (s *Service) runLight(ctx context.Context, bin string, args ...string) error {
+	return s.runLane(ctx, laneLight, bin, args...)
+}
+
+func (s *Service) runLane(ctx context.Context, l laneKind, bin string, args ...string) error {
+	if l == laneLight {
+		args = s.lightFFmpegArgs(args)
+	}
+	return s.inLane(ctx, l, func() error {
 		var stderr bytes.Buffer
 		cmd := exec.CommandContext(ctx, bin, args...)
 		cmd.Stdout = nil

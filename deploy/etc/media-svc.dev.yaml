@@ -16,7 +16,11 @@ FFprobe: ffprobe
 MaxInputBytes: 1073741824
 StoreLocalMaxBytes: 2147483648
 MaxComposeInputs: 50
-MaxConcurrent: 4
+# 名额三条通道（0 / 不写 = 按机器推导）；旧键 MaxConcurrent 仍可作 VideoCompute 的别名
+VideoCompute: 2
+LightCompute: 8
+IO: 32
+QueueWaitSeconds: 120
 FetchTimeoutSeconds: 1800
 OpTimeoutSeconds: 1800
 # 仅本地联调可开；线上必须为 false

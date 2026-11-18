@@ -99,6 +99,7 @@ type fakeDB struct {
 	rows      map[int64]*row
 	multi     int   // ExtendMany 调用次数
 	extendErr error // 非空时 Extend 返回该错误（模拟库不可用）
+	multiErr  error // 非空时 ExtendMany 返回该错误
 }
 
 func newFake() *fakeDB {
@@ -125,6 +126,9 @@ func (f *fakeDB) ExecContext(_ context.Context, q string, args ...any) (sql.Resu
 		r.owner, r.until = owner, f.now.Add(time.Duration(us)*time.Microsecond)
 		return result(1), nil
 	case strings.Contains(q, "`id` IN ("): // ExtendMany
+		if f.multiErr != nil {
+			return nil, f.multiErr
+		}
 		us, owner := args[0].(int64), args[len(args)-1].(string)
 		f.multi++
 		n := 0
@@ -305,5 +309,73 @@ func TestSet(t *testing.T) {
 	s.Close()
 	if db.rows[8].owner != "" {
 		t.Fatal("Close 应释放剩余的 8")
+	}
+}
+
+func waitDone(t *testing.T, ctx context.Context, d time.Duration, what string) {
+	t.Helper()
+	select {
+	case <-ctx.Done():
+	case <-time.After(d):
+		t.Fatal(what)
+	}
+}
+
+// 租约被别人持有：心跳发现后取消该行的 ctx，并移出集合（之后 Release 不会去动别人的租约）；别的行不受影响。
+func TestSetAcquireCtxCancelsWhenLost(t *testing.T) {
+	db := newFake()
+	db.rows[8] = &row{}
+	s := NewSet(db, "afv_t", "a", 3*time.Second)
+	defer s.Close()
+	c7, ok, _ := s.AcquireCtx(context.Background(), 7)
+	c8, ok8, _ := s.AcquireCtx(context.Background(), 8)
+	if !ok || !ok8 {
+		t.Fatal("应抢到")
+	}
+	db.mu.Lock()
+	db.rows[7].owner = "b" // 被别人接管
+	db.mu.Unlock()
+	waitDone(t, c7, 2500*time.Millisecond, "租约丢失应取消 ctx")
+	if c8.Err() != nil {
+		t.Fatal("没丢的行不应被取消")
+	}
+	s.Release(context.Background(), 7)
+	if db.rows[7].owner != "b" {
+		t.Fatal("丢失后的 Release 不能释放别人的租约")
+	}
+}
+
+// 续租一直出错：超过 ttl - ttl/3 没续上就取消 ctx（留余量给持有者停手）。
+func TestSetAcquireCtxCancelsWhenRenewKeepsFailing(t *testing.T) {
+	db := newFake()
+	db.multiErr = errors.New("db down")
+	s := NewSet(db, "afv_t", "a", 3*time.Second)
+	defer s.Close()
+	c7, ok, _ := s.AcquireCtx(context.Background(), 7)
+	if !ok {
+		t.Fatal("应抢到")
+	}
+	time.Sleep(1200 * time.Millisecond)
+	if c7.Err() != nil {
+		t.Fatal("一次续租失败不应立刻取消")
+	}
+	waitDone(t, c7, 3*time.Second, "长时间续不上应取消 ctx")
+}
+
+// Release 取消 ctx；CloseCtx 尊重截止时间。
+func TestSetReleaseCancelsCtx(t *testing.T) {
+	db := newFake()
+	s := NewSet(db, "afv_t", "a", 3*time.Second)
+	c7, _, _ := s.AcquireCtx(context.Background(), 7)
+	s.Release(context.Background(), 7)
+	if c7.Err() == nil || db.rows[7].owner != "" {
+		t.Fatal("Release 应取消 ctx 并释放")
+	}
+	c7, _, _ = s.AcquireCtx(context.Background(), 7)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	s.CloseCtx(ctx)
+	if c7.Err() == nil || db.rows[7].owner != "" {
+		t.Fatal("Close 应取消 ctx 并释放")
 	}
 }

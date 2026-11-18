@@ -9,21 +9,33 @@ Go 各服务与 Java、AI gateway 共用一个 MySQL，按默认值最坏会超�
 | --- | --- | --- | --- |
 | canvas-rpc | 30 | 10 | Reclaimer 与 bun 共用同一个池 |
 | studio-rpc | 30 | 10 | 同上 |
-| gateway-api | 20 | 10 | 仅配了 DataSource 才建池 |
+| gateway-api | 48 | 10 | 仅配了 DataSource 才建池；含视频做同款调度器（三车道 32 + HTTP 8 + 后台 7），deploy yaml 同值 |
 | admin-api | 10 | 10 | 仅配了 DataSource 才建池 |
 | copywriting-rpc | 10 | 10 | |
 | assetlib-rpc | 10 | 10 | |
 | imagegen-rpc | 10 | 10 | |
 | digitalhuman-rpc | 10 | 10 | |
 | note-rpc | 10 | 10 | |
-| 合计（每套 Go 进程各 1 个实例） | 140 | | |
+| 合计（每套 Go 进程各 1 个实例） | 168 | | |
 
 连接最长存活 `ConnMaxLifetime` 30 分钟，空闲最长 10 分钟。
 
 ## 容量核算
 
-MySQL `max_connections` 须大于：`140 x Go 实例组数 + Java 各角色池之和 + AI gateway 池之和 + 运维/监控余量`。
+MySQL `max_connections` 须大于：`168 x Go 实例组数 + Java 各角色池之和 + AI gateway 池之和 + 运维/监控余量`。
 某服务多副本时按副本数相乘。
+
+## gateway-api 与视频做同款调度器
+
+gateway-api 进程内跑视频做同款的后台调度器（`app/replicate/core/scheduler.go`）：job / 分析 / 入素材库三条车道，
+默认并发 16 / 8 / 8（`Replicate.EngineConcurrency` / `AnalysisConcurrency` / `DeliveryConcurrency`，库里
+`replicate.engine.*` 覆盖）。每个 worker 同一时刻至多占 1 条连接，最坏同时占 32 条。
+
+**硬上限**：车道并发合计 ≤ `MaxOpenConns − 15`（HTTP 请求 8 + 后台 7：3 个取数协程、1 个在途调用批量查 `InFlightCalls`、
+2 个租约心跳、1 个任务中心同步 / 灵感推荐协程）。超了（含运行时库里调大）按比例压低（每车道至少 1）并打
+`判据=ENGINE_DB_POOL_CAP` 的 WARN，不会把池打满。默认 32 个 worker 需要池 ≥ 47：`deploy/etc/gateway-api.yaml` 显式配了
+`DB.MaxOpenConns: 48`；只用代码默认 40 时会压到约 25 个 worker。调大池要重算上面的 `max_connections`。
+租约心跳单条 UPDATE 超时 2 秒、失败重试一次，不长时间占连接。
 
 ## 覆盖（可选，无必填项）
 

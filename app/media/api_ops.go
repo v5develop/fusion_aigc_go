@@ -298,7 +298,20 @@ func (s *Server) putAndClearPending(ctx context.Context, store, objPath, local, 
 }
 
 // writeAndClearPending putAndClearPending 的通用形式：write 写对象（Put 或服务端复制），顺序与并发规则相同。
-func (s *Server) writeAndClearPending(ctx context.Context, store, objPath string, reused bool, write func() (StoredObject, error)) (StoredObject, error) {
+func (s *Server) writeAndClearPending(ctx context.Context, store, objPath string, reused bool, rawWrite func() (StoredObject, error)) (StoredObject, error) {
+	// 对象写入占 I/O 通道名额（不占算力名额）；写入耗时（不含排队）进 media_put_duration_seconds
+	write := func() (obj StoredObject, err error) {
+		werr := s.svc.withIO(ctx, func() error {
+			start := time.Now()
+			obj, err = rawWrite()
+			observePut(store, start, err)
+			return nil
+		})
+		if werr != nil {
+			return StoredObject{}, werr
+		}
+		return obj, err
+	}
 	if reused {
 		obj, err := write()
 		if err != nil {
@@ -591,7 +604,7 @@ func (s *Server) conformImage(ctx context.Context, dir, in string, req imageConf
 		args = append(args, "-vf", "scale="+strconv.Itoa(w)+":"+strconv.Itoa(h))
 	}
 	args = append(args, "-frames:v", "1", out)
-	if err := s.svc.run(ctx, s.svc.ffmpeg(), args...); err != nil {
+	if err := s.svc.runLight(ctx, s.svc.ffmpeg(), args...); err != nil {
 		return "", classifyFFmpeg(ctx, err, "图片规整失败")
 	}
 	return out, nil

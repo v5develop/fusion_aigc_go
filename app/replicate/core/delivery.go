@@ -343,13 +343,13 @@ func (s *Service) TickDeliveries(ctx context.Context, limit int) {
 	if s.delivery == nil {
 		return
 	}
-	ids, err := s.delivery.store.DueDeliveries(ctx, limit)
+	items, err := s.DueDeliveryItems(ctx, limit)
 	if err != nil {
 		logx.WithContext(ctx).Errorf("replicate: 取待入库失败: %v", err)
 		return
 	}
-	for _, id := range ids {
-		s.runDelivery(ctx, id)
+	for _, it := range items {
+		s.runDelivery(ctx, it.ID)
 	}
 }
 
@@ -374,6 +374,7 @@ func (s *Service) runDelivery(parent context.Context, id int64) {
 		}
 		return
 	}
+	claimed(ctx, token) // 调度器登记令牌：停机时统一放掉认领
 	fail := func(err error, permanent bool) {
 		msg := trimRunes(err.Error(), 250)
 		if permanent || d.Attempts >= dl.cfg.MaxAttempts {

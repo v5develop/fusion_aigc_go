@@ -111,7 +111,7 @@ func (s *Server) imageMark(w http.ResponseWriter, r *http.Request) {
 			return nil, err
 		}
 		decoded := workFile(dir, "decoded.png")
-		if err := s.svc.run(ctx, s.svc.ffmpeg(), "-nostdin", "-y", "-threads", s.svc.threads(), "-noautorotate", "-i", path,
+		if err := s.svc.runLight(ctx, s.svc.ffmpeg(), "-nostdin", "-y", "-threads", s.svc.threads(), "-noautorotate", "-i", path,
 			"-map", "0:v:0", "-frames:v", "1", "-pix_fmt", "rgba", "-update", "1", decoded); err != nil {
 			return nil, imageFailure(ctx, err, "image.mark_decode_failed")
 		}
@@ -124,7 +124,7 @@ func (s *Server) imageMark(w http.ResponseWriter, r *http.Request) {
 			ext = ".png"
 		}
 		out := workFile(dir, "marked"+ext)
-		err = s.svc.compute(ctx, func() error { return renderMarks(decoded, out, format, req) })
+		err = s.svc.computeLight(ctx, func() error { return renderMarks(decoded, out, format, req) })
 		if err != nil {
 			return nil, err
 		}

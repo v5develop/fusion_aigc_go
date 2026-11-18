@@ -61,6 +61,9 @@ type OSSConfig struct {
 	// DisableServerSideCopy 关闭服务端复制（resources/copy 走 OSS CopyObject / UploadPartCopy，不经本机）。
 	// 默认 false 即开启；设 true 时一律走「下载 + 上传」（见 copy_server.go）。
 	DisableServerSideCopy bool `json:",optional"`
+	// MaxIdleConnsPerHost 访问同一桶域名的空闲连接上限（http.Transport.MaxIdleConnsPerHost，默认 64）。
+	// Go 默认值只有 2：并发写入超过 2 路时多出的连接用完即关，每次都重新握手 TCP + TLS，且慢启动从头开始。
+	MaxIdleConnsPerHost int `json:",optional"`
 }
 
 // OSSStore 阿里云 OSS 实现（OSS v1 签名，与 pkg/storage 的 oss.go 同一套签名算法）。
@@ -91,10 +94,32 @@ func NewOSSStore(cfg OSSConfig) (*OSSStore, error) {
 		asset:      cfg.AssetLibrary,
 		thirdParty: cfg.ThirdParty,
 		presign:    time.Duration(cfg.PresignMinutes) * time.Minute,
-		hc:         &http.Client{Timeout: 10 * time.Minute},
+		hc:         &http.Client{Timeout: 10 * time.Minute, Transport: newStorageTransport(cfg.MaxIdleConnsPerHost)},
 		now:        time.Now,
 		copier:     newOSSCopyState(cfg.DisableServerSideCopy),
 	}, nil
+}
+
+// 存储客户端连接池默认值：只有三个桶域名，并发写入 / 读取很多路，必须把每主机空闲连接数提上去。
+const (
+	defaultStorageIdleConnsPerHost = 64
+	storageMaxIdleConns            = 256
+)
+
+// newStorageTransport 存储客户端的 Transport：克隆 DefaultTransport（保留代理、HTTP/2、握手超时等默认行为），
+// 只调大连接池。http.DefaultTransport 的 MaxIdleConnsPerHost 为 2（DefaultMaxIdleConnsPerHost），
+// 并发 PUT 超过 2 路时多出的连接每次重新建连。不设 ResponseHeaderTimeout：大对象 PUT 的响应在请求体发完后才来。
+func newStorageTransport(perHost int) *http.Transport {
+	if perHost <= 0 {
+		perHost = defaultStorageIdleConnsPerHost
+	}
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.MaxIdleConnsPerHost = perHost
+	t.MaxIdleConns = max(storageMaxIdleConns, 3*perHost)
+	t.IdleConnTimeout = 90 * time.Second
+	t.WriteBufferSize = 64 << 10
+	t.ReadBufferSize = 64 << 10
+	return t
 }
 
 func checkBucket(name string, b OSSBucket) error {

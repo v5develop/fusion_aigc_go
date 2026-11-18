@@ -126,6 +126,8 @@ func NewServer(cfg Config) (*Server, error) {
 	s.mux.HandleFunc("POST "+apiPrefix+"/resources/urls", s.auth(s.withDeadline(s.resourceURL)))
 	if s.opsToken != "" {
 		s.mux.HandleFunc("POST "+apiPrefix+"/ops/locate", s.opsAuth(s.locate))
+		// Prometheus 指标（通道排队 / 占用、对象写入耗时），与 locate 同用运维令牌
+		s.mux.HandleFunc("GET "+apiPrefix+"/metrics", s.opsAuth(metricsHandler()))
 	}
 	s.mux.HandleFunc("POST "+apiPrefix+"/resources/copy", s.auth(s.withDeadline(s.stageTimed(s.idempotent("resources/copy", s.copyResource)))))
 	s.mux.HandleFunc("POST "+apiPrefix+"/image/conform", s.auth(s.withDeadline(s.idempotent("image/conform", s.imageConform))))

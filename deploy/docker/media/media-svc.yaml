@@ -27,7 +27,12 @@ MaxInputBytes: ${MEDIA_MAX_INPUT_BYTES}
 # 我方产物字节上传的体积上限（字节），默认 2 GiB，与 Java 的 GATEWAY_RESULT_MAX_BYTES 对齐
 StoreLocalMaxBytes: ${MEDIA_STORE_LOCAL_MAX_BYTES}
 MaxComposeInputs: 50
-MaxConcurrent: 4
+# 名额分三条通道，互不排队：图片轻操作（ffprobe / 图片处理 / 落桶写入）不排在视频 ffmpeg 后面。
+# 不写 = 按机器推导：VideoCompute = max(4, 有效核数/FFmpegThreads)（不低于旧默认 4；有效核数=min(GOMAXPROCS, cgroup 配额)），LightCompute = 有效核数*2，IO = 32，排队上限 120s。
+# 覆盖方式：环境变量 MEDIA_VIDEO_COMPUTE / MEDIA_LIGHT_COMPUTE / MEDIA_IO_SLOTS / MEDIA_QUEUE_WAIT_SECONDS /
+# MEDIA_OSS_MAX_IDLE_CONNS_PER_HOST（由 cmd/main.go 读取，留空或未设则忽略，所以新旧 compose 都能启动），
+# 或在本文件里直接写 VideoCompute / LightCompute / IO / QueueWaitSeconds / OSS.MaxIdleConnsPerHost。
+# 旧键 MaxConcurrent 仍可用（仅当 VideoCompute 未配时作为其别名）。
 # 单个输入下载的总时长上限（秒）：大视频下载会慢，由 MEDIA_FETCH_TIMEOUT_SECONDS 配置
 FetchTimeoutSeconds: ${MEDIA_FETCH_TIMEOUT_SECONDS}
 # 单次请求（下载之外的处理，含 ffmpeg 与校验）的时长上限（秒）：由 MEDIA_OP_TIMEOUT_SECONDS 配置，必须为正数（启动校验）。

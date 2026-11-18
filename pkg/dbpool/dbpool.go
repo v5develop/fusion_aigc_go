@@ -27,7 +27,7 @@ var ServiceDefaults = map[string]int{
 	"canvas":       30,
 	"studio":       30,
 	"admin-api":    10,
-	"gateway-api":  20,
+	"gateway-api":  48, // 含视频做同款后台调度器：三车道默认合计 32 个 worker + HTTP 8 + 后台 7（CONTRACT §AC；与 gateway-api.yaml DB.MaxOpenConns 一致）
 	"copywriting":  10,
 	"assetlib":     10,
 	"imagegen":     10,

@@ -23,10 +23,21 @@ type Conf struct {
 	// LongformEnabled 多段视频（> 单段上限）是否开放：装配媒体服务区间切段（mediasvc.Client.Cut）。默认开（配了 Media 才生效）；
 	// 运行时 afv_system_config.replicate.longform_enabled 存在时以它为准（应急关闭用）。
 	LongformEnabled bool `json:",default=true"`
-	// PollIntervalMs 轮询器每轮间隔；BatchSize 每轮最多推进多少条分析 / job；LeaseSeconds 行租约 TTL（每 TTL/3 续一次）。
+	// PollIntervalMs 后台调度器没有积压时的取数间隔（有积压时 worker 做完立即补位，不等它）；
+	// BatchSize 每次取到期行的上限（0 = 各车道并发上限的 2 倍，多取的只用于积压指标）；LeaseSeconds 行租约 TTL（每 TTL/3 续一次）。
 	PollIntervalMs int `json:",default=2000"`
-	BatchSize      int `json:",default=20"`
+	BatchSize      int `json:",default=0"`
 	LeaseSeconds   int `json:",default=120"`
+	// EngineConcurrency / AnalysisConcurrency / DeliveryConcurrency 后台推进三条车道（job / 分析 / 入素材库）各自的并发上限（CONTRACT §AC），
+	// 互不占名额：慢的分析（落桶 / 探测）或入库（复制到公有桶，最长 12 分钟）不会卡住 job 推进。
+	// 运行时 afv_system_config 的 replicate.engine.concurrency / analysis_concurrency / delivery_concurrency 覆盖（数据库 > 文件配置，60 秒内生效）。
+	// 三者合计会同时占用 DB 连接（每个 worker 同一时刻至多 1 条），须小于 gateway-api 的 DB.MaxOpenConns，见 docs/api/db-pool.md。
+	// StopGraceMs 停机时等在途 worker 自然做完的时长（默认 4000）；到点取消 worker、统一释放租约 / 认领（再 ≤2 秒）。
+	// 停机总耗时须小于 gateway-api 顶层 Shutdown.WaitTime（go-zero 默认 5.5s 强杀，yaml 里配 10s）。
+	StopGraceMs         int `json:",default=4000"`
+	EngineConcurrency   int `json:",default=16"`
+	AnalysisConcurrency int `json:",default=8"`
+	DeliveryConcurrency int `json:",default=8"`
 	// Billing 分段预留（pkg/billing）：off 不计费（默认）/ shadow 只算价记日志 / on 真扣。
 	Billing billing.Conf `json:",optional"`
 	// AiGateway 台词（asr.transcribe）、画面理解（chat.completion）、出片（video.generate）。BaseURL 为空 = 分析 / 出片不可用。

@@ -182,7 +182,12 @@ func Keep(ctx context.Context, db Execer, table string, id int64, owner string, 
 }
 
 // Set 一组租约（同表同 owner）：逐个 Acquire / Release，后台每 ttl/3 用一条 UPDATE 给仍持有的全部续租。
-// 适合单协程顺序推进一批行的轮询器（例如 canvas 每轮处理至多 BatchSize 个 run）。
+// 并发安全：多个 worker 可同时 Acquire / Release 不同的行（例如 replicate 的并发调度器）。
+//
+// 续租丢失的通知（AcquireCtx 返回的 ctx）：
+//   - 批量续租命中的行数少于持有数 → 逐行再续一次找出丢的那几行（租约已被别人持有）→ 取消这些行的 ctx、移出集合；
+//   - 续租出错（库暂时不可用）先重试一次（单次短超时 heartbeatTimeout，不长时间占连接）；仍失败则不取消，
+//     但某行距上次续上已超过 ttl - ttl/3 → 取消它的 ctx（再拖租约会在库里过期、被别的实例接管），留 ttl/3 给 worker 停手。
 type Set struct {
 	db    Execer
 	table string
@@ -190,15 +195,23 @@ type Set struct {
 	ttl   time.Duration
 
 	mu   sync.Mutex
-	ids  map[int64]struct{}
+	ids  map[int64]*held
 	quit chan struct{}
 	done chan struct{}
 	once sync.Once
 }
 
+type held struct {
+	cancel context.CancelFunc // nil = 用 Acquire 抢的（不需要通知）
+	lastOK time.Time
+}
+
+// heartbeatTimeout 心跳单条 UPDATE 的超时：短，失败重试一次，避免库慢时心跳长时间占着连接、和业务抢连接池。
+const heartbeatTimeout = 2 * time.Second
+
 // NewSet 建一个租约集合并启动心跳；用完必须 Close。
 func NewSet(db Execer, table, owner string, ttl time.Duration) *Set {
-	s := &Set{db: db, table: table, owner: owner, ttl: ttl, ids: map[int64]struct{}{},
+	s := &Set{db: db, table: table, owner: owner, ttl: ttl, ids: map[int64]*held{},
 		quit: make(chan struct{}), done: make(chan struct{})}
 	go s.heartbeat()
 	return s
@@ -217,14 +230,95 @@ func (s *Set) heartbeat() {
 		case <-s.quit:
 			return
 		case <-t.C:
-			ids := s.held()
-			if len(ids) == 0 {
-				continue
-			}
-			ctx, cancel := detached(context.Background())
-			_, _ = ExtendMany(ctx, s.db, s.table, ids, s.owner, s.ttl)
-			cancel()
+			s.beat()
 		}
+	}
+}
+
+// exec 心跳用：单次短超时，出错重试一次。
+func (s *Set) exec(f func(ctx context.Context) error) error {
+	var err error
+	for i := 0; i < 2; i++ {
+		ctx, cancel := context.WithTimeout(context.Background(), heartbeatTimeout)
+		err = f(ctx)
+		cancel()
+		if err == nil {
+			return nil
+		}
+	}
+	return err
+}
+
+// beat 一次心跳：批量续租；命中数不够时逐行找出丢失的，取消其 ctx；出错时按 lastOK 判断是否放弃。
+func (s *Set) beat() {
+	ids := s.held()
+	if len(ids) == 0 {
+		return
+	}
+	var n int64
+	err := s.exec(func(ctx context.Context) (e error) {
+		n, e = ExtendMany(ctx, s.db, s.table, ids, s.owner, s.ttl)
+		return e
+	})
+	now := time.Now()
+	if err == nil && n >= int64(len(ids)) {
+		s.mark(ids, now)
+		return
+	}
+	if err != nil {
+		s.giveUpStale(now)
+		return
+	}
+	for _, id := range ids { // 有行没续上：逐行确认
+		var ok bool
+		e := s.exec(func(ctx context.Context) (e error) {
+			ok, e = Extend(ctx, s.db, s.table, id, s.owner, s.ttl)
+			return e
+		})
+		switch {
+		case e == nil && ok:
+			s.mark([]int64{id}, now)
+		case e == nil:
+			s.lose(id) // 已被别人持有（或行已不存在）
+		}
+	}
+	s.giveUpStale(now)
+}
+
+func (s *Set) mark(ids []int64, now time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, id := range ids {
+		if h := s.ids[id]; h != nil {
+			h.lastOK = now
+		}
+	}
+}
+
+// lose 租约已丢：取消该行 ctx 并移出集合（之后 Release 是空操作，不会去释放别人的租约）。
+func (s *Set) lose(id int64) {
+	s.mu.Lock()
+	h := s.ids[id]
+	delete(s.ids, id)
+	s.mu.Unlock()
+	if h != nil && h.cancel != nil {
+		h.cancel()
+	}
+}
+
+// giveUpStale 距上次续上超过 ttl - ttl/3 的行：取消其 ctx（仍留在集合里，Release 照常尝试释放）。
+func (s *Set) giveUpStale(now time.Time) {
+	limit := s.ttl - s.ttl/3
+	s.mu.Lock()
+	var cancels []context.CancelFunc
+	for _, h := range s.ids {
+		if h.cancel != nil && now.Sub(h.lastOK) >= limit {
+			cancels = append(cancels, h.cancel)
+		}
+	}
+	s.mu.Unlock()
+	for _, c := range cancels {
+		c()
 	}
 }
 
@@ -243,33 +337,79 @@ func (s *Set) Acquire(ctx context.Context, id int64) (bool, error) {
 	ok, err := Acquire(ctx, s.db, s.table, id, s.owner, s.ttl)
 	if ok {
 		s.mu.Lock()
-		s.ids[id] = struct{}{}
+		s.ids[id] = &held{lastOK: time.Now()}
 		s.mu.Unlock()
 	}
 	return ok, err
 }
 
+// AcquireCtx 同 Acquire，另返回派生 ctx：租约丢失（被别人持有 / 长时间续不上）时取消，持有者据此停止推进这一行。
+// Release 时也会取消它。没抢到返回 (nil, false, err)。
+func (s *Set) AcquireCtx(ctx context.Context, id int64) (context.Context, bool, error) {
+	ok, err := Acquire(ctx, s.db, s.table, id, s.owner, s.ttl)
+	if !ok {
+		return nil, false, err
+	}
+	lctx, cancel := context.WithCancel(ctx)
+	s.mu.Lock()
+	s.ids[id] = &held{cancel: cancel, lastOK: time.Now()}
+	s.mu.Unlock()
+	return lctx, true, nil
+}
+
+// releaseCtx 释放用的 ctx：与调用方的取消脱钩，但尊重调用方更早的截止时间（停机时有硬上限）。
+func releaseCtx(ctx context.Context) (context.Context, context.CancelFunc) {
+	if dl, ok := ctx.Deadline(); ok && time.Until(dl) < releaseTimeout {
+		return context.WithDeadline(context.WithoutCancel(ctx), dl)
+	}
+	return detached(ctx)
+}
+
 // Release 释放一行的租约（不在集合里时什么也不做）。
 func (s *Set) Release(ctx context.Context, id int64) {
 	s.mu.Lock()
-	_, ok := s.ids[id]
+	h, ok := s.ids[id]
 	delete(s.ids, id)
 	s.mu.Unlock()
 	if !ok {
 		return
 	}
-	rctx, cancel := detached(ctx)
+	if h.cancel != nil {
+		h.cancel()
+	}
+	rctx, cancel := releaseCtx(ctx)
 	_ = Release(rctx, s.db, s.table, id, s.owner)
 	cancel()
 }
 
-// Close 停止心跳并释放仍持有的全部租约（幂等）。
-func (s *Set) Close() {
+// Close 停止心跳并释放仍持有的全部租约（幂等；整体超时 releaseTimeout）。
+func (s *Set) Close() { s.CloseCtx(context.Background()) }
+
+// CloseCtx 同 Close，释放尊重 ctx 的截止时间（停机硬上限：到点没释放完的留给租约自然过期）。
+func (s *Set) CloseCtx(ctx context.Context) {
 	s.once.Do(func() {
 		close(s.quit)
 		<-s.done
-		for _, id := range s.held() {
-			s.Release(context.Background(), id)
+		s.mu.Lock()
+		ids := make([]int64, 0, len(s.ids))
+		for id, h := range s.ids {
+			ids = append(ids, id)
+			if h.cancel != nil {
+				h.cancel()
+			}
+		}
+		s.ids = map[int64]*held{}
+		s.mu.Unlock()
+		if len(ids) == 0 {
+			return
+		}
+		rctx, cancel := releaseCtx(ctx)
+		defer cancel()
+		for _, id := range ids {
+			if rctx.Err() != nil {
+				return
+			}
+			_ = Release(rctx, s.db, s.table, id, s.owner)
 		}
 	})
 }

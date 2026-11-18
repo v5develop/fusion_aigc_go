@@ -5,8 +5,17 @@
 
 开关（数据库 > 文件配置）：总开关 `afv_system_config.replicate.enabled` 存在且合法时以库为准（60 秒内生效，不用重启）；库里没有 / 值非法 / 读库失败时用 yaml `Replicate.Enabled`（默认 false；部署变量 `REPLICATE_ENABLED`）。
 配了 DataSource 就装配、启动轮询器；总开关关着时写接口回 7003，读接口（limits / 分析 / job / 历史 / 我的方案）与轮询器照常，在途任务能收尾、退点。`GET /limits` 带 `enabled` 告诉前端当前是否接新提交。没配 DataSource 时不装配，所有接口回 `7003 FEATURE_NOT_READY`。
-轮询器在 gateway-api 进程内（每 `PollIntervalMs` 一轮，每轮 ≤`BatchSize` 条），每条分析 / job 推进前用 `pkg/lease` 抢行租约（`afv_replicate_analysis` / `afv_replicate_job`，TTL `LeaseSeconds`，每 TTL/3 续），多实例同时跑安全。
-取数按 `next_run_at` 升序（NULL 最先）：每推进一行写回 `next_run_at`（在途 3 秒；终态补退点 / 补合成按「结束多久了」退避 30 秒 ~ 30 分钟；出错 30 秒），不动 `updated_at`，`BatchSize` 再小也不会饿死后面的行。
+轮询器（后台调度器 `core.Engine`，`app/replicate/core/scheduler.go`）在 gateway-api 进程内，分 **job / 分析 / 入素材库三条车道**，各自有界并发（`EngineConcurrency` 16 / `AnalysisConcurrency` 8 / `DeliveryConcurrency` 8，运行时 `replicate.engine.*` 覆盖），互不占名额：慢的分析（落桶 / 探测）、入库（复制到公有桶，单次最长 12 分钟）不会卡住 job 推进（CONTRACT §AC）。
+每条车道是持续补位的 worker 集合：取数协程按 `next_run_at` 升序取一批到期行（≤`BatchSize`，0 = 车道并发 × 2）→ 去掉本进程已在处理的 → 按空闲名额起 worker，不等它们做完；worker 做完立即唤醒取数补位（最短间隔 200ms），没有积压时每 `PollIntervalMs` 取一次。
+每条分析 / job 推进前用 `pkg/lease` 抢行租约（`afv_replicate_analysis` / `afv_replicate_job`，TTL `LeaseSeconds`，每 TTL/3 后台续，处理完写回 `next_run_at` 后释放），入库用发件箱自己的 CAS 认领令牌；同一行同一时刻只有一个执行者，多实例同时跑安全。
+在途步骤（出片 / 写手）的网关状态走**合并窗口批量读**：job worker 抢到租约后登记，300ms 窗口内的 job 合成一次 `InFlightCalls` + `batchGet`（≤200 个一批，时限 2 秒），worker 查在途调用时才等结果，取数协程从不等；没查到的（新提交 / 批量查失败）照旧单个 `GET`，幂等键与终态处理不变。
+抢租约在 worker 里做：没抢到直接放弃（不计排队时长）；抢租约出错（库故障）这一行本进程内跳过 5 秒。租约派生的 ctx 在租约丢失（心跳发现被别人持有，或超过 TTL×2/3 续不上）时取消，worker 随即停止推进这一行、不再提交网关或写库。
+灵感推荐预计算与任务中心同步（每 5 秒）在独立协程里按自己的节奏跑，不占车道。
+停机（收到 SIGTERM 即开始，go-zero wrap-up 阶段）：停止派发 → 等在途 worker 最多 `StopGraceMs`（默认 4 秒）→ 取消全部 worker → 1 秒内由调度器统一释放记录在案的行租约与入库认领（不依赖 worker 是否返回）→ 再等 worker 至多 1 秒 → 兜底释放 0.5 秒。最长约 6.5 秒，须小于 gateway-api 顶层 `Shutdown.WaitTime`（go-zero 默认 5.5 秒强杀；deploy yaml 配 10 秒）。
+取数按 `next_run_at` 升序（NULL 最先）：每推进一行写回 `next_run_at`（在途 3 秒；终态补退点 / 补合成按「结束多久了」退避 30 秒 ~ 30 分钟；出错 30 秒），不动 `updated_at`，名额再小也不会饿死后面的行。
+
+指标（Prometheus，`kind` = `job` / `analysis` / `delivery`）：`replicate_engine_backlog`（最近一次取数时到期但还没起的行数，上限 = 取数批量）、`replicate_engine_busy` / `replicate_engine_capacity`（饱和度 = busy / capacity）、`replicate_engine_saturated_total`（名额满、到期行只能留到下一次的次数）、`replicate_engine_wait_seconds`（到期 → 开始处理）、`replicate_engine_duration_seconds`（单行处理耗时）、`replicate_engine_batch_get_total{result}`、`replicate_engine_fetch_errors_total`、`replicate_engine_lease_errors_total`。
+DB 连接：车道并发合计 ≤ `DB.MaxOpenConns − 15`，超了（含运行时调大）按比例压低并告警 `判据=ENGINE_DB_POOL_CAP`，见 `docs/api/db-pool.md`。
 job 的取数口径（四条各走索引的查询，内存合并按 `next_run_at` 排序）：在途（排队 / 执行中 / 提交中 / 继续中，`idx_status_next_run`）；待继续只在 `continue_deadline` 已到时（`idx_status_deadline`）；
 **任何状态**下还有未结镜像（`afv_replicate_charge.status IN (0,1,6)`，走 charge 的 `idx_status` 再按主键回 job；终态后 / 待继续期间的退点 / 扣除失败靠这条补扫，间隔 15 秒 ~ 2 分钟）；
 成功 / 部分成功里成片未合成（1 天内结束）或合成待重试（7 天内结束，`idx_status_finished`）。
@@ -219,9 +228,13 @@ job 到「成功 / 部分成功」后由轮询器合成（钱与合成无关：�
 Replicate:                  # gateway-api
   Enabled: false
   LongformEnabled: true     # 多段视频（装配 /video/cut 区间切段）；配了 Media 才生效；运行时 replicate.longform_enabled 可应急关
-  PollIntervalMs: 2000
-  BatchSize: 20
+  PollIntervalMs: 2000      # 后台调度器无积压时的取数间隔（有积压时做完即补位）
+  BatchSize: 0              # 每次取到期行上限（0 = 车道并发 × 2）
   LeaseSeconds: 120
+  StopGraceMs: 4000         # 停机等在途 worker 的时长（须配合顶层 Shutdown.WaitTime: 10s）
+  EngineConcurrency: 16     # job 车道并发（运行时 replicate.engine.concurrency，1~64）
+  AnalysisConcurrency: 8    # 分析车道并发（运行时 replicate.engine.analysis_concurrency，1~32）
+  DeliveryConcurrency: 8    # 入素材库车道并发（运行时 replicate.engine.delivery_concurrency，1~32）
   Billing: { Mode: "off" }  # off / shadow / on（YAML 里 off 要加引号）
   AiGateway: { BaseURL: "", KeyID: "", Secret: "", LongPollWait: 20, TimeoutSeconds: 30 }
   Media: { NacosServerAddr: "", BaseURL: "", Token: "" }
@@ -358,6 +371,8 @@ Go 网关的登录态只解析出 `userId`（共用会话的 `currentWorkspaceId
 | `replicate.rate.plan_per_minute` / `_per_day` | 10 / 30 | 每用户生成方案 |
 | `replicate.rate.confirm_per_minute` / `_per_day` | 5 / 20 | 每用户确认 |
 | `replicate.rate.max_inflight_jobs` | 200 | 全局在途 job 上限 |
+| `replicate.engine.concurrency` | 16（yaml `EngineConcurrency`） | 后台调度器 job 车道并发（1~64；调小只暂停补位，不打断在途） |
+| `replicate.engine.analysis_concurrency` / `delivery_concurrency` | 8 / 8（yaml `AnalysisConcurrency` / `DeliveryConcurrency`） | 分析 / 入素材库车道并发（1~32）；三车道合计 ≤ gateway-api `DB.MaxOpenConns` − 15，超了按比例压低 |
 | `replicate.rate.annotate_per_minute` / `_per_day` | 20 / 300 | 每用户改标注 + 再做一条（独立计数，不占方案额度；§10） |
 
 ## 9 后台（admin-api `/api/v1/replicate/admin/**`，P0-6）

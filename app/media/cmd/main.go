@@ -31,6 +31,11 @@ func main() {
 		c.AllowPrivateHosts = true
 	}
 
+	// 并发名额的环境变量覆盖（留空忽略）
+	if err := media.ApplyEnvOverrides(&c, os.Getenv); err != nil {
+		log.Fatal(err)
+	}
+
 	if *retire != "" {
 		if err := media.Retire(c.Registry, *retire); err != nil {
 			log.Fatal(err)

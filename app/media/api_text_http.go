@@ -119,7 +119,7 @@ func (s *Server) imageText(w http.ResponseWriter, r *http.Request) {
 			args = append(args, "-q:v", "3")
 		}
 		args = append(args, "-update", "1", out)
-		if err := s.svc.run(ctx, s.svc.ffmpeg(), args...); err != nil {
+		if err := s.svc.runLight(ctx, s.svc.ffmpeg(), args...); err != nil {
 			return nil, imageFailure(ctx, err, "image.text_failed")
 		}
 		return s.storeFile(ctx, req.Purpose, out)

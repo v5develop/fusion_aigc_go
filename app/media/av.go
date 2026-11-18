@@ -39,7 +39,8 @@ type Frame struct {
 
 // Probe 用 ffprobe 读元数据（JSON 输出，与原 Java 的 MediaToolkit.probe 字段一致）。
 func (s *Service) Probe(ctx context.Context, file string) (ProbeResult, error) {
-	out, err := s.output(ctx, binOr(s.cfg.FFprobe, "ffprobe"), "-v", "quiet", "-print_format", "json",
+	// ffprobe 只读元数据，毫秒级：走轻算力通道，不与视频 ffmpeg 抢名额
+	out, err := s.outputLane(ctx, laneLight, binOr(s.cfg.FFprobe, "ffprobe"), "-v", "quiet", "-print_format", "json",
 		"-show_format", "-show_streams", file)
 	if err != nil {
 		return ProbeResult{}, classifyFFmpeg(ctx, err, "读取媒体信息失败")
@@ -176,10 +177,16 @@ func (s *Service) Frames(ctx context.Context, file string, count int) ([]Frame, 
 	if err != nil {
 		return nil, err
 	}
+	// 输入是图片时单帧抽取只是解码一张图，走轻算力；视频要 seek 并解码一个 GOP（高码率 / HEVC 可达秒级且吃多核），
+	// 即使只抽 1 帧也保持视频算力通道，不改。
+	frameLane := laneVideo
+	if mime, _, err := mimeAndSize(file); err == nil && strings.HasPrefix(mime, "image/") {
+		frameLane = laneLight
+	}
 	var frames []Frame
 	var lastErr error
 	for _, ts := range FrameTimestamps(probe.DurationSeconds, count) {
-		jpeg, err := s.output(ctx, s.ffmpeg(), "-nostdin", "-y", "-ss", strconv.FormatFloat(ts, 'f', 1, 64),
+		jpeg, err := s.outputLane(ctx, frameLane, s.ffmpeg(), "-nostdin", "-y", "-ss", strconv.FormatFloat(ts, 'f', 1, 64),
 			"-i", file, "-frames:v", "1", "-c:v", "mjpeg", "-q:v", "3", "-f", "mjpeg", "pipe:1")
 		if err != nil {
 			if e := interruptedFailure(ctx, err, "抽帧失败"); e != nil {
@@ -209,7 +216,12 @@ func (s *Service) Frames(ctx context.Context, file string, count int) ([]Frame, 
 
 // Validate 完整解码一遍（只看有没有报错）。解码失败是输入问题（422）。
 func (s *Service) Validate(ctx context.Context, file string) error {
-	if err := s.run(ctx, s.ffmpeg(), "-nostdin", "-v", "error", "-i", file,
+	// 图片整图解码很快，走轻算力；其余按视频算力
+	lane := laneVideo
+	if mime, _, err := mimeAndSize(file); err == nil && strings.HasPrefix(mime, "image/") {
+		lane = laneLight
+	}
+	if err := s.runLane(ctx, lane, s.ffmpeg(), "-nostdin", "-v", "error", "-i", file,
 		"-map", "0:v?", "-map", "0:a?", "-f", "null", "-"); err != nil {
 		return classifyFFmpeg(ctx, err, "完整解码失败")
 	}
@@ -347,10 +359,18 @@ func copyFile(from, to string) error {
 	return os.WriteFile(to, data, 0o600)
 }
 
-// output 在计算名额内执行命令并返回 stdout；stderr 只保留尾部用于错误说明。
+// output 在视频算力名额内执行命令并返回 stdout；stderr 只保留尾部用于错误说明。
 func (s *Service) output(ctx context.Context, bin string, args ...string) ([]byte, error) {
+	return s.outputLane(ctx, laneVideo, bin, args...)
+}
+
+// outputLane 同 output，在指定通道的名额内执行。
+func (s *Service) outputLane(ctx context.Context, l laneKind, bin string, args ...string) ([]byte, error) {
+	if l == laneLight && filepath.Base(bin) != filepath.Base(binOr(s.cfg.FFprobe, "ffprobe")) {
+		args = s.lightFFmpegArgs(args)
+	}
 	var stdout bytes.Buffer
-	err := s.compute(ctx, func() error {
+	err := s.inLane(ctx, l, func() error {
 		var stderr bytes.Buffer
 		cmd := exec.CommandContext(ctx, bin, args...)
 		cmd.Stdout = &stdout
