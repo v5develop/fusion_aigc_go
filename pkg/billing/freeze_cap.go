@@ -6,6 +6,7 @@ import (
 	"errors"
 	"math"
 	"math/big"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -178,9 +179,17 @@ func decimalOf(raw json.RawMessage) (*big.Rat, bool) {
 		}
 		s = strings.TrimSpace(str)
 	}
+	// 只认十进制（与 Java new BigDecimal 同口径）：big.Rat.SetString 还接受 "1/2"、"0x10"、"1_000" 等，Java 一律拒收，
+	// 不先过正则会让两侧对同一份配置判定不一致。
+	if !decimalLiteral.MatchString(s) {
+		return nil, false
+	}
 	r, ok := new(big.Rat).SetString(s)
 	return r, ok
 }
+
+// decimalLiteral 十进制字面量：可带正负号、小数点、指数（同 Java BigDecimal 字符串构造器）。
+var decimalLiteral = regexp.MustCompile(`^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$`)
 
 func decimalOrZero(raw json.RawMessage) (*big.Rat, bool) {
 	if s := strings.TrimSpace(string(raw)); s == "" || s == "null" {
