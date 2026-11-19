@@ -26,6 +26,8 @@ import (
 	"sync"
 	"time"
 
+	"aigc-local-life/pkg/traceid"
+
 	"github.com/nacos-group/nacos-sdk-go/v2/clients"
 	"github.com/nacos-group/nacos-sdk-go/v2/clients/naming_client"
 	"github.com/nacos-group/nacos-sdk-go/v2/common/constant"
@@ -341,6 +343,7 @@ func (c *Client) do(ctx context.Context, url string, body []byte, contentType, i
 	}
 	req.Header.Set("Content-Type", contentType)
 	req.Header.Set(TokenHeader, c.token)
+	traceid.Inject(ctx, req.Header) // 入站请求的追踪号带给媒体服务
 	if idemKey != "" {
 		req.Header.Set("Idempotency-Key", idemKey)
 	}

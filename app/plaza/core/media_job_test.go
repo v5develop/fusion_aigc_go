@@ -219,7 +219,7 @@ func TestFFmpegRealTranscode(t *testing.T) {
 		"-c:v", "mpeg4", "-y", src).CombinedOutput(); err != nil {
 		t.Skipf("生成测试视频失败: %v %s", err, out)
 	}
-	c, err := ffprobeCodec(context.Background(), fp, src)
+	c, err := ffprobeCodec(context.Background(), fp, src, 0)
 	if err != nil || c.Codec != "mpeg4" || c.isPlainH264() {
 		t.Fatalf("%+v %v", c, err)
 	}

@@ -50,7 +50,7 @@ func (l *RunNodeLogic) RunNode(req *types.CanvasRunReq) (resp *types.CanvasRunRe
 	for _, r := range req.References {
 		in.References = append(in.References, &canvas_client.RunReference{
 			Handle: r.Handle, Index: r.Index, NodeId: r.NodeId, Text: r.Text, Image: r.Image, Video: r.Video, Audio: r.Audio,
-			AssetId: r.AssetId, MediaId: r.MediaId, SourceHandle: r.SourceHandle, CandidateIndex: r.CandidateIndex, Mime: r.Mime,
+			AssetId: r.AssetId, MediaId: r.MediaId, SourceHandle: r.SourceHandle, CandidateIndex: r.CandidateIndex, Mime: r.Mime, Width: r.Width, Height: r.Height,
 		})
 	}
 	out, err := l.svcCtx.CanvasRpc.RunNode(rpcCtx(l.ctx), &canvas_client.RunNodeReq{

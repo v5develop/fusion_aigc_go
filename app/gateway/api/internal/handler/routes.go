@@ -229,6 +229,12 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 					Handler: canvas.CatalogHandler(serverCtx),
 				},
 				{
+					// 生图预估点数（只读，不冻结）：与执行时冻结同一个 Quote（模型 + 尺寸 + 张数 + 画质 + 参考图数）；GPT Image 2.6 为「最多 X 点，按实际成本结算」（settle_mode=actual_cost），其余按张固定价；每用户每分钟 60 次
+					Method:  http.MethodPost,
+					Path:    "/estimate",
+					Handler: canvas.EstimateHandler(serverCtx),
+				},
+				{
 					// 查询一次执行（轮询，1.2s）
 					Method:  http.MethodGet,
 					Path:    "/runs/:id",

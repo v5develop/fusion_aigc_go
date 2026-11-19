@@ -17,6 +17,9 @@ import (
 const (
 	NanoBanana21       = "img.nano-banana-2.1"
 	GPTImage25Sunburst = "img.gpt-image-2.5-sunburst"
+	// GPTImage25SunburstStd GPT Image 2.5 标准版（openai/gpt-image-2.5-sunburst，按 token 计费、支持画质；2026-11-19 画布启用）。
+	// 与 Dev 版（按张计费）是两个独立的组，不在等价表里。
+	GPTImage25SunburstStd = "img.gpt-image-2.5-sunburst-std"
 )
 
 // 规范计费档次（afv_billing_offer_variant.quality_tier / <offer_code>_<tier> 档位码后缀）。

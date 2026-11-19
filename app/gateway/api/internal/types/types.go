@@ -288,6 +288,45 @@ type CanvasCatalogModel struct {
 	Ready              bool               `json:"ready"`
 }
 
+type CanvasImageSize struct {
+	W int32 `json:"w"`
+	H int32 `json:"h"`
+}
+
+type CanvasEstimateReq struct {
+	Model       string `json:"model,optional"`        // 目录 model（别名也认）
+	ModelId     string `json:"model_id,optional"`     // 目录 model_id；优先于 model
+	ModelGroup  string `json:"model_group,optional"`  // 兜底：只给组码
+	Size        string `json:"size,optional"`         // 1K / 2K / 4K；空 = 模型首个档位
+	Count       int32  `json:"count,optional"`        // 张数，缺省 1
+	Quality     string `json:"quality,optional"`      // low / medium / high；缺省 high；不支持画质的模型忽略
+	RefImages   int32  `json:"ref_images,optional"`   // 参考图张数（像素未知按网关缩小后的上限估）
+	PromptChars int32  `json:"prompt_chars,optional"` // 提示词字符数（GPT Image 2.5 / 2.6 按 token 估冻结用；缺省 0）
+	// RefImageSizes 每张参考图宽高（可选）：给了按实际像素估冻结（网关缩小规则：> 2048² 等比缩到 2048²），没给按缩小后的上限；条数与 ref_images 取大
+	RefImageSizes []CanvasImageSize `json:"ref_image_sizes,optional"`
+}
+
+type CanvasEstimateResp struct {
+	Available   bool                    `json:"available"` // false = 报不出价，reason 给用户看；前端退回静态目录价并标「约」
+	Reason      string                  `json:"reason,omitempty"`
+	Points      int64                   `json:"points"`       // 最多扣多少点（= 冻结点数）
+	CapPoints   int64                   `json:"cap_points"`   // 同 points：ACTUAL_COST 时是冻结上限
+	SettleMode  string                  `json:"settle_mode"`  // actual_cost / fixed
+	Currency    string                  `json:"currency"`     // 恒 points
+	BillingMode string                  `json:"billing_mode"` // off / shadow / on
+	Breakdown   CanvasEstimateBreakdown `json:"breakdown"`
+	Note        string                  `json:"note,omitempty"`
+}
+
+type CanvasEstimateBreakdown struct {
+	ModelGroup string `json:"model_group"`
+	Size       string `json:"size"`
+	Quality    string `json:"quality"` // 实际参与计价的画质；模型不支持画质时为空
+	Count      int32  `json:"count"`
+	RefImages  int32  `json:"ref_images"`
+	UnitPoints int64  `json:"unit_points"` // 每张点数（拆不均时 0）
+}
+
 type CanvasCatalogResp struct {
 	ImageModels      []CanvasCatalogModel `json:"image_models"`
 	VideoModels      []CanvasCatalogModel `json:"video_models"`
@@ -364,6 +403,8 @@ type CanvasRunRef struct {
 	SourceHandle   string `json:"source_handle,optional"`   // image-out / candidate-N …
 	CandidateIndex *int32 `json:"candidate_index,optional"` // 引用上游第几个候选（0 起），服务端以记录的候选为准
 	Mime           string `json:"mime,optional"`
+	Width          int32  `json:"width,optional"` // 参考图像素宽（可选；上游候选以服务端记录为准）
+	Height         int32  `json:"height,optional"`
 }
 
 type CanvasRunReq struct {

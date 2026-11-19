@@ -5,6 +5,7 @@ package core
 // 不写任何模板表：上传在交接期（AdminWriteEnabled=false）与完整模式下都放行。
 
 import (
+	"aigc-local-life/pkg/safehttp"
 	"bytes"
 	"context"
 	"crypto/rand"
@@ -17,7 +18,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os/exec"
 	"path"
 	"regexp"
 	"strconv"
@@ -166,7 +166,7 @@ func NewUploader(store storage.Store, cfg UploadConfig) *Uploader {
 	u.fetch = httpFetch
 	u.open = httpOpen
 	u.probe = func(ctx context.Context, rawURL string) (*VideoProbe, error) {
-		return ffprobe(ctx, cfg.FFprobe, rawURL)
+		return ffprobe(ctx, cfg.FFprobe, rawURL, cfg.maxBytes(uploadKindVideo))
 	}
 	u.cover = newCoverMaker(store, cfg, u.prefix, u.fetch)
 	if strings.TrimSpace(cfg.FFmpeg) != "" { // 显式配置 FFmpeg 才有转码能力（媒体服务没有通用转码接口）
@@ -479,7 +479,8 @@ func (u *Uploader) confirmVideo(ctx context.Context, key, raw, ext string, out *
 
 // ---------------------------------------------------------------- 默认实现
 
-var uploadHTTP = &http.Client{Timeout: 2 * time.Minute}
+// uploadHTTP 走 safehttp：按实际解析 IP 拦内网 / 保留地址、限重定向；我们的桶与媒体服务地址都是公网 https，不受影响。
+var uploadHTTP = safehttp.NewClient(2*time.Minute, false)
 
 // httpFetch 读取至多 max 字节；对象超过 max 时图片调用方会在后续校验里发现不完整，这里用 Range 限量，不会整段拉大文件。
 func httpFetch(ctx context.Context, rawURL string, max int64) ([]byte, error) {
@@ -500,20 +501,13 @@ func httpFetch(ctx context.Context, rawURL string, max int64) ([]byte, error) {
 }
 
 // ffprobe 读首个视频流的宽高与总时长。没装 / 没配返回 errProbeUnavailable；文件无视频流 / 解析失败返回其它错误。
-func ffprobe(ctx context.Context, bin, rawURL string) (*VideoProbe, error) {
+func ffprobe(ctx context.Context, bin, rawURL string, maxBytes int64) (*VideoProbe, error) {
 	if strings.TrimSpace(bin) == "" {
 		bin = "ffprobe"
 	}
-	ctx, cancel := context.WithTimeout(ctx, time.Minute)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, bin, "-v", "error", "-select_streams", "v:0",
-		"-show_entries", "stream=width,height:format=duration", "-of", "default=noprint_wrappers=1", rawURL).Output()
+	out, err := runProbe(ctx, bin, rawURL, maxBytes, "stream=width,height:format=duration")
 	if err != nil {
-		var ee *exec.ExitError
-		if errors.As(err, &ee) {
-			return nil, fmt.Errorf("ffprobe: %w", err)
-		}
-		return nil, errProbeUnavailable
+		return nil, err
 	}
 	p := &VideoProbe{}
 	for _, line := range strings.Split(string(out), "\n") {
@@ -574,7 +568,8 @@ func (m *coverMaker) Cover(ctx context.Context, videoURL string) (string, error)
 		lastErr = err
 	}
 	if m.ex != nil {
-		data, err := m.ex.Extract(ctx, videoURL)
+		// 本机 ffmpeg 不碰网络：先经 safehttp 下载到临时文件（体积封顶）再抽帧
+		data, err := m.ex.ExtractURL(ctx, videoURL)
 		if err == nil {
 			return m.put(ctx, data)
 		}

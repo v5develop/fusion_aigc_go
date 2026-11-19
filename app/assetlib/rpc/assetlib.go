@@ -8,6 +8,7 @@ import (
 	"aigc-local-life/app/assetlib/rpc/internal/config"
 	"aigc-local-life/app/assetlib/rpc/internal/server"
 	"aigc-local-life/app/assetlib/rpc/internal/svc"
+	"aigc-local-life/pkg/traceid"
 
 	"github.com/zeromicro/go-zero/core/conf"
 	"github.com/zeromicro/go-zero/core/service"
@@ -32,6 +33,7 @@ func main() {
 			reflection.Register(grpcServer)
 		}
 	})
+	s.AddUnaryInterceptors(traceid.UnaryServerInterceptor) // X-Trace-Id：metadata → ctx + 日志字段
 	defer s.Stop()
 
 	fmt.Printf("Starting rpc server at %s...\n", c.ListenOn)

@@ -1707,6 +1707,8 @@ type (
 		SourceHandle   string `json:"source_handle,optional"` // image-out / candidate-N …
 		CandidateIndex *int32 `json:"candidate_index,optional"` // 引用上游第几个候选（0 起），服务端以记录的候选为准
 		Mime           string `json:"mime,optional"`
+		Width          int32  `json:"width,optional"`  // 参考图像素宽（可选；上游候选以服务端记录为准）
+		Height         int32  `json:"height,optional"`
 	}
 	CanvasRunReq {
 		Id         string         `path:"id"`
@@ -1829,6 +1831,40 @@ type (
 		JavaImageConfigs interface{}          `json:"java_image_configs"` // Java /api/v1/features/image-model-configs 原样透传（按用户报价）；取不到为 null
 		JavaVideoConfigs interface{}          `json:"java_video_configs"`
 	}
+	CanvasImageSize {
+		W int32 `json:"w"`
+		H int32 `json:"h"`
+	}
+	CanvasEstimateReq {
+		Model      string `json:"model,optional"`       // 目录 model（别名也认）
+		ModelId    string `json:"model_id,optional"`    // 目录 model_id；优先于 model
+		ModelGroup string `json:"model_group,optional"` // 兜底：只给组码
+		Size       string `json:"size,optional"`        // 1K / 2K / 4K；空 = 模型首个档位
+		Count      int32  `json:"count,optional"`       // 张数，缺省 1
+		Quality    string `json:"quality,optional"`     // low / medium / high；缺省 high；不支持画质的模型忽略
+		RefImages  int32  `json:"ref_images,optional"`  // 参考图张数（像素未知按网关缩小后的上限估）
+		PromptChars int32 `json:"prompt_chars,optional"` // 提示词字符数（GPT Image 2.5 / 2.6 按 token 估冻结用；缺省 0）
+		RefImageSizes []CanvasImageSize `json:"ref_image_sizes,optional"` // 每张参考图宽高（可选），给了按实际像素估冻结；条数与 ref_images 取大
+	}
+	CanvasEstimateResp {
+		Available   bool   `json:"available"` // false = 报不出价，reason 给用户看；前端退回静态目录价并标「约」
+		Reason      string `json:"reason,omitempty"`
+		Points      int64  `json:"points"`     // 最多扣多少点（= 冻结点数）
+		CapPoints   int64  `json:"cap_points"` // 同 points：ACTUAL_COST 时是冻结上限
+		SettleMode  string `json:"settle_mode"` // actual_cost / fixed
+		Currency    string `json:"currency"`    // 恒 points
+		BillingMode string `json:"billing_mode"` // off / shadow / on
+		Breakdown   CanvasEstimateBreakdown `json:"breakdown"`
+		Note        string `json:"note,omitempty"`
+	}
+	CanvasEstimateBreakdown {
+		ModelGroup string `json:"model_group"`
+		Size       string `json:"size"`
+		Quality    string `json:"quality"` // 实际参与计价的画质；模型不支持画质时为空
+		Count      int32  `json:"count"`
+		RefImages  int32  `json:"ref_images"`
+		UnitPoints int64  `json:"unit_points"` // 每张点数（拆不均时 0）
+	}
 	CanvasTemplateListReq {
 		Scope string `form:"scope,optional,default=official,options=official|user|all"`
 	}
@@ -1916,6 +1952,10 @@ service gateway-api {
 	@doc "模型 / 参数 / 工具目录（替代前端写死）"
 	@handler catalog
 	get /catalog returns (CanvasCatalogResp)
+
+	@doc "生图预估点数（只读，不冻结）：与执行时冻结同一个 Quote（模型 + 尺寸 + 张数 + 画质 + 参考图数）；GPT Image 2.6 为「最多 X 点，按实际成本结算」（settle_mode=actual_cost），其余按张固定价；每用户每分钟 60 次"
+	@handler estimate
+	post /estimate (CanvasEstimateReq) returns (CanvasEstimateResp)
 
 	@doc "模板列表（official / user / all）"
 	@handler listTemplates

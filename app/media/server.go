@@ -110,6 +110,8 @@ func NewServer(cfg Config) (*Server, error) {
 	}
 	s.owners = newOwnerPicker(cfg, id.instanceID, &s.closers)
 	s.mux.HandleFunc("GET /healthz", s.healthz)
+	// /healthz 只是存活；/readyz 查对象存储可达 + 幂等 Redis，失败 503（供负载均衡 / k8s readinessProbe）
+	s.mux.HandleFunc("GET /readyz", s.newReady().Handler())
 	s.mux.HandleFunc("GET "+apiPrefix+"/capabilities", s.auth(s.capabilities))
 	s.mux.HandleFunc("POST "+apiPrefix+"/ingest/upload", s.auth(s.uploadBytes))
 	s.mux.HandleFunc("POST "+apiPrefix+"/ingest", s.auth(s.withDeadline(s.stageTimed(s.idempotent("ingest", s.ingest)))))

@@ -15,6 +15,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"aigc-local-life/pkg/traceid"
 )
 
 // 默认值。
@@ -327,6 +329,8 @@ func (c *Client) do(ctx context.Context, purpose, method, path string, q url.Val
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
+	// 没显式给追踪号时沿用入站请求的 X-Trace-Id（Java → Go → 网关同一个号）
+	traceid.Inject(ctx, req.Header)
 	if err := c.signer.Sign(req, purpose, body, c.now(), c.nonce()); err != nil {
 		return err
 	}

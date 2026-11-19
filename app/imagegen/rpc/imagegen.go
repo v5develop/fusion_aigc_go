@@ -10,6 +10,7 @@ import (
 	"aigc-local-life/app/imagegen/rpc/internal/svc"
 	"aigc-local-life/app/imagegen/rpc/pb"
 	"aigc-local-life/pkg/billing"
+	"aigc-local-life/pkg/traceid"
 
 	"github.com/zeromicro/go-zero/core/conf"
 	"github.com/zeromicro/go-zero/core/service"
@@ -40,6 +41,7 @@ func main() {
 			reflection.Register(grpcServer)
 		}
 	})
+	s.AddUnaryInterceptors(traceid.UnaryServerInterceptor) // X-Trace-Id：metadata → ctx + 日志字段
 	group.Add(s)
 	// 轮询执行面结果，回收超时的生成
 	group.Add(logic.NewPoller(ctx))

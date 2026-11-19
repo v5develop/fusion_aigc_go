@@ -10,6 +10,7 @@ import (
 	"aigc-local-life/app/studio/rpc/internal/svc"
 	"aigc-local-life/app/studio/rpc/studio"
 	"aigc-local-life/pkg/billing"
+	"aigc-local-life/pkg/traceid"
 
 	"github.com/zeromicro/go-zero/core/conf"
 	"github.com/zeromicro/go-zero/core/service"
@@ -44,6 +45,7 @@ func main() {
 			reflection.Register(grpcServer)
 		}
 	})
+	s.AddUnaryInterceptors(traceid.UnaryServerInterceptor) // X-Trace-Id：metadata → ctx + 日志字段
 	group.Add(s)
 	// 编排批次（切图 → 反推 → 生图）、轮询 gateway 结果、转存结算入库、同步任务中心
 	group.Add(logic.NewPoller(ctx))

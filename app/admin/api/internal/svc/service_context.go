@@ -29,6 +29,7 @@ import (
 	"github.com/zeromicro/go-zero/core/logx"
 	"github.com/zeromicro/go-zero/core/stores/sqlx"
 
+	"aigc-local-life/pkg/traceid"
 	"github.com/zeromicro/go-zero/rest"
 	"github.com/zeromicro/go-zero/zrpc"
 )
@@ -78,13 +79,13 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		Headline:             hl,
 		Config:               c,
 		AdminAuth:            middleware.NewAdminAuthMiddleware(c.Auth.Mode, c.Auth.Jwt, session.New(c.Auth.Session), conn).Handle,
-		CopywritingRpc:       copywriting.NewCopywriting(zrpc.MustNewClient(c.CopywritingRpc)),
-		DigitalHumanRpc:      digitalhuman.NewDigitalHuman(zrpc.MustNewClient(c.DigitalHumanRpc)),
-		NoteRpc:              note.NewNote(zrpc.MustNewClient(c.NoteRpc)),
-		ImageGenRpc:          imagegen.NewImageGen(zrpc.MustNewClient(c.ImageGenRpc)),
-		StudioRpc:            studio.NewStudio(zrpc.MustNewClient(c.StudioRpc)),
-		AssetLibRpc:          assetlib.NewAssetlib(zrpc.MustNewClient(c.AssetLibRpc)),
-		CanvasRpc:            canvas.NewCanvas(zrpc.MustNewClient(c.CanvasRpc)),
+		CopywritingRpc:       copywriting.NewCopywriting(zrpc.MustNewClient(c.CopywritingRpc, zrpc.WithUnaryClientInterceptor(traceid.UnaryClientInterceptor))),
+		DigitalHumanRpc:      digitalhuman.NewDigitalHuman(zrpc.MustNewClient(c.DigitalHumanRpc, zrpc.WithUnaryClientInterceptor(traceid.UnaryClientInterceptor))),
+		NoteRpc:              note.NewNote(zrpc.MustNewClient(c.NoteRpc, zrpc.WithUnaryClientInterceptor(traceid.UnaryClientInterceptor))),
+		ImageGenRpc:          imagegen.NewImageGen(zrpc.MustNewClient(c.ImageGenRpc, zrpc.WithUnaryClientInterceptor(traceid.UnaryClientInterceptor))),
+		StudioRpc:            studio.NewStudio(zrpc.MustNewClient(c.StudioRpc, zrpc.WithUnaryClientInterceptor(traceid.UnaryClientInterceptor))),
+		AssetLibRpc:          assetlib.NewAssetlib(zrpc.MustNewClient(c.AssetLibRpc, zrpc.WithUnaryClientInterceptor(traceid.UnaryClientInterceptor))),
+		CanvasRpc:            canvas.NewCanvas(zrpc.MustNewClient(c.CanvasRpc, zrpc.WithUnaryClientInterceptor(traceid.UnaryClientInterceptor))),
 		AdminUser:            adminuser.New(conn),
 		Session:              session.New(c.Auth.Session),
 	}

@@ -1,6 +1,8 @@
 package svc
 
 import (
+	"context"
+
 	assetlib "aigc-local-life/app/assetlib/rpc/assetlib_client"
 	canvas "aigc-local-life/app/canvas/rpc/canvas_client"
 	"aigc-local-life/app/copywriting/rpc/copywriting"
@@ -18,9 +20,11 @@ import (
 	"aigc-local-life/pkg/bundb"
 	"aigc-local-life/pkg/dbpool"
 	"aigc-local-life/pkg/fusion"
+	"aigc-local-life/pkg/health"
 	"aigc-local-life/pkg/mediasvc"
 	"aigc-local-life/pkg/session"
 	"aigc-local-life/pkg/storage"
+	"aigc-local-life/pkg/traceid"
 	"aigc-local-life/pkg/unionauth"
 	"aigc-local-life/pkg/userquota"
 
@@ -64,6 +68,8 @@ type ServiceContext struct {
 	// CanvasAgentQuota / CanvasAgentGenQuota 画布智能体工具调用 / 生成调用的按用户配额（Config.CanvasAgent.*，计数在会话 Redis）
 	CanvasAgentQuota    *userquota.Limiter
 	CanvasAgentGenQuota *userquota.Limiter
+	// Ready /readyz 的依赖检查（数据库 / 会话 Redis，配了才查）
+	Ready *health.Ready
 }
 
 func NewServiceContext(c config.Config) *ServiceContext {
@@ -79,21 +85,29 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	} else {
 		logx.Info("gateway: 未配置会话 Redis，姿态配对预览配额退回进程内计数（多实例各算各的，仅开发）")
 	}
+	var checks []health.Check
+	if conn != nil {
+		checks = append(checks, health.DB("mysql", conn.RawDB))
+	}
+	if rc := sess.Redis(); rc != nil {
+		checks = append(checks, health.Redis("redis", func(ctx context.Context) error { return rc.Ping(ctx).Err() }))
+	}
 	plazaSvc := newPlaza(c, conn, sess)
 	store := storage.New(c.Storage, conn)
 	return &ServiceContext{
+		Ready:               health.NewReady(health.Options{}, checks...),
 		Plaza:               plazaSvc,
 		Headline:            httpapi.MustBuild(c.DataSource, quotaRedis, c.PlazaHeadline, false, c.Plaza.AdminWriteEnabled),
 		Replicate:           replicate.MustBuild(c.Replicate, conn, replicate.WithStorage(store), replicate.WithRedis(quotaRedis)),
 		Config:              c,
 		Auth:                middleware.NewAuthMiddleware(c.Auth.Mode, c.Auth.Jwt, sess).Handle,
-		CopywritingRpc:      copywriting.NewCopywriting(zrpc.MustNewClient(c.CopywritingRpc)),
-		DigitalHumanRpc:     digitalhuman.NewDigitalHuman(zrpc.MustNewClient(c.DigitalHumanRpc)),
-		NoteRpc:             note.NewNote(zrpc.MustNewClient(c.NoteRpc)),
-		ImageGenRpc:         imagegen.NewImageGen(zrpc.MustNewClient(c.ImageGenRpc)),
-		StudioRpc:           studio.NewStudio(zrpc.MustNewClient(c.StudioRpc)),
-		AssetLibRpc:         assetlib.NewAssetlib(zrpc.MustNewClient(c.AssetLibRpc)),
-		CanvasRpc:           canvas.NewCanvas(zrpc.MustNewClient(c.CanvasRpc)),
+		CopywritingRpc:      copywriting.NewCopywriting(zrpc.MustNewClient(c.CopywritingRpc, zrpc.WithUnaryClientInterceptor(traceid.UnaryClientInterceptor))),
+		DigitalHumanRpc:     digitalhuman.NewDigitalHuman(zrpc.MustNewClient(c.DigitalHumanRpc, zrpc.WithUnaryClientInterceptor(traceid.UnaryClientInterceptor))),
+		NoteRpc:             note.NewNote(zrpc.MustNewClient(c.NoteRpc, zrpc.WithUnaryClientInterceptor(traceid.UnaryClientInterceptor))),
+		ImageGenRpc:         imagegen.NewImageGen(zrpc.MustNewClient(c.ImageGenRpc, zrpc.WithUnaryClientInterceptor(traceid.UnaryClientInterceptor))),
+		StudioRpc:           studio.NewStudio(zrpc.MustNewClient(c.StudioRpc, zrpc.WithUnaryClientInterceptor(traceid.UnaryClientInterceptor))),
+		AssetLibRpc:         assetlib.NewAssetlib(zrpc.MustNewClient(c.AssetLibRpc, zrpc.WithUnaryClientInterceptor(traceid.UnaryClientInterceptor))),
+		CanvasRpc:           canvas.NewCanvas(zrpc.MustNewClient(c.CanvasRpc, zrpc.WithUnaryClientInterceptor(traceid.UnaryClientInterceptor))),
 		CanvasBearer:        middleware.NewCanvasBearerMiddleware().Handle,
 		Storage:             store,
 		Union:               unionauth.New(c.Union),

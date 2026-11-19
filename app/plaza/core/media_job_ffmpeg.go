@@ -38,20 +38,13 @@ type Transcoder interface {
 }
 
 // ffprobeCodec 读首个视频流的 codec / pix_fmt。没装 / 没配返回 errProbeUnavailable；文件无视频流 / 解析失败返回其它错误。
-func ffprobeCodec(ctx context.Context, bin, rawURL string) (*VideoCodec, error) {
+func ffprobeCodec(ctx context.Context, bin, rawURL string, maxBytes int64) (*VideoCodec, error) {
 	if strings.TrimSpace(bin) == "" {
 		bin = "ffprobe"
 	}
-	ctx, cancel := context.WithTimeout(ctx, time.Minute)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, bin, "-v", "error", "-select_streams", "v:0",
-		"-show_entries", "stream=codec_name,pix_fmt", "-of", "default=noprint_wrappers=1", rawURL).Output()
+	out, err := runProbe(ctx, bin, rawURL, maxBytes, "stream=codec_name,pix_fmt")
 	if err != nil {
-		var ee *exec.ExitError
-		if errors.As(err, &ee) {
-			return nil, fmt.Errorf("ffprobe: %w", err)
-		}
-		return nil, errProbeUnavailable
+		return nil, err
 	}
 	c := &VideoCodec{}
 	for _, line := range strings.Split(string(out), "\n") {
@@ -167,4 +160,37 @@ func downloadTo(ctx context.Context, rawURL, dst string, max int64) error {
 		return permanentErr(fmt.Errorf("视频超过 %d MB 上限", max>>20))
 	}
 	return nil
+}
+
+// runProbe 探测视频：远程地址先经 safehttp 下载到临时文件（体积封顶，用完即删），再对本地文件跑 ffprobe，
+// 并用 -protocol_whitelist file,pipe 禁掉一切网络协议（防 m3u8 / concat 等清单把 ffprobe 引向内网）。
+// 本地路径（非 http(s)）直接探测。没装 / 没配 ffprobe 返回 errProbeUnavailable。
+func runProbe(ctx context.Context, bin, src string, maxBytes int64, entries string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+	if maxBytes <= 0 {
+		maxBytes = 200 << 20
+	}
+	path := src
+	if strings.HasPrefix(src, "http://") || strings.HasPrefix(src, "https://") {
+		dir, err := os.MkdirTemp("", "plaza-probe-")
+		if err != nil {
+			return nil, err
+		}
+		defer os.RemoveAll(dir)
+		path = filepath.Join(dir, "src.bin")
+		if err := downloadTo(ctx, src, path, maxBytes); err != nil {
+			return nil, fmt.Errorf("ffprobe: 下载失败: %w", err)
+		}
+	}
+	out, err := exec.CommandContext(ctx, bin, "-v", "error", "-protocol_whitelist", "file,pipe", "-select_streams", "v:0",
+		"-show_entries", entries, "-of", "default=noprint_wrappers=1", path).Output()
+	if err != nil {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
+			return nil, fmt.Errorf("ffprobe: %w", err)
+		}
+		return nil, errProbeUnavailable
+	}
+	return out, nil
 }

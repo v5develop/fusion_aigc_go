@@ -82,7 +82,7 @@ func (u *Uploader) transcodeVideo(ctx context.Context, videoURL string) (string,
 	probe := u.codec
 	if probe == nil {
 		probe = func(ctx context.Context, rawURL string) (*VideoCodec, error) {
-			return ffprobeCodec(ctx, u.cfg.FFprobe, rawURL)
+			return ffprobeCodec(ctx, u.cfg.FFprobe, rawURL, u.cfg.maxBytes(uploadKindVideo))
 		}
 	}
 	c, err := probe(ctx, videoURL)

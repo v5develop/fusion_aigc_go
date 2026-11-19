@@ -122,6 +122,15 @@ curl -s -H "Authorization: Bearer $TOKEN" https://<PUBLIC_DOMAIN>/api/v1/local-l
 curl -s -H "Authorization: Bearer $TOKEN" https://<PUBLIC_DOMAIN>/api/v1/points/balance | head -c 200   # 走 Java，验证令牌两边通用
 ```
 
+探针（gateway-api 与 media-svc 同一约定）：
+
+| 路径 | 含义 | 用在哪 |
+|---|---|---|
+| `/healthz` | 存活：进程在就 200，不查依赖 | docker HEALTHCHECK、k8s `livenessProbe` |
+| `/readyz` | 就绪：gateway-api 查数据库 + 会话 Redis（配了才查）；media-svc 查对象存储可达（HEAD 一个不存在的对象，得到「不存在」即可达）+ 幂等 Redis。任一失败 503，body 列出各项。结果缓存 3 秒 | compose 对 gateway-api 的 healthcheck、LB / k8s `readinessProbe`（media-svc 的 LB 摘除） |
+
+追踪号：入口读 `X-Trace-Id`（没有或非法就生成，只收字母数字与 `_-.:`、≤128 位），写进日志字段 `x_trace_id`、回写响应头；经 gRPC metadata 传到各 rpc 服务，出站调用 AI 网关与媒体服务时带同一个号。按它 grep 即可串起 Java → gateway-api → rpc → AI 网关 / media-svc。
+
 外网访问 `/api/v1/admin/...`（Java 后台）、`/swagger-ui/...` 都应返回 404；`/api/v1/local-life/admin/...` 用后台账号的令牌访问，无令牌返回 401。
 
 ## 三（补）、studio（商拍换装 / 姿态复刻 / 图片生成）

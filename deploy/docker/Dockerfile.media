@@ -40,6 +40,8 @@ COPY --from=build /out/media /app/media
 RUN mkdir -p /app/data && chown -R app:app /app
 COPY deploy/docker/media/media-svc.yaml /app/etc/media-svc.yaml
 USER app
+# 容器探活只看进程（/healthz）；负载均衡 / k8s readinessProbe 用 /readyz（对象存储可达 + 幂等 Redis），
+# 不要把 /readyz 当 livenessProbe：对象存储抖动会让实例被反复重启。
 HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=6 \
   CMD curl -fsS "http://${MEDIA_LISTEN}/healthz" >/dev/null || exit 1
 ENTRYPOINT ["/app/media"]

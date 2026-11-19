@@ -2,6 +2,7 @@ package media
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"log"
 	"net/http"
@@ -124,5 +125,40 @@ func TestInternalErrorLogCarriesTraceID(t *testing.T) {
 	if !strings.Contains(out, "media access trace_id=AiCreation_err42 method=POST path=/v1/mediasvc/compose status=500") ||
 		!strings.Contains(out, "code=internal check=internal.unexpected") {
 		t.Fatalf("访问日志错误码不对：\n%s", out)
+	}
+}
+
+// /readyz：对象存储可达（本地存储 HEAD 不存在的对象也算可达）→ 200；/healthz 不受影响。
+func TestReadyz(t *testing.T) {
+	ts := newTestServer(t, Config{})
+	resp, err := http.Get(ts.URL + "/readyz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("readyz status=%d", resp.StatusCode)
+	}
+}
+
+type headFailStore struct {
+	ObjectStore
+	err error
+}
+
+func (h headFailStore) Head(context.Context, string, string) (int64, error) { return 0, h.err }
+
+// 对象存储不可达（非「不存在」错误）→ /readyz 503；「不存在」→ 200。
+func TestReadyzObjectStoreDown(t *testing.T) {
+	for _, c := range []struct {
+		err  error
+		want int
+	}{{errors.New("dial timeout"), 503}, {errObjectNotFound, 200}} {
+		s := &Server{objects: headFailStore{err: c.err}}
+		rec := httptest.NewRecorder()
+		s.newReady().Handler()(rec, httptest.NewRequest("GET", "/readyz", nil))
+		if rec.Code != c.want {
+			t.Fatalf("err=%v code=%d want %d", c.err, rec.Code, c.want)
+		}
 	}
 }

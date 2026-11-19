@@ -216,7 +216,8 @@ services:
       canvas-rpc: { condition: service_healthy }
     healthcheck:
       <<: *rpc-health
-      test: ["CMD-SHELL", "case $$(curl -s -o /dev/null -m 3 -w '%{http_code}' http://127.0.0.1:${GATEWAY_PORT:-18888}/api/v1/local-life/copywriting/options) in [1-4]??) exit 0;; *) exit 1;; esac"]
+      # /readyz：数据库 + 会话 Redis 都通才算就绪（/healthz 只表示进程活着）
+      test: ["CMD-SHELL", "curl -fsS -m 3 http://127.0.0.1:${GATEWAY_PORT:-18888}/readyz >/dev/null"]
 
   admin-api:
     <<: *svc

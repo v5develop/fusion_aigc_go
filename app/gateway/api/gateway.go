@@ -18,10 +18,12 @@ import (
 	headline "aigc-local-life/app/plaza/headline/httpapi"
 	plazav1 "aigc-local-life/app/plaza/v1compat"
 	replicate "aigc-local-life/app/replicate/httpapi"
+	"aigc-local-life/pkg/health"
 	"aigc-local-life/pkg/idempotency"
 	"aigc-local-life/pkg/jsoncase"
 	"aigc-local-life/pkg/result"
 	"aigc-local-life/pkg/swaggerui"
+	"aigc-local-life/pkg/traceid"
 
 	"github.com/zeromicro/go-zero/core/conf"
 	"github.com/zeromicro/go-zero/rest"
@@ -47,6 +49,8 @@ func main() {
 	server := rest.MustNewServer(c.RestConf, opts...)
 	defer server.Stop()
 	// 幂等键：Idempotency-Key（AIGC 口径）同步成 X-Request-Id，旧头仍接受
+	// 追踪号：读 / 生成 X-Trace-Id → ctx + 日志字段 + 响应头；出站（AI 网关 / 媒体服务）沿用同一个号。放最前，后面的中间件日志也带它
+	server.Use(traceid.Middleware)
 	server.Use(idempotency.Middleware)
 	// 服务间入口（/internal/v1/**：画布工具、复刻智能体）验签要原始请求体：须在 jsoncase 改写请求体之前存下
 	server.Use(internalauth.PreserveInternalBody)
@@ -56,6 +60,11 @@ func main() {
 	result.Setup()
 	ctx := svc.NewServiceContext(c)
 	handler.RegisterHandlers(server, ctx)
+	// 探针：/healthz 只表示进程活着；/readyz 查数据库 / 会话 Redis（配了才查），失败 503
+	server.AddRoutes([]rest.Route{
+		{Method: http.MethodGet, Path: "/healthz", Handler: health.Healthz},
+		{Method: http.MethodGet, Path: "/readyz", Handler: ctx.Ready.Handler()},
+	})
 	// 画布智能体工具（MCP + Function Call）：不在 goctl 生成的 routes.go 里，单独注册
 	canvasagent.Register(server, ctx)
 	// 服务间入口共用一把校验器（同一份 CanvasInternal.Keys + 同一个 nonce 存储；没配可用密钥时都不注册）：

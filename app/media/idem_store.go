@@ -263,6 +263,13 @@ if redis.call('GET', KEYS[2]) == ARGV[1] then redis.call('DEL', KEYS[2]) end
 return 1
 `)
 
+// ping 就绪探针用：Redis 能响应 PING。
+func (s *redisIdemStore) ping(ctx context.Context) error {
+	ctx, cancel := s.opCtx(ctx)
+	defer cancel()
+	return s.rdb.Ping(ctx).Err()
+}
+
 func (s *redisIdemStore) keys(key string) (done, lock string) {
 	sum := sha256.Sum256([]byte(key))
 	h := hex.EncodeToString(sum[:])

@@ -9,6 +9,7 @@ import (
 	"aigc-local-life/app/copywriting/rpc/internal/server"
 	"aigc-local-life/app/copywriting/rpc/internal/svc"
 	"aigc-local-life/app/copywriting/rpc/pb"
+	"aigc-local-life/pkg/traceid"
 
 	"github.com/zeromicro/go-zero/core/conf"
 	"github.com/zeromicro/go-zero/core/service"
@@ -36,6 +37,7 @@ func main() {
 			reflection.Register(grpcServer)
 		}
 	})
+	s.AddUnaryInterceptors(traceid.UnaryServerInterceptor) // X-Trace-Id：metadata → ctx + 日志字段
 	group.Add(s)
 	// 回收卡在「生成中」的记录（服务重启或崩溃留下的）
 	group.Add(logic.NewStuckRecovery(ctx))

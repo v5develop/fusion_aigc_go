@@ -6,6 +6,11 @@ import (
 	"errors"
 	"image"
 	"image/png"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -282,5 +287,41 @@ func TestValidateTemplateInputFields(t *testing.T) {
 		MediaType: "video", VideoURL: "https://a/v.mp4", PosterURL: "https://a/p.jpg", Tags: []string{"a"}}
 	if err := ok(good); err != nil {
 		t.Fatalf("合法输入被拒: %v", err)
+	}
+}
+
+// 探测本地 m3u8（引用网络地址）不得发起任何网络请求：-protocol_whitelist file,pipe 兜住。
+func TestRunProbeNoNetworkFromPlaylist(t *testing.T) {
+	fp, err := exec.LookPath("ffprobe")
+	if err != nil {
+		t.Skip("没有 ffprobe")
+	}
+	hit := make(chan struct{}, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case hit <- struct{}{}:
+		default:
+		}
+	}))
+	defer srv.Close()
+	pl := filepath.Join(t.TempDir(), "a.m3u8")
+	_ = os.WriteFile(pl, []byte("#EXTM3U\n#EXT-X-TARGETDURATION:1\n#EXTINF:1,\n"+srv.URL+"/seg.ts\n#EXT-X-ENDLIST\n"), 0o600)
+	_, _ = runProbe(context.Background(), fp, pl, 1<<20, "stream=width")
+	select {
+	case <-hit:
+		t.Fatal("ffprobe 对本地 m3u8 发起了网络请求")
+	default:
+	}
+}
+
+// 内网地址（回环）被 safehttp 拒收，httpFetch 与 runProbe 都不例外。
+func TestFetchAndProbeRejectPrivateIP(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("x")) }))
+	defer srv.Close()
+	if _, err := httpFetch(context.Background(), srv.URL, 1024); err == nil {
+		t.Error("httpFetch 应拒绝内网地址")
+	}
+	if _, err := runProbe(context.Background(), "ffprobe", srv.URL, 1024, "stream=width"); err == nil || errors.Is(err, errProbeUnavailable) {
+		t.Errorf("runProbe 应因下载被拒而失败: %v", err)
 	}
 }
