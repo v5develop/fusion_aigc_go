@@ -144,7 +144,7 @@ func (p *Poller) pollPlans(ctx context.Context) {
 		r := p.query(ctx, n.PlanTaskId.String)
 		switch {
 		case r != nil && r.Status == aigc.StatusSuccess:
-			p.finishPlan(ctx, n, r.Script)
+			p.finishPlan(ctx, n, r.Script, aigc.PastDeadline(n.UpdateTime, deadline))
 		case r != nil && r.Done():
 			aigc.LogOutcome(ctx, aigc.Trace{Service: "note", Stage: "plan", RecordID: n.Id, UserID: n.UserId, TaskCenterID: taskcenter.Ref("note", n.Id), ExecTaskID: n.PlanTaskId.String}, r)
 			failPlan(ctx, svcCtx, n.Id, "构思失败，请重试")
@@ -157,7 +157,7 @@ func (p *Poller) pollPlans(ctx context.Context) {
 // finishPlan 解析 74 的 script，审核后写入规划结果。
 // script 里的参考图（images_url）在执行面临时目录 aigc_temp/，先转存到我们的目录再落库，
 // 否则用户隔一段时间再点生成，75 会取不到参考图。转存失败保持构思中，下一轮重试。
-func (p *Poller) finishPlan(ctx context.Context, n *model.AfvImageTextNote, raw json.RawMessage) {
+func (p *Poller) finishPlan(ctx context.Context, n *model.AfvImageTextNote, raw json.RawMessage, timedOut bool) {
 	svcCtx := p.svcCtx
 	s, err := parseScript(raw)
 	if err != nil {
@@ -174,6 +174,11 @@ func (p *Poller) finishPlan(ctx context.Context, n *model.AfvImageTextNote, raw 
 	if len(s.ImagesURL) > 0 {
 		urls := transferAll(ctx, svcCtx, s.ImagesURL, "note_ref", n.UserId)
 		if len(urls) == 0 {
+			if timedOut { // 转存持续失败且已过截止：判失败，不再无限重试
+				logx.WithContext(ctx).Errorf("note %d 参考图转存持续失败，已过构思截止，判失败", n.Id)
+				failPlan(ctx, svcCtx, n.Id, "构思超时，请重试")
+				return
+			}
 			logx.WithContext(ctx).Errorf("note %d 参考图转存失败，下一轮重试", n.Id)
 			return
 		}
@@ -214,6 +219,11 @@ func (p *Poller) pollGenerates(ctx context.Context) {
 			// 执行面产物在上游私有桶，转存到公有桶后再落库
 			urls := transferAll(ctx, svcCtx, r.Outputs(), "note", n.UserId)
 			if len(urls) == 0 {
+				if aigc.PastDeadline(n.UpdateTime, deadline) { // 转存持续失败且已过截止：判失败并退点（本轮起不再续期）
+					logx.WithContext(ctx).Errorf("note %d 供应商已成功但转存持续失败，已超 %s，判失败", n.Id, deadline)
+					failGenerate(ctx, svcCtx, n.Id, "生成超时，请重试")
+					continue
+				}
 				logx.WithContext(ctx).Errorf("note %d 转存失败，下一轮重试", n.Id)
 				continue
 			}

@@ -43,6 +43,10 @@ func (e Extractor) Extract(ctx context.Context, videoURL string) ([]byte, error)
 	return e.frame(ctx, videoURL, 0)
 }
 
+// inputProtocols 输入只许 http(s)（及其底层 tcp/tls/crypto）与本地文件：封面源多为网络地址，
+// 但不允许清单文件再跳到 file:// 等本地协议读文件；必须出现在 -i 之前。
+const inputProtocols = "file,http,https,tcp,tls,crypto"
+
 // seekFor 片长 15% 处，上限 3 秒；片长未知（<=0）时不 seek。
 func seekFor(duration float64) float64 {
 	if duration <= 0 {
@@ -54,7 +58,7 @@ func seekFor(duration float64) float64 {
 // duration 探测片长（秒）；失败返回 0，由调用方退回不 seek 的抽帧。
 func (e Extractor) duration(ctx context.Context, videoURL string) float64 {
 	out, err := exec.CommandContext(ctx, binOr(e.FFprobe, "ffprobe"),
-		"-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", videoURL).Output()
+		"-protocol_whitelist", inputProtocols, "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", videoURL).Output()
 	if err != nil {
 		return 0
 	}
@@ -72,7 +76,7 @@ func (e Extractor) frame(ctx context.Context, videoURL string, seek float64) ([]
 		// -ss 放在 -i 之前是关键帧快速 seek：封面不需要帧级精确，放后面会逐帧解码到该位点，长视频上慢一个数量级
 		args = append(args, "-ss", strconv.FormatFloat(seek, 'f', 3, 64))
 	}
-	args = append(args, "-i", videoURL, "-vf", "thumbnail", "-frames:v", "1", "-q:v", "2",
+	args = append(args, "-protocol_whitelist", inputProtocols, "-i", videoURL, "-vf", "thumbnail", "-frames:v", "1", "-q:v", "2",
 		"-f", "image2pipe", "-vcodec", "mjpeg", "pipe:1")
 
 	var stdout, stderr bytes.Buffer

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -779,4 +780,41 @@ func TestRealRefundOnlyOwnBatches(t *testing.T) {
 	want(t, "全退后批次 1 冻结", f1, 0)
 	want(t, "全退后批次 2 冻结", f2, 0)
 	checkConsistent(t, conn)
+}
+
+// 回收与续期并发：扫描到过期单之后、回收之前租约被续期，行锁下复核必须跳过，不能把在途任务的点数退掉。
+// 只在库名含 scratch / test 时运行（会改预留单过期时间）。
+func TestRealReclaimSkipsRenewedLease(t *testing.T) {
+	conn := openDB(t)
+	dsn := os.Getenv("BILLING_DSN")
+	if !strings.Contains(dsn, "scratch") && !strings.Contains(dsn, "test") {
+		t.Skip("库名需含 scratch 或 test")
+	}
+	defer setup(t, conn, 1000)()
+	ctx := context.Background()
+	s := New(Conf{Mode: ModeOn}, conn)
+
+	r, err := s.Freeze(ctx, Charge{UserID: testUser, RequestID: "req-renew-race",
+		EntryCode: testEntryAll, Kind: KindVideo, Seconds: 10})
+	if err != nil {
+		t.Fatalf("冻结: %v", err)
+	}
+	if _, err := conn.ExecCtx(ctx,
+		"UPDATE afv_billing_reservation SET expire_time = NOW() - INTERVAL 1 MINUTE WHERE reservation_no = ?", r.No); err != nil {
+		t.Fatalf("改过期时间: %v", err)
+	}
+	// 模拟「扫描已选中它」之后 Renew 抢先续期
+	if err := s.Renew(ctx, testUser, "req-renew-race"); err != nil {
+		t.Fatalf("续期: %v", err)
+	}
+	if err := release(ctx, conn, r.No); !errors.Is(err, errLeaseRenewed) {
+		t.Fatalf("续期后的单不该被回收，实际 err=%v", err)
+	}
+	var st string
+	if err := conn.QueryRowCtx(ctx, &st, "SELECT status FROM afv_billing_reservation WHERE reservation_no = ?", r.No); err != nil {
+		t.Fatalf("查状态: %v", err)
+	}
+	if st != statusHeld {
+		t.Fatalf("应仍为 HELD，实际 %s", st)
+	}
 }

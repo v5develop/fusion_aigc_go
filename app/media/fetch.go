@@ -1,6 +1,7 @@
 package media
 
 import (
+	"aigc-local-life/pkg/safehttp"
 	"context"
 	"errors"
 	"fmt"
@@ -13,19 +14,18 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
-	"syscall"
 	"time"
 )
 
 // maxRedirects 与 Java 侧 FetchPolicy 的硬上限一致：再多就不是正常的 CDN 跳转。
-const maxRedirects = 5
+const maxRedirects = safehttp.MaxRedirects
 
-var errBlockedAddress = errors.New("地址不允许访问（内网 / 回环 / 保留地址）")
+var errBlockedAddress = safehttp.ErrBlockedAddress
 
 // 重定向的永久错误（素材地址本身的问题，重试没有意义）：经 client.Do 返回时包在 *url.Error 里，用 errors.Is 识别。
 var (
-	errTooManyRedirects  = errors.New("重定向次数过多")
-	errRedirectForbidden = errors.New("重定向到不允许的地址（协议或内网）")
+	errTooManyRedirects  = safehttp.ErrTooManyRedirects
+	errRedirectForbidden = safehttp.ErrRedirectForbidden
 )
 
 // redirectTraceKey 请求上下文里挂一个 *redirectTrace，CheckRedirect 记下是否发生过跳转：
@@ -44,28 +44,8 @@ type fetcher struct {
 }
 
 func newFetcher(cfg Config) *fetcher {
-	dialer := &net.Dialer{
-		Timeout: 30 * time.Second,
-		Control: func(_, address string, _ syscall.RawConn) error {
-			host, _, err := net.SplitHostPort(address)
-			if err != nil {
-				return err
-			}
-			ip := net.ParseIP(host)
-			if ip == nil {
-				return errBlockedAddress
-			}
-			if !cfg.AllowPrivateHosts && !publicIP(ip) {
-				return errBlockedAddress
-			}
-			return nil
-		},
-	}
-	// 下载经网关转存时对同一批 CDN 主机并发很高；默认每主机空闲连接只有 2，调大以复用连接
-	transport := &http.Transport{
-		DialContext: dialer.DialContext, Proxy: nil,
-		MaxIdleConns: 256, MaxIdleConnsPerHost: 32, IdleConnTimeout: 90 * time.Second,
-	}
+	// 下载经网关转存时对同一批 CDN 主机并发很高；safehttp 的 Transport 已调大每主机空闲连接以复用
+	transport := safehttp.NewTransport(cfg.AllowPrivateHosts)
 	return &fetcher{
 		client: &http.Client{
 			Transport: transport,
@@ -95,38 +75,8 @@ func newFetcher(cfg Config) *fetcher {
 	}
 }
 
-// reservedNets 不属于公网、但 net.IP 的 IsPrivate 不覆盖的保留段。
-// 其中 100.64.0.0/10（CGNAT）包含阿里云 ECS 元数据地址 100.100.100.200，必须拦截，否则外部 URL 可以读到实例凭证。
-var reservedNets = mustCIDRs(
-	"0.0.0.0/8", "100.64.0.0/10", "192.0.0.0/24", "192.0.2.0/24", "198.18.0.0/15",
-	"198.51.100.0/24", "203.0.113.0/24", "240.0.0.0/4",
-)
-
-func mustCIDRs(cidrs ...string) []*net.IPNet {
-	out := make([]*net.IPNet, 0, len(cidrs))
-	for _, c := range cidrs {
-		_, n, err := net.ParseCIDR(c)
-		if err != nil {
-			panic(err)
-		}
-		out = append(out, n)
-	}
-	return out
-}
-
-// publicIP 只认公网单播地址。
-func publicIP(ip net.IP) bool {
-	if ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified() || ip.IsLinkLocalUnicast() ||
-		ip.IsLinkLocalMulticast() || ip.IsInterfaceLocalMulticast() || ip.IsMulticast() {
-		return false
-	}
-	for _, n := range reservedNets {
-		if n.Contains(ip) {
-			return false
-		}
-	}
-	return true
-}
+// publicIP 只认公网单播地址（判据在 pkg/safehttp，含 CGNAT / NAT64 / 6to4 等保留段）。
+func publicIP(ip net.IP) bool { return safehttp.PublicIP(ip) }
 
 // sameOrigin 协议与主机（含端口）都相同。
 func sameOrigin(a, b *url.URL) bool {

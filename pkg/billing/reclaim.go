@@ -3,6 +3,7 @@ package billing
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/zeromicro/go-zero/core/logx"
@@ -80,7 +81,10 @@ func (r *Reclaimer) Tick(ctx context.Context) int {
 	}
 	n := 0
 	for _, row := range rows {
-		if err := release(ctx, r.conn, row.No); err != nil {
+		if err := release(ctx, r.conn, row.No); errors.Is(err, errLeaseRenewed) {
+			logx.WithContext(ctx).Infof("billing reclaim: %s 租约已被续期，跳过", row.No)
+			continue
+		} else if err != nil {
 			logx.WithContext(ctx).Errorf("billing reclaim %s: %v", row.No, err)
 			continue
 		}

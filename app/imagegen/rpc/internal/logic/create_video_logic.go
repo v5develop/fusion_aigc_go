@@ -2,6 +2,7 @@ package logic
 
 import (
 	"aigc-local-life/pkg/aigc"
+	"aigc-local-life/pkg/safehttp"
 	"aigc-local-life/pkg/taskcenter"
 	"time"
 
@@ -12,7 +13,6 @@ import (
 	"aigc-local-life/app/imagegen/rpc/internal/svc"
 	"aigc-local-life/app/imagegen/rpc/pb"
 	"errors"
-	"net/http"
 	"strings"
 
 	"aigc-local-life/app/digitalhuman/rpc/digitalhuman"
@@ -177,7 +177,7 @@ func (l *CreateVideoLogic) createRemake(in *pb.CreateVideoReq) (*pb.VideoInfo, e
 		if err := storage.Owned(l.svcCtx.Storage, videoURL); err != nil {
 			return nil, xerr.Param("请先通过上传接口上传视频")
 		}
-		if err := videoLimits(cfg).ProbeVideo(l.ctx, http.DefaultClient, videoURL); err != nil {
+		if err := videoLimits(cfg).ProbeVideo(l.ctx, safehttp.Shared(), videoURL); err != nil {
 			return nil, xerr.Param(err.Error())
 		}
 		row = &model.AfvVideoCreation{
@@ -280,7 +280,7 @@ func (l *CreateVideoLogic) fetchAndSubmit(id, userID int64, v *linkparse.Video) 
 	log := logx.WithContext(ctx)
 	cfg := &l.svcCtx.Config.VideoRemake
 
-	data, ct, err := linkparse.Download(ctx, http.DefaultClient, v, cfg.MaxVideoBytes)
+	data, ct, err := linkparse.Download(ctx, safehttp.Shared(), v, cfg.MaxVideoBytes)
 	switch {
 	case errors.Is(err, linkparse.ErrTooLarge):
 		failVideo(ctx, l.svcCtx, id, model.VideoPlanning, videoLimits(cfg).LimitMsg())
@@ -321,7 +321,7 @@ func (l *CreateVideoLogic) saveCover(ctx context.Context, userID int64, v *linkp
 		return ""
 	}
 	cover := &linkparse.Video{URL: v.CoverURL, UserAgent: v.UserAgent}
-	data, _, err := linkparse.Download(ctx, http.DefaultClient, cover, maxCoverBytes)
+	data, _, err := linkparse.Download(ctx, safehttp.Shared(), cover, maxCoverBytes)
 	if err != nil {
 		logx.WithContext(ctx).Infof("下载封面失败，跳过: %v", err)
 		return ""

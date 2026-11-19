@@ -181,7 +181,7 @@ func (p *Poller) tick(ctx context.Context) {
 // pollOne 查这条记录名下还没结束的任务；全部结束（或超过 timeoutMinutes）就收尾。
 func (p *Poller) pollOne(ctx context.Context, c *model.LocalLifeCreation, timeoutMinutes int) {
 	svcCtx := p.svcCtx
-	timedOut := time.Since(c.UpdateTime) > time.Duration(timeoutMinutes)*time.Minute
+	timedOut := aigc.PastDeadline(c.UpdateTime, time.Duration(timeoutMinutes)*time.Minute)
 	tasks := parseTasks(c.Tasks.String)
 	changed := false
 	for i := range tasks {
@@ -196,6 +196,12 @@ func (p *Poller) pollOne(ctx context.Context, c *model.LocalLifeCreation, timeou
 			u, terr := svcCtx.Storage.Transfer(ctx, r.GeneratedImagePath, c.Kind, c.UserId)
 			if terr != nil {
 				aigc.LogStepFailed(ctx, trace, "transfer", terr)
+				if !timedOut {
+					continue
+				}
+				// 供应商已成功但转存持续失败，且已过截止时间：判失败（走后续结算退点），不再续期预留
+				tasks[i].Status, tasks[i].Error, changed = aigc.StatusFailed, "生成超时", true
+				aigc.LogStepFailed(ctx, trace, "timeout", fmt.Errorf("超过 %d 分钟，供应商已成功但产物转存持续失败：%v", timeoutMinutes, terr))
 				continue
 			}
 			tasks[i].Status, tasks[i].URL, changed = aigc.StatusSuccess, u, true

@@ -365,7 +365,7 @@ func (s *Service) concatFilter(ctx context.Context, files []string, out string) 
 func (s *Service) hasAudio(ctx context.Context, file string) (bool, error) {
 	var has bool
 	err := s.computeLight(ctx, func() error {
-		out, err := exec.CommandContext(ctx, binOr(s.cfg.FFprobe, "ffprobe"), "-v", "error",
+		out, err := ffCommand(ctx, binOr(s.cfg.FFprobe, "ffprobe"), "-v", "error",
 			"-select_streams", "a", "-show_entries", "stream=index", "-of", "csv=p=0", file).Output()
 		has = err == nil && len(bytes.TrimSpace(out)) > 0
 		return nil

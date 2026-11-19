@@ -508,7 +508,13 @@ func refund(ctx context.Context, conn sqlx.SqlConn, no, reason string) error {
 	return unfreeze(ctx, conn, no, changeRefund, "refunded:"+no, statusRefunded, or(reason, "生成失败退回"))
 }
 
+// errLeaseRenewed 回收时发现租约在扫描之后被续期，本条不该回收。
+var errLeaseRenewed = errors.New("billing: 租约已被续期")
+
 // release 预留过期回收。
+//
+// 只有「锁住行之后仍然过期」才回收：扫描与逐条回收之间 Renew 可能已把租约顺延（Renew 与这里的 FOR UPDATE 互斥，
+// 谁先拿到行锁谁先生效），此时返回 errLeaseRenewed，调用方跳过，不退点也不置 EXPIRED。
 func release(ctx context.Context, conn sqlx.SqlConn, no string) error {
 	return unfreeze(ctx, conn, no, changeUnfreeze, "expired:"+no, "EXPIRED", "预留超时自动释放")
 }
@@ -524,6 +530,17 @@ func unfreeze(ctx context.Context, conn sqlx.SqlConn, no, change, idem, target, 
 				return nil // 幂等
 			}
 			return fmt.Errorf("%w: %s 当前是 %s", ErrGone, no, res.Status)
+		}
+		if target == "EXPIRED" {
+			// 行锁下复核（锁定读，读最新已提交值）：扫描之后租约若被 Renew 顺延，就不是真过期，跳过
+			var expired int64
+			const chk = "SELECT COUNT(1) FROM `afv_billing_reservation` WHERE `id` = ? AND `expire_time` IS NOT NULL AND `expire_time` < NOW() FOR UPDATE"
+			if err := s.QueryRowCtx(ctx, &expired, chk, res.Id); err != nil {
+				return err
+			}
+			if expired == 0 {
+				return errLeaseRenewed
+			}
 		}
 		p := res.PricePoints
 

@@ -6,6 +6,7 @@ package core
 // 否则原样落桶，不能当转码用。所以转码走本机 ffmpeg（显式配置 Plaza.Upload.FFmpeg 才启用）；没配置时流水线只抽封面并在 media_note 里记「未转码」。
 
 import (
+	"aigc-local-life/pkg/safehttp"
 	"context"
 	"errors"
 	"fmt"
@@ -145,7 +146,7 @@ func downloadTo(ctx context.Context, rawURL, dst string, max int64) error {
 	if err != nil {
 		return err
 	}
-	resp, err := (&http.Client{}).Do(req)
+	resp, err := safehttp.Shared().Do(req)
 	if err != nil {
 		return err
 	}

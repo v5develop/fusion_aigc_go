@@ -345,7 +345,11 @@ func (p *Poller) pollPortraits(ctx context.Context) {
 			}
 			urls := transferAll(ctx, svcCtx, r.Outputs(), "portrait", it.UserId) // 上游私有桶 → 公有桶
 			if len(urls) == 0 {
-				continue // 转存失败，保持生成中，下一轮重试
+				if aigc.PastDeadline(it.CreateTime, deadline) { // 转存持续失败且已过截止：判失败，不再无限重试
+					logx.WithContext(ctx).Errorf("portrait %d 供应商已成功但转存持续失败，已超 %s，判失败", it.Id, deadline)
+					finishPortrait(ctx, svcCtx, it.Id, model.PortraitFailed, nil, "生成超时，请重试")
+				}
+				continue // 未到截止：保持生成中，下一轮重试
 			}
 			// 设计稿：4 张图自动存进素材库。置完成与入库同一事务；形象不扣费，入库失败退回只置完成并打 ERROR（不在对账之列）
 			finishPortraitWithAsset(ctx, svcCtx, it, urls)
@@ -378,7 +382,14 @@ func (p *Poller) pollVideos(ctx context.Context) {
 		case r != nil && r.Status == aigc.StatusSuccess && r.GeneratedImagePath != "":
 			videoURL := transfer(ctx, svcCtx, r.GeneratedImagePath, "video", it.UserId) // 上游私有桶 → 公有桶
 			if videoURL == "" {
-				continue // 转存失败，保持生成中，下一轮重试
+				if aigc.PastDeadline(it.UpdateTime, deadline) { // 转存持续失败且已过截止：判失败并退点（本轮起不再续期）
+					trace := aigc.Trace{Service: "digitalhuman", Stage: "rendering", RecordID: it.Id, UserID: it.UserId,
+						TaskCenterID: taskcenter.Ref("dh", it.Id), ExecTaskID: it.VideoTaskId.String}
+					const timeoutReason = "视频生成超时，请重试"
+					aigc.LogTaskFailed(ctx, trace, timeoutReason, fmt.Errorf("超过 %s，供应商已成功但产物转存持续失败", deadline))
+					failHuman(ctx, svcCtx, it.Id, model.DhStatusRendering, timeoutReason)
+				}
+				continue // 未到截止：保持生成中，下一轮重试
 			}
 			// 先确认扣费，确认成功才交付；预留已失效则不交付
 			if err := svcCtx.Billing.Settle(ctx, it.UserId, it.VideoTaskId.String, 0); err != nil {
