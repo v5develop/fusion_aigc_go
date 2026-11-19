@@ -174,16 +174,22 @@ func TestGatewayRequestsShape(t *testing.T) {
 	reqs, _ = c.gatewayRequests(context.Background(), run, &runSpec{Kind: model.KindImage, Model: g, ModelGroup: g.ModelGroup, Prompt: "p", Count: 1, Size: "1K",
 		Images: []refMedia{{URL: "https://x/a.png"}}})
 	b, _ = json.Marshal(reqs[0])
-	if !strings.Contains(string(b), `"operation":"image.edit"`) || !strings.Contains(string(b), `"quality":"medium"`) || !strings.Contains(string(b), `"images":[{"uri":"https://x/a.png"}]`) {
+	if !strings.Contains(string(b), `"operation":"image.edit"`) || !strings.Contains(string(b), `"quality":"high"`) || !strings.Contains(string(b), `"images":[{"uri":"https://x/a.png"}]`) {
 		t.Fatalf("gpt edit: %s", b)
 	}
-	// 「GPT」/「Image」（GPT Image 2 的接替）= GPT Image 2.5：没有 quality 参数
+	// 「GPT」/「Image」（GPT Image 2 的接替）= GPT Image 2.5：2026-11-19 起标准版支持画质，缺省 high，编辑也按请求画质
 	g25, _ := c.s.Config.FindModel("GPT", "", "image")
 	reqs, _ = c.gatewayRequests(context.Background(), run, &runSpec{Kind: model.KindImage, Model: g25, ModelGroup: g25.ModelGroup, Prompt: "p", Count: 1, Size: "1K",
 		Images: []refMedia{{URL: "https://x/a.png"}}})
 	b, _ = json.Marshal(reqs[0])
-	if g25.ModelGroup != "img.gpt-image-2.5-sunburst" || strings.Contains(string(b), "quality") {
-		t.Fatalf("gpt 2.5 edit: %s", b)
+	if g25.ModelGroup != "img.gpt-image-2.5-sunburst-std" || !strings.Contains(string(b), `"quality":"high"`) {
+		t.Fatalf("gpt 2.5 edit 缺省应 high: %s", b)
+	}
+	reqs, _ = c.gatewayRequests(context.Background(), run, &runSpec{Kind: model.KindImage, Model: g25, ModelGroup: g25.ModelGroup, Prompt: "p", Count: 1, Size: "2K",
+		Quality: "low", Images: []refMedia{{URL: "https://x/a.png"}}})
+	b, _ = json.Marshal(reqs[0])
+	if !strings.Contains(string(b), `"quality":"low"`) {
+		t.Fatalf("gpt 2.5 edit 请求 low 应透传: %s", b)
 	}
 	if k, err := gatewayIdem(run, 2); err != nil || k != "canvas:cv_t:2" {
 		t.Fatal("幂等键")

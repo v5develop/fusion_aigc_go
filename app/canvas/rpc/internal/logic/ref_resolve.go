@@ -144,6 +144,22 @@ func (l *refLookup) latestCandidate(nodeID string, i int) (frozenRef, bool) {
 	return frozenRef{Ref: list[i].URL, RunID: r.ID, Index: i}, true
 }
 
+// candidateDims 上游节点最近一次成功 run 的第 i 个候选的宽高（产出时记录；没有 / 未记录返回 0, 0）。
+func (l *refLookup) candidateDims(nodeID string, i int) (int, int) {
+	if l == nil {
+		return 0, 0
+	}
+	r := l.latest(nodeID)
+	if r == nil {
+		return 0, 0
+	}
+	list := r.CandidateList()
+	if i < 0 || i >= len(list) {
+		return 0, 0
+	}
+	return list[i].W, list[i].H
+}
+
 // latestVideo 上游节点最近一次成功 run 的视频；上游不是视频产物 / 找不到 ok=false。
 func (l *refLookup) latestVideo(nodeID string) (frozenRef, bool) {
 	r := l.latest(nodeID)

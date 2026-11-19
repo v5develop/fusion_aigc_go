@@ -168,7 +168,7 @@ func TestNormalizeImageSize(t *testing.T) {
 // SD5P 回到 Seedream 5.0 Pro。
 func TestDefaultImageModelsNextGen(t *testing.T) {
 	c := testCore()
-	for model, group := range map[string]string{"Image": "img.gpt-image-2.5-sunburst", "通用": "img.gpt-image-2.5-sunburst",
+	for model, group := range map[string]string{"Image": "img.gpt-image-2.5-sunburst-std", "通用": "img.gpt-image-2.5-sunburst-std",
 		"GPT Image 2.6": "img.gpt-image-2.6-sunburst", "gpt-image-2-6-v1": "img.gpt-image-2.6-sunburst",
 		"Banana": "img.nano-banana-2.1", "SD55": "img.seedream-5.5", "seedream-5-5-v1": "img.seedream-5.5", "Seedream 5.5": "img.seedream-5.5",
 		"Seedream": "img.seedream-5.5", "SD5P": "img.seedream-5-pro", "sd5p-v1": "img.seedream-5-pro", "Seedream 5 Pro": "img.seedream-5-pro",

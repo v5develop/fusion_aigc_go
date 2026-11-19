@@ -6,12 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/go-sql-driver/mysql"
 	"github.com/zeromicro/go-zero/core/logx"
+	"github.com/zeromicro/go-zero/core/metric"
 	"github.com/zeromicro/go-zero/core/stores/sqlx"
 )
 
@@ -44,6 +46,8 @@ const (
 
 	// CheckActualCostUnavailable 载体按实际用量结算、却拿不到实报成本 → 按冻结全额确认。
 	CheckActualCostUnavailable = "ACTUAL_COST_UNAVAILABLE"
+	// CheckActualOverFreeze 实际费用（公平点数）超过冻结额：只扣冻结额，差额平台承担。
+	CheckActualOverFreeze = "ACTUAL_OVER_FREEZE"
 )
 
 // CostFunc 取本次预留下全部 gateway 调用的供应商实报成本合计（美元）。ok=false 表示拿不到实报终值。
@@ -354,7 +358,14 @@ func (s *Service) SettleCost(ctx context.Context, userID int64, requestID string
 			// 上限 = 按实际交付量本该确认的点数（PARTIAL 档位部分成功时已扣掉未交付的份数），与 Java confirmByActualCost 的
 			// chargedAfterUndelivered 同口径：按实际用量结算只会比固定价更便宜，不能因为失败但被供应商计费的尝试多扣
 			capPts, _ := splitActual(r, r.PricePoints, actual)
-			points := ActualPoints(capPts, usd, rate, markup)
+			fair := FairPoints(usd, rate, markup)
+			points := min64(capPts, fair)
+			if fair > capPts {
+				// 实际费用超过冻结额：只扣冻结额（用户不多付），差额由平台承担，记指标 + WARN 供校准 token_model（rate_factor / 输出 token 表）
+				actualOverFreeze.Inc(strconv.FormatInt(ci.ModelID, 10))
+				logx.WithContext(ctx).Slowf("billing: 实际费用超过冻结额，只扣冻结额 判据=%s reservation=%s carrier=%d fair=%d cap=%d cost_usd=%s",
+					CheckActualOverFreeze, r.No, ci.ModelID, fair, capPts, usd.FloatString(6))
+			}
 			done, err := settlePoints(ctx, s.conn, r, points, "按实际用量确认消费", "按实际用量结算，退回差额")
 			if err != nil {
 				return nil, err
@@ -388,3 +399,12 @@ func (s *Service) ConfirmPoints(ctx context.Context, r *Reservation, points int6
 	_, err := settlePoints(ctx, s.conn, r, points, "按实际用量确认消费", "按实际用量结算，退回差额")
 	return err
 }
+
+// actualOverFreeze 按实际成本结算时实际费用超过冻结额的次数（按载体模型 id）。持续出现说明冻结估算偏低，调 token_model 的 rate_factor / 输出 token 表。
+var actualOverFreeze = metric.NewCounterVec(&metric.CounterVecOpts{
+	Namespace: "billing",
+	Subsystem: "actual_cost",
+	Name:      "over_freeze_total",
+	Help:      "按实际成本结算时实际费用超过冻结额（只扣冻结额）的次数",
+	Labels:    []string{"carrier_model_id"},
+})

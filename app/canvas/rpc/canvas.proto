@@ -37,6 +37,9 @@ service Canvas {
 
   // ---- 目录 ----
   rpc Catalog(CatalogReq) returns (CatalogResp);
+  // 只增（2026-11-19）：生图预估点数（只读，不冻结）。与 RunNode 冻结同一个 Quote（同一 Charge：模型组 + 尺寸 + 张数 + 画质 + 参考图数），
+  // 契约 §AE：GPT Image 2.6 报「最多 X 点（按实际成本结算）」，其余按张固定价。
+  rpc Estimate(EstimateReq) returns (EstimateResp);
 
   // ---- 模板 ----
   rpc ListTemplates(ListTemplatesReq) returns (ListTemplatesResp);
@@ -177,6 +180,8 @@ message RunReference {
   string source_handle = 10;
   optional int32 candidate_index = 11;
   string mime = 12;
+  int32 width = 13;            // 只增：参考图像素宽高（前端 / 素材库元数据，可选；按受理时服务端记录的上游候选尺寸优先）。只用于冻结估算，缺省按网关缩小后的上限
+  int32 height = 14;
 }
 
 // RunNodeRequest 全字段（原型 RunNodeRequest 下划线化）
@@ -289,6 +294,41 @@ message ListRunsResp {
 
 message CatalogReq {
   int64 user_id = 1;
+}
+
+message EstimateReq {
+  int64 user_id = 1;
+  string model = 2;        // 目录 model（Image / GPT Image 2.6 / Banana …，也认别名）
+  string model_id = 3;     // 目录 model_id；与 model 二选一，model_id 优先
+  string model_group = 4;  // 兜底：只给组码（img.gpt-image-2.6-sunburst）时按组找档
+  string size = 5;         // 1K / 2K / 4K；空 = 模型首个档位
+  int32 count = 6;         // 张数；<=0 按 1
+  string quality = 7;      // low / medium / high；空 = 模型缺省（支持画质的为 high）；不支持画质的模型忽略
+  int32 ref_images = 8;    // 参考图张数（影响 GPT Image 2.5 / 2.6 的最多点数；像素未知按网关缩小后的上限估）
+  int32 prompt_chars = 15; // 提示词字符数（按 token 计价的模型用；缺省 0）
+  repeated ImageSize ref_image_sizes = 16; // 每张参考图宽高（可选）；给了就以它的条数为参考图张数（与 ref_images 取大），按实际像素估
+}
+
+message ImageSize {
+  int32 w = 1;
+  int32 h = 2;
+}
+
+message EstimateResp {
+  bool available = 1;      // false = 报不出价，reason 给用户看
+  string reason = 2;
+  int64 points = 3;        // 最多扣多少点（= 冻结点数）；计费关闭时 0
+  int64 cap_points = 4;    // 同 points（ACTUAL_COST 时是冻结上限，前端显示「预计最多」用它）
+  string settle_mode = 5;  // actual_cost / fixed
+  string currency = 6;     // 恒 points
+  string billing_mode = 7; // off / shadow / on
+  string model_group = 8;
+  string size = 9;
+  string quality = 10;     // 实际参与计价的画质（模型不支持画质时为空）
+  int32 count = 11;
+  int32 ref_images = 12;
+  int64 unit_points = 13;  // 每张点数（拆不均时 0）
+  string note = 14;
 }
 
 message CatalogPrice {

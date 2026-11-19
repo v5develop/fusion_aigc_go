@@ -33,6 +33,7 @@ const (
 	Canvas_RetryLibraryCopy_FullMethodName            = "/canvas.Canvas/RetryLibraryCopy"
 	Canvas_CandidateSource_FullMethodName             = "/canvas.Canvas/CandidateSource"
 	Canvas_Catalog_FullMethodName                     = "/canvas.Canvas/Catalog"
+	Canvas_Estimate_FullMethodName                    = "/canvas.Canvas/Estimate"
 	Canvas_ListTemplates_FullMethodName               = "/canvas.Canvas/ListTemplates"
 	Canvas_GetTemplate_FullMethodName                 = "/canvas.Canvas/GetTemplate"
 	Canvas_CreateTemplateFromCanvas_FullMethodName    = "/canvas.Canvas/CreateTemplateFromCanvas"
@@ -95,6 +96,9 @@ type CanvasClient interface {
 	CandidateSource(ctx context.Context, in *CandidateSourceReq, opts ...grpc.CallOption) (*CandidateSourceResp, error)
 	// ---- 目录 ----
 	Catalog(ctx context.Context, in *CatalogReq, opts ...grpc.CallOption) (*CatalogResp, error)
+	// 只增（2026-11-19）：生图预估点数（只读，不冻结）。与 RunNode 冻结同一个 Quote（同一 Charge：模型组 + 尺寸 + 张数 + 画质 + 参考图数），
+	// 契约 §AE：GPT Image 2.6 报「最多 X 点（按实际成本结算）」，其余按张固定价。
+	Estimate(ctx context.Context, in *EstimateReq, opts ...grpc.CallOption) (*EstimateResp, error)
 	// ---- 模板 ----
 	ListTemplates(ctx context.Context, in *ListTemplatesReq, opts ...grpc.CallOption) (*ListTemplatesResp, error)
 	GetTemplate(ctx context.Context, in *TemplateIdReq, opts ...grpc.CallOption) (*TemplateInfo, error)
@@ -275,6 +279,16 @@ func (c *canvasClient) Catalog(ctx context.Context, in *CatalogReq, opts ...grpc
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(CatalogResp)
 	err := c.cc.Invoke(ctx, Canvas_Catalog_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *canvasClient) Estimate(ctx context.Context, in *EstimateReq, opts ...grpc.CallOption) (*EstimateResp, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(EstimateResp)
+	err := c.cc.Invoke(ctx, Canvas_Estimate_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -557,6 +571,9 @@ type CanvasServer interface {
 	CandidateSource(context.Context, *CandidateSourceReq) (*CandidateSourceResp, error)
 	// ---- 目录 ----
 	Catalog(context.Context, *CatalogReq) (*CatalogResp, error)
+	// 只增（2026-11-19）：生图预估点数（只读，不冻结）。与 RunNode 冻结同一个 Quote（同一 Charge：模型组 + 尺寸 + 张数 + 画质 + 参考图数），
+	// 契约 §AE：GPT Image 2.6 报「最多 X 点（按实际成本结算）」，其余按张固定价。
+	Estimate(context.Context, *EstimateReq) (*EstimateResp, error)
 	// ---- 模板 ----
 	ListTemplates(context.Context, *ListTemplatesReq) (*ListTemplatesResp, error)
 	GetTemplate(context.Context, *TemplateIdReq) (*TemplateInfo, error)
@@ -644,6 +661,9 @@ func (UnimplementedCanvasServer) CandidateSource(context.Context, *CandidateSour
 }
 func (UnimplementedCanvasServer) Catalog(context.Context, *CatalogReq) (*CatalogResp, error) {
 	return nil, status.Error(codes.Unimplemented, "method Catalog not implemented")
+}
+func (UnimplementedCanvasServer) Estimate(context.Context, *EstimateReq) (*EstimateResp, error) {
+	return nil, status.Error(codes.Unimplemented, "method Estimate not implemented")
 }
 func (UnimplementedCanvasServer) ListTemplates(context.Context, *ListTemplatesReq) (*ListTemplatesResp, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListTemplates not implemented")
@@ -986,6 +1006,24 @@ func _Canvas_Catalog_Handler(srv interface{}, ctx context.Context, dec func(inte
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(CanvasServer).Catalog(ctx, req.(*CatalogReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Canvas_Estimate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(EstimateReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CanvasServer).Estimate(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Canvas_Estimate_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CanvasServer).Estimate(ctx, req.(*EstimateReq))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1484,6 +1522,10 @@ var Canvas_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Catalog",
 			Handler:    _Canvas_Catalog_Handler,
+		},
+		{
+			MethodName: "Estimate",
+			Handler:    _Canvas_Estimate_Handler,
 		},
 		{
 			MethodName: "ListTemplates",

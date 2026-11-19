@@ -48,6 +48,9 @@ type (
 	CatalogModel                = canvas.CatalogModel
 	CatalogPrice                = canvas.CatalogPrice
 	CatalogReq                  = canvas.CatalogReq
+	EstimateReq                 = canvas.EstimateReq
+	ImageSize                   = canvas.ImageSize
+	EstimateResp                = canvas.EstimateResp
 	CatalogResp                 = canvas.CatalogResp
 	CatalogTool                 = canvas.CatalogTool
 	CostRow                     = canvas.CostRow
@@ -102,6 +105,7 @@ type (
 		CandidateSource(ctx context.Context, in *CandidateSourceReq, opts ...grpc.CallOption) (*CandidateSourceResp, error)
 		// ---- 目录 ----
 		Catalog(ctx context.Context, in *CatalogReq, opts ...grpc.CallOption) (*CatalogResp, error)
+		Estimate(ctx context.Context, in *EstimateReq, opts ...grpc.CallOption) (*EstimateResp, error)
 		// ---- 模板 ----
 		ListTemplates(ctx context.Context, in *ListTemplatesReq, opts ...grpc.CallOption) (*ListTemplatesResp, error)
 		GetTemplate(ctx context.Context, in *TemplateIdReq, opts ...grpc.CallOption) (*TemplateInfo, error)
@@ -221,6 +225,12 @@ func (m *defaultCanvas) CandidateSource(ctx context.Context, in *CandidateSource
 func (m *defaultCanvas) Catalog(ctx context.Context, in *CatalogReq, opts ...grpc.CallOption) (*CatalogResp, error) {
 	client := canvas.NewCanvasClient(m.cli.Conn())
 	return client.Catalog(ctx, in, opts...)
+}
+
+// 只增（2026-11-19）：生图预估点数
+func (m *defaultCanvas) Estimate(ctx context.Context, in *EstimateReq, opts ...grpc.CallOption) (*EstimateResp, error) {
+	client := canvas.NewCanvasClient(m.cli.Conn())
+	return client.Estimate(ctx, in, opts...)
 }
 
 // ---- 模板 ----

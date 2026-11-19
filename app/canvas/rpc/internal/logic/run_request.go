@@ -22,6 +22,8 @@ type refMedia struct {
 	Handle  string // 原始 handle（image1 / garment …）
 	NodeID  string
 	AssetID string
+	// W / H 像素宽高（0 = 未知）：上游候选记录的尺寸优先，其次请求里给的；只用于 token 计价模型的冻结估算
+	W, H int
 }
 
 // runSpec 归一后的执行请求：分派与计费都只看它。
@@ -191,6 +193,7 @@ func (c *core) buildSpec(req *canvas.RunNodeRequest, lookup *refLookup) (*runSpe
 				return nil, xerr.Param(fmt.Sprintf("引用 %s 的图片必须是 http(s) 地址，请先上传", r.NodeId))
 			}
 			m := refMedia{URL: u, Handle: r.Handle, NodeID: r.NodeId, AssetID: r.AssetId}
+			m.W, m.H = refDims(r, lookup)
 			switch {
 			case kind == model.KindVideo && (r.Handle == "image1" || r.Handle == "first"):
 				sp.First = u
@@ -705,4 +708,17 @@ func (c *core) normalizeRunSize(req *canvas.RunNodeRequest) []string {
 // modelDisplay 用户可见的模型名：节点 data.model（Image / Banana / SD5P …）是 wire 值，错误文案里用完整模型名（ModelSpec.DisplayName）。
 func modelDisplay(m config.ModelSpec) string {
 	return m.DisplayName()
+}
+
+// refDims 参考图像素：上游候选的记录值（服务端权威）> 请求里给的 width / height > 未知（0，冻结时按缩小后的上限估）。
+func refDims(r *canvas.RunReference, lookup *refLookup) (int, int) {
+	if r.CandidateIndex != nil && r.NodeId != "" {
+		if w, h := lookup.candidateDims(r.NodeId, int(*r.CandidateIndex)); w > 0 && h > 0 {
+			return w, h
+		}
+	}
+	if r.Width > 0 && r.Height > 0 && r.Width <= 65535 && r.Height <= 65535 {
+		return int(r.Width), int(r.Height)
+	}
+	return 0, 0
 }

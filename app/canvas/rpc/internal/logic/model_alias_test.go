@@ -15,10 +15,10 @@ import (
 func TestFindModelLegacyAndCanonicalAliases(t *testing.T) {
 	c := testCore()
 	for in, want := range map[string]string{
-		"GPT25Dev": "img.gpt-image-2.5-sunburst", "gpt25dev": "img.gpt-image-2.5-sunburst",
-		"GPT Image 2.5 Sunburst Developer": "img.gpt-image-2.5-sunburst", "gpt-image-2.5-sunburst-developer": "img.gpt-image-2.5-sunburst",
-		"img.gpt-image-2.5-sunburst-developer": "img.gpt-image-2.5-sunburst",
-		"GPT25":                                "img.gpt-image-2.5-sunburst", "gpt-image-2.5-sunburst": "img.gpt-image-2.5-sunburst", "img.gpt-image-2.5-sunburst": "img.gpt-image-2.5-sunburst",
+		"GPT25Dev": "img.gpt-image-2.5-sunburst-std", "gpt25dev": "img.gpt-image-2.5-sunburst-std",
+		"GPT Image 2.5 Sunburst Developer": "img.gpt-image-2.5-sunburst-std", "gpt-image-2.5-sunburst-developer": "img.gpt-image-2.5-sunburst-std",
+		"img.gpt-image-2.5-sunburst-developer": "img.gpt-image-2.5-sunburst-std",
+		"GPT25":                                "img.gpt-image-2.5-sunburst-std", "gpt-image-2.5-sunburst": "img.gpt-image-2.5-sunburst-std", "img.gpt-image-2.5-sunburst": "img.gpt-image-2.5-sunburst-std",
 		"Nano Banana 2.1 Dev": "img.nano-banana-2.1", "nano-banana-2.1-dev": "img.nano-banana-2.1", "img.nano-banana-2.1-dev": "img.nano-banana-2.1",
 		"Nano Banana 2.1": "img.nano-banana-2.1", "img.nano-banana-2.1": "img.nano-banana-2.1",
 	} {
@@ -29,12 +29,12 @@ func TestFindModelLegacyAndCanonicalAliases(t *testing.T) {
 	}
 }
 
-// 改版前落库、带了 quality 的 run 重新派发到 GPT Image 2.5 / Nano Banana 2.1（旧 Dev 组码或规范组）：一律不发 quality。
+// 改版前落库、带了 quality 的 run 重新派发到 Nano Banana 2.1（旧 Dev 组码或规范组）：一律不发 quality（GPT Image 2.5 自 2026-11-19 起支持画质）。
 func TestGatewayRequestsStripQualityForPerImageGroups(t *testing.T) {
 	c := testCore()
 	run := &model.NodeRun{ID: 9, Kind: model.KindImage, CanvasID: "cv_x", UserID: 7, TaskID: sql.NullString{String: "cv_t", Valid: true}}
 	g26, _ := c.s.Config.FindModel("GPT Image 2.6", "", "image") // 借一个带 Qualities 的档，模拟旧配置
-	for _, group := range []string{"img.gpt-image-2.5-sunburst", "img.gpt-image-2.5-sunburst-developer", "img.nano-banana-2.1", "img.nano-banana-2.1-dev"} {
+	for _, group := range []string{"img.nano-banana-2.1", "img.nano-banana-2.1-dev"} {
 		reqs, err := c.gatewayRequests(context.Background(), run, &runSpec{Kind: model.KindImage, Model: g26, ModelGroup: group, Prompt: "p",
 			Count: 1, Size: "1K", Quality: "high", Images: []refMedia{{URL: "https://x/a.png"}}})
 		if err != nil || len(reqs) != 1 {

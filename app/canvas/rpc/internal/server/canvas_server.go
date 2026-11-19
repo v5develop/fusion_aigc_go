@@ -101,6 +101,12 @@ func (s *CanvasServer) Catalog(ctx context.Context, in *canvas.CatalogReq) (*can
 	return l.Catalog(in)
 }
 
+// 只增（2026-11-19）：生图预估点数（只读，与冻结同一个 Quote）
+func (s *CanvasServer) Estimate(ctx context.Context, in *canvas.EstimateReq) (*canvas.EstimateResp, error) {
+	l := logic.NewEstimateLogic(ctx, s.svcCtx)
+	return l.Estimate(in)
+}
+
 // ---- 模板 ----
 func (s *CanvasServer) ListTemplates(ctx context.Context, in *canvas.ListTemplatesReq) (*canvas.ListTemplatesResp, error) {
 	l := logic.NewListTemplatesLogic(ctx, s.svcCtx)

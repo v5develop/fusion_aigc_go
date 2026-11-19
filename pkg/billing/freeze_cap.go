@@ -20,12 +20,15 @@ import (
 // 档位 / 质量取不到 → 按价目表冻结（V1.0.222 的行为）。
 //
 //	档位   = 分辨率小写（1k / 2k / 4k），不在 tier_max_pixels 里 → 不封顶
-//	质量   = 参考图 > 0 且配了 edit_quality → 它（网关对编辑固定 medium）；否则请求的质量在 quality 表里就用它，
-//	         不在（空 / auto / xhigh …）→ default_quality（网关缺省 medium）；仍取不到 → 不封顶
+//	质量   = 请求的质量在 quality 表里就用它（带不带参考图一样：2026-11-19 起网关编辑也按请求画质下发，
+//	         契约 §AE），不在（空 / auto / xhigh …）→ default_quality；仍取不到 → 不封顶。
+//	         JSON 里残留的 edit_quality 仍能解析但一律忽略（Java 迁移会把它去掉；去掉前后 Go 行为一致，请求画质为准）
 //	输出   = quality[质量]；档位面积 > base_pixels 时 × 面积 / base_pixels，向上取到 8 位小数
 //	每张   = 输出 + 参考图张数 × per_ref + aux_per_image（美元）
 //	上限   = max(1, ceil(每张 × 汇率 × 加成 × 100))；汇率 / 加成与成功结算同一取值（rates），所以冻结 ≥ 实扣恒成立
 //	单价   = min(价目表单价, 上限)，× 张数 —— 永远不超过价目表
+//
+// 配了 token_model 段的载体（GPT Image 2.5 标准版 / 2.6）改走 freeze_token.go 的 token 估算（贴近实际费用，不按最贵组合）。
 //
 // 例（7.2 × 1.3 = 936）：画布 1k medium 文生图 ceil(0.1061 × 936) = 100；1k high 文生图 218；1k medium + 14 张参考图 836。
 
@@ -35,17 +38,23 @@ type ImageUsage struct {
 	Quality string
 	// RefImages 每张出图送网关的参考图张数（上界即可：多算只会多冻、成功后按实际退回）
 	RefImages int
+	// PromptChars 提示词字符数（rune）；token 模型用，旧公式忽略
+	PromptChars int
+	// RefPixels 每张参考图的像素（宽×高，0 = 未知，按缩小后的上限估）；长度非 0 时以它为准（RefImages 被忽略）。token 模型用
+	RefPixels []int64
 }
 
 // FreezeCap 解析后的 freeze_cap_json。
 type FreezeCap struct {
 	Quality        map[string]*big.Rat
 	DefaultQuality string
-	EditQuality    string
-	BasePixels     int64
-	TierMaxPixels  map[string]int64
-	PerRef         *big.Rat
-	AuxPerImage    *big.Rat
+	EditQuality    string // 已弃用：解析但不再参与计算（契约 §AE）
+	// Token 非空 = 按 token 估算冻结（freeze_token.go），旧的 Quality / 面积公式不再参与
+	Token         *TokenModel
+	BasePixels    int64
+	TierMaxPixels map[string]int64
+	PerRef        *big.Rat
+	AuxPerImage   *big.Rat
 }
 
 // ParseFreezeCap 解析 freeze_cap_json；空 / 非法（缺字段、非 USD、负数）返回 nil, false（按价目表冻结）。
@@ -60,6 +69,7 @@ func ParseFreezeCap(s string) (*FreezeCap, bool) {
 		Quality        map[string]json.RawMessage `json:"quality"`
 		DefaultQuality string                     `json:"default_quality"`
 		EditQuality    string                     `json:"edit_quality"`
+		TokenModel     json.RawMessage            `json:"token_model"`
 		BasePixels     int64                      `json:"base_pixels"`
 		TierMaxPixels  map[string]int64           `json:"tier_max_pixels"`
 		PerRef         json.RawMessage            `json:"per_ref"`
@@ -68,11 +78,19 @@ func ParseFreezeCap(s string) (*FreezeCap, bool) {
 	if err := json.Unmarshal([]byte(s), &raw); err != nil {
 		return nil, false
 	}
-	if !strings.EqualFold(strings.TrimSpace(raw.Currency), "USD") || len(raw.Quality) == 0 || raw.BasePixels <= 0 || len(raw.TierMaxPixels) == 0 {
+	hasToken := len(strings.TrimSpace(string(raw.TokenModel))) > 0 && strings.TrimSpace(string(raw.TokenModel)) != "null"
+	if !strings.EqualFold(strings.TrimSpace(raw.Currency), "USD") || (len(raw.Quality) == 0 && !hasToken) || len(raw.TierMaxPixels) == 0 || (!hasToken && raw.BasePixels <= 0) {
 		return nil, false
 	}
 	fc := &FreezeCap{Quality: map[string]*big.Rat{}, TierMaxPixels: map[string]int64{}, BasePixels: raw.BasePixels,
 		DefaultQuality: lowerTrim(raw.DefaultQuality), EditQuality: lowerTrim(raw.EditQuality)}
+	if hasToken {
+		tm, ok := parseTokenModel(raw.TokenModel)
+		if !ok {
+			return nil, false
+		}
+		fc.Token = tm
+	}
 	for k, v := range raw.Quality {
 		r, ok := decimalOf(v)
 		if !ok || r.Sign() <= 0 {
@@ -105,14 +123,15 @@ func (fc *FreezeCap) PerImageUSD(resolution string, u ImageUsage) (*big.Rat, boo
 	if !ok {
 		return nil, false
 	}
+	if fc.Token != nil {
+		return fc.Token.perImageUSD(fc, resolution, u)
+	}
 	refs := u.RefImages
 	if refs < 0 {
 		refs = 0
 	}
 	q := ""
-	if refs > 0 && fc.EditQuality != "" {
-		q = fc.EditQuality
-	} else if req := lowerTrim(u.Quality); req != "" && fc.Quality[req] != nil {
+	if req := lowerTrim(u.Quality); req != "" && fc.Quality[req] != nil {
 		q = req
 	} else {
 		q = fc.DefaultQuality
@@ -174,7 +193,8 @@ func lowerTrim(s string) string { return strings.ToLower(strings.TrimSpace(s)) }
 
 // ---- 载体参数（freeze_cap_json 列可能还不存在：单独查、单独降级，不影响 settle_mode 的读取）----
 
-// freezeCapOf 载体的 freeze_cap_json（缓存 60 秒；列不存在时 10 分钟后再探）。查不到 / 非法 / 出错 → nil。
+// freezeCapOf 载体的 freeze_cap_json（本地缓存 carrierTTL = 60 秒，运营在后台改完最迟 60 秒全部副本生效；
+// 列不存在时 10 分钟后再探）。需要立刻生效（测试 / 运维钩子）调 InvalidateCarrierCache。查不到 / 非法 / 出错 → nil。
 func (s *Service) freezeCapOf(ctx context.Context, modelID int64) *FreezeCap {
 	if s == nil || s.conn == nil || modelID <= 0 || s.caps == nil {
 		return nil
@@ -219,6 +239,23 @@ func (s *Service) freezeCapOf(ctx context.Context, modelID int64) *FreezeCap {
 	cc.m[modelID] = cachedCap{fc: fc, at: time.Now()}
 	cc.mu.Unlock()
 	return fc
+}
+
+// InvalidateCarrierCache 清掉载体结算方式与冻结上限的本地缓存（下次读取回源）。
+func (s *Service) InvalidateCarrierCache() {
+	if s == nil || s.caps == nil {
+		return
+	}
+	s.caps.mu.Lock()
+	s.caps.m = map[int64]cachedCap{}
+	s.caps.noColumnTil = time.Time{}
+	s.caps.mu.Unlock()
+	if cc := s.carriers; cc != nil {
+		cc.mu.Lock()
+		cc.m = map[int64]cachedCarrier{}
+		cc.noColumnTil = time.Time{}
+		cc.mu.Unlock()
+	}
 }
 
 type capCache struct {

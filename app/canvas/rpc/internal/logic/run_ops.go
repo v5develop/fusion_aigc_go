@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"aigc-local-life/app/canvas/model"
 	"aigc-local-life/app/canvas/rpc/canvas"
@@ -189,7 +190,13 @@ func (c *core) charge(userID int64, requestID string, sp *runSpec) billing.Charg
 		ch.ModelGroup = sp.ModelGroup
 		// 按请求参数冻结（Java V1.0.223，只对 ACTUAL_COST 且配了 freeze_cap_json 的载体生效，如 GPT Image 2.6）：
 		// 质量与派发同一取值，参考图张数 = 派发送网关的张数（每张出图一次调用、各带全部参考图）
-		ch.Usage = &billing.ImageUsage{Quality: imageQuality(sp), RefImages: len(sp.Images)}
+		// PromptChars / 参考图像素给 token 模型估算冻结（GPT Image 2.5 标准版 / 2.6）；参考图像素受理时没有，0 = 未知，
+		// 按网关缩小后的上限估（RefPixels 留空、只给张数）
+		ch.Usage = &billing.ImageUsage{Quality: imageQuality(sp), RefImages: len(sp.Images), PromptChars: utf8.RuneCountInString(sp.Prompt)}
+		for _, im := range sp.Images {
+			// 已知宽高按实际像素（网关缩小规则在 pkg/billing 里按 2048² 封顶），未知为 0 → 按上限
+			ch.Usage.RefPixels = append(ch.Usage.RefPixels, int64(im.W)*int64(im.H))
+		}
 	case model.KindVideo:
 		ch.Kind, ch.Count, ch.Seconds, ch.Resolution = billing.KindVideo, 1, sp.DurationS, strings.ToLower(sp.Size)
 	}

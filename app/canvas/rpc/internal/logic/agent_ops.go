@@ -327,7 +327,8 @@ func (e *docEditor) addNode(s agentNodeSpec, path string) (*agentNodeOut, error)
 	case "video":
 		n.Data["video"] = ""
 	case "image_model":
-		for key, v := range map[string]any{"model": "", "modelId": "", "quality": "medium", "count": 1, "cfg": 0.95, "prompt": "",
+		// 画质缺省 high（2026-11-19）；不支持画质的模型在受理时清空，不受影响
+		for key, v := range map[string]any{"model": "", "modelId": "", "quality": "high", "count": 1, "cfg": 0.95, "prompt": "",
 			"ratio": "1:1", "size": "1K", "maxImageRefs": 5, "capabilities": map[string]any{"count": true}} {
 			n.Data[key] = v
 		}

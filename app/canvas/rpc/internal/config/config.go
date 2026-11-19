@@ -154,8 +154,10 @@ type Config struct {
 	// MaxCostCNY 每次 gateway 调用的费用软上限（limits.max_cost，人民币十进制字符串）
 	MaxCostCNY struct {
 		Image string `json:",default=5.00"`
-		Video string `json:",default=60.00"`
-		I2P   string `json:",default=1.00"`
+		// UsdCNY 按 token 计价的生图模型（GPT Image 2.5 标准版 / 2.6）估算 max_cost 用的美元汇率（偏保守，高于结算汇率即可）
+		UsdCNY string `json:",default=7.30"`
+		Video  string `json:",default=60.00"`
+		I2P    string `json:",default=1.00"`
 	}
 }
 
@@ -239,18 +241,21 @@ var videoRatios = []string{"16:9", "9:16", "1:1"}
 // model / model_id 不变（已保存的画布节点照常解析），旧名留作别名；已落库的 run 记录各自的 model_group，不受影响。
 var DefaultModels = []ModelSpec{
 	// 「Image」（原 GPT Image 2 档）2026-11-09 起接 GPT Image 2.5：按张计费，
-	// 1K / 2K / 4K；没有 quality 参数；参考图不计费（上限取网关 16）。model / model_id 不变，已保存的节点照常解析。
+	// 1K / 2K / 4K；2026-11-19 起支持画质（见下）；参考图上限取网关 16。model / model_id 不变，已保存的节点照常解析。
 	// 别名里的 GPT25Dev / *Sunburst Developer / *-developer 是旧名，永久兼容旧草稿，不对外输出。
 	{Model: "Image", ModelID: "image-v1", Label: "GPT Image 2.5", Aliases: []string{"GPT", "GPT Image 2.5", "GPT25", "gpt-image-2.5-sunburst", "gpt-image-2.5",
-		"GPT25Dev", "GPT Image 2.5 Sunburst Developer", "gpt-image-2.5-sunburst-developer",
+		"GPT25Dev", "GPT Image 2.5 Sunburst Developer", "img.gpt-image-2.5-sunburst", "img.gpt-image-2.5-sunburst-developer", "gpt-image-2.5-sunburst-developer",
 		"GPT Image 2", "gpt-image-2", "通用", "general"}, Kind: "image",
-		ModelGroup: modelgroup.GPTImage25Sunburst, MaxImageRefs: 16, Ratios: imageRatios, Sizes: []string{"1K", "2K", "4K"}, CountMax: 4},
+		// 2026-11-19 起切到标准版（vendor_model=openai/gpt-image-2.5-sunburst，按 token 计费）：支持画质 low/medium/high，缺省 high；
+		// 组码 img.gpt-image-2.5-sunburst-std（网关新建，只含标准版部署）。旧规范组码 / Dev 组码留作别名，旧草稿与旧客户端照常解析。
+		ModelGroup: modelgroup.GPTImage25SunburstStd, MaxImageRefs: 16, Ratios: imageRatios, Sizes: []string{"1K", "2K", "4K"},
+		Qualities: []string{"high", "medium", "low"}, CountMax: 4},
 	// GPT Image 2.6（Sunburst）作为附加档：1K / 2K / 4K、可选质量。参考图上限 14（网关 16）：画布按 high + 2 张参考图的价收，
 	// 编辑每多一张 2048² 参考图成本约 $0.056，14 张以内 1K 仍有 ≥30% 毛利（Java AtlasImagePricingMarginTest），16 张会亏。
 	{Model: "GPT Image 2.6", ModelID: "gpt-image-2-6-v1", Label: "GPT Image 2.6", Aliases: []string{"GPT Image 2.6 Sunburst", "gpt-image-2.6-sunburst",
 		"gpt-image-2.6", "GPT26"}, Kind: "image",
 		ModelGroup: "img.gpt-image-2.6-sunburst", MaxImageRefs: 14, Ratios: imageRatios, Sizes: []string{"1K", "2K", "4K"},
-		Qualities: []string{"low", "medium", "high"}, CountMax: 4},
+		Qualities: []string{"high", "medium", "low"}, CountMax: 4}, // 2026-11-19 默认画质 high：高档排前，前端 / 智能体取首项作缺省
 	// 别名里的 Nano Banana 2.1 Dev / nano-banana-2.1-dev 是旧名，永久兼容旧草稿。
 	{Model: "Banana", ModelID: "banana-v1", Label: "Nano Banana 2.1", Aliases: []string{"Nano Banana", "Nano Banana 2.1", "nano-banana-2.1",
 		"Nano Banana 2.1 Dev", "nano-banana-2.1-dev", "Nano Banana Pro", "nano-banana"}, Kind: "image",
@@ -306,6 +311,19 @@ func (c Config) ModelTable() []ModelSpec {
 		out[i] = m
 	}
 	return out
+}
+
+// DefaultQuality 模型缺省画质：支持画质的模型默认 high（列表里没有 high 才取首项）；没有画质参数的模型返回空（调用方清空 quality）。
+func (m ModelSpec) DefaultQuality() string {
+	if len(m.Qualities) == 0 {
+		return ""
+	}
+	for _, q := range m.Qualities {
+		if strings.EqualFold(q, "high") {
+			return "high"
+		}
+	}
+	return strings.ToLower(m.Qualities[0])
 }
 
 // FindModel 按 model / model_id / 别名找模型档（大小写不敏感；model_id 优先）。kind 非空时只在该类里找。

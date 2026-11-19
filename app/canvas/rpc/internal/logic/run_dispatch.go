@@ -226,7 +226,7 @@ func (c *core) gatewayRequests(ctx context.Context, run *model.NodeRun, sp *runS
 	base := aigateway.CallRequest{
 		ModelGroup: sp.ModelGroup, Labels: runLabels(run), MediaPurpose: aigateway.MediaPurposeIntermediate,
 		Constraints: &aigateway.Constraints{DeadlineAt: &deadline},
-		Limits:      &aigateway.Limits{MaxCost: c.maxCost(run.Kind)},
+		Limits:      &aigateway.Limits{MaxCost: c.maxCostFor(run.Kind, sp)},
 	}
 	refs := func(list []refMedia) ([]aigateway.MediaRef, error) {
 		urls := make([]string, len(list))
@@ -1100,11 +1100,11 @@ const linkAttemptTimeout = 5 * time.Second
 func imageQuality(sp *runSpec) string {
 	quality := sp.Quality
 	if len(sp.Model.Qualities) > 0 && quality == "" {
-		quality = "medium" // GPT：Atlas 部署缺省 low，显式给 medium
+		quality = sp.Model.DefaultQuality() // 2026-11-19 起缺省 high（Atlas 部署缺省 low，必须显式给）；与冻结 Usage.Quality 同一取值
 	}
-	// GPT Image 2.5 / Nano Banana 2.1（规范组或换代前的旧 Dev 组码）的部署没有 quality 参数：一律不发，
-	// 兜住改版前落库、带了 quality 的 run 重新派发
-	if modelgroup.Is(sp.ModelGroup, modelgroup.GPTImage25Sunburst) || modelgroup.Is(sp.ModelGroup, modelgroup.NanoBanana21) {
+	// Nano Banana 2.1 的部署没有 quality 参数：一律不发，兜住改版前落库、带了 quality 的 run 重新派发。
+	// GPT Image 2.5 自 2026-11-19 起切标准版（支持画质），不再清空。
+	if modelgroup.Is(sp.ModelGroup, modelgroup.NanoBanana21) {
 		quality = ""
 	}
 	return quality
