@@ -103,7 +103,8 @@ func modelProps(p Props) Props {
 	p["prompt"] = strMax("提示词。仅模型节点", 3000)
 	p["ratio"] = strMax("画面比例，如 1:1 / 16:9（须在该模型 ratios 内）", 16)
 	p["size"] = strMax("分辨率档位，如 1K / 2K / 720p（须在该模型 sizes 内）", 16)
-	p["quality"] = enum("质量档（仅 GPT Image 2.6 等支持画质的模型有效，缺省 high；其余模型忽略）", "low", "medium", "high")
+	p["quality"] = enum("质量档（仅 GPT Image 2.5 / 2.6 等支持画质的模型有效，缺省 high；xhigh 超高、max 极致更贵，用户明确要更高画质时才用；其余模型忽略）",
+		"low", "medium", "high", "xhigh", "max")
 	p["count"] = integer("一次出几张（视频固定 1）", 1, 8)
 	p["duration"] = strMax("视频时长，如 4s / 5s（须在该模型 durations 内）", 8)
 	p["sound"] = boolean("视频是否带声音")

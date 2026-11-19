@@ -1,6 +1,7 @@
 package logic
 
 import (
+	"strings"
 	"testing"
 
 	"aigc-local-life/app/canvas/model"
@@ -42,8 +43,8 @@ func TestChargeCarriesImageUsage(t *testing.T) {
 // 编辑（带参考图）按请求画质计价与下发，不再固定 medium；low 也透传。
 func TestChargeEditQualityPassthrough(t *testing.T) {
 	c := &core{}
-	gpt26 := config.ModelSpec{Qualities: []string{"high", "medium", "low"}}
-	for _, q := range []string{"low", "medium", "high"} {
+	gpt26 := config.ModelSpec{Qualities: []string{"high", "medium", "low", "xhigh", "max"}}
+	for _, q := range []string{"low", "medium", "high", "xhigh", "max"} {
 		sp := runSpec{Kind: model.KindImage, Model: gpt26, ModelGroup: "img.gpt-image-2.6-sunburst", Size: "1K", Quality: q, Images: []refMedia{{URL: "a"}}}
 		ch := c.charge(7, "r", &sp)
 		if ch.Usage.Quality != q || imageQuality(&sp) != q {
@@ -65,6 +66,26 @@ func TestDefaultQualityHigh(t *testing.T) {
 	for _, m := range config.DefaultModels {
 		if len(m.Qualities) > 0 && m.Qualities[0] != "high" {
 			t.Errorf("%s 目录画质应 high 在前: %v", m.Model, m.Qualities)
+		}
+	}
+}
+
+// GPT Image 2.5 / 2.6 开放 xhigh（超高）/ max（极致），不开放 auto（Atlas 自选档位，估不出冻结）；缺省仍 high。
+func TestGPTImageQualitiesIncludeXhighMax(t *testing.T) {
+	for _, name := range []string{"GPT Image 2.5", "GPT Image 2.6"} {
+		m, ok := (config.Config{}).FindModel(name, "", "image")
+		if !ok {
+			t.Fatalf("找不到 %s", name)
+		}
+		got := strings.Join(m.Qualities, ",")
+		if got != "high,medium,low,xhigh,max" || m.DefaultQuality() != "high" {
+			t.Errorf("%s 画质 %q 缺省 %q", name, got, m.DefaultQuality())
+		}
+	}
+	for in, want := range map[string]string{"xhigh": "xhigh", "XHIGH": "xhigh", "超高": "xhigh", "max": "max", "极致": "max",
+		"高": "high", "auto": "", "ultra": ""} {
+		if got := qualityOf(in); got != want {
+			t.Errorf("qualityOf(%q)=%q 应为 %q", in, got, want)
 		}
 	}
 }

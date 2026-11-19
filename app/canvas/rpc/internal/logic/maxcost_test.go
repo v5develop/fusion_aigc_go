@@ -51,3 +51,43 @@ func TestMaxCostCoversGatewayPrecheck(t *testing.T) {
 		t.Error("high 应高于 medium")
 	}
 }
+
+// xhigh / max（2026-11-19）：与网关同口径暂定 2× / 4× high 的输出 token，max_cost 必须覆盖网关预检。
+func TestMaxCostCoversXhighAndMax(t *testing.T) {
+	m25, _ := (config.Config{}).FindModel("GPT Image 2.5", "", "image")
+	m26, _ := (config.Config{}).FindModel("GPT Image 2.6", "", "image")
+	cny := func(m config.ModelSpec, size, q string, refs int) float64 {
+		v, err := strconv.ParseFloat(imageMaxCostCNY(&runSpec{Kind: model.KindImage, Model: m, ModelGroup: m.ModelGroup, Size: size,
+			Quality: q, Images: make([]refMedia, refs)}, "5.00", "7.30"), 64)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+	cases := []struct {
+		name string
+		m    config.ModelSpec
+		size string
+		q    string
+		refs int
+		out  float64 // 网关预检的输出 token
+		rate float64
+	}{
+		{"2.5 4K max 3 参考图", m25, "4K", "max", 3, 222244, 30},  // ceil(28096 × 8294400 / 1048576)
+		{"2.5 2K xhigh", m25, "2K", "xhigh", 0, 57619, 30},     // ceil(14048 × 4300800 / 1048576)
+		{"2.6 4K max 14 参考图", m26, "4K", "max", 14, 80022, 32}, // ceil(28452 × √7.91)
+		{"2.6 1K xhigh", m26, "1K", "xhigh", 0, 14226, 32},
+	}
+	for _, c := range cases {
+		need := (1000*5.0 + float64(c.refs)*7024*8.0 + c.out*c.rate) / 1e6 * 7.30 * 1.2
+		if got := cny(c.m, c.size, c.q, c.refs); got < need-0.02 {
+			t.Errorf("%s: max_cost=%v 低于预检 %v（含 1.2 余量）", c.name, got, need)
+		}
+	}
+	for _, m := range []config.ModelSpec{m25, m26} {
+		h, x, mx := cny(m, "4K", "high", 0), cny(m, "4K", "xhigh", 0), cny(m, "4K", "max", 0)
+		if !(h < x && x < mx) {
+			t.Errorf("%s 应 high < xhigh < max: %v %v %v", m.Model, h, x, mx)
+		}
+	}
+}

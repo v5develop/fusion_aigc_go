@@ -239,6 +239,10 @@ var videoRatios = []string{"16:9", "9:16", "1:1"}
 // 用户端一律显示 Label（完整模型名），Model 只是 wire 值。
 // 2026-11-10 起应用侧不区分厂商 Dev 档：组码用规范组（pkg/modelgroup），部署由网关挑；旧 Dev 名只作输入别名。
 // model / model_id 不变（已保存的画布节点照常解析），旧名留作别名；已落库的 run 记录各自的 model_group，不受影响。
+// imageQualities GPT Image 2.5 标准版 / 2.6 的画质档。缺省 high（DefaultQuality 认 high，不看顺序）；high 仍排首项，
+// 照顾按首项取缺省的旧客户端 / 智能体；xhigh / max 追加在后（2026-11-19），前端按档位高低自行排序展示。
+var imageQualities = []string{"high", "medium", "low", "xhigh", "max"}
+
 var DefaultModels = []ModelSpec{
 	// 「Image」（原 GPT Image 2 档）2026-11-09 起接 GPT Image 2.5：按张计费，
 	// 1K / 2K / 4K；2026-11-19 起支持画质（见下）；参考图上限取网关 16。model / model_id 不变，已保存的节点照常解析。
@@ -246,16 +250,17 @@ var DefaultModels = []ModelSpec{
 	{Model: "Image", ModelID: "image-v1", Label: "GPT Image 2.5", Aliases: []string{"GPT", "GPT Image 2.5", "GPT25", "gpt-image-2.5-sunburst", "gpt-image-2.5",
 		"GPT25Dev", "GPT Image 2.5 Sunburst Developer", "img.gpt-image-2.5-sunburst", "img.gpt-image-2.5-sunburst-developer", "gpt-image-2.5-sunburst-developer",
 		"GPT Image 2", "gpt-image-2", "通用", "general"}, Kind: "image",
-		// 2026-11-19 起切到标准版（vendor_model=openai/gpt-image-2.5-sunburst，按 token 计费）：支持画质 low/medium/high，缺省 high；
+		// 2026-11-19 起切到标准版（vendor_model=openai/gpt-image-2.5-sunburst，按 token 计费）：支持画质 low/medium/high/xhigh/max，缺省 high；
 		// 组码 img.gpt-image-2.5-sunburst-std（网关新建，只含标准版部署）。旧规范组码 / Dev 组码留作别名，旧草稿与旧客户端照常解析。
+		// xhigh（超高）/ max（极致）是 Atlas「high 之上」的档，冻结暂定 2× / 4× high 的输出 token（Java V1.0.253）；auto 不开放（Atlas 自选档位，估不出冻结）。
 		ModelGroup: modelgroup.GPTImage25SunburstStd, MaxImageRefs: 16, Ratios: imageRatios, Sizes: []string{"1K", "2K", "4K"},
-		Qualities: []string{"high", "medium", "low"}, CountMax: 4},
+		Qualities: imageQualities, CountMax: 4},
 	// GPT Image 2.6（Sunburst）作为附加档：1K / 2K / 4K、可选质量。参考图上限 14（网关 16）：画布按 high + 2 张参考图的价收，
 	// 编辑每多一张 2048² 参考图成本约 $0.056，14 张以内 1K 仍有 ≥30% 毛利（Java AtlasImagePricingMarginTest），16 张会亏。
 	{Model: "GPT Image 2.6", ModelID: "gpt-image-2-6-v1", Label: "GPT Image 2.6", Aliases: []string{"GPT Image 2.6 Sunburst", "gpt-image-2.6-sunburst",
 		"gpt-image-2.6", "GPT26"}, Kind: "image",
 		ModelGroup: "img.gpt-image-2.6-sunburst", MaxImageRefs: 14, Ratios: imageRatios, Sizes: []string{"1K", "2K", "4K"},
-		Qualities: []string{"high", "medium", "low"}, CountMax: 4}, // 2026-11-19 默认画质 high：高档排前，前端 / 智能体取首项作缺省
+		Qualities: imageQualities, CountMax: 4},
 	// 别名里的 Nano Banana 2.1 Dev / nano-banana-2.1-dev 是旧名，永久兼容旧草稿。
 	{Model: "Banana", ModelID: "banana-v1", Label: "Nano Banana 2.1", Aliases: []string{"Nano Banana", "Nano Banana 2.1", "nano-banana-2.1",
 		"Nano Banana 2.1 Dev", "nano-banana-2.1-dev", "Nano Banana Pro", "nano-banana"}, Kind: "image",

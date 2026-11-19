@@ -30,8 +30,9 @@ const (
 
 // 网关输出 token 上限表（1024² 基准）。
 var (
-	gw25Out      = map[string]int{"low": 196, "medium": 1756, "high": 7024}  // 2.5：其它尺寸按面积线性放大
-	gw26Out      = map[string]int{"low": 1991, "medium": 3160, "high": 7113} // 2.6：其它尺寸按面积比开方放大且不低于基准
+	// xhigh / max 与网关同口径暂定 2× / 4× high（Atlas 只说「high 之上、更贵」，上线后按实测校准）
+	gw25Out      = map[string]int{"low": 196, "medium": 1756, "high": 7024, "xhigh": 7024 * 2, "max": 7024 * 4}  // 2.5：其它尺寸按面积线性放大
+	gw26Out      = map[string]int{"low": 1991, "medium": 3160, "high": 7113, "xhigh": 7113 * 2, "max": 7113 * 4} // 2.6：其它尺寸按面积比开方放大且不低于基准
 	gwTierPixels = map[string]int{"1K": 1048576, "2K": 4300800, "4K": 8294400}
 )
 
@@ -53,7 +54,7 @@ func gatewayCostUSDUpper(group, size, quality string, refs int) (float64, bool) 
 	q := strings.ToLower(quality)
 	base, ok := table[q]
 	if !ok {
-		base = table["high"] // 画质缺失按最贵（安全阀宁高勿低）
+		base = table["high"] // 画质缺失按缺省档 high（与派发一致：imageQuality 缺省 high，网关也不会收到更高档）
 	}
 	px, ok := gwTierPixels[strings.ToUpper(size)]
 	if !ok {

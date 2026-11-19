@@ -94,7 +94,7 @@ func ResolveKind(kind, tool string) (model.RunKind, error) {
 	return "", xerr.Param("不支持的工具：" + tool)
 }
 
-// qualityOf 原型中文 低/中/高 也收。
+// qualityOf 原型中文 低/中/高/超高/极致 也收。auto 不收（Atlas 自选档位，估不出冻结）→ 空，按模型缺省 high。
 func qualityOf(q string) string {
 	switch strings.ToLower(strings.TrimSpace(q)) {
 	case "low", "低":
@@ -103,6 +103,10 @@ func qualityOf(q string) string {
 		return "medium"
 	case "high", "高":
 		return "high"
+	case "xhigh", "超高":
+		return "xhigh"
+	case "max", "极致":
+		return "max"
 	}
 	return ""
 }
