@@ -85,6 +85,7 @@ Timeouts:
   ImageHardCap: 900      # 硬上限：已被供应商受理（受理后取消也照样扣费）的调用不取消、最多等到这里；须小于 Billing.Hold（启动自检）
   VideoHardCap: 1800
   I2PHardCap: 600
+  VendorSentWait: 600    # 超时取消被网关拒绝（已发给供应商）的调用，硬上限后最多再等多久（秒）；硬上限 + 它须小于 Billing.Hold（启动自检）
 Limits:
   MaxSnapshotBytes: 2097152
   MaxNodes: 2000

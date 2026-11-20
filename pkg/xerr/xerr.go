@@ -66,6 +66,10 @@ const (
 	ReasonColorFixAutoUnavailable = "COLORFIX_AUTO_UNAVAILABLE"    // 6001：求解服务不可用（连不上 / 鉴权 / 5xx）
 )
 
+// 取消执行被拒的细分 reason（add-only，码不变）：请求已发给第三方供应商（受理即扣费），不能再取消，
+// 任务照常完成、交付并按实际用量结算。前端据此提示并隐藏取消按钮，不当成「状态已变化」。
+const ReasonCancelVendorSent = "CANCEL_VENDOR_SENT" // 4002
+
 // Reason 返回码对应的 Java ErrorCode 常量名；没有对应的返回空串。
 func Reason(code int) string { return reasons[code] }
 

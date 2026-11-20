@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math/big"
 	"strings"
+	"sync"
 	"time"
 
 	"aigc-local-life/app/studio/model"
@@ -23,7 +24,7 @@ import (
 	"github.com/zeromicro/go-zero/core/logx"
 )
 
-// transferGrace 已出图但转存暂时失败时，超过生图时限后再宽限多久才放弃（失败退款）。
+// transferGrace 已出图但转存暂时失败时再宽限多久才放弃（失败退款），起算点见 transferDeadline。
 const transferGrace = 10 * time.Minute
 
 // defaultDeliverGrace 交付中（已转存、待结算）最多停留多久（Timeouts.DeliverGrace 未配时）。超期仍结算不了就按预留单状态出场。
@@ -116,8 +117,7 @@ func (f *flow) pollStepTask(ctx context.Context, t *model.Task) bool {
 				f.failTask(ctx, t, b, reasonTimeout, true, "")
 				return false
 			}
-			f.cancelOnTimeout(ctx, t, b, call, started)
-			return false
+			return f.cancelOnTimeout(ctx, t, b, call, started)
 		}
 		if err != nil {
 			if pipeline.RetryableSubmitErr(err) {
@@ -149,8 +149,7 @@ func (f *flow) pollStepTask(ctx context.Context, t *model.Task) bool {
 	}
 	if !call.IsTerminal() {
 		if timedOut {
-			f.cancelOnTimeout(ctx, t, b, call, started)
-			return false
+			return f.cancelOnTimeout(ctx, t, b, call, started)
 		}
 		return true
 	}
@@ -162,16 +161,34 @@ func (f *flow) pollStepTask(ctx context.Context, t *model.Task) bool {
 
 // cancelOnTimeout 超时：取消 gateway 调用（尽力而为）。取消时已出图（返回 SUCCEEDED）照常交付，其它终态按终态处理，
 // 取消失败或仍未终态则超时失败退款。
-func (f *flow) cancelOnTimeout(ctx context.Context, t *model.Task, b *model.Batch, call *aigateway.Call, started time.Time) {
+//
+// 网关以「已发给供应商」拒绝取消（409 CANCEL_NOT_ALLOWED）时不失败退款：受理即扣费、取消省不下钱，子任务保持生成中，
+// 返回 true 让调用方接着长轮询，调用到终态后照常处理（成功交付结算 / 失败退款 / 未知交回收器）。等待上限
+// 开始生成 + Timeouts.Generate + Timeouts.VendorSentWait，过了仍未终态才超时失败退款并打 ERROR。
+// 返回值同 pollStepTask 的 again。
+func (f *flow) cancelOnTimeout(ctx context.Context, t *model.Task, b *model.Batch, call *aigateway.Call, started time.Time) bool {
 	log := logx.WithContext(ctx)
 	if call.IsTerminal() {
 		f.onTerminal(ctx, t, b, call, started)
-		return
+		return false
 	}
 	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	cc, err := f.gw.Cancel(cctx, call.ID)
 	cancel()
-	if err != nil {
+	switch {
+	case err == nil:
+	case aigateway.IsCancelNotAllowed(err):
+		until := started.Add(f.generateTimeout() + f.vendorSentWait())
+		if !f.now().After(until) {
+			if vendorSentLogged.first(call.ID) {
+				log.Infof("studio: 子任务 %d 超时取消被网关拒绝：调用 %s 已发给供应商，不失败，等它到终态照常处理，最多等到 %s (check=%s)",
+					t.ID, call.ID, until.Format(time.RFC3339), aigateway.CheckCancelVendorSent)
+			}
+			return true
+		}
+		log.Errorf("studio: 子任务 %d 超时取消被网关拒绝的调用 %s 等到 %s 仍未终态，按超时失败退款（供应商可能已扣费） (check=studio.vendor_sent_wait_exceeded)",
+			t.ID, call.ID, until.Format(time.RFC3339))
+	default:
 		log.Errorf("studio: 子任务 %d 超时取消 gateway 调用失败（尽力而为）: %v", t.ID, err)
 	}
 	if err == nil && cc != nil && cc.Succeeded() {
@@ -188,13 +205,36 @@ func (f *flow) cancelOnTimeout(ctx context.Context, t *model.Task, b *model.Batc
 			}
 		}
 		f.deliver(ctx, t, b, cc, started)
-		return
+		return false
 	}
 	status := call.Status
 	if err == nil && cc != nil {
 		status = cc.Status
 	}
 	f.failTask(ctx, t, b, reasonTimeout, true, status)
+	return false
+}
+
+// vendorSentLogged 已打过「超时取消被拒、继续等」日志的调用（长轮询每圈都会再取消一次，同一条只记第一次）。
+var vendorSentLogged = &onceSet{}
+
+// onceSet 有上限的「只记一次」集合（满了整体清空，最坏多打几行日志）。
+type onceSet struct {
+	mu sync.Mutex
+	m  map[string]struct{}
+}
+
+func (s *onceSet) first(k string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.m[k]; ok {
+		return false
+	}
+	if s.m == nil || len(s.m) >= 10000 {
+		s.m = map[string]struct{}{}
+	}
+	s.m[k] = struct{}{}
+	return true
 }
 
 // onTerminal 终态处理。
@@ -235,7 +275,9 @@ func (f *flow) onTerminal(ctx context.Context, t *model.Task, b *model.Batch, ca
 		}
 		if !ok { // 等待重开期间被强制失败 / 取消：新开的一轮不能再跑
 			cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
-			if _, err := f.gw.Cancel(cctx, nc.ID); err != nil {
+			if _, err := f.gw.Cancel(cctx, nc.ID); aigateway.IsCancelNotAllowed(err) {
+				log.Infof("studio: 子任务 %d 状态已变，重开的调用 %s 已发给供应商，网关拒绝取消 (check=%s)", t.ID, nc.ID, aigateway.CheckCancelVendorSent)
+			} else if err != nil {
 				log.Errorf("studio: 子任务 %d 状态已变，取消重开的调用失败（尽力而为）: %v", t.ID, err)
 			}
 			cancel()
@@ -384,10 +426,23 @@ func (f *flow) deliverCall(ctx context.Context, t *model.Task, b *model.Batch, c
 	f.finishDelivery(ctx, t, b, call, res, started, overdue)
 }
 
+// transferDeadline 已出图但转存暂时失败时的放弃线：max(开始生成 + Generate + VendorSentWait, 调用完成时刻) + transferGrace。
+//
+// 超时取消被网关拒绝（已发给供应商）的调用会在 Generate 之后再等最多 VendorSentWait 才出图：放弃线若仍按
+// 「开始生成 + Generate + transferGrace」算，宽限会被等待期挤占，晚到的成品一次临时转存失败就失败退款、丢掉已付费的产物。
+// 所以放弃线至少覆盖整个等待期，并且从拿到终态（completed_at）起再给满 transferGrace。
+func (f *flow) transferDeadline(call *aigateway.Call, started time.Time) time.Time {
+	base := started.Add(f.generateTimeout() + f.vendorSentWait())
+	if call != nil && call.CompletedAt != nil && call.CompletedAt.After(base) {
+		base = *call.CompletedAt
+	}
+	return base.Add(transferGrace)
+}
+
 // copyNow 同步转存（免费档以外、未走 outbox 时）：成品复制到素材库公有桶。ok=false 时已处理（失败退款或留到下一轮）。
 func (f *flow) copyNow(ctx context.Context, t *model.Task, b *model.Batch, call *aigateway.Call, rid string, started time.Time, overdue bool) (mediasvc.Resource, bool) {
 	log := logx.WithContext(ctx)
-	giveUp := overdue || f.now().Sub(started) > f.generateTimeout()+transferGrace
+	giveUp := overdue || f.now().After(f.transferDeadline(call, started))
 	if f.media == nil {
 		log.Errorf("studio: 子任务 %d 已出图，但媒体服务未配置，无法转存", t.ID)
 		if giveUp {
@@ -619,7 +674,10 @@ func (f *flow) forceFail(ctx context.Context, t *model.Task, b *model.Batch) err
 		cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		cc, err := f.gw.Cancel(cctx, t.GatewayCallID.String)
 		cancel()
-		if err != nil {
+		if aigateway.IsCancelNotAllowed(err) {
+			// 已发给供应商：网关拒绝取消、调用继续运行。强制失败是运营决定，照旧失败退款，只留证据
+			log.Infof("studio: 强制失败时 gateway 调用 %s 已发给供应商，网关拒绝取消，调用继续运行 (check=%s)", t.GatewayCallID.String, aigateway.CheckCancelVendorSent)
+		} else if err != nil {
 			log.Errorf("studio: 强制失败时取消 gateway 调用 %s 失败（尽力而为）: %v", t.GatewayCallID.String, err)
 		} else if cc != nil && cc.Succeeded() {
 			return xerr.New(xerr.Conflict, "任务已出图，正在交付，不能强制失败")

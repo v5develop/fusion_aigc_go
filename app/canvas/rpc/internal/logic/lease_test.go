@@ -101,7 +101,17 @@ func TestCheckHold(t *testing.T) {
 	c.Billing.Hold.DefaultMinutes, c.Billing.Hold.VideoMinutes = 5, 10
 	err := c.CheckHold()
 	if err == nil || !strings.Contains(err.Error(), "Timeouts.Image=300s") || !strings.Contains(err.Error(), "Timeouts.Video=900s") ||
-		!strings.Contains(err.Error(), "Timeouts.Tool=600s") || strings.Contains(err.Error(), "Timeouts.I2P") {
+		!strings.Contains(err.Error(), "Timeouts.Tool=600s") || strings.Contains(err.Error(), "Timeouts.I2P=") {
 		t.Fatalf("应指出超限的各项: %v", err)
+	}
+	// 硬上限 + VendorSentWait 也要小于预留时长：900 + 600 = 1500s < 30 分钟通过；VendorSentWait 调到 1000 → 1900s 超限
+	c.Billing.Hold.DefaultMinutes, c.Billing.Hold.VideoMinutes = 30, 200
+	c.Timeouts.ImageHardCap, c.Timeouts.VideoHardCap, c.Timeouts.I2PHardCap, c.Timeouts.VendorSentWait = 900, 1800, 600, 600
+	if err := c.CheckHold(); err != nil {
+		t.Fatalf("默认值应通过: %v", err)
+	}
+	c.Timeouts.VendorSentWait = 1000
+	if err := c.CheckHold(); err == nil || !strings.Contains(err.Error(), "Timeouts.ImageHardCap+VendorSentWait=1900s") || strings.Contains(err.Error(), "I2PHardCap") {
+		t.Fatalf("应指出硬上限 + VendorSentWait 超限: %v", err)
 	}
 }

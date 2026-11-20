@@ -3,7 +3,8 @@
 //	POST /v1/calls                  （Idempotency-Key；同键同内容返回同一条，同键不同内容 409；
 //	                                  「内容」不含 labels、constraints.deadline_at / max_attempts，同网关 request_hash）
 //	GET  /v1/calls/{id}[?wait=N]    每次读取推进一步 PENDING→RUNNING→SUCCEEDED；带 wait 直接到终态
-//	POST /v1/calls/{id}/cancel      PENDING 变 CANCELLED；其它状态原样返回
+//	POST /v1/calls/{id}/cancel      PENDING（及 HOLD 的 RUNNING）变 CANCELLED；其它 RUNNING 视为已发给供应商，回 409 CANCEL_NOT_ALLOWED
+//	                                （check=cancel.vendor_sent，状态不变）；终态原样返回
 //	POST /v1/calls:batchGet         {"ids":[...]} → {"items":[...],"missing":[...]}（每条同样推进一步）
 //	GET  /v1/catalog/model-groups   img.gpt-image-2 / img.nano-banana-2.1 / img.seedream-5-pro（及换代后的 img.gpt-image-2.6-sunburst /
 //	                                img.gpt-image-2.5-sunburst / img.seedream-5.5；只给规范组，旧 Dev 组码是网关侧的弃用别名，mock 不模拟）
@@ -24,11 +25,12 @@
 //	请求 labels.fail=1      → 该调用到终态时是 FAILED（failure.class=VENDOR_FAILED, code=mock_failed）
 //	GET /debug/calls        → 当前所有调用（便于 e2e 断言）；?reset=1 清空
 //	POST /debug/inject      → 按请求体内容注入结果（调用方的 labels 由服务端自己拼，e2e 改不了，所以按请求体子串匹配，
-//	                          如提示词里放一个标记）。body：{"match":"子串","outcome":"FAILED|UNKNOWN|HOLD|SUBMIT_503","class":"…","times":N}
+//	                          如提示词里放一个标记）。body：{"match":"子串","outcome":"FAILED|UNKNOWN|HOLD|HOLD_SENT|SUBMIT_503","class":"…","times":N}
 //	                            FAILED      到终态时 FAILED；class 缺省 VENDOR_FAILED（retry_safe=true，调用方会自动重试），
 //	                                        给 INPUT_REJECTED 之类不可重试的类别则 retry_safe=false，一次就失败
 //	                            UNKNOWN     到终态时 UNKNOWN（money_at_risk=true），调用方应按「待对账」处理、不退款
-//	                            HOLD        一直停在 RUNNING（带 wait 也不终态），cancel 可把它变 CANCELLED
+//	                            HOLD        一直停在 RUNNING（带 wait 也不终态，phase=WAITING_CAPACITY 未发送），cancel 可把它变 CANCELLED
+//	                            HOLD_SENT   一直停在 RUNNING 且已发给供应商（vendor_accepted=true），cancel 回 409 CANCEL_NOT_ALLOWED
 //	                            SUBMIT_503  提交直接回 503（不建调用），调用方应当作暂时失败留在排队
 //	                          times>0 命中这么多个**新**调用后失效（同幂等键重提拿回的是原调用，不重复计数），≤0 不限次。
 //	GET /debug/inject       → 当前规则；?reset=1 清空
@@ -293,7 +295,7 @@ func requestHash(body []byte) string {
 func (s *server) render(r *http.Request, rc *rec, toTerminal bool) map[string]any {
 	switch {
 	case isTerminal(rc.status):
-	case rc.outcome == "HOLD": // 一直生成中，只能被 cancel
+	case rc.outcome == "HOLD" || rc.outcome == "HOLD_SENT": // 一直生成中（HOLD 可被 cancel；HOLD_SENT 已发给供应商，cancel 回 409）
 		rc.status = aigateway.StatusRunning
 	case toTerminal || rc.status == aigateway.StatusRunning:
 		rc.status = aigateway.StatusSucceeded
@@ -314,10 +316,16 @@ func (s *server) render(r *http.Request, rc *rec, toTerminal bool) map[string]an
 		}
 	}
 	out["status"] = rc.status
-	if rc.status == aigateway.StatusRunning {
-		out["phase"] = "POLLING"
-	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
+	if rc.status == aigateway.StatusRunning {
+		if rc.outcome == "HOLD" { // 还没发给供应商（等容量），可取消
+			out["phase"] = "WAITING_CAPACITY"
+		} else { // 已发给供应商、供应商持有该尝试：取消会被拒（CANCEL_NOT_ALLOWED）
+			out["phase"] = "POLLING"
+			out["vendor_accepted"] = true
+			out["vendor_accepted_at"] = now
+		}
+	}
 	out["updated_at"] = now
 	switch rc.status {
 	case aigateway.StatusSucceeded:
@@ -396,6 +404,12 @@ func (s *server) callByID(w http.ResponseWriter, r *http.Request) {
 		_, hasWait := r.URL.Query()["wait"]
 		writeJSON(w, 200, s.render(r, rc, hasWait))
 	case action == "cancel" && r.Method == http.MethodPost:
+		// 已发给供应商（RUNNING 且不是 HOLD）→ 409 CANCEL_NOT_ALLOWED，状态不变、继续运行（同网关契约）
+		if rc.status == aigateway.StatusRunning && rc.outcome != "HOLD" {
+			writeJSON(w, http.StatusConflict, map[string]any{"error": map[string]any{"code": aigateway.CodeCancelNotAllowed,
+				"check": aigateway.CheckCancelVendorSent, "message": "mock: already sent to vendor, cannot cancel", "call_id": id}})
+			return
+		}
 		if rc.status == aigateway.StatusPending || (rc.outcome == "HOLD" && rc.status == aigateway.StatusRunning) {
 			rc.status = aigateway.StatusCancelled
 		}
@@ -538,9 +552,9 @@ func (s *server) inject(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		switch ru.Outcome {
-		case aigateway.StatusFailed, aigateway.StatusUnknown, "HOLD", "SUBMIT_503":
+		case aigateway.StatusFailed, aigateway.StatusUnknown, "HOLD", "HOLD_SENT", "SUBMIT_503":
 		default:
-			errJSON(w, 422, aigateway.CodeValidationFailed, "body.invalid", "outcome: FAILED|UNKNOWN|HOLD|SUBMIT_503")
+			errJSON(w, 422, aigateway.CodeValidationFailed, "body.invalid", "outcome: FAILED|UNKNOWN|HOLD|HOLD_SENT|SUBMIT_503")
 			return
 		}
 		ru.Hits = 0

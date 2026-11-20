@@ -88,6 +88,7 @@ func TestInjectOutcomes(t *testing.T) {
 	inject(`{"match":"MK_FAIL","outcome":"FAILED","class":"INPUT_REJECTED","times":1}`)
 	inject(`{"match":"MK_UNK","outcome":"UNKNOWN"}`)
 	inject(`{"match":"MK_HOLD","outcome":"HOLD"}`)
+	inject(`{"match":"MK_SENT","outcome":"HOLD_SENT"}`)
 	inject(`{"match":"MK_503","outcome":"SUBMIT_503","times":1}`)
 
 	if _, c := submit("a1", "x MK_FAIL"); c["status"] != "FAILED" || c["retry_safe"] != false ||
@@ -110,6 +111,15 @@ func TestInjectOutcomes(t *testing.T) {
 	id := c["id"].(string)
 	if _, c = do(s, signed(t, "test-secret", "calls", "POST", "/v1/calls/"+id+"/cancel", "")); c["status"] != "CANCELLED" {
 		t.Fatalf("HOLD 可取消：%v", c)
+	}
+	_, c = submit("c2", "MK_SENT")
+	if c["status"] != "RUNNING" || c["vendor_accepted"] != true {
+		t.Fatalf("HOLD_SENT 应停在 RUNNING 且已受理：%v", c)
+	}
+	id = c["id"].(string)
+	code, c := do(s, signed(t, "test-secret", "calls", "POST", "/v1/calls/"+id+"/cancel", ""))
+	if e, _ := c["error"].(map[string]any); code != 409 || e["code"] != "CANCEL_NOT_ALLOWED" || e["check"] != "cancel.vendor_sent" {
+		t.Fatalf("已发送的取消应 409 CANCEL_NOT_ALLOWED：%d %v", code, c)
 	}
 	if code, _ := submit("d1", "MK_503"); code != 503 {
 		t.Fatalf("SUBMIT_503 应回 503，got %d", code)

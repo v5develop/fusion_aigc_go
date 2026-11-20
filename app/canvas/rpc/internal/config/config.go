@@ -139,6 +139,12 @@ type Config struct {
 		ImageHardCap int `json:",default=900"`
 		VideoHardCap int `json:",default=1800"`
 		I2PHardCap   int `json:",default=600"`
+		// VendorSentWait 超时要取消、但网关以「已发给供应商」拒绝取消（CANCEL_NOT_ALLOWED）的调用，硬上限之后最多再等多久（秒）。
+		// 这些调用受理即扣费、取消也省不下钱，所以不按超时失败退款，而是等它们到终态后按部分成功规则收尾；过了
+		// 「run 创建 + 硬上限 + VendorSentWait」仍未终态才按超时失败处理（打 ERROR，check=canvas.vendor_sent_wait_exceeded）。
+		// 默认 600 秒：已受理的图片 / 视频供应商通常几分钟内出结果，10 分钟足够覆盖慢尾，又不会让用户无限等；
+		// 预留单由续期（每分钟顺延 15 分钟）保持有效，不受 Billing.Hold 限制。<=0 按 600。
+		VendorSentWait int `json:",default=600"`
 	}
 	Limits struct {
 		MaxSnapshotBytes  int `json:",default=2097152"` // 2MB
@@ -161,7 +167,8 @@ type Config struct {
 	}
 }
 
-// CheckHold 启动自检：Timeouts 各项（秒）须小于对应的预留时长（Billing.Hold，分钟；video 用 VideoMinutes，其余用 DefaultMinutes）。
+// CheckHold 启动自检：Timeouts 各项（秒）须小于对应的预留时长（Billing.Hold，分钟；video 用 VideoMinutes，其余用 DefaultMinutes）；
+// gateway 后端的最长等待（硬上限 + VendorSentWait）同样须小于预留时长。
 // 否则 run 还没超时预留单就可能先被回收器收走，成功后结算 ErrGone（续期只是兜底：进程停摆时预留单仍会按 Hold 到期）。
 func (c Config) CheckHold() error {
 	def, video := c.Billing.Hold.DefaultMinutes, c.Billing.Hold.VideoMinutes
@@ -170,6 +177,10 @@ func (c Config) CheckHold() error {
 	}
 	if video <= 0 {
 		video = 200
+	}
+	wait := c.Timeouts.VendorSentWait
+	if wait <= 0 {
+		wait = 600 // 与 vendorSentWaitUntil 的兜底一致
 	}
 	var bad []string
 	for _, it := range []struct {
@@ -182,9 +193,10 @@ func (c Config) CheckHold() error {
 		{"Timeouts.I2P", c.Timeouts.I2P, def, "Billing.Hold.DefaultMinutes"},
 		{"Timeouts.Tool", c.Timeouts.Tool, def, "Billing.Hold.DefaultMinutes"},
 		{"Timeouts.Video", c.Timeouts.Video, video, "Billing.Hold.VideoMinutes"},
-		{"Timeouts.ImageHardCap", c.Timeouts.ImageHardCap, def, "Billing.Hold.DefaultMinutes"},
-		{"Timeouts.I2PHardCap", c.Timeouts.I2PHardCap, def, "Billing.Hold.DefaultMinutes"},
-		{"Timeouts.VideoHardCap", c.Timeouts.VideoHardCap, video, "Billing.Hold.VideoMinutes"},
+		// 超时取消被网关拒绝（已发给供应商）的 run 最多等到 创建 + 硬上限 + VendorSentWait（硬上限不小于软时限，同 hardCap）
+		{"Timeouts.ImageHardCap+VendorSentWait", max(c.Timeouts.Image, c.Timeouts.ImageHardCap) + wait, def, "Billing.Hold.DefaultMinutes"},
+		{"Timeouts.I2PHardCap+VendorSentWait", max(c.Timeouts.I2P, c.Timeouts.I2PHardCap) + wait, def, "Billing.Hold.DefaultMinutes"},
+		{"Timeouts.VideoHardCap+VendorSentWait", max(c.Timeouts.Video, c.Timeouts.VideoHardCap) + wait, video, "Billing.Hold.VideoMinutes"},
 	} {
 		if it.sec >= it.holdMin*60 {
 			bad = append(bad, fmt.Sprintf("%s=%ds 不小于 %s=%d 分钟（%ds）", it.name, it.sec, it.holdKey, it.holdMin, it.holdMin*60))

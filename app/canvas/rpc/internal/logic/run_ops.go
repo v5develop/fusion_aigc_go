@@ -301,7 +301,8 @@ func (c *core) GetRun(ctx context.Context, in *canvas.RunIdReq) (*canvas.RunResu
 	return c.toResult(ctx, r), nil
 }
 
-// CancelRun 取消执行：gateway 后端退回冻结并取消上游调用；studio 取消批次（由 studio 退款）；
+// CancelRun 取消执行：gateway 后端先取消上游调用，全部取消成功才退回冻结；已发给供应商的不能取消（4002 + reason
+// CANCEL_VENDOR_SENT，「已开始生成，无法取消，完成后按实际用量结算」），run 照常完成、按实际用量结算；studio 取消批次（由 studio 退款）；
 // 已提交的 Java 工具用本次请求的 Bearer 调 Java 取消接口真实取消（由 Java 退款，Go 不退点数）；取消时 Java 已成功则按成功交付；
 // 没有有效登录态时退化为停止跟踪（error_reason 注明可能仍会执行并扣费）；Java 暂时不可达时 run 保持运行中、后台重试取消（见 java_cancel.go）。
 func (c *core) CancelRun(ctx context.Context, in *canvas.RunIdReq) (*canvas.RunResult, error) {
@@ -325,6 +326,23 @@ func (c *core) CancelRun(ctx context.Context, in *canvas.RunIdReq) (*canvas.RunR
 		}
 		return c.toResult(ctx, r), nil
 	}
+	if ids := callIDs(r); r.Backend == model.BackendGateway && len(ids) > 0 && c.s.Gateway.Enabled() {
+		// 已有 gateway 调用：先取消上游，全部取消成功才结束并退款；任一已发给供应商 → 不结束、不退款，
+		// 任务照常完成、按实际用量结算（竞态处理见 userCancelGatewayCalls）
+		if err := c.userCancelGatewayCalls(ctx, r, ids); err != nil {
+			return nil, err
+		}
+		if !c.endRun(ctx, r, r.Status, model.RunCanceled, "CANCELED", "已取消执行", true, false) {
+			// 调用都已取消：轮询器可能先一步按「全部已取消」收尾（同样退款），以当前状态为准
+			if got, err := c.s.Repo.Run.Get(ctx, r.ID); err == nil && got != nil && model.RunFinal(got.Status) {
+				return c.toResult(ctx, got), nil
+			}
+			return nil, xerr.New(xerr.Conflict, "执行状态已变化，请刷新")
+		}
+		c.s.TaskSync.Kick()
+		return c.toResult(ctx, r), nil
+	}
+	// 排队 / 提交中（还没有调用）：行为不变——先 CAS 结束并退款，再取消上游 / 按幂等键回收可能的孤儿调用
 	if !c.endRun(ctx, r, r.Status, model.RunCanceled, "CANCELED", "已取消执行", true, false) {
 		return nil, xerr.New(xerr.Conflict, "执行状态已变化，请刷新")
 	}

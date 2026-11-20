@@ -77,6 +77,7 @@ type fakeGW struct {
 	pipeline.Gateway
 	cancels      []string
 	cancelStatus string
+	cancelErr    error // 非空时 Cancel 返回它（如 409 CANCEL_NOT_ALLOWED）
 	getCall      *aigateway.Call
 	gets         int
 }
@@ -91,6 +92,9 @@ func (g *fakeGW) Get(context.Context, string, time.Duration) (*aigateway.Call, e
 
 func (g *fakeGW) Cancel(_ context.Context, id string) (*aigateway.Call, error) {
 	g.cancels = append(g.cancels, id)
+	if g.cancelErr != nil {
+		return nil, g.cancelErr
+	}
 	return &aigateway.Call{ID: id, Status: g.cancelStatus}, nil
 }
 
@@ -245,6 +249,28 @@ func TestForceFailCancelReturnsSucceeded(t *testing.T) {
 	}
 	if len(bill.fails) != 0 {
 		t.Fatalf("fails=%v", bill.fails)
+	}
+	met(t, mock)
+}
+
+// cancelRefused 网关的取消被拒（已发给供应商）。
+var cancelRefused = &aigateway.Error{HTTPStatus: 409, Code: aigateway.CodeCancelNotAllowed, Check: aigateway.CheckCancelVendorSent, CallID: "call_1"}
+
+// 强制失败时网关拒绝取消（已发给供应商）：运营决定照旧生效（失败退款），只打日志、不崩、不重试取消。
+func TestForceFailCancelRefusedStillFails(t *testing.T) {
+	bill := onBill()
+	bill.status = "REFUNDED"
+	f, mock, gw := newTestFlow(t, bill)
+	gw.cancelErr = cancelRefused
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE `afv_studio_task` SET `status` = 3") + ".*`admin_locked` = 1.*" + regexp.QuoteMeta("WHERE (`id` = 1) AND (`status` = 1)")).WillReturnResult(ok1)
+	mock.ExpectExec(regexp.QuoteMeta("task_failed = task_failed + 1 WHERE (id = 9)")).WillReturnResult(ok1)
+	mock.ExpectExec("admin_force_fail").WillReturnResult(ok1)
+	expectConvergeFinal(mock)
+	if err := f.forceFail(context.Background(), runningTask(), batch9); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(gw.cancels, []string{"call_1"}) || !reflect.DeepEqual(bill.fails, []string{"studio-simg_1"}) {
+		t.Fatalf("cancels=%v fails=%v", gw.cancels, bill.fails)
 	}
 	met(t, mock)
 }

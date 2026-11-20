@@ -108,6 +108,7 @@ Timeouts:
   Crop: 120
   Analyze: 120
   Generate: 300
+  VendorSentWait: 600   # 生成超时取消被网关拒绝（已发给供应商）的子任务，超时后最多再等多久（秒），期间不失败退款
 # 商拍反推提示词灰度：Seedream 批次按批次号哈希，命中 NewPercent% 走 prompt_version=new（Nano 等一律稳定版）。
 # 0 = 关闭。运行时可用 afv_system_config.studio_tryon_new_prompt_percent（0–100）覆盖，60s 内生效
 TryonPrompt:

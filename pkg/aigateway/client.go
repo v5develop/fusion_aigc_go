@@ -214,7 +214,8 @@ func (c *Client) BatchGet(ctx context.Context, ids []string) ([]Call, error) {
 }
 
 // Cancel 取消调用。POST /v1/calls/{id}/cancel，scope=calls。幂等；终态记录原样返回。
-// 未发送 → CANCELLED 零成本；供应商已接单 → 尽量调供应商取消，尝试继续追踪费用。
+// 未发送 → CANCELLED 零成本；本轮已有尝试发给供应商（且供应商不能止损）→ 409 CANCEL_NOT_ALLOWED
+// （check=cancel.vendor_sent，用 IsCancelNotAllowed 判别），调用状态不变、继续运行，结果照常交付、按实际用量结算。
 func (c *Client) Cancel(ctx context.Context, id string) (*Call, error) {
 	if !callIDRe.MatchString(id) {
 		return nil, fmt.Errorf("aigateway: call id 非法 %q (check=aig.call_id)", id)

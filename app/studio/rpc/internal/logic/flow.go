@@ -314,6 +314,9 @@ func (f *flow) analyzeTimeout() time.Duration {
 func (f *flow) generateTimeout() time.Duration {
 	return secs(f.cfg.Timeouts.Generate, pipeline.GenerateTimeout)
 }
+func (f *flow) vendorSentWait() time.Duration {
+	return secs(f.cfg.Timeouts.VendorSentWait, 600*time.Second)
+}
 func (f *flow) deliverGrace() time.Duration {
 	return secs(f.cfg.Timeouts.DeliverGrace, defaultDeliverGrace)
 }

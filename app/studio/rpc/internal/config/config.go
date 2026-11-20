@@ -160,6 +160,11 @@ type Config struct {
 		Generate int `json:",default=300"`
 		// DeliverGrace 交付中（已出图、待结算）最多停留多久：超期仍结算不了就告警并按预留单状态置失败 / 退款，保证有出口
 		DeliverGrace int `json:",default=1800"`
+		// VendorSentWait 生成超时要取消、但网关以「已发给供应商」拒绝取消（CANCEL_NOT_ALLOWED）的子任务，超时后最多再等多久（秒）。
+		// 受理即扣费、取消省不下钱，所以不超时失败退款，而是等调用到终态照常处理（成功交付结算 / 失败退款 / 未知交回收器）；
+		// 过了「开始生成 + Generate + VendorSentWait」仍未终态才按超时失败退款，打 ERROR（check=studio.vendor_sent_wait_exceeded）。
+		// 默认 600 秒：已受理的供应商通常几分钟内出结果；预留单由续期保持有效。<=0 按 600。
+		VendorSentWait int `json:",default=600"`
 	}
 	// TryonPrompt 商拍反推提示词版本灰度：sidecar prompt_version=new 实验版（2026-11-07.2 PROMPT_VERSIONS：
 	// Seedream 结构化短版小幅提升、Nano 短版偏低），所以只灰度 Seedream，Nano 及其它模型一律稳定版。

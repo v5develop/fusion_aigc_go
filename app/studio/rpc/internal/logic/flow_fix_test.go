@@ -279,6 +279,73 @@ func TestCancelOnTimeoutSucceededRefetches(t *testing.T) {
 	met(t, mock)
 }
 
+// 超时取消被网关拒绝（已发给供应商）：上限内不失败、不退款、不碰库，返回 true 让调用方接着长轮询。
+func TestCancelOnTimeoutRefusedKeepsWaiting(t *testing.T) {
+	bill := onBill()
+	f, mock, gw := newTestFlow(t, bill)
+	gw.cancelErr = cancelRefused
+	started := time.Now().Add(-f.generateTimeout() - time.Minute) // 超时 1 分钟，远没到 VendorSentWait（默认 600 秒）
+	if !f.cancelOnTimeout(context.Background(), runningTask(), batch9, &aigateway.Call{ID: "call_1", Status: aigateway.StatusRunning}, started) {
+		t.Fatal("被拒应继续等（again=true）")
+	}
+	if len(gw.cancels) != 1 || len(bill.fails) != 0 || len(bill.settles) != 0 {
+		t.Fatalf("cancels=%v fails=%v settles=%v", gw.cancels, bill.fails, bill.settles)
+	}
+	met(t, mock)
+}
+
+// 等被拒调用超过上限仍未终态：按超时失败退款。
+func TestCancelOnTimeoutRefusedWaitExceededFails(t *testing.T) {
+	bill := onBill()
+	f, mock, gw := newTestFlow(t, bill)
+	gw.cancelErr = cancelRefused
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE `afv_studio_task` SET `status` = 3") + ".*" + regexp.QuoteMeta("WHERE (`id` = 1) AND (`status` = 1)")).WillReturnResult(ok1)
+	mock.ExpectExec(regexp.QuoteMeta("task_failed = task_failed + 1")).WillReturnResult(ok1)
+	mock.ExpectExec("SET step_log = JSON_ARRAY_APPEND").WillReturnResult(ok1)
+	expectConvergeFinal(mock)
+	started := time.Now().Add(-f.generateTimeout() - f.vendorSentWait() - time.Minute)
+	if f.cancelOnTimeout(context.Background(), runningTask(), batch9, &aigateway.Call{ID: "call_1", Status: aigateway.StatusRunning}, started) {
+		t.Fatal("超过上限不应再等")
+	}
+	if !reflect.DeepEqual(bill.fails, []string{"studio-simg_1"}) {
+		t.Fatalf("应超时失败退款: fails=%v", bill.fails)
+	}
+	met(t, mock)
+}
+
+// 等待期间被拒的调用到终态：成功照常交付结算，失败照常退款（cancelOnTimeout 读到终态直接交 onTerminal）。
+func TestCancelOnTimeoutRefusedThenTerminal(t *testing.T) {
+	bill := onBill()
+	f, mock, gw := newTestFlow(t, bill)
+	gw.cancelErr = cancelRefused
+	mock.ExpectExec(regexp.QuoteMeta("SET `status` = 5")).WillReturnResult(ok1)
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE `afv_studio_task` SET `status` = 2")).WillReturnResult(ok1)
+	mock.ExpectExec(regexp.QuoteMeta("task_done = task_done + 1")).WillReturnResult(ok1)
+	mock.ExpectExec("SET step_log = JSON_ARRAY_APPEND").WillReturnResult(ok1)
+	expectConvergeFinal(mock)
+	started := time.Now().Add(-f.generateTimeout() - time.Minute)
+	if f.cancelOnTimeout(context.Background(), runningTask(), batch9, succeededCall(), started) {
+		t.Fatal("终态不应再等")
+	}
+	if len(gw.cancels) != 0 || !reflect.DeepEqual(bill.settles, []string{"studio-simg_1"}) || len(bill.fails) != 0 {
+		t.Fatalf("成功应交付结算、不再取消: cancels=%v settles=%v fails=%v", gw.cancels, bill.settles, bill.fails)
+	}
+	met(t, mock)
+
+	failed := &aigateway.Call{ID: "call_1", Status: aigateway.StatusFailed, Failure: &aigateway.Failure{Class: "VENDOR_FAILED", Code: "x"}}
+	bill2 := onBill()
+	f2, mock2, _ := newTestFlow(t, bill2)
+	mock2.ExpectExec(regexp.QuoteMeta("UPDATE `afv_studio_task` SET `status` = 3") + ".*" + regexp.QuoteMeta("WHERE (`id` = 1) AND (`status` = 1)")).WillReturnResult(ok1)
+	mock2.ExpectExec(regexp.QuoteMeta("task_failed = task_failed + 1")).WillReturnResult(ok1)
+	mock2.ExpectExec("SET step_log = JSON_ARRAY_APPEND").WillReturnResult(ok1)
+	expectConvergeFinal(mock2)
+	f2.cancelOnTimeout(context.Background(), runningTask(), batch9, failed, started)
+	if !reflect.DeepEqual(bill2.fails, []string{"studio-simg_1"}) {
+		t.Fatalf("失败应退款: fails=%v", bill2.fails)
+	}
+	met(t, mock2)
+}
+
 func TestDeliveryOverdue(t *testing.T) {
 	now := time.Now()
 	if !deliveryOverdue(deliveringTask(31*time.Minute), now, 30*time.Minute) {
@@ -329,4 +396,28 @@ func TestSubmitBatchLimits(t *testing.T) {
 		t.Fatalf("got=%v", got)
 	}
 	met(t, mock)
+}
+
+// 被拒调用晚到成功：转存放弃线覆盖整个等待期，并从拿到终态时刻起再给满 transferGrace，不被等待期挤占。
+func TestTransferDeadlineCoversVendorSentWait(t *testing.T) {
+	f, _, _ := newTestFlow(t, onBill())
+	now := time.Now()
+	started := now.Add(-f.generateTimeout() - f.vendorSentWait() - time.Minute) // 等待期末尾附近才拿到终态
+	done := now
+	call := &aigateway.Call{ID: "call_1", Status: aigateway.StatusSucceeded, CompletedAt: &done}
+	if got := f.transferDeadline(call, started); !got.Equal(done.Add(transferGrace)) {
+		t.Fatalf("晚到成品应从完成时刻起算 transferGrace: %v want %v", got, done.Add(transferGrace))
+	}
+	if !now.Add(transferGrace - time.Second).Before(f.transferDeadline(call, started)) {
+		t.Fatal("完成后 transferGrace 内不应放弃")
+	}
+	// 按时出图：放弃线至少是 开始 + Generate + VendorSentWait + transferGrace（不早于旧口径）
+	early := started.Add(time.Minute)
+	call.CompletedAt = &early
+	if got := f.transferDeadline(call, started); !got.Equal(started.Add(f.generateTimeout() + f.vendorSentWait() + transferGrace)) {
+		t.Fatalf("got %v", got)
+	}
+	if got := f.transferDeadline(&aigateway.Call{ID: "call_1"}, started); got.Before(started.Add(f.generateTimeout() + transferGrace)) {
+		t.Fatalf("没有 completed_at 也不能早于旧口径: %v", got)
+	}
 }

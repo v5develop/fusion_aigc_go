@@ -172,6 +172,15 @@ func (c *core) budget(k model.RunKind) (expected, timeout time.Duration) {
 	return 60 * time.Second, time.Duration(t.Tool) * time.Second
 }
 
+// vendorSentWaitUntil 超时取消被网关拒绝（已发给供应商）的 run 最多等到何时：创建 + 硬上限 + Timeouts.VendorSentWait。
+func (c *core) vendorSentWaitUntil(run *model.NodeRun) time.Time {
+	w := time.Duration(c.s.Config.Timeouts.VendorSentWait) * time.Second
+	if w <= 0 {
+		w = 600 * time.Second
+	}
+	return run.CreatedAt.Add(c.hardCap(run.Kind) + w)
+}
+
 // hardCap gateway 后端 run 的硬上限（从创建算起）：调用已被供应商受理时软时限过后继续等到这里。不小于软时限。
 func (c *core) hardCap(k model.RunKind) time.Duration {
 	_, soft := c.budget(k)

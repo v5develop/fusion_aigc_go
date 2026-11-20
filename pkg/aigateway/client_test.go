@@ -360,3 +360,28 @@ func TestSubmitSendsTraceID(t *testing.T) {
 		t.Error("不传 TraceID 不应发 X-Trace-Id")
 	}
 }
+
+func TestCancelNotAllowed(t *testing.T) {
+	c, _ := newGateway(t, func(w http.ResponseWriter, s seen) {
+		w.WriteHeader(http.StatusConflict)
+		_, _ = io.WriteString(w, `{"error":{"code":"CANCEL_NOT_ALLOWED","check":"cancel.vendor_sent","message":"already sent to vendor","call_id":"call_01J8Z3K6W9ABCDEF"}}`)
+	})
+	call, err := c.Cancel(context.Background(), "call_01J8Z3K6W9ABCDEF")
+	if call != nil || !IsCancelNotAllowed(err) || !errors.Is(err, ErrCancelNotAllowed) {
+		t.Fatalf("应识别为取消被拒: %v %v", call, err)
+	}
+	var ge *Error
+	if !errors.As(err, &ge) || ge.Check != CheckCancelVendorSent || ge.CallID != "call_01J8Z3K6W9ABCDEF" || ge.Temporary() || ge.RetrySafe {
+		t.Fatalf("err = %+v", ge)
+	}
+	if errors.Is(err, ErrIdempotencyConflict) || errors.Is(err, ErrRetryNotAllowed) {
+		t.Error("不能和别的 409 混淆")
+	}
+	if IsCancelNotAllowed(nil) || IsCancelNotAllowed(errors.New("x")) || IsCancelNotAllowed(&Error{HTTPStatus: 409, Code: CodeIdempotencyConflict}) {
+		t.Error("误判")
+	}
+	var rec Call
+	if err := json.Unmarshal([]byte(`{"id":"call_x","status":"RUNNING","vendor_accepted":true,"vendor_accepted_at":"2026-11-20T10:00:00Z"}`), &rec); err != nil || !rec.VendorAccepted || rec.VendorAcceptedAt == nil {
+		t.Fatalf("vendor_accepted 解析: %+v %v", rec, err)
+	}
+}

@@ -36,6 +36,8 @@
 //
 //   - 提交按 (caller_id, Idempotency-Key) 幂等：超时或网络错误后用同一个键原样重提即可拿回同一条记录；
 //     409 IDEMPOTENCY_CONFLICT 表示同键不同内容，是调用方 bug，绝不能重试。
+//   - Cancel 只能取消还没发给供应商的调用；已发送的回 409 CANCEL_NOT_ALLOWED（IsCancelNotAllowed），调用继续运行，
+//     不能当作已取消处理（不能退款），也不能重试取消。
 //   - 网关从不回调：用 Get 长轮询（每次状态变化立即唤醒）或 BatchGet 比对 updated_seq 观察完成。
 //   - 本包不自动重试，*Error 的 Temporary / RetrySafe 供上层编排判断。
 //   - 产物是媒体服务资源，持久引用为 mr://{rid}（MediaOut.Ref）；url 只是 24 小时签名下载地址。

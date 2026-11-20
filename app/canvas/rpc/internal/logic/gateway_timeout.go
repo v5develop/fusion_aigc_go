@@ -12,11 +12,18 @@ package logic
 //	过了软时限、没有任何调用受理     → 失败退款 + 取消（与改造前一致）
 //	过了软时限、有调用状态拿不到     → 本轮不判（宁可多等一轮，也不在不知道是否已受理时取消），硬上限兜底
 //
+// 判「失败」时**先**取消调用、再置失败：网关对已发给供应商的调用拒绝取消（409 CANCEL_NOT_ALLOWED，受理即扣费、取消省不下钱），
+// 只要有调用被拒，就不失败退款，run 保持运行中等这些调用到终态，再按部分成功规则收尾（ClassifyGateway：成功几张交付几张、
+// 按成功张数 / 实报成本结算退差额；一张没成功按失败退款；含 UNKNOWN 待对账）；没发出去的调用照常取消（零成本）。
+// 等待上限：run 创建 + 硬上限 + Timeouts.VendorSentWait（vendorSentWaitUntil），过了仍未终态才按超时失败退款并打 ERROR
+// （check=canvas.vendor_sent_wait_exceeded）。不需要额外状态：每轮判失败都会重新取消一次，仍被拒就继续等。
+//
 // 退款仍只经 failRun 的 CAS 一次。
 
 import (
 	"context"
 	"strconv"
+	"strings"
 	"time"
 
 	"aigc-local-life/app/canvas/model"
@@ -73,7 +80,9 @@ func callAccepted(c *aigateway.Call) bool {
 type timeoutVerdict struct {
 	fail   bool     // 置失败退款并取消全部调用
 	cancel []string // 只取消这些（未受理的），run 继续等已受理的
-	extend bool     // 已过软时限，因有已受理调用（或状态未知）继续等
+	// open 判定时仍未终态（含状态未知）的调用：判失败时只取消这些，已 CANCELLED / 终态的不再重复发 Cancel
+	open   []string
+	extend bool // 已过软时限，因有已受理调用（或状态未知）继续等
 	// reason 判定依据（写进任务轨迹的 reason 属性）：soft_cap_none_accepted / soft_cap_accepted_extended /
 	// soft_cap_partial_delivered / soft_cap_status_unknown / hard_cap / hard_cap_partial_grace
 	reason string
@@ -128,7 +137,7 @@ func (c *core) gatewayTimeout(run *model.NodeRun, ids []string, calls []*aigatew
 		if delivered && age <= c.hardCap(run.Kind)+hardCapGrace {
 			return timeoutVerdict{extend: true, cancel: open, reason: "hard_cap_partial_grace", attrs: info}
 		}
-		return timeoutVerdict{fail: true, reason: "hard_cap", attrs: info}
+		return timeoutVerdict{fail: true, open: open, reason: "hard_cap", attrs: info}
 	}
 	switch {
 	case accepted:
@@ -139,7 +148,7 @@ func (c *core) gatewayTimeout(run *model.NodeRun, ids []string, calls []*aigatew
 	case unknown:
 		return timeoutVerdict{extend: true, reason: "soft_cap_status_unknown", attrs: info}
 	}
-	return timeoutVerdict{fail: true, reason: "soft_cap_none_accepted", attrs: info}
+	return timeoutVerdict{fail: true, open: open, reason: "soft_cap_none_accepted", attrs: info}
 }
 
 // hardDeadline run 的硬上限时刻（日志用）。
@@ -155,9 +164,23 @@ func (c *core) applyGatewayTimeout(ctx context.Context, run *model.NodeRun, ids 
 		attrs["reason"] = v.reason
 		attrs["decision"] = "fail"
 		sfx := func(status string) taskevent.SpanOpt { return taskevent.WithDedupeSuffix(status) }
+		// 先取消再判：被拒（已发给供应商）的调用不失败退款，等它到终态按部分成功收尾（见文件头）
+		toCancel := v.open
+		if toCancel == nil { // 判定没给（老调用方 / 测试直接构造）：按全部调用
+			toCancel = ids
+		}
+		if refused := c.cancelCalls(ctx, run.ID, toCancel, "生成超时"); len(refused) > 0 {
+			until := c.vendorSentWaitUntil(run)
+			if !c.now().After(until) {
+				c.applyGatewayTimeout(ctx, run, ids, timeoutVerdict{extend: true, reason: "vendor_sent_wait", attrs: v.attrs})
+				return false
+			}
+			logx.WithContext(ctx).Errorf("canvas: run %d 超时取消被网关拒绝的调用 %s 等到 %s 仍未终态，按超时失败退款（供应商可能已扣费，产物若晚到由网关记账） (check=canvas.vendor_sent_wait_exceeded)",
+				run.ID, strings.Join(refused, ","), until.Format(time.RFC3339))
+			attrs["reason"] = "vendor_sent_wait_exceeded"
+		}
 		c.evStart(ctx, run, stTimeout, timeoutFailSeq, attrs)
 		if c.failRun(ctx, run, model.RunRunning, "TIMEOUT", "生成超时，点数已退回", true) {
-			c.cancelCalls(ctx, run.ID, ids, "生成超时")
 			c.evEnd(ctx, run, stTimeout, timeoutFailSeq, taskevent.StatusTimeout,
 				taskevent.Fail{Class: "TIMEOUT", Code: "TIMEOUT", Check: "canvas.gateway_timeout", Message: "生成超时（" + v.reason + "），已失败退款并取消调用"}, attrs, sfx(taskevent.StatusTimeout))
 		} else {
@@ -172,18 +195,29 @@ func (c *core) applyGatewayTimeout(ctx context.Context, run *model.NodeRun, ids 
 		attrs["decision"] = "extend"
 		attrs["cancel_unaccepted"] = len(v.cancel)
 		attrs["hard_deadline"] = c.hardDeadline(run).Format(time.RFC3339)
+		if v.reason == "vendor_sent_wait" {
+			attrs["wait_until"] = c.vendorSentWaitUntil(run).Format(time.RFC3339)
+		}
 		if len(v.cancel) > 0 {
 			c.cancelCalls(ctx, run.ID, v.cancel, "生成超时（未受理）")
 		}
-		// 每个轮询 tick 都会再判一次：只在原因变化时才写（原因进 dedupe，A→B→A 也各记一次），在取消调用之后写
-		if n, changed := timeoutReasons.changed(run.ID, v.reason); changed {
+		// 每个轮询 tick 都会再判一次：只在原因变化时才写轨迹和日志（原因进 dedupe，A→B→A 也各记一次），在取消调用之后写
+		n, changed := timeoutReasons.changed(run.ID, v.reason)
+		if changed {
 			sfx := taskevent.WithDedupeSuffix(v.reason + "#" + strconv.Itoa(n))
 			c.evStart(ctx, run, stTimeout, timeoutExtendSeq, attrs, sfx)
 			c.evEnd(ctx, run, stTimeout, timeoutExtendSeq, taskevent.StatusSkipped,
 				taskevent.Fail{Class: "TIMEOUT", Code: "TIMEOUT_EXTENDED", Check: "canvas.timeout_extended", Message: "已过软时限，不取消，继续等待（" + v.reason + "）"}, attrs, sfx)
 		}
-		logx.WithContext(ctx).Infof("canvas: run %d 已过软时限，有调用已被供应商受理（或状态未知），不取消，最多等到 %s (check=canvas.timeout_extended)",
-			run.ID, c.hardDeadline(run).Format(time.RFC3339))
+		if !changed {
+			return false
+		}
+		until := c.hardDeadline(run)
+		if v.reason == "vendor_sent_wait" {
+			until = c.vendorSentWaitUntil(run)
+		}
+		logx.WithContext(ctx).Infof("canvas: run %d 已超时，有调用已被供应商受理（或状态未知 / 网关拒绝取消），不失败，最多等到 %s (check=canvas.timeout_extended reason=%s)",
+			run.ID, until.Format(time.RFC3339), v.reason)
 	}
 	return false
 }

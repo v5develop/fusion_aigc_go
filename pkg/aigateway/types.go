@@ -108,13 +108,16 @@ type Call struct {
 	// RetrySafe 本轮没有任何尝试可能被扣费，可用 retry_failed 重开
 	RetrySafe bool `json:"retry_safe"`
 	// MoneyAtRisk 存在可能已扣费但未交付结果的尝试
-	MoneyAtRisk bool              `json:"money_at_risk"`
-	Limits      *Limits           `json:"limits,omitempty"`
-	Labels      map[string]string `json:"labels,omitempty"`
-	DeadlineAt  *time.Time        `json:"deadline_at,omitempty"`
-	CreatedAt   time.Time         `json:"created_at"`
-	UpdatedAt   time.Time         `json:"updated_at"`
-	CompletedAt *time.Time        `json:"completed_at,omitempty"`
+	MoneyAtRisk bool `json:"money_at_risk"`
+	// VendorAccepted 供应商当前持有本调用的某次尝试（已受理、可能已扣费）；取消会被拒（CANCEL_NOT_ALLOWED）
+	VendorAccepted   bool              `json:"vendor_accepted,omitempty"`
+	VendorAcceptedAt *time.Time        `json:"vendor_accepted_at,omitempty"`
+	Limits           *Limits           `json:"limits,omitempty"`
+	Labels           map[string]string `json:"labels,omitempty"`
+	DeadlineAt       *time.Time        `json:"deadline_at,omitempty"`
+	CreatedAt        time.Time         `json:"created_at"`
+	UpdatedAt        time.Time         `json:"updated_at"`
+	CompletedAt      *time.Time        `json:"completed_at,omitempty"`
 	// LateSuccess 调用结束后才落下的已扣费结果（状态不变，结果在 LateResult）
 	LateSuccess     bool       `json:"late_success,omitempty"`
 	LateSuccessAt   *time.Time `json:"late_success_at,omitempty"`
