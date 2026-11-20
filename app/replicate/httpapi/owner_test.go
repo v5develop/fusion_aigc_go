@@ -32,10 +32,14 @@ func TestURLOwner(t *testing.T) {
 		"https://lib.example.cn/asset/image/7/20261113/a.png?sign=1":    true,
 		"https://cdn.douyin.com/v.mp4":                                  false,
 		"ftp://127.0.0.1:8888/files/aigc/video/7/20261113/ab.mp4":       false,
-		// Java 上传布局（直传 images|videos/u<uid>/，creaft v1 creaft-v1/u<uid>/）
+		// Java 上传布局（与 ObjectKeyLayout.CLIENT_UPLOAD_DIRS 一致：uploads|images|videos|audios/u<uid>/，creaft v1 creaft-v1/u<uid>/）
 		"http://127.0.0.1:8888/files/aigc/images/u7/20261113/a.png":            true,
 		"http://127.0.0.1:8888/files/aigc/videos/u7/20261113/a.mp4":            true,
 		"http://127.0.0.1:8888/files/aigc/creaft-v1/u7/20261113/abc":           true,
+		"http://127.0.0.1:8888/files/aigc/uploads/u7/20261120/a.mp4":           true, // 网页直传 uploads/u<uid>/（t81 复刻拆解曾被误拒）
+		"http://127.0.0.1:8888/files/aigc/audios/u7/20261120/a.mp3":            true,
+		"http://127.0.0.1:8888/files/aigc/uploads/u8/20261120/a.mp4":           false, // 别人的
+		"http://127.0.0.1:8888/files/aigc/uploads/7/20261120/a.mp4":            false, // Java 目录却没有 u 前缀
 		"http://127.0.0.1:8888/files/aigc/images/u8/20261113/a.png":            false, // 别人的
 		"http://127.0.0.1:8888/files/aigc/images/7/20261113/a.png":             false, // Java 目录却没有 u 前缀
 		"http://127.0.0.1:8888/files/aigc/image/u7/20261113/a.png":             false, // Go 目录却带 u 前缀

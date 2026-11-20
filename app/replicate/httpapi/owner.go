@@ -101,8 +101,10 @@ func uploadDirOwned(path string, userID int64) bool {
 	return err == nil && uid == userID
 }
 
-// javaUploadDirs Java 上传布局的目录段（fusion-aigc ObjectKeyLayout：直传 images / videos，creaft v1 STS 直传 creaft-v1）。
-var javaUploadDirs = map[string]bool{"images": true, "videos": true, "creaft-v1": true}
+// javaUploadDirs Java 上传布局的目录段，须与 fusion-aigc ObjectKeyLayout.CLIENT_UPLOAD_DIRS 一致
+// （uploads / images / videos / audios / creaft-v1）。漏一个，用户在本站刚传的文件也会被判「不是你上传的」
+// （2026-11-20 t81：网页上传落 uploads/u{id}/…，复刻拆解被拒）。
+var javaUploadDirs = map[string]bool{"uploads": true, "images": true, "videos": true, "audios": true, "creaft-v1": true}
 
 func digits(s string) bool {
 	for _, c := range s {
