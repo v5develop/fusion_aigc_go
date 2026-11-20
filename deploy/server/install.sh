@@ -390,7 +390,7 @@ render_nginx() {
   check_nginx_site "$INSTALL_DIR/nginx/aigc-local-life.conf"
 }
 
-# render_canvas_internal：渲染画布内部入口代理（只监听网桥地址，供 Java 容器访问网关的 /internal/v1/canvas/agent/*）
+# render_canvas_internal：渲染服务间内部入口代理（只监听网桥地址，供 Java 容器访问网关的 /internal/v1/{canvas,replicate}/agent/*）
 render_canvas_internal() {
   mkdir -p "$INSTALL_DIR/nginx"
   if [[ -z ${CANVAS_INTERNAL_BIND:-} ]]; then
