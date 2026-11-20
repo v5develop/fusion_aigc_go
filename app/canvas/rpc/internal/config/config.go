@@ -31,6 +31,9 @@ type Config struct {
 	// FreeWatermark 免费档水印视图（mrw://）读时签名：Process 与 studio / assetlib / Java 同一个 OSS 处理串，
 	// 只允许 [A-Za-z0-9_./,-]；没配或不合法时水印视图输出为空（绝不签干净原件）。
 	FreeWatermark FreeWatermarkConf `json:",optional"`
+	// Thumb 候选缩略图（RunResult.candidates[].thumb_url / 画布回填 candidateThumbs）：私有引用（mr:// / mrw://）的图片
+	// 额外现签一个带缩放处理串的地址（处理串纳入签名），卡片 / 历史侧栏用；原图链路不变。
+	Thumb ThumbConf `json:",optional"`
 	// Asset 成品写进素材库（afv_asset）：每个候选一行。EntryCode 按 kind 取 EntryCodes
 	Asset asset.Conf
 	// AssetReconcile 付费产物入库对账：定时扫近 7 天成功且已确认扣费、素材库没有对应行的 run 并幂等补入（pkg/asset.Reconciler）
@@ -402,6 +405,30 @@ func (c FreeWatermarkConf) SignedTTL() time.Duration {
 		s = 600
 	}
 	return time.Duration(max(60, s)) * time.Second
+}
+
+// DefaultThumbProcess 候选缩略图默认处理串：按宽等比缩到 480（不裁、不放大）+ webp q80。
+const DefaultThumbProcess = "image/resize,m_lfit,w_480/format,webp/quality,q_80"
+
+// ThumbConf 候选缩略图配置。Process 留空 = DefaultThumbProcess；填 off = 不出缩略图（桶没开图片处理时用）。
+// 自定义处理串须以 image/ 开头且只含 [A-Za-z0-9_./,-]，否则视同 off。
+type ThumbConf struct {
+	Process string `json:",optional"`
+}
+
+// ThumbProcess 生效的缩略图处理串；"" = 不出缩略图。
+func (c ThumbConf) ThumbProcess() string {
+	p := strings.TrimSpace(c.Process)
+	switch {
+	case p == "":
+		return DefaultThumbProcess
+	case strings.EqualFold(p, "off"):
+		return ""
+	}
+	if !strings.HasPrefix(p, "image/") || !(FreeWatermarkConf{Process: p}).ValidProcess() {
+		return ""
+	}
+	return p
 }
 
 // EventsConf 画布变更事件（Redis pub/sub `canvas:{id}:events`，网关 SSE GET /api/v1/canvas/canvases/:id/events 订阅）。

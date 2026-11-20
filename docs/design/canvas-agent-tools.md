@@ -62,7 +62,7 @@ Java 侧智能体的 canvas_* 工具执行器走**服务间 HMAC 入口**（§12
 | `image` | image / input | title 图片, image | 240×260 | `n_` |
 | `result_image` | image / result（有 `image-in` 口） | title 结果图 | 240×260 | `n_` |
 | `video` | video / video-input | title 视频, video | 338×380 | `v_` |
-| `image_model` | model / model | model, modelId, quality medium, count 1, cfg 0.95, ratio 1:1, size 1K, prompt, maxImageRefs | 318×440 | `m_` |
+| `image_model` | model / model | model, modelId, quality medium, outputFormat jpeg, count 1, cfg 0.95, ratio 1:1, size 1K, prompt, maxImageRefs | 318×440 | `m_` |
 | `video_model` | model / video | 同上 + duration 4s, sound true, ratio 16:9, size 720p | 338×480 | `m_` |
 | `tool` | tool / tool（`tool`: crop/upscale/outpaint/mask/i2p/tryon） | title、tool、sourceNodeId、工具默认参数 | 340×320（tryon 380×460） | `tool_` |
 | `group` | module / module（isGroup，zIndex -1，不能连线） | title 分组 | 760×420 | `mod_` |
@@ -105,8 +105,8 @@ camelCase 键会先归一为 snake_case（兼容网关 jsoncase 与习惯驼峰�
 | canvas_auto_layout | `{canvas_id, base_revision?, node_ids?:string[]≤500, direction?:"LR"\|"TB", gap_x?:int 20–800, gap_y?:int 20–800, origin_x?, origin_y?}` | `MutationOut + {nodes:[{node_id,x,y}]}` |
 | canvas_batch_edit | `{canvas_id, base_revision?, ops:[{op:enum, args:object}]1–100}`，`args` 形状 = 对应单工具的单个元素（layout 的 args = auto_layout 入参去掉 canvas_id） | `MutationOut + {results:[object], refs:{ref:node_id}}` |
 | canvas_catalog | `{kind?:"image"\|"video"}` | `{models:[{model,model_id,label,kind,ratios,sizes,qualities,durations,sound,count_max,max_image_refs,prices:[{size,duration,points}]}]}` |
-| canvas_quote_node | `{canvas_id, node_id, model?, prompt?, ratio?, size?, quality?, count?, duration?, sound?, params?:object}`（覆盖项与 run_node 相同） | `{canvas_id,node_id,node_type,tool?,kind,available,reason?,reason_code?,billing:canvas\|java\|studio\|free,price_known,points,max_points,settle_mode,charged,billing_mode?,basis:{model,model_group,size,quality,ratio,count,duration_s,unit_points,price_unit,quantity},requires_login_token,login_available,estimated_seconds,estimate_source,warnings,note?,java_request?:{route,path,body}}` |
-| canvas_run_node | `{canvas_id, node_id, run_id?:string≤64, model?, prompt?:≤3000, ratio?, size?, quality?, count?:1–8, duration?, sound?, params?:object, max_points?:int≥0, expected_points?:int≥0}` | `{request_id,run_id,status,credits,max_points,settle_mode,warnings:[],replayed}` |
+| canvas_quote_node | `{canvas_id, node_id, model?, prompt?, ratio?, size?, quality?, output_format?, count?, duration?, sound?, params?:object}`（覆盖项与 run_node 相同） | `{canvas_id,node_id,node_type,tool?,kind,available,reason?,reason_code?,billing:canvas\|java\|studio\|free,price_known,points,max_points,settle_mode,charged,billing_mode?,basis:{model,model_group,size,quality,ratio,count,duration_s,unit_points,price_unit,quantity},requires_login_token,login_available,estimated_seconds,estimate_source,warnings,note?,java_request?:{route,path,body}}` |
+| canvas_run_node | `{canvas_id, node_id, run_id?:string≤64, model?, prompt?:≤3000, ratio?, size?, quality?, output_format?:jpeg|png|webp（缺省 jpeg，仅图片）, count?:1–8, duration?, sound?, params?:object, max_points?:int≥0, expected_points?:int≥0}` | `{request_id,run_id,status,credits,max_points,settle_mode,warnings:[],replayed}` |
 | canvas_get_run | `{request_id:string(数字), wait_seconds?:int 0–25}` | `Run` |
 | canvas_list_runs | `{canvas_id, node_id?, limit?:1–50}` | `{runs:[Run]}` |
 | canvas_cancel_run | `{request_id}` | `Run` |
@@ -116,9 +116,9 @@ camelCase 键会先归一为 snake_case（兼容网关 jsoncase 与习惯驼峰�
 
 ```jsonc
 NodeSpec  = {ref?:string≤32, type:enum(2.1), title?:≤100, x?, y?, width?:80–4000, height?:80–4000,
-             text?:≤5000, image_url?:uri, video_url?:uri, model?, prompt?:≤3000, ratio?, size?, quality?:low|medium|high,
+             text?:≤5000, image_url?:uri, video_url?:uri, model?, prompt?:≤3000, ratio?, size?, quality?:low|medium|high, output_format?:jpeg|png|webp,
              count?:1–8, duration?, sound?:bool, tool?:crop|upscale|outpaint|mask|i2p|tryon, data?:object}
-NodePatch = {node_id, title?, text?, image_url?, video_url?, model?, prompt?, ratio?, size?, quality?, count?, duration?, sound?,
+NodePatch = {node_id, title?, text?, image_url?, video_url?, model?, prompt?, ratio?, size?, quality?, output_format?, count?, duration?, sound?,
              data?:object /* JSON Merge Patch：null 删除键；运行态键（status/candidates/runId…）一律忽略 */}
 EdgeSpec  = {source:node_id|ref, target:node_id|ref, target_handle?:enum(prompt,image,video,image1,image2,first,last,garment,models,image-in),
              source_handle?:string, order?:int≥1}

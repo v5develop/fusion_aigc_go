@@ -281,3 +281,29 @@ func TestNewOSSStoreRejectsBadConfig(t *testing.T) {
 		t.Fatal("有效期超过 24 小时必须拒绝")
 	}
 }
+
+// 画布缩略图处理串（canvas config.DefaultThumbProcess）：样式字符合法，签名的 canonical resource 包含该子资源，
+// 地址里的 x-oss-process 与签名用的值逐字相同；去掉处理串后签名不再匹配（前端不能自己拼 / 摘）。
+func TestOSSSignedProcessURLThumbStyleInSignature(t *testing.T) {
+	st, _ := newTestOSS(t)
+	const style = "image/resize,m_lfit,w_480/format,webp/quality,q_80"
+	u, err := st.SignedProcessURL(context.Background(), storePrivate, ossWorkPath, style, 10*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(u.Value, "&x-oss-process="+style) {
+		t.Fatalf("处理串应原样（不编码）放在最后: %s", u.Value)
+	}
+	q, err := url.Parse(u.Value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	exp := q.Query().Get("Expires")
+	want := sign("SK", "GET\n\n\n"+exp+"\n/priv/"+ossWorkPath+"?x-oss-process="+style)
+	if got := q.Query().Get("Signature"); got != want {
+		t.Fatalf("签名未包含处理串: got %s want %s", got, want)
+	}
+	if bare := sign("SK", "GET\n\n\n"+exp+"\n/priv/"+ossWorkPath); bare == want {
+		t.Fatal("带 / 不带处理串的签名不应相同")
+	}
+}

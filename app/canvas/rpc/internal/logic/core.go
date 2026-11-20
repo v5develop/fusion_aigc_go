@@ -81,20 +81,22 @@ func ms(t time.Time) int64 {
 
 // storedRequest afv_canvas_node_run.request 的结构（接口字段下划线化，params 原样）。
 type storedRequest struct {
-	Model      string          `json:"model"`
-	ModelID    string          `json:"model_id"`
-	Kind       string          `json:"kind"`
-	Tool       string          `json:"tool,omitempty"`
-	Prompt     string          `json:"prompt"`
-	References []storedRef     `json:"references"`
-	Ratio      string          `json:"ratio"`
-	Size       string          `json:"size"`
-	Quality    string          `json:"quality"`
-	Duration   string          `json:"duration,omitempty"`
-	Sound      bool            `json:"sound,omitempty"`
-	Count      int32           `json:"count"`
-	Cfg        float64         `json:"cfg"`
-	Params     json.RawMessage `json:"params,omitempty"`
+	Model      string      `json:"model"`
+	ModelID    string      `json:"model_id"`
+	Kind       string      `json:"kind"`
+	Tool       string      `json:"tool,omitempty"`
+	Prompt     string      `json:"prompt"`
+	References []storedRef `json:"references"`
+	Ratio      string      `json:"ratio"`
+	Size       string      `json:"size"`
+	Quality    string      `json:"quality"`
+	// OutputFormat 生图输出格式（只增，2026-11-20）；omitempty：之前受理的 run 没有它，幂等比对仍等价
+	OutputFormat string          `json:"output_format,omitempty"`
+	Duration     string          `json:"duration,omitempty"`
+	Sound        bool            `json:"sound,omitempty"`
+	Count        int32           `json:"count"`
+	Cfg          float64         `json:"cfg"`
+	Params       json.RawMessage `json:"params,omitempty"`
 	// Frozen 受理时服务端解析出的上游引用（见 ref_resolve.go）；不是客户端请求的一部分，幂等比对时忽略。
 	// 本字段之前受理的 run 没有它（nil），重新派发按旧行为。
 	Frozen *frozenRefs `json:"frozen,omitempty"`
@@ -118,7 +120,7 @@ type storedRef struct {
 func toStored(r *canvas.RunNodeRequest) storedRequest {
 	s := storedRequest{
 		Model: r.Model, ModelID: r.ModelId, Kind: r.Kind, Tool: r.Tool, Prompt: r.Prompt, Ratio: r.Ratio, Size: r.Size,
-		Quality: r.Quality, Duration: r.Duration, Sound: r.Sound, Count: r.Count, Cfg: r.Cfg,
+		Quality: r.Quality, OutputFormat: storedOutputFormat(r.OutputFormat), Duration: r.Duration, Sound: r.Sound, Count: r.Count, Cfg: r.Cfg,
 		References: make([]storedRef, 0, len(r.References)),
 	}
 	if p := strings.TrimSpace(r.ToolParams); p != "" && json.Valid([]byte(p)) {
@@ -137,6 +139,20 @@ func parseStored(raw json.RawMessage) storedRequest {
 	var s storedRequest
 	_ = json.Unmarshal(raw, &s)
 	return s
+}
+
+// storedOutputFormat 落库口径的生成格式：先归一，等于缺省 jpeg 时不写（空 / jpg / jpeg 落库一致，也与改版前没有该字段的 run 一致），
+// 幂等回放（replay）与智能体去重（agentPickRunID / agentDedupeRun）都比较 toStored 的结果，因此同一格式的不同写法判同一请求。
+// 不认识的值原样保留：buildSpec 会拒，且不会与任何合法请求误判相同。
+func storedOutputFormat(f string) string {
+	v, ok := outputFormatOf(f)
+	if !ok {
+		return f
+	}
+	if v == defaultOutputFormat {
+		return ""
+	}
+	return v
 }
 
 // sameRequest 幂等比对：两份请求 JSON 语义相等（库里的 JSON 列会重排键序，不能比字节）。
@@ -236,8 +252,12 @@ func (c *core) toResult(ctx context.Context, r *model.NodeRun) *canvas.RunResult
 	}
 	if r.Status == model.RunSucceeded {
 		rr := c.resolvedRun(ctx, r)
-		for _, x := range rr.CandidateList() {
-			out.Candidates = append(out.Candidates, &canvas.Candidate{Url: x.URL, Width: int32(x.W), Height: int32(x.H)})
+		for i, x := range rr.CandidateList() {
+			cand := &canvas.Candidate{Url: x.URL, Width: int32(x.W), Height: int32(x.H)}
+			if i < len(rr.Thumbs) {
+				cand.ThumbUrl = rr.Thumbs[i]
+			}
+			out.Candidates = append(out.Candidates, cand)
 		}
 		out.VideoUrl = rr.VideoURL.String
 		out.LibraryStatus = libraryStatus(r)

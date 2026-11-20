@@ -28,25 +28,26 @@ type refMedia struct {
 
 // runSpec 归一后的执行请求：分派与计费都只看它。
 type runSpec struct {
-	Kind       model.RunKind
-	Backend    model.Backend
-	Model      config.ModelSpec // image / video
-	ModelGroup string
-	Prompt     string
-	Images     []refMedia // image 口（含别名，不含视频首尾帧口）按 index 排序
-	First      string     // 视频 image1 / first
-	Last       string     // 视频 image2 / last
-	Videos     []string
-	Count      int
-	Ratio      string
-	Size       string // 图 1K/2K/4K；视频 720p/1080p/4K
-	Quality    string
-	DurationS  int
-	Sound      bool
-	Params     map[string]any
-	EntryCode  string
-	AssetIDs   []string // 上游素材（入库 relatedIds）
-	Warnings   []string // 参数归一告警（Seedream 4K → 2K 等）
+	Kind         model.RunKind
+	Backend      model.Backend
+	Model        config.ModelSpec // image / video
+	ModelGroup   string
+	Prompt       string
+	Images       []refMedia // image 口（含别名，不含视频首尾帧口）按 index 排序
+	First        string     // 视频 image1 / first
+	Last         string     // 视频 image2 / last
+	Videos       []string
+	Count        int
+	Ratio        string
+	Size         string // 图 1K/2K/4K；视频 720p/1080p/4K
+	Quality      string
+	OutputFormat string // 生图输出格式 jpeg / png / webp（buildSpec 归一，空 = jpeg）
+	DurationS    int
+	Sound        bool
+	Params       map[string]any
+	EntryCode    string
+	AssetIDs     []string // 上游素材（入库 relatedIds）
+	Warnings     []string // 参数归一告警（Seedream 4K → 2K 等）
 	// SettleMode 冻结后载体的结算方式（FIXED / ACTUAL_COST），回给前端显示「按实际用量结算，最多 N 点」；未冻结为空
 	SettleMode string
 }
@@ -92,6 +93,22 @@ func ResolveKind(kind, tool string) (model.RunKind, error) {
 		return rk, nil
 	}
 	return "", xerr.Param("不支持的工具：" + tool)
+}
+
+// defaultOutputFormat 生图缺省输出格式（2026-11-20 起画布默认 JPG）。
+const defaultOutputFormat = "jpeg"
+
+// outputFormatOf 生图输出格式归一：jpg / jpeg → jpeg，png，webp；空 → jpeg；其它值 ok=false。
+func outputFormatOf(f string) (string, bool) {
+	switch strings.TrimPrefix(strings.ToLower(strings.TrimSpace(f)), ".") {
+	case "", "jpg", "jpeg":
+		return defaultOutputFormat, true
+	case "png":
+		return "png", true
+	case "webp":
+		return "webp", true
+	}
+	return "", false
 }
 
 // qualityOf 原型中文 低/中/高/超高/极致 也收。auto 不收（Atlas 自选档位，估不出冻结）→ 空，按模型缺省 high。
@@ -382,6 +399,11 @@ func (c *core) specModelParams(sp *runSpec, req *canvas.RunNodeRequest) error {
 		if len(m.Qualities) == 0 {
 			sp.Quality = ""
 		}
+		f, ok := outputFormatOf(req.OutputFormat)
+		if !ok {
+			return xerr.Param("生成格式只支持 JPG / PNG / WEBP")
+		}
+		sp.OutputFormat = f
 		sp.Count = int(req.Count)
 		if sp.Count == 0 {
 			sp.Count = 1

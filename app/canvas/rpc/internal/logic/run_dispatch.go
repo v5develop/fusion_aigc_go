@@ -71,20 +71,22 @@ func isTemporary(err error) bool {
 // ---------------- gateway 请求体（contract/operations.py，extra=forbid：空字段一律省略） ----------------
 
 type imageEditInput struct {
-	Prompt      string               `json:"prompt"`
-	Images      []aigateway.MediaRef `json:"images"`
-	N           int                  `json:"n"`
-	AspectRatio string               `json:"aspect_ratio,omitempty"`
-	Resolution  string               `json:"resolution,omitempty"`
-	Quality     string               `json:"quality,omitempty"`
+	Prompt       string               `json:"prompt"`
+	Images       []aigateway.MediaRef `json:"images"`
+	N            int                  `json:"n"`
+	AspectRatio  string               `json:"aspect_ratio,omitempty"`
+	Resolution   string               `json:"resolution,omitempty"`
+	Quality      string               `json:"quality,omitempty"`
+	OutputFormat string               `json:"output_format,omitempty"` // png / jpeg / webp；不支持的适配器忽略
 }
 
 type imageGenerateInput struct {
-	Prompt      string `json:"prompt"`
-	N           int    `json:"n"`
-	AspectRatio string `json:"aspect_ratio,omitempty"`
-	Resolution  string `json:"resolution,omitempty"`
-	Quality     string `json:"quality,omitempty"`
+	Prompt       string `json:"prompt"`
+	N            int    `json:"n"`
+	AspectRatio  string `json:"aspect_ratio,omitempty"`
+	Resolution   string `json:"resolution,omitempty"`
+	Quality      string `json:"quality,omitempty"`
+	OutputFormat string `json:"output_format,omitempty"`
 }
 
 type videoGenerateInput struct {
@@ -249,14 +251,14 @@ func (c *core) gatewayRequests(ctx context.Context, run *model.NodeRun, sp *runS
 				return nil, err
 			}
 			req.Operation = opImageEdit
-			in = imageEditInput{Prompt: sp.Prompt, Images: imgs, N: 1, AspectRatio: sp.Ratio, Resolution: res, Quality: quality}
+			in = imageEditInput{Prompt: sp.Prompt, Images: imgs, N: 1, AspectRatio: sp.Ratio, Resolution: res, Quality: quality, OutputFormat: imageOutputFormat(sp)}
 		} else {
 			ratio := sp.Ratio
 			if ratio == "" {
 				ratio = "1:1"
 			}
 			req.Operation = opImageGenerate
-			in = imageGenerateInput{Prompt: sp.Prompt, N: 1, AspectRatio: ratio, Resolution: res, Quality: quality}
+			in = imageGenerateInput{Prompt: sp.Prompt, N: 1, AspectRatio: ratio, Resolution: res, Quality: quality, OutputFormat: imageOutputFormat(sp)}
 		}
 		req.Input = in
 		out := make([]aigateway.CallRequest, sp.Count)
@@ -898,7 +900,7 @@ func (c *core) specFromRun(ctx context.Context, run *model.NodeRun) (*runSpec, e
 	s := parseStored(run.Request)
 	req := &canvas.RunNodeRequest{
 		Model: s.Model, ModelId: s.ModelID, Kind: s.Kind, Tool: s.Tool, Prompt: s.Prompt, Ratio: s.Ratio, Size: s.Size,
-		Quality: s.Quality, Duration: s.Duration, Sound: s.Sound, Count: s.Count, Cfg: s.Cfg, ToolParams: string(s.Params),
+		Quality: s.Quality, OutputFormat: s.OutputFormat, Duration: s.Duration, Sound: s.Sound, Count: s.Count, Cfg: s.Cfg, ToolParams: string(s.Params),
 	}
 	for _, r := range s.References {
 		req.References = append(req.References, &canvas.RunReference{
@@ -1095,6 +1097,15 @@ const linkMaxAttempts = 3
 var linkBackoff = []time.Duration{time.Second, 3 * time.Second}
 
 const linkAttemptTimeout = 5 * time.Second
+
+// imageOutputFormat 生图实际下发给网关的 output_format：空（改版前落库的 run 重新派发）按 jpeg。
+// 格式不影响价格，不进冻结 / 估价。
+func imageOutputFormat(sp *runSpec) string {
+	if sp.OutputFormat == "" {
+		return defaultOutputFormat
+	}
+	return sp.OutputFormat
+}
 
 // imageQuality 生图实际下发给网关的 quality（派发与计费共用，按请求参数冻结的质量与出图一致）。
 func imageQuality(sp *runSpec) string {

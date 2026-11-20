@@ -936,8 +936,9 @@ type RunNodeRequest struct {
 	Sound         bool                   `protobuf:"varint,10,opt,name=sound,proto3" json:"sound,omitempty"`
 	Count         int32                  `protobuf:"varint,11,opt,name=count,proto3" json:"count,omitempty"`
 	Cfg           float64                `protobuf:"fixed64,12,opt,name=cfg,proto3" json:"cfg,omitempty"`
-	Tool          string                 `protobuf:"bytes,13,opt,name=tool,proto3" json:"tool,omitempty"`                               // crop / upscale / outpaint / i2p / mask(inpaint) / tryon
-	ToolParams    string                 `protobuf:"bytes,14,opt,name=tool_params,json=toolParams,proto3" json:"tool_params,omitempty"` // JSON 文本（接口字段 params）
+	Tool          string                 `protobuf:"bytes,13,opt,name=tool,proto3" json:"tool,omitempty"`                                     // crop / upscale / outpaint / i2p / mask(inpaint) / tryon
+	ToolParams    string                 `protobuf:"bytes,14,opt,name=tool_params,json=toolParams,proto3" json:"tool_params,omitempty"`       // JSON 文本（接口字段 params）
+	OutputFormat  string                 `protobuf:"bytes,15,opt,name=output_format,json=outputFormat,proto3" json:"output_format,omitempty"` // 只增：生图输出格式 jpeg / png / webp（jpg 也收）；空 = jpeg；视频 / 工具忽略
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1066,6 +1067,13 @@ func (x *RunNodeRequest) GetTool() string {
 func (x *RunNodeRequest) GetToolParams() string {
 	if x != nil {
 		return x.ToolParams
+	}
+	return ""
+}
+
+func (x *RunNodeRequest) GetOutputFormat() string {
+	if x != nil {
+		return x.OutputFormat
 	}
 	return ""
 }
@@ -1251,6 +1259,7 @@ type Candidate struct {
 	Url           string                 `protobuf:"bytes,1,opt,name=url,proto3" json:"url,omitempty"`
 	Width         int32                  `protobuf:"varint,2,opt,name=width,proto3" json:"width,omitempty"`
 	Height        int32                  `protobuf:"varint,3,opt,name=height,proto3" json:"height,omitempty"`
+	ThumbUrl      string                 `protobuf:"bytes,4,opt,name=thumb_url,json=thumbUrl,proto3" json:"thumb_url,omitempty"` // 缩略图（只增 2026-11-20）：私有引用图片的缩放 + webp 现签地址，处理串在签名内；空 = 用 url
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1304,6 +1313,13 @@ func (x *Candidate) GetHeight() int32 {
 		return x.Height
 	}
 	return 0
+}
+
+func (x *Candidate) GetThumbUrl() string {
+	if x != nil {
+		return x.ThumbUrl
+	}
+	return ""
 }
 
 // RunNodeResult
@@ -5569,7 +5585,7 @@ const file_canvas_proto_rawDesc = "" +
 	"\x04mime\x18\f \x01(\tR\x04mime\x12\x14\n" +
 	"\x05width\x18\r \x01(\x05R\x05width\x12\x16\n" +
 	"\x06height\x18\x0e \x01(\x05R\x06heightB\x12\n" +
-	"\x10_candidate_index\"\xf6\x02\n" +
+	"\x10_candidate_index\"\x9b\x03\n" +
 	"\x0eRunNodeRequest\x12\x14\n" +
 	"\x05model\x18\x01 \x01(\tR\x05model\x12\x19\n" +
 	"\bmodel_id\x18\x02 \x01(\tR\amodelId\x12\x12\n" +
@@ -5588,7 +5604,8 @@ const file_canvas_proto_rawDesc = "" +
 	"\x03cfg\x18\f \x01(\x01R\x03cfg\x12\x12\n" +
 	"\x04tool\x18\r \x01(\tR\x04tool\x12\x1f\n" +
 	"\vtool_params\x18\x0e \x01(\tR\n" +
-	"toolParams\"\xa4\x01\n" +
+	"toolParams\x12#\n" +
+	"\routput_format\x18\x0f \x01(\tR\foutputFormat\"\xa4\x01\n" +
 	"\n" +
 	"RunNodeReq\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x1b\n" +
@@ -5607,11 +5624,12 @@ const file_canvas_proto_rawDesc = "" +
 	"\vsettle_mode\x18\a \x01(\tR\n" +
 	"settleMode\x12\x1d\n" +
 	"\n" +
-	"max_points\x18\b \x01(\x03R\tmaxPoints\"K\n" +
+	"max_points\x18\b \x01(\x03R\tmaxPoints\"h\n" +
 	"\tCandidate\x12\x10\n" +
 	"\x03url\x18\x01 \x01(\tR\x03url\x12\x14\n" +
 	"\x05width\x18\x02 \x01(\x05R\x05width\x12\x16\n" +
-	"\x06height\x18\x03 \x01(\x05R\x06height\"\xf6\x04\n" +
+	"\x06height\x18\x03 \x01(\x05R\x06height\x12\x1b\n" +
+	"\tthumb_url\x18\x04 \x01(\tR\bthumbUrl\"\xf6\x04\n" +
 	"\tRunResult\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x15\n" +

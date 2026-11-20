@@ -105,6 +105,8 @@ func modelProps(p Props) Props {
 	p["size"] = strMax("分辨率档位，如 1K / 2K / 720p（须在该模型 sizes 内）", 16)
 	p["quality"] = enum("质量档（仅 GPT Image 2.5 / 2.6 等支持画质的模型有效，缺省 high；xhigh 超高、max 极致更贵，用户明确要更高画质时才用；其余模型忽略）",
 		"low", "medium", "high", "xhigh", "max")
+	p["output_format"] = enum("生成格式（仅图片模型节点；缺省 jpeg，用户要透明底 / 无损时用 png，要更小体积可用 webp；不影响点数；不支持格式参数的模型忽略）",
+		"jpeg", "png", "webp")
 	p["count"] = integer("一次出几张（视频固定 1）", 1, 8)
 	p["duration"] = strMax("视频时长，如 4s / 5s（须在该模型 durations 内）", 8)
 	p["sound"] = boolean("视频是否带声音")
@@ -312,7 +314,7 @@ func buildRegistry() []Tool {
 		},
 		{
 			Name: ToolUpdateNodes, Title: "修改节点",
-			Description: "批量修改节点内容（一次最多 50 个）：标题、文字、素材地址、模型参数（model / prompt / ratio / size / quality / count / duration / sound），" +
+			Description: "批量修改节点内容（一次最多 50 个）：标题、文字、素材地址、模型参数（model / prompt / ratio / size / quality / output_format / count / duration / sound），" +
 				"或用 data 做合并补丁。位置与尺寸请用 canvas_move_nodes / canvas_resize_nodes。",
 			Input: obj("", Props{
 				"canvas_id":     canvasID(),
@@ -426,7 +428,7 @@ func buildRegistry() []Tool {
 			Name: ToolRunNode, Title: "执行生成 / 工具节点", Generates: true,
 			Description: "对一个图片生成（image_model）、视频生成（video_model）或工具（tool：裁剪 / 高清放大 / 扩图 / 局部重绘 / 反推提示词 / 模特试穿）节点发起执行：" +
 				"按节点已保存的参数与连线（文字 → 提示词、上游图片 → 参考图 / 工具输入）组装请求，" +
-				"可临时覆盖 model / prompt / ratio / size / quality / count / duration / sound 与工具参数 params（不改节点内容）。" +
+				"可临时覆盖 model / prompt / ratio / size / quality / output_format / count / duration / sound 与工具参数 params（不改节点内容）。" +
 				"计费按节点原链路：图片 / 视频 / 反推由画布冻结点数，放大 / 扩图 / 局部重绘由主站按其价目扣点（需要你在网页登录过），试穿由商拍服务扣点，裁剪不计费；失败或取消自动退回。" +
 				"执行前先用 canvas_quote_node 报价并告诉用户点数。返回 request_id，用 canvas_get_run 查询结果；成功后结果会回填到节点上。",
 			Input: obj("", modelProps(Props{
@@ -452,7 +454,7 @@ func buildRegistry() []Tool {
 		{
 			Name: ToolQuoteNode, Title: "生成前报价", ReadOnly: true, Idempotent: true,
 			Description: "只读：报出对某个节点执行 canvas_run_node 预计会扣多少点（不冻结、不提交）。可带与 canvas_run_node 相同的临时覆盖参数" +
-				"（model / ratio / size / quality / count / duration / sound / params）。返回预计点数、计价依据（模型 / 档位 / 张数 / 时长 / 单价）、" +
+				"（model / ratio / size / quality / output_format / count / duration / sound / params）。返回预计点数、计价依据（模型 / 档位 / 张数 / 时长 / 单价）、" +
 				"由谁计费（canvas 画布 / java 主站 / studio 商拍 / free 不计费）、是否需要网页登录令牌与预计耗时。" +
 				"available=false 时 reason 说明为什么现在不能执行；price_known=false 表示这次报不出准确点数（以执行时实际冻结为准，执行前要先征得用户同意）。",
 			Input: obj("", modelProps(Props{

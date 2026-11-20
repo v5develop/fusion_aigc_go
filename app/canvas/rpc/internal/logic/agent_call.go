@@ -311,6 +311,7 @@ func decodeArgs(m any, v any) error {
 // ---------------------------------------------------------------- 分派
 
 func (c *core) agentExec(ctx context.Context, userID int64, t agenttool.Tool, args map[string]any, callID string, meta *agentMeta) (any, error) {
+	ctx = withoutThumbs(ctx) // 工具出参（runView / 画布读取）不带缩略图，读出口不额外签
 	cid, baseRev := strData(args, "canvas_id"), strData(args, "base_revision")
 	switch t.Name {
 	case agenttool.ToolList:

@@ -280,18 +280,20 @@ type agentNodeSpec struct {
 }
 
 type agentModelFields struct {
-	Model    *string `json:"model"`
-	Prompt   *string `json:"prompt"`
-	Ratio    *string `json:"ratio"`
-	Size     *string `json:"size"`
-	Quality  *string `json:"quality"`
-	Count    *int    `json:"count"`
-	Duration *string `json:"duration"`
-	Sound    *bool   `json:"sound"`
+	Model   *string `json:"model"`
+	Prompt  *string `json:"prompt"`
+	Ratio   *string `json:"ratio"`
+	Size    *string `json:"size"`
+	Quality *string `json:"quality"`
+	// OutputFormat 生图输出格式 jpeg / png / webp（写节点 outputFormat）
+	OutputFormat *string `json:"output_format"`
+	Count        *int    `json:"count"`
+	Duration     *string `json:"duration"`
+	Sound        *bool   `json:"sound"`
 }
 
 func (f agentModelFields) any() bool {
-	return f.Model != nil || f.Prompt != nil || f.Ratio != nil || f.Size != nil || f.Quality != nil || f.Count != nil || f.Duration != nil || f.Sound != nil
+	return f.Model != nil || f.Prompt != nil || f.Ratio != nil || f.Size != nil || f.Quality != nil || f.OutputFormat != nil || f.Count != nil || f.Duration != nil || f.Sound != nil
 }
 
 type agentNodeOut struct {
@@ -328,7 +330,7 @@ func (e *docEditor) addNode(s agentNodeSpec, path string) (*agentNodeOut, error)
 		n.Data["video"] = ""
 	case "image_model":
 		// 画质缺省 high（2026-11-19）；不支持画质的模型在受理时清空，不受影响
-		for key, v := range map[string]any{"model": "", "modelId": "", "quality": "high", "count": 1, "cfg": 0.95, "prompt": "",
+		for key, v := range map[string]any{"model": "", "modelId": "", "quality": "high", "outputFormat": defaultOutputFormat, "count": 1, "cfg": 0.95, "prompt": "",
 			"ratio": "1:1", "size": "1K", "maxImageRefs": 5, "capabilities": map[string]any{"count": true}} {
 			n.Data[key] = v
 		}
@@ -533,6 +535,16 @@ func (e *docEditor) applyModel(n *Node, f agentModelFields, path string) error {
 	}
 	if f.Quality != nil {
 		n.Data["quality"] = *f.Quality
+	}
+	if f.OutputFormat != nil {
+		if kind == "video" {
+			return xerr.Param(path + "：output_format 只能用于图片模型节点")
+		}
+		v, ok := outputFormatOf(*f.OutputFormat)
+		if !ok {
+			return xerr.Param(path + "：output_format 只支持 jpeg / png / webp")
+		}
+		n.Data["outputFormat"] = v
 	}
 	if f.Duration != nil {
 		if kind != "video" {

@@ -223,7 +223,7 @@ func isHTTP(u string) bool {
 // selectedCandidate 是用户的选择，不剥离：有成功 run 的节点以 run.selected_index 为准（POST .../select-candidate 写回），
 // 没有 run 的节点（模板示例、导入的旧画布）保留快照里的值。
 var (
-	transientKeys = []string{"status", "progress", "runId", "requestId", "errorMessage", "requestedCount", "libraryStatus"}
+	transientKeys = []string{"status", "progress", "runId", "requestId", "errorMessage", "requestedCount", "libraryStatus", "candidateThumbs"}
 	resultKeys    = []string{"candidates", "image", "video", "assetId", "resultText", "resultImage", "tryonResults"}
 )
 
@@ -313,6 +313,10 @@ func backfillResult(n *Node, r *model.NodeRun) {
 	}
 	if len(urls) > 0 {
 		n.Data["candidates"] = urls
+	}
+	if len(r.Thumbs) == len(urls) && len(urls) > 0 {
+		// 与 candidates 同序的缩略图现签地址（"" = 没有，前端用原图）；10 分钟现签，属运行态，保存时剥掉（transientKeys）
+		n.Data["candidateThumbs"] = r.Thumbs
 	}
 	switch r.Kind {
 	case model.KindVideo:

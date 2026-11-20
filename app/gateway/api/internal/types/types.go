@@ -258,9 +258,10 @@ type CanvasCancelResp struct {
 }
 
 type CanvasCandidate struct {
-	Url    string `json:"url"`
-	Width  int32  `json:"width"`
-	Height int32  `json:"height"`
+	Url      string `json:"url"`
+	Width    int32  `json:"width"`
+	Height   int32  `json:"height"`
+	ThumbUrl string `json:"thumb_url,omitempty"` // 只增：缩略图（缩放 + webp 现签，处理串在签名内）；空 = 用 url。只用于卡片 / 历史展示
 }
 
 type CanvasCapabilities struct {
@@ -408,24 +409,25 @@ type CanvasRunRef struct {
 }
 
 type CanvasRunReq struct {
-	Id         string         `path:"id"`
-	NodeId     string         `path:"node_id"`
-	Key        string         `header:"Idempotency-Key,optional"` // = run_id
-	RunId      string         `json:"run_id,optional"`
-	Kind       string         `json:"kind"` // image / video / tool
-	Model      string         `json:"model,optional"`
-	ModelId    string         `json:"model_id,optional"`
-	Prompt     string         `json:"prompt,optional"`
-	References []CanvasRunRef `json:"references,optional"`
-	Ratio      string         `json:"ratio,optional"`
-	Size       string         `json:"size,optional"`
-	Quality    string         `json:"quality,optional"`  // low / medium / high（低/中/高 也收）
-	Duration   string         `json:"duration,optional"` // 视频 4s / 6s / 8s
-	Sound      bool           `json:"sound,optional"`
-	Count      int32          `json:"count,optional"` // 1–4；视频固定 1
-	Cfg        float64        `json:"cfg,optional"`
-	Tool       string         `json:"tool,optional"`   // crop / upscale / outpaint / i2p / mask / tryon
-	Params     interface{}    `json:"params,optional"` // 工具参数（见 api-canvas.md 3.2）
+	Id           string         `path:"id"`
+	NodeId       string         `path:"node_id"`
+	Key          string         `header:"Idempotency-Key,optional"` // = run_id
+	RunId        string         `json:"run_id,optional"`
+	Kind         string         `json:"kind"` // image / video / tool
+	Model        string         `json:"model,optional"`
+	ModelId      string         `json:"model_id,optional"`
+	Prompt       string         `json:"prompt,optional"`
+	References   []CanvasRunRef `json:"references,optional"`
+	Ratio        string         `json:"ratio,optional"`
+	Size         string         `json:"size,optional"`
+	Quality      string         `json:"quality,optional"`       // low / medium / high（低/中/高 也收）
+	OutputFormat string         `json:"output_format,optional"` // 生图输出格式 jpeg / png / webp（jpg 也收）；缺省 jpeg；视频 / 工具忽略
+	Duration     string         `json:"duration,optional"`      // 视频 4s / 6s / 8s
+	Sound        bool           `json:"sound,optional"`
+	Count        int32          `json:"count,optional"` // 1–4；视频固定 1
+	Cfg          float64        `json:"cfg,optional"`
+	Tool         string         `json:"tool,optional"`   // crop / upscale / outpaint / i2p / mask / tryon
+	Params       interface{}    `json:"params,optional"` // 工具参数（见 api-canvas.md 3.2）
 }
 
 type CanvasRunResp struct {

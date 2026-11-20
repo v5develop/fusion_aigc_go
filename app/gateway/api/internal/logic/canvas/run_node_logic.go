@@ -46,6 +46,7 @@ func (l *RunNodeLogic) RunNode(req *types.CanvasRunReq) (resp *types.CanvasRunRe
 	in := &canvas_client.RunNodeRequest{
 		Model: req.Model, ModelId: req.ModelId, Kind: req.Kind, Prompt: req.Prompt, Ratio: req.Ratio, Size: req.Size,
 		Quality: req.Quality, Duration: req.Duration, Sound: req.Sound, Count: req.Count, Cfg: req.Cfg, Tool: req.Tool, ToolParams: params,
+		OutputFormat: req.OutputFormat,
 	}
 	for _, r := range req.References {
 		in.References = append(in.References, &canvas_client.RunReference{

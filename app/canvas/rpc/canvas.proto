@@ -200,6 +200,7 @@ message RunNodeRequest {
   double cfg = 12;
   string tool = 13;            // crop / upscale / outpaint / i2p / mask(inpaint) / tryon
   string tool_params = 14;     // JSON 文本（接口字段 params）
+  string output_format = 15;   // 只增：生图输出格式 jpeg / png / webp（jpg 也收）；空 = jpeg；视频 / 工具忽略
 }
 
 message RunNodeReq {
@@ -225,6 +226,7 @@ message Candidate {
   string url = 1;
   int32 width = 2;
   int32 height = 3;
+  string thumb_url = 4;   // 缩略图（只增 2026-11-20）：私有引用图片的缩放 + webp 现签地址，处理串在签名内；空 = 用 url
 }
 
 // RunNodeResult

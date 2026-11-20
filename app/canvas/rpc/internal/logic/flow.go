@@ -462,7 +462,7 @@ func (c *core) assetList(run *model.NodeRun, cands []model.Candidate, videoURL s
 		"provenance": map[string]any{
 			"runId": run.RunID, "workflowId": run.CanvasID, "nodeId": run.NodeID, "model": req.Model,
 			"modelGroup": run.ModelGroup, "requestId": run.ID,
-			"params": map[string]any{"ratio": req.Ratio, "size": req.Size, "quality": req.Quality, "count": req.Count, "duration": req.Duration},
+			"params": map[string]any{"ratio": req.Ratio, "size": req.Size, "quality": req.Quality, "outputFormat": req.OutputFormat, "count": req.Count, "duration": req.Duration},
 		},
 		"relatedIds": related,
 	})

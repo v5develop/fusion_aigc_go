@@ -92,7 +92,7 @@ func toRunResult(r *canvas_client.RunResult) types.CanvasRunResult {
 		LibraryStatus: r.LibraryStatus,
 	}
 	for _, c := range r.Candidates {
-		out.Candidates = append(out.Candidates, types.CanvasCandidate{Url: c.Url, Width: c.Width, Height: c.Height})
+		out.Candidates = append(out.Candidates, types.CanvasCandidate{Url: c.Url, Width: c.Width, Height: c.Height, ThumbUrl: c.ThumbUrl})
 	}
 	return out
 }

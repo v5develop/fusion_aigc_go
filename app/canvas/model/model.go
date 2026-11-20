@@ -200,6 +200,8 @@ type NodeRun struct {
 
 	// LibraryState 读出口算出的 library_status（pending / failed / 空），不落库：引用被换成现签地址之前算好带出来。
 	LibraryState string `bun:"-"`
+	// Thumbs 读出口算出的候选缩略图现签地址（与 CandidateList 同序，"" = 没有），不落库；只有私有引用的图片候选才有。
+	Thumbs []string `bun:"-"`
 }
 
 // CandidateList 解出候选（解析失败按空）。

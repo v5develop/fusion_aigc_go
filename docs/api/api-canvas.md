@@ -229,6 +229,7 @@ GET /api/v1/canvas/canvases/{id}
    - **成品**（`candidates / selectedCandidate / image / video / resultText / resultImage / tryonResults`）取该节点**最近一次成功的 run**。所以最近一次失败 / 取消 / 还在跑时，节点 `status` 是 `error` / `running`，但仍显示上一次成功的候选。
    - `selectedCandidate` 以服务端记录为准（`POST …/select-candidate` 写回，见 3.6），刷新后保持。
    回填后的 `candidates` 在快照内仍是 URL 字符串数组，和原型一致，前端无需改渲染。
+   （只增 2026-11-20）图片候选是私有引用（转存素材库完成前）时另回填 `candidateThumbs`：与 `candidates` 同序的缩略图地址（按宽缩到 480 + webp，处理参数在签名内，有效期同原图），`""` = 没有、用原图。属运行态，保存时剥掉。RunResult 的 `candidates[].thumb_url` 同义。只用于卡片 / 历史展示，预览、下载、设为输出一律用原地址；素材库公开地址不下发，前端对公有未签名 OSS 地址自己拼缩放。
 2. 画布不存在或不是自己的：`code=4001`。
 3. 取到 `revision` 后，下一次保存带上 `if_match_revision`。
 

@@ -1175,13 +1175,13 @@ type (
 	}
 	// 参考图驱动的自动校色（只增，2026-11-12）：只认子任务号，成品 / 参考图 / 蒙版由服务端按归属解析；结果不落库，用户点「应用」才走 PATCH /tasks/:task_id/color-fix
 	StudioAutoColorFixReq {
-		TaskId string   `json:"task_id"`          // studio 商拍换装子任务号：本人、未删除、成功
-		Pieces []string `json:"pieces,optional"`  // 只解这些单品（top / bottom / dress / outer / shoes / accessory / bra / panties）；空=批次里的全部单品
+		TaskId string   `json:"task_id"` // studio 商拍换装子任务号：本人、未删除、成功
+		Pieces []string `json:"pieces,optional"` // 只解这些单品（top / bottom / dress / outer / shoes / accessory / bra / panties）；空=批次里的全部单品
 	}
 	StudioAutoColorFixPiece {
-		Key    string               `json:"key"`    // 单品码，与校色参考图的 key 同
+		Key    string               `json:"key"` // 单品码，与校色参考图的 key 同
 		Params StudioColorFixParams `json:"params"` // 五参数（整数，已夹到取值范围）：作为该单品图层的初值
-		Score  float64              `json:"score"`  // 0–100，越高越接近参考色；< 60 建议提示「仅供参考」
+		Score  float64              `json:"score"` // 0–100，越高越接近参考色；< 60 建议提示「仅供参考」
 	}
 	StudioAutoColorFixSkipped {
 		Key    string `json:"key"`
@@ -1262,10 +1262,10 @@ type (
 		Prices       []StudioModelResolutionPrice `json:"prices"` // with_price=true 时有
 	}
 	StudioModelsResp {
-		Kind        string                  `json:"kind"`
-		Items       []StudioModelCapability `json:"items"`
-		BillingMode string                  `json:"billing_mode"` // with_price 时有：on / shadow / off
-		ColorfixAuto bool                   `json:"colorfix_auto"` // 只增（2026-11-12）：参考图自动校色已开启；false 时前端隐藏「自动校色」
+		Kind         string                  `json:"kind"`
+		Items        []StudioModelCapability `json:"items"`
+		BillingMode  string                  `json:"billing_mode"` // with_price 时有：on / shadow / off
+		ColorfixAuto bool                    `json:"colorfix_auto"` // 只增（2026-11-12）：参考图自动校色已开启；false 时前端隐藏「自动校色」
 	}
 )
 
@@ -1707,28 +1707,29 @@ type (
 		SourceHandle   string `json:"source_handle,optional"` // image-out / candidate-N …
 		CandidateIndex *int32 `json:"candidate_index,optional"` // 引用上游第几个候选（0 起），服务端以记录的候选为准
 		Mime           string `json:"mime,optional"`
-		Width          int32  `json:"width,optional"`  // 参考图像素宽（可选；上游候选以服务端记录为准）
+		Width          int32  `json:"width,optional"` // 参考图像素宽（可选；上游候选以服务端记录为准）
 		Height         int32  `json:"height,optional"`
 	}
 	CanvasRunReq {
-		Id         string         `path:"id"`
-		NodeId     string         `path:"node_id"`
-		Key        string         `header:"Idempotency-Key,optional"` // = run_id
-		RunId      string         `json:"run_id,optional"`
-		Kind       string         `json:"kind"` // image / video / tool
-		Model      string         `json:"model,optional"`
-		ModelId    string         `json:"model_id,optional"`
-		Prompt     string         `json:"prompt,optional"`
-		References []CanvasRunRef `json:"references,optional"`
-		Ratio      string         `json:"ratio,optional"`
-		Size       string         `json:"size,optional"`
-		Quality    string         `json:"quality,optional"` // low / medium / high（低/中/高 也收）
-		Duration   string         `json:"duration,optional"` // 视频 4s / 6s / 8s
-		Sound      bool           `json:"sound,optional"`
-		Count      int32          `json:"count,optional"` // 1–4；视频固定 1
-		Cfg        float64        `json:"cfg,optional"`
-		Tool       string         `json:"tool,optional"` // crop / upscale / outpaint / i2p / mask / tryon
-		Params     interface{}    `json:"params,optional"` // 工具参数（见 api-canvas.md 3.2）
+		Id           string         `path:"id"`
+		NodeId       string         `path:"node_id"`
+		Key          string         `header:"Idempotency-Key,optional"` // = run_id
+		RunId        string         `json:"run_id,optional"`
+		Kind         string         `json:"kind"` // image / video / tool
+		Model        string         `json:"model,optional"`
+		ModelId      string         `json:"model_id,optional"`
+		Prompt       string         `json:"prompt,optional"`
+		References   []CanvasRunRef `json:"references,optional"`
+		Ratio        string         `json:"ratio,optional"`
+		Size         string         `json:"size,optional"`
+		Quality      string         `json:"quality,optional"` // low / medium / high（低/中/高 也收）
+		OutputFormat string         `json:"output_format,optional"` // 生图输出格式 jpeg / png / webp（jpg 也收）；缺省 jpeg；视频 / 工具忽略
+		Duration     string         `json:"duration,optional"` // 视频 4s / 6s / 8s
+		Sound        bool           `json:"sound,optional"`
+		Count        int32          `json:"count,optional"` // 1–4；视频固定 1
+		Cfg          float64        `json:"cfg,optional"`
+		Tool         string         `json:"tool,optional"` // crop / upscale / outpaint / i2p / mask / tryon
+		Params       interface{}    `json:"params,optional"` // 工具参数（见 api-canvas.md 3.2）
 	}
 	CanvasRunResp {
 		RequestId  string   `json:"request_id"` // 轮询 / 取消用
@@ -1741,9 +1742,10 @@ type (
 		MaxPoints  int64    `json:"max_points,omitempty"` // 本次最多扣多少点（= credits）；ACTUAL_COST 时显示「按实际用量结算，最多 N 点」
 	}
 	CanvasCandidate {
-		Url    string `json:"url"`
-		Width  int32  `json:"width"`
-		Height int32  `json:"height"`
+		Url      string `json:"url"`
+		Width    int32  `json:"width"`
+		Height   int32  `json:"height"`
+		ThumbUrl string `json:"thumb_url,omitempty"` // 只增：缩略图（缩放 + webp 现签，处理串在签名内）；空 = 用 url。只用于卡片 / 历史展示
 	}
 	CanvasRunResult {
 		RequestId      string            `json:"request_id"`
@@ -1836,26 +1838,26 @@ type (
 		H int32 `json:"h"`
 	}
 	CanvasEstimateReq {
-		Model      string `json:"model,optional"`       // 目录 model（别名也认）
-		ModelId    string `json:"model_id,optional"`    // 目录 model_id；优先于 model
-		ModelGroup string `json:"model_group,optional"` // 兜底：只给组码
-		Size       string `json:"size,optional"`        // 1K / 2K / 4K；空 = 模型首个档位
-		Count      int32  `json:"count,optional"`       // 张数，缺省 1
-		Quality    string `json:"quality,optional"`     // low / medium / high；缺省 high；不支持画质的模型忽略
-		RefImages  int32  `json:"ref_images,optional"`  // 参考图张数（像素未知按网关缩小后的上限估）
-		PromptChars int32 `json:"prompt_chars,optional"` // 提示词字符数（GPT Image 2.5 / 2.6 按 token 估冻结用；缺省 0）
+		Model         string            `json:"model,optional"` // 目录 model（别名也认）
+		ModelId       string            `json:"model_id,optional"` // 目录 model_id；优先于 model
+		ModelGroup    string            `json:"model_group,optional"` // 兜底：只给组码
+		Size          string            `json:"size,optional"` // 1K / 2K / 4K；空 = 模型首个档位
+		Count         int32             `json:"count,optional"` // 张数，缺省 1
+		Quality       string            `json:"quality,optional"` // low / medium / high；缺省 high；不支持画质的模型忽略
+		RefImages     int32             `json:"ref_images,optional"` // 参考图张数（像素未知按网关缩小后的上限估）
+		PromptChars   int32             `json:"prompt_chars,optional"` // 提示词字符数（GPT Image 2.5 / 2.6 按 token 估冻结用；缺省 0）
 		RefImageSizes []CanvasImageSize `json:"ref_image_sizes,optional"` // 每张参考图宽高（可选），给了按实际像素估冻结；条数与 ref_images 取大
 	}
 	CanvasEstimateResp {
-		Available   bool   `json:"available"` // false = 报不出价，reason 给用户看；前端退回静态目录价并标「约」
-		Reason      string `json:"reason,omitempty"`
-		Points      int64  `json:"points"`     // 最多扣多少点（= 冻结点数）
-		CapPoints   int64  `json:"cap_points"` // 同 points：ACTUAL_COST 时是冻结上限
-		SettleMode  string `json:"settle_mode"` // actual_cost / fixed
-		Currency    string `json:"currency"`    // 恒 points
-		BillingMode string `json:"billing_mode"` // off / shadow / on
+		Available   bool                    `json:"available"` // false = 报不出价，reason 给用户看；前端退回静态目录价并标「约」
+		Reason      string                  `json:"reason,omitempty"`
+		Points      int64                   `json:"points"` // 最多扣多少点（= 冻结点数）
+		CapPoints   int64                   `json:"cap_points"` // 同 points：ACTUAL_COST 时是冻结上限
+		SettleMode  string                  `json:"settle_mode"` // actual_cost / fixed
+		Currency    string                  `json:"currency"` // 恒 points
+		BillingMode string                  `json:"billing_mode"` // off / shadow / on
 		Breakdown   CanvasEstimateBreakdown `json:"breakdown"`
-		Note        string `json:"note,omitempty"`
+		Note        string                  `json:"note,omitempty"`
 	}
 	CanvasEstimateBreakdown {
 		ModelGroup string `json:"model_group"`
@@ -1977,18 +1979,18 @@ service gateway-api {
 // ---------------- promptlib：提示词库（/api/v1/prompt-library，nginx 单独转发到本网关）----------------
 type (
 	PromptLibItem {
-		Id        int64    `json:"id"`
-		Title     string   `json:"title"`
-		Prompt    string   `json:"prompt"`
-		Vertical  string   `json:"vertical"` // ecommerce / general / mine
-		Group     string   `json:"group"` // 二级分类英文 key
-		GroupLabel string  `json:"group_label"` // 二级分类中文名
-		Models    []string `json:"models"` // 通用 / GPT / Banana / Seedream
-		Tags      []string `json:"tags"`
-		Source    string   `json:"source"`
-		Owner     string   `json:"owner"` // official / mine
-		CreatedAt int64    `json:"created_at"`
-		UpdatedAt int64    `json:"updated_at"`
+		Id         int64    `json:"id"`
+		Title      string   `json:"title"`
+		Prompt     string   `json:"prompt"`
+		Vertical   string   `json:"vertical"` // ecommerce / general / mine
+		Group      string   `json:"group"` // 二级分类英文 key
+		GroupLabel string   `json:"group_label"` // 二级分类中文名
+		Models     []string `json:"models"` // 通用 / GPT / Banana / Seedream
+		Tags       []string `json:"tags"`
+		Source     string   `json:"source"`
+		Owner      string   `json:"owner"` // official / mine
+		CreatedAt  int64    `json:"created_at"`
+		UpdatedAt  int64    `json:"updated_at"`
 	}
 	PromptLibListReq {
 		Vertical string `form:"vertical,optional,options=|ecommerce|general|mine"`
@@ -2012,10 +2014,10 @@ type (
 		MineTotal     int64 `json:"mine_total"`
 	}
 	PromptLibListResp {
-		Items  []PromptLibItem `json:"items"`
-		Total  int64           `json:"total"`
+		Items  []PromptLibItem  `json:"items"`
+		Total  int64            `json:"total"`
 		Groups []PromptLibGroup `json:"groups"` // 各一级分类下的二级分类（有序，带中文名与条数，不受筛选影响）
-		Counts PromptLibCounts `json:"counts"` // 当前用户可见的各域总数
+		Counts PromptLibCounts  `json:"counts"` // 当前用户可见的各域总数
 	}
 	PromptLibUpsertReq {
 		Title  string   `json:"title"` // ≤100 字

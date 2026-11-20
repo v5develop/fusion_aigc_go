@@ -3,6 +3,7 @@ package logic
 import (
 	"context"
 	"strings"
+	"sync"
 	"time"
 
 	"aigc-local-life/app/canvas/model"
@@ -161,7 +162,19 @@ func (c *core) resolvedRun(ctx context.Context, r *model.NodeRun) *model.NodeRun
 	if hasVideoRef {
 		ptrs = append(ptrs, &video)
 	}
+	var thumbs []string
+	if r.Kind != model.KindVideo { // 视频 run 的候选是封面帧，卡片展示的是视频本身，不额外签
+		thumbs = c.candidateThumbs(ctx, list) // 按原引用算，必须在换成现签地址之前
+	}
 	c.resolveMediaRefs(ctx, ptrs)
+	if thumbs != nil {
+		for i := range list {
+			if list[i].URL == "" {
+				thumbs[i] = "" // 原图签不出 → 缩略图也不给（前端整格占位，不出现「缩略图能看、点开裂图」）
+			}
+		}
+		cp.Thumbs = thumbs
+	}
 	if len(r.Candidates) > 0 {
 		cp.Candidates = repo.MarshalCandidates(list)
 	}
@@ -169,4 +182,145 @@ func (c *core) resolvedRun(ctx context.Context, r *model.NodeRun) *model.NodeRun
 		cp.VideoURL.String = video
 	}
 	return &cp
+}
+
+// thumbImageExt 能做 OSS 缩放的图片扩展名（引用没带扩展名按网关默认 PNG 处理）；GIF 缩放转 webp 会丢动画，不做。
+var thumbImageExt = map[string]bool{"": true, "png": true, "jpg": true, "jpeg": true, "webp": true, "bmp": true}
+
+// refExt mr:// / mrw:// 引用的扩展名（小写，没有为 ""）。
+func refExt(v string) string {
+	v = strings.TrimSpace(v)
+	v = strings.TrimPrefix(strings.TrimPrefix(v, refWMPrefix), refPrefix)
+	if i := strings.LastIndexByte(v, '.'); i > 0 {
+		return strings.ToLower(v[i+1:])
+	}
+	return ""
+}
+
+// watermarkThumbProcess 水印视图的缩略图处理串：把缩放接在水印处理链后面（先打水印再缩，缩略图上仍有水印）。
+// 水印串不是 image/ 链（如命名样式 style/…）或已含缩放 / 格式转换时不敢叠，返回 "" = 不出缩略图（前端回退原图）。
+func watermarkThumbProcess(wm, thumb string) string {
+	if wm == "" || thumb == "" || !strings.HasPrefix(wm, "image/") || !strings.HasPrefix(thumb, "image/") {
+		return ""
+	}
+	for _, op := range strings.Split(strings.TrimPrefix(wm, "image/"), "/") {
+		if strings.HasPrefix(op, "resize,") || strings.HasPrefix(op, "format,") {
+			return ""
+		}
+	}
+	return wm + "/" + strings.TrimPrefix(thumb, "image/")
+}
+
+// candidateThumbs 候选缩略图（只增 2026-11-20，RunResult.candidates[].thumb_url / 画布回填 candidateThumbs）：
+// 私有引用（mr:// / mrw://）的图片候选额外现签一个带缩放处理串的地址——处理串由媒体服务纳入签名，前端不能自己往签名地址上拼。
+// 有效期与原图一致（mr:// 10 分钟，mrw:// 同水印视图）。素材库公开地址不在这里出（前端对公有未签名 OSS 地址自己拼缩放）。
+// 返回与 list 同序的切片（"" = 没有）；一张都出不了返回 nil。缩略图只是加速，签失败一律置空，不影响原图。
+func (c *core) candidateThumbs(ctx context.Context, list []model.Candidate) []string {
+	thumb := c.s.Config.Thumb.ThumbProcess()
+	if thumb == "" || c.s.Media == nil || len(list) == 0 || thumbsDisabled(ctx) {
+		return nil
+	}
+	wmThumb := ""
+	if c.s.Config.FreeWatermark.ValidProcess() {
+		wmThumb = watermarkThumbProcess(c.s.Config.FreeWatermark.Process, thumb)
+	}
+	var plain, wm []string
+	for _, x := range list {
+		rid, w, ok := refRID(x.URL)
+		if !ok || rid == "" || !thumbImageExt[refExt(x.URL)] {
+			continue
+		}
+		if w {
+			if wmThumb != "" {
+				wm = append(wm, rid)
+			}
+		} else {
+			plain = append(plain, rid)
+		}
+	}
+	if len(plain) == 0 && len(wm) == 0 {
+		return nil
+	}
+	plainURLs := c.signThumbs(ctx, plain, thumb, refURLTTL)
+	wmURLs := c.signThumbs(ctx, wm, wmThumb, c.s.Config.FreeWatermark.SignedTTL())
+	out := make([]string, len(list))
+	got := false
+	for i, x := range list {
+		rid, w, ok := refRID(x.URL)
+		if !ok || rid == "" || !thumbImageExt[refExt(x.URL)] {
+			continue
+		}
+		if w {
+			out[i] = wmURLs[rid]
+		} else {
+			out[i] = plainURLs[rid]
+		}
+		got = got || out[i] != ""
+	}
+	if !got {
+		return nil
+	}
+	return out
+}
+
+// thumbSignConcurrency 缩略图逐个现签的并发上限（与媒体服务客户端整批签名的上限一致）。
+const thumbSignConcurrency = 4
+
+// signThumbs 一批 rid 带处理串逐个现签（有界并发），失败的那个为空。不走整批：媒体服务客户端整批里任一失败就整体报错、
+// 不返回部分结果，再逐个重签会让永久签不出的图每次读都多付一轮调用；逐个签每个 rid 恰好一次调用。
+func (c *core) signThumbs(ctx context.Context, rids []string, process string, ttl time.Duration) map[string]string {
+	if len(rids) == 0 || process == "" {
+		return nil
+	}
+	rids = uniqStrings(rids)
+	m := c.s.Media
+	var (
+		mu  sync.Mutex
+		wg  sync.WaitGroup
+		sem = make(chan struct{}, thumbSignConcurrency)
+		out = make(map[string]string, len(rids))
+	)
+	for _, rid := range rids {
+		if ctx.Err() != nil {
+			break
+		}
+		wg.Add(1)
+		sem <- struct{}{}
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+			urls, err := m.ResourceURLsWithProcess(ctx, []string{rid}, ttl, process)
+			if err != nil {
+				logx.WithContext(ctx).Infof("canvas: 缩略图现签失败，回退原图 rid=%s: %v", ridHint(rid), err)
+				return
+			}
+			mu.Lock()
+			out[rid] = urls[rid]
+			mu.Unlock()
+		}()
+	}
+	wg.Wait()
+	return out
+}
+
+// noThumbsKey 读出口不签缩略图的 context 标记（智能体工具出口不用 thumb_url / candidateThumbs，签了白费调用）。
+type noThumbsKey struct{}
+
+// withoutThumbs 返回不签缩略图的 ctx。
+func withoutThumbs(ctx context.Context) context.Context {
+	return context.WithValue(ctx, noThumbsKey{}, true)
+}
+
+func thumbsDisabled(ctx context.Context) bool { v, _ := ctx.Value(noThumbsKey{}).(bool); return v }
+
+func uniqStrings(in []string) []string {
+	seen := make(map[string]bool, len(in))
+	out := in[:0:0]
+	for _, s := range in {
+		if !seen[s] {
+			seen[s] = true
+			out = append(out, s)
+		}
+	}
+	return out
 }

@@ -338,6 +338,14 @@ func buildAgentRunRequest(d *Doc, n *Node, done map[string]*model.NodeRun, args 
 	if v, ok := args["count"].(float64); ok {
 		count = int(v)
 	}
+	if kind == "image" {
+		// 生成格式：args.output_format 临时覆盖，否则节点 outputFormat；都没有（旧画布）按 jpeg
+		f, ok := outputFormatOf(pick("output_format", "outputFormat"))
+		if !ok {
+			return nil, xerr.Param("output_format 只支持 jpeg / png / webp")
+		}
+		req.OutputFormat = f
+	}
 	if kind == "video" {
 		req.Duration = pick("duration", "duration")
 		req.Sound = boolData(n.Data, "sound")
