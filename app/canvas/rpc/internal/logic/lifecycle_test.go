@@ -669,9 +669,19 @@ func TestSettleQuantityByKind(t *testing.T) {
 func fakeGateway(t *testing.T, c *core, submits ...int) *recorder {
 	var mu sync.Mutex
 	n := 0
-	srv, rec := fakeServer(t, func(w http.ResponseWriter, r *http.Request, _ []byte) {
+	srv, rec := fakeServer(t, func(w http.ResponseWriter, r *http.Request, body []byte) {
 		if strings.HasSuffix(r.URL.Path, "/cancel") {
 			_ = json.NewEncoder(w).Encode(map[string]any{"id": "call_aaaaaaaaaa07", "status": "CANCELLED"})
+			return
+		}
+		if r.URL.Path == "/v1/calls:batchGet" { // 取消前的预检：都还没发出（排队等容量）
+			var req struct{ IDs []string }
+			_ = json.Unmarshal(body, &req)
+			items := []map[string]any{}
+			for _, id := range req.IDs {
+				items = append(items, map[string]any{"id": id, "status": "QUEUED"})
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": items})
 			return
 		}
 		mu.Lock()
@@ -709,8 +719,9 @@ func TestForceFailGatewayReclaimsUnrefCalls(t *testing.T) {
 	}
 }
 
-// gateway 提交次数用尽（暂时性）：置失败退款后，按幂等键取回此前超时提交可能已建的调用并取消。
-func TestDispatchGatewayExhaustedReclaims(t *testing.T) {
+// gateway 提交次数用尽（暂时性，结局未知：网关可能还没落库）：不立刻按幂等键查（此刻 404 不可信）、不退款，
+// run 留在提交中并记下待确认的失败原因，交给提交中兜底过 submittingTTL 后再确认（见 TestStaleUnconfirmedSubmitFailRefundsAfterTTL）。
+func TestDispatchGatewayExhaustedLeavesForFallback(t *testing.T) {
 	c, mock := mockCore(t)
 	c.s.Billing = billing.New(billing.Conf{Mode: billing.ModeOff}, nil)
 	rec := fakeGateway(t, c, 503, 200)
@@ -721,14 +732,19 @@ func TestDispatchGatewayExhaustedReclaims(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mock.ExpectExec("SET `status` = 3, .*`error_code` = 'SUBMIT_FAILED'.* WHERE \\(`id` = 41\\) AND \\(`status` = 0\\)").WillReturnResult(sqlmock.NewResult(0, 1))
+	expectClaim(mock, 41, 4, true)
+	mock.ExpectExec(regexp.QuoteMeta("SET error_code = 'SUBMIT_UNCONFIRMED:SUBMIT_FAILED', error_reason = '提交失败，请稍后重试', updated_at = NOW(3) WHERE (id = 41) AND (status = 5) AND (attempt = 5)")).
+		WillReturnResult(sqlmock.NewResult(0, 1))
 	if err := c.dispatch(context.Background(), run, sp, ""); err == nil {
 		t.Fatal("次数用尽应回错误")
 	}
-	if !rec.has("/v1/calls/call_aaaaaaaaaa07/cancel") {
-		t.Fatalf("应取回并取消孤儿调用: %v", rec.paths)
+	if rec.count() != 1 {
+		t.Fatalf("只有那次提交，不应立刻按幂等键查 / 取消: %v", rec.paths)
 	}
-	if err := mock.ExpectationsWereMet(); err != nil {
+	if run.Status != model.RunSubmitting {
+		t.Fatalf("应留在提交中: %d", run.Status)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil { // 没有退款 UPDATE
 		t.Fatal(err)
 	}
 }
@@ -746,7 +762,8 @@ func TestDispatchFailCASLostKeepsCallsTrackedByTakeover(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mock.ExpectExec("SET `status` = 3, .*`error_code` = 'PARAM_INVALID'.* WHERE \\(`id` = 41\\) AND \\(`status` = 0\\)").WillReturnResult(sqlmock.NewResult(0, 0))
+	expectClaim(mock, 41, 0, true)
+	// 确认归属时发现已被别的实例接手（转运行中、记下同一批调用）：不收尾、不取消
 	mock.ExpectQuery("FROM `afv_canvas_node_run` AS `r` WHERE \\(r.id = 41\\)").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "status", "backend", "backend_ref"}).AddRow(41, model.RunRunning, "gateway", "call_aaaaaaaaaa07"))
 	if err := c.dispatch(context.Background(), run, sp, ""); err == nil {
@@ -772,7 +789,7 @@ func TestDispatchFailCASLostCancelsUnrecordedCalls(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mock.ExpectExec("SET `status` = 3, .*WHERE \\(`id` = 41\\) AND \\(`status` = 0\\)").WillReturnResult(sqlmock.NewResult(0, 0))
+	expectClaim(mock, 41, 0, true)
 	mock.ExpectQuery("FROM `afv_canvas_node_run` AS `r` WHERE \\(r.id = 41\\)").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "status", "backend", "backend_ref"}).AddRow(41, model.RunCanceled, "gateway", nil))
 	if err := c.dispatch(context.Background(), run, sp, ""); err == nil {
@@ -798,7 +815,7 @@ func TestDispatchFailCASLostRereadErrorSkipsCancel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mock.ExpectExec("SET `status` = 3").WillReturnResult(sqlmock.NewResult(0, 0))
+	expectClaim(mock, 41, 0, true)
 	mock.ExpectQuery("FROM `afv_canvas_node_run` AS `r` WHERE \\(r.id = 41\\)").WillReturnError(errors.New("db down"))
 	_ = c.dispatch(context.Background(), run, sp, "")
 	if rec.has("/v1/calls/call_aaaaaaaaaa07/cancel") {
@@ -820,7 +837,8 @@ func TestDispatchRunningCASLostKeepsRecordedCalls(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mock.ExpectExec("SET `status` = 1, .*WHERE \\(`id` = 41\\) AND \\(`status` = 0\\)").WillReturnResult(sqlmock.NewResult(0, 0))
+	expectClaim(mock, 41, 0, true)
+	mock.ExpectExec("SET status = 1, .*WHERE \\(id = 41\\) AND \\(status = 5\\) AND \\(cancel_request = 0\\)").WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery("FROM `afv_canvas_node_run` AS `r` WHERE \\(r.id = 41\\)").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "status", "backend", "backend_ref"}).AddRow(41, model.RunRunning, "gateway", "call_aaaaaaaaaa07"))
 	if err := c.dispatch(context.Background(), run, sp, ""); err != nil {
@@ -846,7 +864,8 @@ func TestDispatchCASLostRunLiveUnrecordedNotCancelled(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		mock.ExpectExec("SET `status` = 1, .*WHERE \\(`id` = 41\\) AND \\(`status` = 0\\)").WillReturnResult(sqlmock.NewResult(0, 0))
+		expectClaim(mock, 41, 0, true)
+		mock.ExpectExec("SET status = 1, .*WHERE \\(id = 41\\) AND \\(status = 5\\) AND \\(cancel_request = 0\\)").WillReturnResult(sqlmock.NewResult(0, 0))
 		mock.ExpectQuery("FROM `afv_canvas_node_run` AS `r` WHERE \\(r.id = 41\\)").
 			WillReturnRows(sqlmock.NewRows([]string{"id", "status", "backend", "backend_ref"}).AddRow(41, st, "gateway", nil))
 		if err := c.dispatch(context.Background(), run, sp, ""); err != nil {

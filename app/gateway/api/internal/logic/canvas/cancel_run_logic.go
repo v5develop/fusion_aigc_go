@@ -34,5 +34,5 @@ func (l *CancelRunLogic) CancelRun(req *types.CanvasRunPath) (resp *types.Canvas
 	if err != nil {
 		return nil, err
 	}
-	return &types.CanvasCancelResp{RequestId: out.RequestId, Status: out.Status}, nil
+	return &types.CanvasCancelResp{RequestId: out.RequestId, Status: out.Status, CancelState: out.CancelState}, nil
 }

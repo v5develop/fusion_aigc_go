@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -65,13 +66,17 @@ func e2eCore(t *testing.T) *core {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	for _, f := range []string{"Go_V1.0.25__canvas.sql", "Go_V1.0.29__canvas_copy_job.sql", "Go_V1.0.31__copy_job_source_refs.sql", "Go_V1.0.38__canvas_agent_call.sql", "Go_V1.0.40__canvas_revision.sql"} {
+	for _, f := range []string{"Go_V1.0.25__canvas.sql", "Go_V1.0.29__canvas_copy_job.sql", "Go_V1.0.31__copy_job_source_refs.sql", "Go_V1.0.38__canvas_agent_call.sql", "Go_V1.0.40__canvas_revision.sql",
+		"Go_V1.0.61__canvas_run_cancel_request.sql"} {
 		raw, err := os.ReadFile("../../../../../deploy/sql/" + f)
 		if err != nil {
 			t.Fatal(err)
 		}
 		for _, stmt := range strings.Split(string(raw), ";\n") {
 			s := strings.TrimSpace(stripSQLComments(stmt))
+			if m := addColumnCall.FindStringSubmatch(s); m != nil { // 补列过程（DELIMITER 块跑不了）：按参数直接 ALTER
+				s = "ALTER TABLE `" + m[1] + "` ADD COLUMN `" + m[2] + "` " + strings.ReplaceAll(m[3], "''", "'")
+			}
 			up := strings.ToUpper(s)
 			if !strings.HasPrefix(up, "CREATE TABLE") && !(strings.HasPrefix(up, "ALTER TABLE") && strings.Contains(s, "afv_canvas")) {
 				continue
@@ -89,6 +94,9 @@ func e2eCore(t *testing.T) *core {
 	return &core{s: &svc.ServiceContext{Config: testConfig(), Conn: conn, DB: bdb, Repo: repo.New(bdb),
 		Gateway: aigateway.New(aigateway.Config{}), Java: javatool.New("", 0), Bearers: svc.NewBearerCache(time.Hour)}, now: time.Now}
 }
+
+// addColumnCall 迁移里补列过程的调用：CALL `go_vXXXX_add_column`('表', '列', '定义')。
+var addColumnCall = regexp.MustCompile("(?s)^CALL `go_v[0-9]+_add_column`\\('([^']+)', '([^']+)',\\s*'(.*)'\\)$")
 
 func stripSQLComments(s string) string {
 	var out []string

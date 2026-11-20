@@ -254,7 +254,7 @@ func (d *Doc) StripAllResults() {
 // NodeStatus run 状态 → 节点 data.status（原型取值 idle/queued/running/done/error）。
 func NodeStatus(s int8) string {
 	switch s {
-	case model.RunQueued:
+	case model.RunQueued, model.RunSubmitting: // 提交中（冻结 / 派发阶段）对节点而言仍是排队
 		return "queued"
 	case model.RunRunning:
 		return "running"

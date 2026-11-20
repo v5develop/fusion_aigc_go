@@ -20,7 +20,8 @@ func routeScope(method, path string) string {
 	case method == http.MethodPost && path == "/v1/calls",
 		method == http.MethodGet && strings.HasPrefix(path, "/v1/calls/") && !strings.HasSuffix(path, "/cancel"),
 		method == http.MethodPost && strings.HasSuffix(path, "/cancel"),
-		method == http.MethodPost && path == "/v1/calls:batchGet":
+		method == http.MethodPost && path == "/v1/calls:batchGet",
+		method == http.MethodPost && path == "/v1/media:prewarm":
 		return PurposeCalls
 	case strings.HasPrefix(path, "/v1/catalog/"):
 		return PurposeCatalog
@@ -383,5 +384,43 @@ func TestCancelNotAllowed(t *testing.T) {
 	var rec Call
 	if err := json.Unmarshal([]byte(`{"id":"call_x","status":"RUNNING","vendor_accepted":true,"vendor_accepted_at":"2026-11-20T10:00:00Z"}`), &rec); err != nil || !rec.VendorAccepted || rec.VendorAcceptedAt == nil {
 		t.Fatalf("vendor_accepted 解析: %+v %v", rec, err)
+	}
+}
+
+func TestPrewarm(t *testing.T) {
+	c, log := newGateway(t, func(w http.ResponseWriter, s seen) {
+		w.WriteHeader(http.StatusAccepted)
+		_, _ = io.WriteString(w, `{"items":[{"uri":"mr://a","status":"queued"},{"uri":"mr://b","status":"skipped","reason":"prewarm.no_eligible_deployment","future":1}]}`)
+	})
+	items, err := c.Prewarm(context.Background(), PrewarmRequest{ModelGroup: "img.x", Operation: "image.edit",
+		Inputs: []MediaRef{{URI: "mr://a", Sha256: "ab"}, {URI: "mr://b"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 2 || items[0].Status != PrewarmQueued || items[1].Reason != "prewarm.no_eligible_deployment" {
+		t.Fatalf("items = %+v", items)
+	}
+	got := (*log)[0]
+	if got.method != http.MethodPost || got.path != "/v1/media:prewarm" {
+		t.Fatalf("%s %s", got.method, got.path)
+	}
+	var body map[string]any
+	_ = json.Unmarshal(got.body, &body)
+	if body["model_group"] != "img.x" || body["operation"] != "image.edit" || len(body["inputs"].([]any)) != 2 {
+		t.Fatalf("body = %s", got.body)
+	}
+	if _, err := c.Prewarm(context.Background(), PrewarmRequest{Inputs: make([]MediaRef, MaxPrewarmInputs+1)}); err == nil {
+		t.Fatal("超过上限应本地拒绝")
+	}
+}
+
+func TestPrewarmOldGateway404(t *testing.T) {
+	c, _ := newGateway(t, func(w http.ResponseWriter, s seen) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = io.WriteString(w, `{"detail":"Not Found"}`)
+	})
+	_, err := c.Prewarm(context.Background(), PrewarmRequest{ModelGroup: "g", Operation: "image.edit", Inputs: []MediaRef{{URI: "mr://a"}}})
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("旧网关 404 应可判别为 ErrNotFound: %v", err)
 	}
 }

@@ -92,5 +92,6 @@ func (c *core) RetryLibraryCopy(ctx context.Context, in *canvas.RunIdReq) (*canv
 	if got, gerr := c.s.Repo.Run.Get(ctx, r.ID); gerr == nil && got != nil {
 		r = got
 	}
+	c.publishRunID(ctx, r.ID) // library_status failed → pending：同画布的其他窗口同步
 	return c.toResult(ctx, r), nil
 }

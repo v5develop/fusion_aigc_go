@@ -120,6 +120,7 @@ func TestEndRunPublishesRunEvent(t *testing.T) {
 	c.s.CanvasEvents = pub
 	sink := sub("cv_1")
 	mock.ExpectExec("UPDATE `afv_canvas_node_run`").WillReturnResult(sqlmock.NewResult(0, 1))
+	expectRunReload(mock, evRunRows(runEvRow{status: model.RunCanceled, errCode: "CANCELED", errMsg: "已取消执行"})) // 发布前重读（run_event_view.go）
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT `revision` FROM `afv_canvas` WHERE (id = 'cv_1')")).
 		WillReturnRows(sqlmock.NewRows([]string{"revision"}).AddRow("500-abcd"))
 	run := &model.NodeRun{ID: 9, CanvasID: "cv_1", NodeID: "m_1", UserID: 7, Status: model.RunRunning, Kind: model.KindImage}

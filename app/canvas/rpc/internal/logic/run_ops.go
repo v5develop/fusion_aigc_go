@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"aigc-local-life/app/canvas/model"
@@ -301,38 +302,62 @@ func (c *core) GetRun(ctx context.Context, in *canvas.RunIdReq) (*canvas.RunResu
 	return c.toResult(ctx, r), nil
 }
 
-// CancelRun 取消执行：gateway 后端先取消上游调用，全部取消成功才退回冻结；已发给供应商的不能取消（4002 + reason
-// CANCEL_VENDOR_SENT，「已开始生成，无法取消，完成后按实际用量结算」），run 照常完成、按实际用量结算；studio 取消批次（由 studio 退款）；
-// 已提交的 Java 工具用本次请求的 Bearer 调 Java 取消接口真实取消（由 Java 退款，Go 不退点数）；取消时 Java 已成功则按成功交付；
-// 没有有效登录态时退化为停止跟踪（error_reason 注明可能仍会执行并扣费）；Java 暂时不可达时 run 保持运行中、后台重试取消（见 java_cancel.go）。
+// CancelRun 取消执行。产品决策：退款只有一个主人，且只在确认没发给供应商之后退。
+//   - 排队 / 提交中（还没转运行中）：只打「已请求取消」标记（cancel_request=1），不改状态、不退款，由持有 run 的一方收尾——
+//     派发器提交前抢 run 的 CAS 带「未请求取消」条件，抢不到就确认网关无已发出调用后结束并退款；已开始提交的，提交后转运行中的
+//     CAS 同样带条件，没抢到就取消本次拿到的调用：全部取消成功才退款，有被拒（已发给供应商）的转运行中按实际结算（见 requestCancel）。
+//   - 运行中 gateway：先取消上游调用，全部取消成功才退回冻结；已发给供应商的不能取消（4002 + reason CANCEL_VENDOR_SENT，
+//     「已开始生成，无法取消，完成后按实际用量结算」），run 照常完成、按实际用量结算；studio 取消批次（由 studio 退款）。
+//   - 已提交的 Java 工具用本次请求的 Bearer 调 Java 取消接口真实取消（由 Java 退款，Go 不退点数）；取消时 Java 已成功则按成功交付；
+//     没有有效登录态时退化为停止跟踪（error_reason 注明可能仍会执行并扣费）；Java 暂时不可达时 run 保持运行中、后台重试取消（见 java_cancel.go）。
+//   - 已取消的再取消：幂等返回当前结果；已成功 / 失败的 4002。
 func (c *core) CancelRun(ctx context.Context, in *canvas.RunIdReq) (*canvas.RunResult, error) {
 	r, err := c.ownedRun(ctx, in.UserId, in.Id)
 	if err != nil {
 		return nil, err
 	}
-	if model.RunFinal(r.Status) {
-		return nil, xerr.New(xerr.Conflict, "执行已结束，不能取消")
+	for range 2 { // 打标记前一刻状态变了（转运行中 / 已结束）时按新状态再走一遍
+		switch {
+		case r.Status == model.RunCanceled:
+			return c.toResult(ctx, r), nil
+		case model.RunFinal(r.Status):
+			return nil, xerr.New(xerr.Conflict, "执行已结束，不能取消")
+		case javaLive(r): // 运行中的 Java 任务，或排队中已发过请求、可按幂等键找回的
+			if viaMcpToken(ctx) { // 取消要用用户本人的 Java 登录令牌：MCP 令牌不借用缓存（agent_auth.go）
+				return nil, javaToolUnsupported()
+			}
+			ended, pending := c.stopJava(ctx, r, stopUser, msgUserCanceled, c.rememberBearer(ctx, in.UserId), 0)
+			if !ended && !pending {
+				return nil, xerr.New(xerr.Conflict, "执行状态已变化，请刷新")
+			}
+			if got, err := c.s.Repo.Run.Get(ctx, r.ID); err == nil && got != nil {
+				r = got // 可能已按成功交付（候选）或仍在运行中（待重试取消）
+			}
+			return c.toResult(ctx, r), nil
+		case r.Status == model.RunQueued || r.Status == model.RunSubmitting:
+			got, done, err := c.requestCancel(ctx, r, in.UserId)
+			if done || err != nil {
+				return got, err
+			}
+			if r, err = c.ownedRun(ctx, in.UserId, in.Id); err != nil {
+				return nil, err
+			}
+			continue
+		}
+		return c.cancelRunning(ctx, r)
 	}
-	if javaLive(r) { // 运行中的 Java 任务，或排队中已发过请求、可按幂等键找回的
-		if viaMcpToken(ctx) { // 取消要用用户本人的 Java 登录令牌：MCP 令牌不借用缓存（agent_auth.go）
-			return nil, javaToolUnsupported()
-		}
-		ended, pending := c.stopJava(ctx, r, stopUser, "已取消执行", c.rememberBearer(ctx, in.UserId), 0)
-		if !ended && !pending {
-			return nil, xerr.New(xerr.Conflict, "执行状态已变化，请刷新")
-		}
-		if got, err := c.s.Repo.Run.Get(ctx, r.ID); err == nil && got != nil {
-			r = got // 可能已按成功交付（候选）或仍在运行中（待重试取消）
-		}
-		return c.toResult(ctx, r), nil
-	}
+	return nil, xerr.New(xerr.Conflict, "执行状态已变化，请刷新")
+}
+
+// cancelRunning 运行中的 run（非 Java）用户取消。
+func (c *core) cancelRunning(ctx context.Context, r *model.NodeRun) (*canvas.RunResult, error) {
 	if ids := callIDs(r); r.Backend == model.BackendGateway && len(ids) > 0 && c.s.Gateway.Enabled() {
 		// 已有 gateway 调用：先取消上游，全部取消成功才结束并退款；任一已发给供应商 → 不结束、不退款，
 		// 任务照常完成、按实际用量结算（竞态处理见 userCancelGatewayCalls）
 		if err := c.userCancelGatewayCalls(ctx, r, ids); err != nil {
 			return nil, err
 		}
-		if !c.endRun(ctx, r, r.Status, model.RunCanceled, "CANCELED", "已取消执行", true, false) {
+		if !c.endRun(ctx, r, r.Status, model.RunCanceled, "CANCELED", msgUserCanceled, true, false) {
 			// 调用都已取消：轮询器可能先一步按「全部已取消」收尾（同样退款），以当前状态为准
 			if got, err := c.s.Repo.Run.Get(ctx, r.ID); err == nil && got != nil && model.RunFinal(got.Status) {
 				return c.toResult(ctx, got), nil
@@ -342,14 +367,105 @@ func (c *core) CancelRun(ctx context.Context, in *canvas.RunIdReq) (*canvas.RunR
 		c.s.TaskSync.Kick()
 		return c.toResult(ctx, r), nil
 	}
-	// 排队 / 提交中（还没有调用）：行为不变——先 CAS 结束并退款，再取消上游 / 按幂等键回收可能的孤儿调用
-	if !c.endRun(ctx, r, r.Status, model.RunCanceled, "CANCELED", "已取消执行", true, false) {
+	// 运行中、没有网关调用（studio 批次 / 网关未配置）：结束后取消上游（studio 由 studio 退款）
+	if !c.endRun(ctx, r, r.Status, model.RunCanceled, "CANCELED", msgUserCanceled, true, false) {
 		return nil, xerr.New(xerr.Conflict, "执行状态已变化，请刷新")
 	}
 	c.cancelUpstream(ctx, r, "用户取消")
-	c.reclaimUnrefCalls(ctx, r, "用户取消")
 	c.s.TaskSync.Kick()
 	return c.toResult(ctx, r), nil
+}
+
+// defaultCancelWait 排队 / 提交中取消后，CancelRun 等派发器收尾的上限（提交一般 1–2 秒内返回）。
+const defaultCancelWait = 3 * time.Second
+
+// cancelPollInterval 等待期间重读 run 的间隔。
+const cancelPollInterval = 200 * time.Millisecond
+
+// requestCancel 排队 / 提交中的用户取消：只打「已请求取消」标记（不改状态、不退款），然后
+//  1. 排队中（此刻没有派发器在提交时）就地收尾：抢得到行租约 → 本次请求即为持有方，确认网关无已发出调用后结束并退款
+//     （closeQueuedCancel）；抢不到说明派发器 / 排队推进正拿着它，它抢 run 的 CAS 会看到标记并收尾。
+//  2. 短暂等待结果（cancelWait）：到终态 → 回结果；转运行中且取消被拒 → 4002 + reason CANCEL_VENDOR_SENT（与运行中取消同一提示）；
+//     仍未定 → 回当前状态 + cancel_state=requested（前端「取消中」，继续轮询，很快到 cancelled 或回到 running）。
+//
+// done=false 表示打标记前一刻 run 已离开排队 / 提交中（转运行中 / 已结束），调用方按新状态重走取消。重复取消幂等（标记已在就直接等结果）。
+func (c *core) requestCancel(ctx context.Context, r *model.NodeRun, userID int64) (*canvas.RunResult, bool, error) {
+	log := logx.WithContext(ctx)
+	ok, err := c.s.Repo.Run.RequestCancel(ctx, r.ID)
+	if err != nil {
+		return nil, true, err
+	}
+	if !ok {
+		cur, err := c.s.Repo.Run.Get(ctx, r.ID)
+		if err != nil {
+			return nil, true, err
+		}
+		if cur == nil || (cur.Status != model.RunQueued && cur.Status != model.RunSubmitting) || cur.CancelRequest != model.CancelRequested {
+			return nil, false, nil
+		}
+		r = cur // 已请求过：幂等，接着收尾 / 等结果
+	} else {
+		r.CancelRequest = model.CancelRequested
+		log.Infof("canvas: run %d 用户在%s阶段取消，已登记取消请求，确认没发给供应商后再结束并退款", r.ID, model.StatusText(r.Status))
+		c.publishRun(ctx, r)
+	}
+	if r.Status == model.RunQueued {
+		c.closeQueuedCancelInline(ctx, r.ID, c.rememberBearer(ctx, userID))
+	}
+	return c.awaitCancel(ctx, r.ID)
+}
+
+// closeQueuedCancelInline 抢得到行租约（此刻没有派发器 / 排队推进拿着它）就由本次请求收尾；抢不到交给持有方。
+func (c *core) closeQueuedCancelInline(ctx context.Context, id int64, bearer string) {
+	owner := lease.Owner()
+	ok, err := c.s.Repo.Run.AcquireLease(ctx, id, owner, runLeaseTTL)
+	if err != nil || !ok {
+		if err != nil {
+			logx.WithContext(ctx).Errorf("canvas: run %d 取消收尾抢租约失败，交给派发器 / 排队推进: %v", id, err)
+		}
+		return
+	}
+	var cur *model.NodeRun
+	if cur, err = c.s.Repo.Run.Get(ctx, id); err == nil && cur != nil && cur.Status == model.RunQueued && cur.CancelRequest == model.CancelRequested {
+		c.closeQueuedCancel(ctx, cur, bearer)
+	}
+	rctx, cancel := detached(ctx)
+	if rerr := c.s.Repo.Run.ReleaseLease(rctx, id, owner); rerr != nil {
+		logx.WithContext(ctx).Errorf("canvas: run %d 释放租约失败（到期自动失效）: %v", id, rerr)
+	}
+	cancel()
+	c.handOff(cur) // 有调用已发出、转运行中：交给长轮询协程
+}
+
+// awaitCancel 等取消请求的结局（见 requestCancel 第 2 步）。
+func (c *core) awaitCancel(ctx context.Context, id int64) (*canvas.RunResult, bool, error) {
+	deadline := c.now().Add(c.cancelWait)
+	for {
+		cur, err := c.s.Repo.Run.Get(ctx, id)
+		if err != nil {
+			return nil, true, err
+		}
+		if cur == nil {
+			return nil, true, xerr.NotFoundf("执行记录")
+		}
+		switch {
+		case model.RunFinal(cur.Status):
+			c.s.TaskSync.Kick()
+			return c.toResult(ctx, cur), true, nil
+		case cur.Status == model.RunRunning && cur.CancelRequest == model.CancelRefused:
+			return nil, true, errCancelVendorSent()
+		case cur.Status == model.RunRunning:
+			return c.toResult(ctx, cur), true, nil
+		}
+		if !c.now().Before(deadline) {
+			return c.toResult(ctx, cur), true, nil
+		}
+		select {
+		case <-ctx.Done():
+			return c.toResult(ctx, cur), true, nil
+		case <-time.After(cancelPollInterval):
+		}
+	}
 }
 
 func (c *core) ListRuns(ctx context.Context, in *canvas.ListRunsReq) (*canvas.ListRunsResp, error) {

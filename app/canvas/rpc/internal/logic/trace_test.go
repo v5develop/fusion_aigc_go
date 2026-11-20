@@ -189,7 +189,8 @@ func TestTraceGatewayCallLinkedAndTraceHeader(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mock.ExpectExec("SET `status` = 1, .*WHERE \\(`id` = 41\\) AND \\(`status` = 0\\)").WillReturnResult(sqlmock.NewResult(0, 1))
+	expectClaim(mock, 41, 0, true)
+	mock.ExpectExec("SET status = 1, .*WHERE \\(id = 41\\) AND \\(status = 5\\) AND \\(cancel_request = 0\\)").WillReturnResult(sqlmock.NewResult(0, 1))
 	if err := c.dispatch(context.Background(), run, sp, ""); err != nil {
 		t.Fatal(err)
 	}

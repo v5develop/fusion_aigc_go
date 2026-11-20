@@ -133,6 +133,7 @@ func runView(r *canvas.RunResult) map[string]any {
 		"status": r.Status, "progress": r.Progress, "model": r.Model, "candidates": cands, "selected_index": r.SelectedIndex,
 		"video_url": r.VideoUrl, "text": r.Text, "credits": r.Credits, "error": r.Error, "error_code": r.ErrorCode,
 		"retryable": r.Retryable, "library_status": r.LibraryStatus, "created_at": r.CreatedAt, "finished_at": r.FinishedAt,
+		"cancel_state": r.CancelState,
 	}
 }
 

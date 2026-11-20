@@ -44,8 +44,53 @@ type Event struct {
 	// 以下只有 source=run 时有
 	RequestID string `json:"requestId,omitempty"`
 	RunStatus string `json:"runStatus,omitempty"`
+	// Run 只增（2026-11-20）：本次变化后的 run 结果，与 GET /runs/{id} 的 RunResult 同形（camelCase 键，URL 同样是现签地址），
+	// 外加两项前端本地外推进度用的字段。发布端重读库失败等情况下缺省——前端收到没有 run 的 run 事件就立即 GET 一次。
+	Run *RunView `json:"run,omitempty"`
 	// Resync 网关补发的对账事件（断线期间错过了变更 / 心跳发现 revision 已变）：没有 changedNodeIds，前端整画布刷新
 	Resync bool `json:"resync,omitempty"`
+}
+
+// RunView run 事件里的执行结果：字段与网关 CanvasRunResult（GET /api/v1/canvas/runs/{id}）一一对应，键为其 camelCase 形式。
+// 只增不改：新增字段两边一起加。
+type RunView struct {
+	RequestID      string         `json:"requestId"`
+	RunID          string         `json:"runId"`
+	CanvasID       string         `json:"canvasId"`
+	NodeID         string         `json:"nodeId"`
+	Kind           string         `json:"kind"`
+	Status         string         `json:"status"`
+	Progress       int32          `json:"progress"`
+	Model          string         `json:"model"`
+	Candidates     []RunCandidate `json:"candidates"`
+	SelectedIndex  int32          `json:"selectedIndex"`
+	VideoURL       string         `json:"videoUrl"`
+	Text           string         `json:"text"`
+	Credits        int64          `json:"credits"`
+	RequestedCount int32          `json:"requestedCount"`
+	Error          string         `json:"error"`
+	ErrorCode      string         `json:"errorCode"`
+	Retryable      bool           `json:"retryable"`
+	CreatedAt      int64          `json:"createdAt"`
+	FinishedAt     int64          `json:"finishedAt"`
+	LibraryStatus  string         `json:"libraryStatus,omitempty"`
+	CancelState    string         `json:"cancelState,omitempty"`
+	// 以下两项只在事件里有（运行中才给）：运行中的进度由服务端按「已运行时长 / 预计时长」外推，事件只在状态变化时发，
+	// 前端据此在两次事件之间本地外推，不必为了进度条轮询。progress = clamp(5 + elapsed/expected*90, max(5, progress), 95)。
+	ElapsedMs  int64 `json:"elapsedMs,omitempty"`  // 发布时已运行的毫秒数
+	ExpectedMs int64 `json:"expectedMs,omitempty"` // 预计总时长（毫秒）
+	// Version 事件版本（只在事件里有）：发布前重读到的 run 行 updated_at（unix 毫秒，列为 datetime(3) ON UPDATE）。
+	// 同一 run 两个协程并发发布时旧状态可能后到：前端按 request_id 记已应用的最大 (version, 状态序)，更小的丢弃；
+	// 同毫秒用状态序（queued < submitting < running < 终态）再比一次。缺省（旧后端）按原逻辑处理。
+	Version int64 `json:"version,omitempty"`
+}
+
+// RunCandidate 候选产物（同 CanvasCandidate）。
+type RunCandidate struct {
+	URL      string `json:"url"`
+	Width    int32  `json:"width"`
+	Height   int32  `json:"height"`
+	ThumbURL string `json:"thumbUrl,omitempty"`
 }
 
 // Channel 画布的事件频道。

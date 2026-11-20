@@ -253,8 +253,9 @@ type AssetLibVersionPage struct {
 }
 
 type CanvasCancelResp struct {
-	RequestId string `json:"request_id"`
-	Status    string `json:"status"`
+	RequestId   string `json:"request_id"`
+	Status      string `json:"status"`
+	CancelState string `json:"cancel_state,omitempty"` // 只增：用户取消请求。空=没有；requested=排队 / 提交中已请求取消，待确认没发给供应商（显示「取消中」，继续轮询，很快到 cancelled 或回到 running）；refused=取消被拒，已发给供应商，照常完成、按实际用量结算（提示同 reason CANCEL_VENDOR_SENT）
 }
 
 type CanvasCandidate struct {
@@ -462,6 +463,7 @@ type CanvasRunResult struct {
 	CreatedAt      int64             `json:"created_at"`
 	FinishedAt     int64             `json:"finished_at"`
 	LibraryStatus  string            `json:"library_status,omitempty"` // 只增：空=已在素材库或不适用；pending=已交付（地址是 10 分钟现签，勿存进节点内容），后台转存素材库中；failed=转存失败，仍可看可下载但不在素材库
+	CancelState    string            `json:"cancel_state,omitempty"`   // 只增：用户取消请求。空=没有；requested=排队 / 提交中已请求取消，待确认没发给供应商（显示「取消中」，继续轮询，很快到 cancelled 或回到 running）；refused=取消被拒，已发给供应商，照常完成、按实际用量结算（提示同 reason CANCEL_VENDOR_SENT）
 }
 
 type CanvasRunsReq struct {

@@ -80,7 +80,7 @@ func TestDispatchInlineSkipsWhenLeased(t *testing.T) {
 func TestMaintainRenewsHeld(t *testing.T) {
 	c, mock := mockCore(t)
 	c.s.Billing = billingOn(t)
-	mock.ExpectQuery(regexp.QuoteMeta("WHERE (r.status IN (0, 1)) AND (r.backend = 'gateway') AND (r.billing_status = 'held')")).
+	mock.ExpectQuery(regexp.QuoteMeta("WHERE (r.status IN (0, 5, 1)) AND (r.backend = 'gateway') AND (r.billing_status = 'held')")).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "billing_request_id", "billing_status"}).AddRow(5, 7, "canvas-cv_t", "held"))
 	// 同一轮接着做计费镜像对账（终态 + review / held / unsettled）
 	mock.ExpectQuery(regexp.QuoteMeta("AND (r.billing_status IN ('review', 'held', 'unsettled'))")).

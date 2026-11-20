@@ -378,9 +378,19 @@ func TestSucceedParallelCopyPermanentFails(t *testing.T) {
 // submitGW gateway：按幂等键末位下标决定结果（bad → 400 永久，busy → 503 暂时，其余建调用）；记录取消。
 func submitGW(t *testing.T, bad, busy string) (*aigateway.Client, *recorder, *atomic.Int32) {
 	var peak, inflight atomic.Int32
-	srv, rec := fakeServer(t, func(w http.ResponseWriter, r *http.Request, _ []byte) {
+	srv, rec := fakeServer(t, func(w http.ResponseWriter, r *http.Request, body []byte) {
 		if strings.HasSuffix(r.URL.Path, "/cancel") {
 			_, _ = w.Write(callJSON(strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/v1/calls/"), "/cancel"), aigateway.StatusCancelled, ""))
+			return
+		}
+		if r.URL.Path == "/v1/calls:batchGet" { // 取消前的预检：都还没发出
+			var req struct{ IDs []string }
+			_ = json.Unmarshal(body, &req)
+			var items []string
+			for _, id := range req.IDs {
+				items = append(items, string(callJSON(id, aigateway.StatusPending, "")))
+			}
+			_, _ = fmt.Fprintf(w, `{"items":[%s]}`, strings.Join(items, ","))
 			return
 		}
 		n := inflight.Add(1)
@@ -415,7 +425,10 @@ func TestDispatchParallelSubmitPartialFailureRefunds(t *testing.T) {
 	run.BillingStatus, run.Points, run.RequestedCount = model.BillHeld, 120, 3
 	sp := *imageSpec
 	sp.Count = 3
-	mock.ExpectExec("UPDATE `afv_canvas_node_run` SET `status` = 3, .*`billing_status` = 'refunded', `error_code` = 'PARAM_INVALID'.*`points` = 0 WHERE \\(`id` = 5\\) AND \\(`status` = 0\\)").
+	expectClaim(mock, 5, 0, true)
+	mock.ExpectQuery("FROM `afv_canvas_node_run` AS `r` WHERE \\(r.id = 5\\)").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "status", "backend", "attempt"}).AddRow(5, model.RunSubmitting, "gateway", 1))
+	mock.ExpectExec("UPDATE `afv_canvas_node_run` SET `status` = 3, .*`billing_status` = 'refunded', `error_code` = 'PARAM_INVALID'.*`points` = 0 WHERE \\(`id` = 5\\) AND \\(`status` = 5\\)").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	if err := c.dispatch(context.Background(), run, &sp, ""); err == nil {
 		t.Fatal("被拒应返回错误")
@@ -445,7 +458,8 @@ func TestDispatchParallelSubmitTemporaryKeepsCalls(t *testing.T) {
 	run.BillingStatus, run.RequestedCount = model.BillHeld, 3
 	sp := *imageSpec
 	sp.Count = 3
-	mock.ExpectExec(regexp.QuoteMeta("SET `attempt` = 1")).WillReturnResult(sqlmock.NewResult(0, 1))
+	expectClaim(mock, 5, 0, true)
+	mock.ExpectExec(regexp.QuoteMeta("SET status = 0, updated_at = NOW(3) WHERE (id = 5) AND (status = 5) AND (cancel_request = 0)")).WillReturnResult(sqlmock.NewResult(0, 1))
 	if err := c.dispatch(context.Background(), run, &sp, ""); err != nil {
 		t.Fatalf("暂时失败应留在排队: %v", err)
 	}
@@ -556,7 +570,8 @@ func TestDispatchInlineHandsOffAfterRelease(t *testing.T) {
 	}
 	run := gatewayRun(81, model.RunQueued)
 	mock.ExpectExec(qRunLease + ".*WHERE `id` = 81 AND").WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec("UPDATE `afv_canvas_node_run` SET `status` = 1, .*`backend_ref` = '" + callA + "'.* WHERE \\(`id` = 81\\) AND \\(`status` = 0\\)").
+	expectClaim(mock, 81, 0, true)
+	mock.ExpectExec("UPDATE `afv_canvas_node_run` SET status = 1, .*`backend_ref` = '" + callA + "'.* WHERE \\(id = 81\\) AND \\(status = 5\\) AND \\(cancel_request = 0\\)").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(qRunRelease + "WHERE `id` = 81 AND").WillReturnResult(sqlmock.NewResult(0, 1))
 	if err := c.dispatchInline(context.Background(), run, imageSpec, ""); err != nil || run.Status != model.RunRunning {

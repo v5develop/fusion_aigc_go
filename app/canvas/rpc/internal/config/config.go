@@ -85,6 +85,18 @@ type Config struct {
 		MaxTokens  int    `json:",default=1200"`
 		Points     int64  `json:",default=0"` // catalog 展示用单价（实扣以计费为准）
 	}
+	// Prewarm 参考图预上传：画布保存时，把 gateway 图片节点上新接入的参考图异步交给网关 POST /v1/media:prewarm，
+	// 网关提前传到供应商（Atlas uploadMedia 约 1.4 秒）并写上传缓存，点「生成」时提交直接命中。只为提速：异步、短超时、失败忽略，
+	// 不影响保存；网关旧版（404）时本进程自动关闭并打一次 INFO。
+	Prewarm struct {
+		Enabled bool `json:",default=true"`
+		// TimeoutSeconds 单次预上传（参考图拉入媒体服务 + 调网关）的总时限
+		TimeoutSeconds int `json:",default=15"`
+		// DedupeSeconds 进程内去重窗口：同一模型组 + 同一张图在窗口内只预上传一次（网关缓存默认 30 分钟）
+		DedupeSeconds int `json:",default=1200"`
+		// MaxConcurrent 本进程同时在跑的预上传任务数；满了直接丢弃（只是少一次提速）
+		MaxConcurrent int `json:",default=4"`
+	}
 	Poll struct {
 		// IntervalSeconds 兜底扫描间隔。运行中 gateway run 的完成检测主路径是每个 run 一个长轮询协程（Watchers），
 		// 扫描只兜底：排队重提、Java / studio 轮询、长轮询协程没接住的 run（名额满 / 进程重启 / 租约被接管）

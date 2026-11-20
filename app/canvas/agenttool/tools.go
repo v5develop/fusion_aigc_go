@@ -250,6 +250,7 @@ func runOut() Schema {
 		"error_code":     str("失败码"),
 		"retryable":      boolean("换一个 run_id 重试是否可能成功"),
 		"library_status": str("空=已在素材库或不适用；pending=转存中；failed=转存失败"),
+		"cancel_state":   str("空=没有取消请求；requested=取消中（排队 / 提交中已请求取消，确认没发给供应商后转 cancelled 并退点，继续查询）；refused=取消被拒（已发给供应商，照常完成、按实际用量结算）"),
 		"created_at":     Schema{"type": "integer"},
 		"finished_at":    Schema{"type": "integer"},
 	}, "request_id", "status")

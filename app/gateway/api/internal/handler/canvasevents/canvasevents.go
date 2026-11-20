@@ -8,10 +8,11 @@
 //
 //	首帧    event: hello  data: {"mode":"push"|"poll", canvasId, revision, heartbeatMs | pollUrl, pollIntervalMs}
 //	变更    id: <revision>  event: canvas  data: canvasevent.Event（source=user|agent；resync=true 为网关补发的对账事件）
-//	生成    event: run  data: canvasevent.Event（source=run，无 id：revision 不变）
+//	生成    event: run  data: canvasevent.Event（source=run，无 id：revision 不变；run 字段为与 GET /runs/{id} 同形的结果，camelCase）
 //	心跳    ": ping"（每 15 秒；同时比一次当前 revision，变了就补发 resync 事件——pub/sub 丢消息、发布端没配 Redis 时靠它兜底）
-//	结束    event: gone（不要重连：code=CANVAS_GONE | SESSION_EXPIRED）| event: bye（可重连：code=RECONNECT | CONN_SLOT_UNAVAILABLE）
-//	        心跳时还复核登录态（与 Auth 同一套解析），失效即 gone · SESSION_EXPIRED；名额计数 / 续期出错发 bye，不放行。
+//	结束    event: gone（不要重连：code=CANVAS_GONE）| event: bye（可重连：code=RECONNECT | CONN_SLOT_UNAVAILABLE | REAUTH）
+//	        心跳时还复核登录态（与 Auth 同一套解析），连接令牌失效发 bye · REAUTH（前端刷新令牌后重连，真失效时重连 401）；
+//	        名额计数 / 续期出错发 bye，不放行。
 //
 // 续传：重连时带 Last-Event-ID（EventSource 自动带）或 ?since=<revision>；与当前 revision 不同就先补发一条 resync 事件。
 // 每用户同时最多 CanvasEvents.MaxConnsPerUser（默认 5）条，超出回 4002 · CANVAS_EVENTS_TOO_MANY。
@@ -72,7 +73,8 @@ type Server struct {
 // gone / bye 帧里的 code。
 const (
 	CodeCanvasGone     = "CANVAS_GONE"           // gone：画布已删除 / 不再属于你
-	CodeSessionExpired = "SESSION_EXPIRED"       // gone：登录已失效（过期 / 被踢下线），前端去登录，不要重连
+	CodeSessionExpired = "SESSION_EXPIRED"       // gone：登录已失效（保留给旧前端识别；心跳复核不再发它，改发 bye·REAUTH）
+	CodeReauth         = "REAUTH"                // bye：连接上的令牌已失效（多半是建连后过期、其它请求早已刷新），前端刷新令牌后重连
 	CodeReconnect      = "RECONNECT"             // bye：到达最长存活，带 Last-Event-ID 重连
 	CodeSlotFailed     = "CONN_SLOT_UNAVAILABLE" // bye：连接名额计数 / 续期失败，稍后重连
 )
@@ -268,8 +270,10 @@ func (s *Server) Events(w http.ResponseWriter, r *http.Request) {
 	reconcile := func() bool {
 		if s.Session != nil {
 			if ok, transient := s.Session(r, uid); !ok && !transient {
-				logx.WithContext(ctx).Infof("gateway: 画布 SSE 登录态失效，关闭 user=%d canvas=%s（check=canvas_events.session）", uid, id)
-				_ = c.send("", "gone", map[string]any{"canvasId": id, "code": CodeSessionExpired, "reason": "登录已失效，请重新登录"})
+				// 连接沿用建连时的令牌，用户一直在用时其它请求早已刷新出新令牌，这把旧的过期是常态：
+				// 发 bye·REAUTH 让前端刷新后重连（真的失效时重连会 401，由前端刷新失败再提示登录），不发 gone 把同步永久停掉
+				logx.WithContext(ctx).Infof("gateway: 画布 SSE 连接令牌失效，要求重新鉴权 user=%d canvas=%s（check=canvas_events.session）", uid, id)
+				_ = c.send("", "bye", map[string]any{"canvasId": id, "code": CodeReauth, "reason": "登录令牌已更新，请重新连接"})
 				return false
 			}
 		}
@@ -317,6 +321,9 @@ func (s *Server) Events(w http.ResponseWriter, r *http.Request) {
 			}
 			ev.Clip()
 			if ev.Source == canvasevent.SourceRun {
+				if ev.Run != nil && ev.Run.CanvasID != id {
+					ev.Run = nil // 结果只推给该画布的订阅者（频道已按画布划分，这里再兜一层）
+				}
 				if c.send("", "run", ev) != nil {
 					return
 				}

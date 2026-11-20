@@ -335,7 +335,7 @@ func waitSubscribed(t *testing.T, s *Server) {
 	t.Fatal("没订阅上")
 }
 
-// 心跳复核登录态：失效 → gone(SESSION_EXPIRED) 并关闭；查询抖动（transient）不断开。
+// 心跳复核登录态：连接令牌失效 → bye(REAUTH) 并关闭（前端刷新令牌后重连，不永久停同步）；查询抖动（transient）不断开。
 func TestEventsSessionRecheck(t *testing.T) {
 	s, _, _, srv := setup(t, true)
 	var mu sync.Mutex
@@ -354,7 +354,7 @@ func TestEventsSessionRecheck(t *testing.T) {
 	for drained := false; !drained; {
 		select {
 		case f, more := <-st.frames:
-			if !more || f.event == "gone" {
+			if !more || f.event == "gone" || f.event == "bye" {
 				t.Fatalf("查询抖动不应断开: %+v", f)
 			}
 		default:
@@ -364,9 +364,9 @@ func TestEventsSessionRecheck(t *testing.T) {
 	mu.Lock()
 	transient = false
 	mu.Unlock()
-	g := st.next(t, "gone")
-	if !strings.Contains(g.data, CodeSessionExpired) {
-		t.Fatalf("应 SESSION_EXPIRED: %+v", g)
+	g := st.next(t, "bye")
+	if !strings.Contains(g.data, CodeReauth) {
+		t.Fatalf("应 bye REAUTH（刷新令牌后重连），不是 gone: %+v", g)
 	}
 	select {
 	case _, more := <-st.frames:

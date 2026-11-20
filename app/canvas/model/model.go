@@ -72,10 +72,32 @@ const (
 	RunSucceeded int8 = 2 // 成功：已结算；产物可能仍是私有引用 mr://（后台转存素材库，见 CopyJob），转存后换成素材库地址并入库
 	RunFailed    int8 = 3 // 失败：gateway 后端已退款
 	RunCanceled  int8 = 4 // 已取消：gateway 后端已退款
-	// RunSubmitting 提交中：已落库（task_id / billing_request_id 已生成），正在冻结点数；冻结成功后一次 CAS 转排队。
-	// 轮询器的排队 / 运行中扫描都不看它，只做兜底：超过 5 分钟仍提交中 → 退回可能已冻结的点数并置失败。
+	// RunSubmitting 提交中，两个阶段（按 attempt 区分）：
+	//   - attempt=0：已落库（task_id / billing_request_id 已生成），正在冻结点数；冻结成功后一次 CAS 转排队。
+	//   - attempt>0：派发器已用 CAS 从排队抢到（条件含「未请求取消」，同时 attempt+1），正在向后端发请求；
+	//     成功转运行中，暂时性错误退回排队，永久错误确认网关无已发出调用后失败退款。
+	// 轮询器的排队 / 运行中扫描都不看它，只做兜底（见 logic.advanceSubmitting）。
 	RunSubmitting int8 = 5
 )
+
+// 用户取消请求（afv_canvas_node_run.cancel_request，Go_V1.0.61）。退款只有一个主人，且只在确认没发给供应商之后退：
+// 排队 / 提交中的取消只打标记，由持有 run 的一方（派发器 / 排队推进 / 提交中兜底）确认网关无已发出调用后结束并退款。
+const (
+	CancelNone      int8 = 0 // 没有
+	CancelRequested int8 = 1 // 已请求取消，待确认（接口 cancel_state=requested，前端「取消中」）；只出现在排队 / 提交中
+	CancelRefused   int8 = 2 // 取消被拒：调用已发给供应商，run 照常完成、按实际结算（接口 cancel_state=refused）
+)
+
+// CancelStateText 取消请求 → 接口字面量（空 = 没有）。
+func CancelStateText(v int8) string {
+	switch v {
+	case CancelRequested:
+		return "requested"
+	case CancelRefused:
+		return "refused"
+	}
+	return ""
+}
 
 // RunActive 未结束的状态（同一节点同一时刻只允许一个）。
 var RunActive = []int8{RunSubmitting, RunQueued, RunRunning}
@@ -192,6 +214,7 @@ type NodeRun struct {
 	ErrorReason      sql.NullString  `bun:"error_reason"`
 	TaskID           sql.NullString  `bun:"task_id"`
 	Attempt          int32           `bun:"attempt,notnull"`
+	CancelRequest    int8            `bun:"cancel_request,notnull"` // 用户取消请求（CancelNone / CancelRequested / CancelRefused，Go_V1.0.61）
 	Deleted          int8            `bun:"deleted,notnull"`
 	CreatedAt        time.Time       `bun:"created_at,notnull,default:current_timestamp(3)"`
 	StartedAt        sql.NullTime    `bun:"started_at"`

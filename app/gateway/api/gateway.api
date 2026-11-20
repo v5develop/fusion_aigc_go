@@ -1768,13 +1768,15 @@ type (
 		CreatedAt      int64             `json:"created_at"`
 		FinishedAt     int64             `json:"finished_at"`
 		LibraryStatus  string            `json:"library_status,omitempty"` // 只增：空=已在素材库或不适用；pending=已交付（地址是 10 分钟现签，勿存进节点内容），后台转存素材库中；failed=转存失败，仍可看可下载但不在素材库
+		CancelState    string            `json:"cancel_state,omitempty"` // 只增：用户取消请求。空=没有；requested=排队 / 提交中已请求取消，待确认没发给供应商（显示「取消中」，继续轮询，很快到 cancelled 或回到 running）；refused=取消被拒，已发给供应商，照常完成、按实际用量结算（提示同 reason CANCEL_VENDOR_SENT）
 	}
 	CanvasRunPath {
 		Id int64 `path:"id"`
 	}
 	CanvasCancelResp {
-		RequestId string `json:"request_id"`
-		Status    string `json:"status"`
+		RequestId   string `json:"request_id"`
+		Status      string `json:"status"`
+		CancelState string `json:"cancel_state,omitempty"` // 只增：用户取消请求。空=没有；requested=排队 / 提交中已请求取消，待确认没发给供应商（显示「取消中」，继续轮询，很快到 cancelled 或回到 running）；refused=取消被拒，已发给供应商，照常完成、按实际用量结算（提示同 reason CANCEL_VENDOR_SENT）
 	}
 	CanvasRunsReq {
 		Id     string `path:"id"`
@@ -1943,7 +1945,7 @@ service gateway-api {
 	@handler getRun
 	get /runs/:id (CanvasRunPath) returns (CanvasRunResult)
 
-	@doc "取消执行：gateway 退回点数并取消上游、studio 取消批次、Java 工具调 Java 取消接口（由 Java 退款；取消时已成功则交付；无有效登录态时退化为停止跟踪）"
+	@doc "取消执行：排队 / 提交中只登记取消请求（cancel_state=requested，不改状态、不退款），确认没发给供应商后转 cancelled 并退点，已发出的回到 running 按实际结算（cancel_state=refused）；运行中 gateway 先取消上游、全部取消成功才退点（已发给供应商 4002 + reason CANCEL_VENDOR_SENT）；studio 取消批次、Java 工具调 Java 取消接口（由 Java 退款；取消时已成功则交付；无有效登录态时退化为停止跟踪）"
 	@handler cancelRun
 	post /runs/:id/cancel (CanvasRunPath) returns (CanvasCancelResp)
 

@@ -332,13 +332,13 @@ data: {…Event…}
 
 : ping                             ← 心跳，每 15 秒
 
-event: gone                        ← 不要重连：data.code = CANVAS_GONE（画布已删除 / 不再属于你）| SESSION_EXPIRED（登录已失效，去登录）
-event: bye                         ← 可重连：data.code = RECONNECT（单连接最长 30 分钟，带 Last-Event-ID 重连，顺带重新校验归属）
+event: gone                        ← 不要重连：data.code = CANVAS_GONE（画布已删除 / 不再属于你）（SESSION_EXPIRED 仅旧版发出）
+event: bye                         ← 可重连：data.code = RECONNECT（单连接最长 30 分钟，带 Last-Event-ID 重连，顺带重新校验归属）| REAUTH（连接令牌失效：刷新令牌后重连）
                                      | CONN_SLOT_UNAVAILABLE（连接名额计数 / 续期失败，按 retry 间隔重连）
 ```
 
 * **续传**：重连时带 `Last-Event-ID`（EventSource 自动带最后一个 `id`）或首连时带 `?since=<本地编辑起点 revision>`；与当前 revision 不同 → hello 之后先补发一条 `resync:true` 的 canvas 事件（id=当前 revision）。相同则不补发。
-* **心跳复核登录态**：每次心跳用与网关 Auth 同一套解析（共用会话 / JWT / dev 的 X-User-Id）复核连接时带的凭证仍有效且仍是同一用户；失效发 `gone · SESSION_EXPIRED` 并关闭，查询抖动（Redis 错误）不断开。
+* **心跳复核登录态**：每次心跳用与网关 Auth 同一套解析（共用会话 / JWT / dev 的 X-User-Id）复核连接时带的凭证仍有效且仍是同一用户；失效发 `bye · REAUTH` 并关闭（连接沿用建连时的令牌，用户一直在用时其它请求早已刷新，这把旧的过期是常态：前端刷新令牌后重连，真的失效时重连 401、刷新失败才提示登录），查询抖动（Redis 错误）不断开。
 * **心跳对账**：每次心跳顺带查一次当前 revision，与已推送的不同就补发 resync 事件——兜住 pub/sub 至多一次丢消息、canvas-rpc 没配 `Events.RedisAddr`、本连接缓冲溢出等情况；画布没了发 `gone`。
 * **乱序 / 重复**：同 revision 的重复事件、revision 毫秒更早的事件（多实例发布乱序）不推。
 * **并发上限**：每用户同时 ≤`CanvasEvents.MaxConnsPerUser`（默认 5，跨实例：会话 Redis 有序集合 `canvas:sse:conns:{uid}`，名额 3×心跳未续期自动失效）；超出回 `4002 · CANVAS_EVENTS_TOO_MANY`（不开流）。每次心跳用 ZADD（不带 XX）续期，被当作残留清掉的名额会加回；计数或续期出错不放行，发 `bye · CONN_SLOT_UNAVAILABLE` 结束。

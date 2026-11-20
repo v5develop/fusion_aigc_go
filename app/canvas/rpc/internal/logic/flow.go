@@ -654,17 +654,19 @@ func (c *core) advanceQueuedRun(ctx context.Context, run *model.NodeRun, gone ma
 			return
 		}
 	}
+	if run.CancelRequest == model.CancelRequested {
+		// 用户已请求取消（标记落在派发器抢 run 之前，或派发器宕机后由兜底退回排队）：确认网关无已发出调用后取消退款
+		c.closeQueuedCancel(ctx, run, c.s.Bearers.Get(run.UserID))
+		return
+	}
+	// 画布已删 / 排队超时：不再提交。此前提交过（attempt>0）的先按幂等键取回调用并取消，确认都没发出去才结束退款；
+	// 有已发出的转运行中按实际结算；暂时确认不了留在排队，下一轮再来（abortUnsent）
 	if gone[run.CanvasID] {
-		// 画布已删：不再提交，取消并退款（之前提交过但没写上 backend_ref 的调用一并回收）
-		if c.endRun(ctx, run, model.RunQueued, model.RunCanceled, "CANCELED", "画布已删除，执行已取消", true, false) {
-			c.reclaimQueuedCalls(ctx, run, "画布已删除")
-		}
+		c.abortUnsent(ctx, run, model.RunQueued, runEnd{to: model.RunCanceled, code: "CANCELED", msg: "画布已删除，执行已取消", why: "画布已删除"}, nil, run.Attempt > 0)
 		return
 	}
 	if c.expired(run) {
-		if c.failRun(ctx, run, model.RunQueued, "TIMEOUT", "排队超时，点数已退回", true) {
-			c.reclaimQueuedCalls(ctx, run, "排队超时")
-		}
+		c.abortUnsent(ctx, run, model.RunQueued, runEnd{to: model.RunFailed, code: "TIMEOUT", msg: "排队超时，点数已退回", why: "排队超时"}, nil, run.Attempt > 0)
 		return
 	}
 	sp, err := c.specFromRun(ctx, run)

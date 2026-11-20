@@ -141,10 +141,18 @@ func TestCancelQueuedJavaWithoutRequestNoReplay(t *testing.T) {
 	c, mock := mockCore(t)
 	fj := &fakeJava{submit: submitOK, cancel: javaOK}
 	fj.start(t, c)
-	mock.ExpectQuery(qRunGet).WillReturnRows(sqlmock.NewRows(runCols).AddRow(21, "cv_1", 7, 0, "java", "tool_upscale", nil, "java", `{}`, nil, nil, nil))
+	cols := append(runCols, "cancel_request")
+	mock.ExpectQuery(qRunGet).WillReturnRows(sqlmock.NewRows(cols).AddRow(21, "cv_1", 7, 0, "java", "tool_upscale", nil, "java", `{}`, nil, nil, nil, 0))
+	// 排队中（没发过请求）：只打取消标记，抢到租约后就地收尾（没有 Java 任务 → 直接置已取消）
+	expectRequestCancel(mock, 21, true)
+	mock.ExpectExec(qRunLease + ".*WHERE `id` = 21 AND").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery(qRunGet).WillReturnRows(sqlmock.NewRows(cols).AddRow(21, "cv_1", 7, 0, "java", "tool_upscale", nil, "java", `{}`, nil, nil, nil, 1))
 	mock.ExpectExec("SET `status` = 4, .*`error_reason` = '已取消执行'.* WHERE \\(`id` = 21\\) AND \\(`status` = 0\\)").WillReturnResult(sqlmock.NewResult(0, 1))
-	if _, err := c.CancelRun(withBearer("Bearer b"), &canvas.RunIdReq{UserId: 7, Id: 21}); err != nil {
-		t.Fatal(err)
+	mock.ExpectExec(qRunRelease + "WHERE `id` = 21 AND").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery(qRunGet).WillReturnRows(sqlmock.NewRows(cols).AddRow(21, "cv_1", 7, 4, "java", "tool_upscale", nil, "java", `{}`, "CANCELED", "已取消执行", nil, 1))
+	out, err := c.CancelRun(withBearer("Bearer b"), &canvas.RunIdReq{UserId: 7, Id: 21})
+	if err != nil || out.Status != "cancelled" {
+		t.Fatalf("%+v %v", out, err)
 	}
 	if len(fj.submits) != 0 || len(fj.calls()) != 0 {
 		t.Fatalf("没发过请求不应重放 / 取消: %v %v", fj.submits, fj.calls())
@@ -172,6 +180,8 @@ func TestDispatchJavaRetryExhaustedRecoversAndCancels(t *testing.T) {
 	c, mock := mockCore(t)
 	fj := &fakeJava{submit: seq(submit502, submitOK), cancel: javaOK}
 	fj.start(t, c)
+	expectClaim(mock, 21, 1, true)
+	expectReleaseToQueued(mock, 21)
 	mock.ExpectExec("UPDATE `afv_canvas_node_run` SET `status` = 1, .*`backend_ref` = 'JT9'.* WHERE \\(`id` = 21\\) AND \\(`status` = 0\\)").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec("UPDATE `afv_canvas_node_run` SET `status` = 3, .*`error_code` = 'SUBMIT_FAILED', `error_reason` = '提交失败，请稍后重试；已请求 Java 取消.* WHERE \\(`id` = 21\\) AND \\(`status` = 1\\)").
@@ -195,6 +205,8 @@ func TestDispatchJavaRetryExhaustedDegradesWhenUnrecoverable(t *testing.T) {
 	c, mock := mockCore(t)
 	fj := &fakeJava{submit: submit502, cancel: javaOK}
 	fj.start(t, c)
+	expectClaim(mock, 21, 1, true)
+	expectReleaseToQueued(mock, 21)
 	mock.ExpectExec("SET `error_code` = 'JAVA_CANCEL_PENDING:s:1:[0-9]+', `error_reason` = '提交失败，请稍后重试' WHERE \\(id = 21\\) AND \\(status = 0\\)").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	_ = c.dispatch(context.Background(), queuedJava(true), upscaleSpec, "Bearer b")
@@ -236,6 +248,8 @@ func TestDispatchJavaPermanentAfterUnknownGoesStopJava(t *testing.T) {
 			c, mock := mockCore(t)
 			fj := &fakeJava{submit: tc.submit, cancel: javaOK}
 			fj.start(t, c)
+			expectClaim(mock, 21, 1, true)
+			expectReleaseToQueued(mock, 21)
 			mock.ExpectExec("SET `status` = 3, .*`error_code` = 'SUBMIT_FAILED', `error_reason` = '" + tc.reason + ".* WHERE \\(`id` = 21\\) AND \\(`status` = 0\\)").
 				WillReturnResult(sqlmock.NewResult(0, 1))
 			_ = c.dispatch(context.Background(), queuedJava(true), upscaleSpec, "Bearer b")
@@ -256,6 +270,8 @@ func TestDispatchJavaFirstRejectFailsDirectly(t *testing.T) {
 	fj.start(t, c)
 	run := queuedJava(true)
 	run.Attempt = 0
+	expectClaim(mock, 21, 0, true)
+	expectReleaseToQueued(mock, 21)
 	mock.ExpectExec("SET `status` = 3, .*`error_code` = 'PARAM_INVALID', `error_reason` = '同一幂等键已用于内容不同的请求，请更换 Idempotency-Key'.* WHERE \\(`id` = 21\\) AND \\(`status` = 0\\)").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	_ = c.dispatch(context.Background(), run, upscaleSpec, "Bearer b")

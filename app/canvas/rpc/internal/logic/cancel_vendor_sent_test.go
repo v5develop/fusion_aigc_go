@@ -340,38 +340,3 @@ func TestUnrecordedCallRefusedAfterCancelLogsOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 }
-
-// 排队中且提交过（attempt>0、没有 backend_ref）的 run 用户取消：行为不变（先结束退款），按幂等键取回的调用被网关拒绝时
-// 只记 ERROR（check=canvas.orphan_call_vendor_sent），不崩。
-func TestCancelQueuedReclaimRefusedLogsOnly(t *testing.T) {
-	c, mock := mockCore(t)
-	c.s.Billing = billing.New(billing.Conf{Mode: billing.ModeOff}, nil)
-	var cancels int
-	var mu sync.Mutex
-	srv, _ := fakeServer(t, func(w http.ResponseWriter, r *http.Request, _ []byte) {
-		if strings.HasSuffix(r.URL.Path, "/cancel") {
-			mu.Lock()
-			cancels++
-			mu.Unlock()
-			w.WriteHeader(http.StatusConflict)
-			_, _ = fmt.Fprintf(w, cancelRefusedBody, "call_aaaaaaaaaa07")
-			return
-		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"id": "call_aaaaaaaaaa07", "status": "RUNNING", "vendor_accepted": true})
-	})
-	c.s.Gateway = aigateway.New(aigateway.Config{BaseURL: srv.URL, KeyID: "k", Secret: "s"})
-	mock.ExpectQuery("FROM `afv_canvas_node_run` AS `r` WHERE \\(r.id = 41\\)").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "canvas_id", "node_id", "user_id", "status", "backend", "kind", "billing_status", "attempt", "requested_count", "task_id", "request"}).
-			AddRow(41, "cv_1", "m", 7, 0, "gateway", "image", "none", 2, 1, "cv_t", `{"model":"Banana","prompt":"p","count":1}`))
-	mock.ExpectExec("SET `status` = 4, .*`error_code` = 'CANCELED'.* WHERE \\(`id` = 41\\) AND \\(`status` = 0\\)").WillReturnResult(sqlmock.NewResult(0, 1))
-	out, err := c.CancelRun(context.Background(), &canvas.RunIdReq{UserId: 7, Id: 41})
-	if err != nil || out.Status != model.StatusText(model.RunCanceled) {
-		t.Fatalf("排队中取消行为不变: %+v %v", out, err)
-	}
-	if cancels != 1 {
-		t.Fatalf("应取回并尝试取消一次: %d", cancels)
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatal(err)
-	}
-}

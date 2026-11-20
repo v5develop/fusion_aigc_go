@@ -154,5 +154,6 @@ func (c *core) recoverJavaRef(ctx context.Context, run *model.NodeRun, bearer st
 	run.Status, run.Attempt = model.RunRunning, run.Attempt+1
 	run.BackendRef.String, run.BackendRef.Valid = sub.TaskID, true
 	c.traceRunning(ctx, run, 0, 1)
+	c.publishRun(ctx, run)
 	return recoverOK, nil
 }

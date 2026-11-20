@@ -30,6 +30,9 @@ type core struct {
 	s   *svc.ServiceContext
 	now func() time.Time
 
+	// cancelWait 排队 / 提交中取消打完标记后，CancelRun 最多等这么久看派发器收尾的结果（到终态 / 转运行中）；0 = 只看一次。
+	cancelWait time.Duration
+
 	renewAt time.Time // 上次续期预留单的时间（只有 Poller 的 core 用；零值 = 下一轮立刻做）
 
 	// 以下只有 Poller 的 core 用（单 goroutine）。
@@ -37,7 +40,9 @@ type core struct {
 	unsettledAlerted map[int64]bool // 已 ERROR 告警过「交付了没扣成费」的 run（本进程只报一次，之后降为 Info）
 }
 
-func newCore(s *svc.ServiceContext) *core { return &core{s: s, now: time.Now} }
+func newCore(s *svc.ServiceContext) *core {
+	return &core{s: s, now: time.Now, cancelWait: defaultCancelWait}
+}
 
 // BearerFrom 取请求里透传的用户 Bearer（没有返回空串）。
 func BearerFrom(ctx context.Context) string {
@@ -243,6 +248,10 @@ func (c *core) toResult(ctx context.Context, r *model.NodeRun) *canvas.RunResult
 		Kind: string(r.Kind), Status: model.StatusText(r.Status), Progress: c.progressOf(r), Model: req.Model,
 		SelectedIndex: r.SelectedIndex, Text: r.ResultText.String, VideoUrl: r.VideoURL.String,
 		Credits: r.Points, RequestedCount: r.RequestedCount, CreatedAt: ms(r.CreatedAt), TaskId: r.TaskID.String,
+	}
+	// 取消请求：requested（取消中）只对未结束的 run 有意义；refused（已发给供应商、取消被拒）一直带着，前端可提示「按实际用量结算」
+	if r.CancelRequest == model.CancelRefused || (r.CancelRequest == model.CancelRequested && !model.RunFinal(r.Status)) {
+		out.CancelState = model.CancelStateText(r.CancelRequest)
 	}
 	if out.Model == "" {
 		out.Model = req.Tool

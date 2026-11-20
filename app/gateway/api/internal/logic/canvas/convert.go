@@ -89,7 +89,7 @@ func toRunResult(r *canvas_client.RunResult) types.CanvasRunResult {
 		Progress: r.Progress, Model: r.Model, SelectedIndex: r.SelectedIndex, VideoUrl: r.VideoUrl, Text: r.Text,
 		Credits: r.Credits, RequestedCount: r.RequestedCount, Error: r.Error, ErrorCode: r.ErrorCode, Retryable: r.Retryable,
 		CreatedAt: r.CreatedAt, FinishedAt: r.FinishedAt, Candidates: make([]types.CanvasCandidate, 0, len(r.Candidates)),
-		LibraryStatus: r.LibraryStatus,
+		LibraryStatus: r.LibraryStatus, CancelState: r.CancelState,
 	}
 	for _, c := range r.Candidates {
 		out.Candidates = append(out.Candidates, types.CanvasCandidate{Url: c.Url, Width: c.Width, Height: c.Height, ThumbUrl: c.ThumbUrl})

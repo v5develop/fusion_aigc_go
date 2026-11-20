@@ -28,6 +28,7 @@ import (
 	"aigc-local-life/pkg/taskevent"
 	"aigc-local-life/pkg/xerr"
 
+	"github.com/uptrace/bun"
 	"github.com/zeromicro/go-zero/core/logx"
 )
 
@@ -118,32 +119,87 @@ func (c *core) holdAndQueue(ctx context.Context, run *model.NodeRun, sp *runSpec
 	return nil
 }
 
-// advanceSubmitting 提交中兜底：创建超过 submittingTTL 仍提交中 → CAS 置失败，有计费请求号的退回（无单时是空操作）。
+// advanceSubmitting 提交中兜底（Poller 每轮）：
+//   - 冻结阶段（attempt=0）创建超过 submittingTTL 仍提交中 → CAS 置失败（已请求取消的置已取消），有计费请求号的退回
+//     （无单时是空操作）。这一阶段从没向后端发过请求，退款不需要再确认。
+//   - 派发阶段（attempt>0）超过 submittingTTL 没有动静、租约也已失效（派发器宕机 / 早已放手）→ 退回排队：没请求取消的
+//     由排队推进按同一幂等键重提（拿回同一批调用，不重复提交）；已请求取消的就地按取消收尾——确认网关上没有已发出的调用
+//     才退款，已发出的转运行中按实际结算（closeQueuedCancel → abortUnsent）。
 func (c *core) advanceSubmitting(ctx context.Context) {
-	list, err := c.s.Repo.Run.ListStale(ctx, model.RunSubmitting, c.now().Add(-submittingTTL), c.s.Config.Poll.BatchSize)
+	c.advanceStaleHolding(ctx)
+	c.advanceStaleDispatching(ctx)
+}
+
+func (c *core) advanceStaleHolding(ctx context.Context) {
+	list, err := c.s.Repo.Run.ListStaleHolding(ctx, c.now().Add(-submittingTTL), c.s.Config.Poll.BatchSize)
 	if err != nil {
 		logx.WithContext(ctx).Errorf("canvas: 查提交中 run 失败: %v", err)
 		return
 	}
 	for _, run := range list {
 		bctx, cancel := detached(ctx)
-		set := map[string]any{"error_code": "SUBMIT_TIMEOUT", "error_reason": "提交超时，点数已退回"}
+		to, code, msg := model.RunFailed, "SUBMIT_TIMEOUT", "提交超时，点数已退回"
+		if run.CancelRequest == model.CancelRequested {
+			to, code, msg = model.RunCanceled, "CANCELED", msgUserCanceled
+		}
+		set := map[string]any{"error_code": code, "error_reason": msg}
 		if run.BillingRequestID.Valid {
 			set["billing_status"], set["points"] = model.BillRefunded, 0
 		}
-		ok, err := c.s.Repo.Run.Transit(bctx, run.ID, model.RunSubmitting, model.RunFailed, set)
+		ok, err := c.s.Repo.Run.Transit(bctx, run.ID, model.RunSubmitting, to, set)
 		if err != nil {
 			logx.WithContext(ctx).Errorf("canvas: run %d 提交中兜底置失败出错: %v", run.ID, err)
 		} else if ok {
-			logx.WithContext(ctx).Errorf("canvas: run %d 提交中超过 %s，已置失败并退回冻结", run.ID, submittingTTL)
-			c.traceEnded(bctx, run, model.RunSubmitting, "SUBMIT_TIMEOUT", "提交超时，点数已退回", run.BillingRequestID.Valid)
+			logx.WithContext(ctx).Errorf("canvas: run %d 提交中（冻结阶段）超过 %s，已置%s并退回冻结", run.ID, submittingTTL, model.StatusText(to))
+			c.traceEnded(bctx, run, model.RunSubmitting, code, msg, run.BillingRequestID.Valid)
 			if run.BillingRequestID.Valid {
 				c.refundTrace(bctx, run, "提交超时")
 			}
-			run.Status = model.RunFailed
+			run.Status = to
 			c.publishRun(bctx, run)
 		}
 		cancel()
+	}
+}
+
+func (c *core) advanceStaleDispatching(ctx context.Context) {
+	list, err := c.s.Repo.Run.ListStaleDispatching(ctx, c.now().Add(-submittingTTL), c.s.Config.Poll.BatchSize)
+	if err != nil {
+		logx.WithContext(ctx).Errorf("canvas: 查派发中 run 失败: %v", err)
+		return
+	}
+	if len(list) == 0 {
+		return
+	}
+	ls := c.leases()
+	defer ls.Close()
+	for _, run := range list {
+		if !acquire(ctx, ls, run) {
+			continue
+		}
+		if code, ok := strings.CutPrefix(run.ErrorCode.String, submitUnconfirmed); ok && run.Backend == model.BackendGateway {
+			// 提交以永久错误结束、当时有提交结局未知：此刻（过了 submittingTTL）按幂等键查，404 才算没建单——
+			// 都没发出 → 失败退款；有已发出的 → 转运行中按实际结算；仍无法确认 → 留着下一轮
+			c.abortUnsent(ctx, run, model.RunSubmitting, runEnd{to: model.RunFailed, code: code, msg: run.ErrorReason.String, why: "提交失败（兜底确认）"}, nil, true)
+			ls.Release(ctx, run.ID)
+			c.handOff(run)
+			continue
+		}
+		ok, err := c.s.Repo.Run.TransitAttempt(ctx, run.ID, model.RunSubmitting, model.RunQueued, run.Attempt, nil)
+		switch {
+		case err != nil:
+			logx.WithContext(ctx).Errorf("canvas: run %d 派发中兜底退回排队出错: %v", run.ID, err)
+		case ok:
+			run.Status = model.RunQueued
+			c.publishRun(ctx, run)
+			logx.WithContext(ctx).Errorf("canvas: run %d 派发中超过 %s 无人处理（派发器宕机？），已退回排队 (check=canvas.dispatch_stale cancel_request=%d)",
+				run.ID, submittingTTL, run.CancelRequest)
+			if run.CancelRequest == model.CancelRequested {
+				c.closeQueuedCancel(ctx, run, c.s.Bearers.Get(run.UserID))
+			}
+		}
+		ls.Release(ctx, run.ID)
+		c.handOff(run)
 	}
 }
 
@@ -155,15 +211,21 @@ func (c *core) advanceSubmitting(ctx context.Context) {
 // 运营强制失败 / 提交失败孤儿等路径的结束 / 退款决定已经做出，被拒的调用之后若成功，产物和供应商费用由网关记账
 // （late 结果），画布侧不会再收尾——与网关加这条契约之前（调用被置 CANCELLED、产物另存）的结局相同。
 func (c *core) cancelCalls(ctx context.Context, runID int64, ids []string, why string) (refused []string) {
+	refused, _ = c.cancelCallsVerdict(ctx, runID, ids, why)
+	return refused
+}
+
+// cancelCallsVerdict 同 cancelCalls，另返回取消出错（网关暂时不可用等，不知道是否已取消）的调用：调用方据此不把「没确认」当「已取消」。
+func (c *core) cancelCallsVerdict(ctx context.Context, runID int64, ids []string, why string) (refused, failed []string) {
 	if len(ids) == 0 || !c.s.Gateway.Enabled() {
-		return nil
+		return nil, nil
 	}
 	bctx, cancel := detached(ctx)
 	defer cancel()
 	for _, id := range ids {
 		_, err := c.s.Gateway.Cancel(bctx, id)
 		switch {
-		case err == nil:
+		case err == nil, errors.Is(err, aigateway.ErrNotFound):
 		case aigateway.IsCancelNotAllowed(err):
 			refused = append(refused, id)
 			// 超时等待期内每个轮询 tick 都会再取消一次同一条调用：同一条只记第一次，不刷屏
@@ -172,10 +234,11 @@ func (c *core) cancelCalls(ctx context.Context, runID int64, ids []string, why s
 					runID, why, id, aigateway.CheckCancelVendorSent)
 			}
 		default:
+			failed = append(failed, id)
 			logx.WithContext(ctx).Infof("canvas: run %d %s，取消 gateway 调用 %s: %v", runID, why, id, err)
 		}
 	}
-	return refused
+	return refused, failed
 }
 
 // onceSet 有上限的「只记一次」集合（满了整体清空，最坏多打几行日志）。
@@ -252,15 +315,43 @@ func callVendorSent(call *aigateway.Call) bool {
 //     也不会少收（发出去的调用成功了照常结算，而不是像以前先全退再丢产物）。其它取消错误（网关暂时不可用等）同样保持运行中、
 //     回可重试错误。调用不存在（404）视为无需取消。
 func (c *core) userCancelGatewayCalls(ctx context.Context, run *model.NodeRun, ids []string) error {
+	switch v, _ := c.cancelUnsent(ctx, run, ids, "用户取消"); v {
+	case unsentSent:
+		return errCancelVendorSent()
+	case unsentUnknown:
+		return xerr.New(xerr.ThirdPartyError, "暂时无法取消，请稍后重试")
+	}
+	return nil
+}
+
+// unsentVerdict cancelUnsent 的结论。
+type unsentVerdict int
+
+const (
+	unsentConfirmed unsentVerdict = iota // 都没发出去：已取消 / 本就失败或取消 / 网关上不存在（或根本没有调用）
+	unsentSent                           // 有调用已发给供应商 / 已出结果：网关拒绝取消，run 必须照常完成、按实际用量结算
+	unsentUnknown                        // 暂时无法确认（读不到调用 / 取消出错）：不能退款
+)
+
+// cancelUnsent userCancelGatewayCalls 的两步（预检 + 逐个取消），给用户取消与排队 / 提交中收尾（abortUnsent）共用。
+// 返回结论与被拒（已发送 / 已出结果）的调用。why 只用于日志。
+func (c *core) cancelUnsent(ctx context.Context, run *model.NodeRun, ids []string, why string) (unsentVerdict, []string) {
+	if len(ids) == 0 {
+		return unsentConfirmed, nil
+	}
 	log := logx.WithContext(ctx)
+	if !c.s.Gateway.Enabled() {
+		log.Errorf("canvas: run %d %s，有 gateway 调用 %s 但网关未配置，无法确认是否已发出 (check=canvas.cancel_precheck)", run.ID, why, strings.Join(ids, ","))
+		return unsentUnknown, nil
+	}
 	bctx, cancel := detached(ctx)
 	defer cancel()
 	calls := map[string]*aigateway.Call{}
 	for i := 0; i < len(ids); i += aigateway.MaxBatchGet {
 		got, err := c.s.Gateway.BatchGet(bctx, ids[i:min(len(ids), i+aigateway.MaxBatchGet)])
 		if err != nil {
-			log.Errorf("canvas: run %d 用户取消，查 gateway 调用失败，不取消、不结束 (check=canvas.cancel_precheck): %v", run.ID, err)
-			return xerr.New(xerr.ThirdPartyError, "暂时无法取消，请稍后重试")
+			log.Errorf("canvas: run %d %s，查 gateway 调用失败，不取消、不结束 (check=canvas.cancel_precheck): %v", run.ID, why, err)
+			return unsentUnknown, nil
 		}
 		for j := range got {
 			calls[got[j].ID] = &got[j]
@@ -268,9 +359,9 @@ func (c *core) userCancelGatewayCalls(ctx context.Context, run *model.NodeRun, i
 	}
 	for _, id := range ids {
 		if callVendorSent(calls[id]) {
-			log.Infof("canvas: run %d 用户取消被拒：gateway 调用 %s 已发给供应商（状态 %s），任务照常完成、按实际用量结算 (check=%s)",
-				run.ID, id, calls[id].Status, aigateway.CheckCancelVendorSent)
-			return errCancelVendorSent()
+			log.Infof("canvas: run %d %s被拒：gateway 调用 %s 已发给供应商（状态 %s），任务照常完成、按实际用量结算 (check=%s)",
+				run.ID, why, id, calls[id].Status, aigateway.CheckCancelVendorSent)
+			return unsentSent, []string{id}
 		}
 	}
 	var refused, failed []string
@@ -286,19 +377,19 @@ func (c *core) userCancelGatewayCalls(ctx context.Context, run *model.NodeRun, i
 		case aigateway.IsCancelNotAllowed(err):
 			refused = append(refused, id)
 		default:
-			log.Errorf("canvas: run %d 用户取消，取消 gateway 调用 %s 失败: %v", run.ID, id, err)
+			log.Errorf("canvas: run %d %s，取消 gateway 调用 %s 失败: %v", run.ID, why, id, err)
 			failed = append(failed, id)
 		}
 	}
 	if len(refused) > 0 {
-		log.Infof("canvas: run %d 用户取消被拒：调用 %s 在预检后已发给供应商 / 已出结果，run 继续运行，未发送的已取消（零成本），由轮询器按部分成功收尾 (check=%s)",
-			run.ID, strings.Join(refused, ","), aigateway.CheckCancelVendorSent)
-		return errCancelVendorSent()
+		log.Infof("canvas: run %d %s被拒：调用 %s 在预检后已发给供应商 / 已出结果，run 继续运行，未发送的已取消（零成本），由轮询器按部分成功收尾 (check=%s)",
+			run.ID, why, strings.Join(refused, ","), aigateway.CheckCancelVendorSent)
+		return unsentSent, refused
 	}
 	if len(failed) > 0 {
-		return xerr.New(xerr.ThirdPartyError, "暂时无法取消，请稍后重试")
+		return unsentUnknown, nil
 	}
-	return nil
+	return unsentConfirmed, nil
 }
 
 // cancelUnrecordedCalls 置状态的 CAS 没抢到时收尾本次提交拿到的 gateway 调用：重读 run 再决定取消哪些。
@@ -318,6 +409,14 @@ func (c *core) cancelUnrecordedCalls(ctx context.Context, runID int64, ids []str
 	rctx, cancel := detached(ctx)
 	cur, err := c.s.Repo.Run.Get(rctx, runID)
 	cancel()
+	c.cancelUnrecordedCallsOf(ctx, runID, cur, err, ids, why)
+}
+
+// cancelUnrecordedCallsOf 同 cancelUnrecordedCalls，run 已由调用方重读（cur / err 为重读结果）。
+func (c *core) cancelUnrecordedCallsOf(ctx context.Context, runID int64, cur *model.NodeRun, err error, ids []string, why string) {
+	if len(ids) == 0 || !c.s.Gateway.Enabled() {
+		return
+	}
 	if err != nil {
 		logx.WithContext(ctx).Errorw(fmt.Sprintf("canvas: run %d %s，重读 run 失败，不取消本次拿到的调用（可能已被别的实例接手在跟踪） (check=canvas.submit_orphan_calls)", runID, why),
 			logx.Field("calls", strings.Join(ids, ",")), logx.Field("err", err.Error()))
@@ -381,42 +480,176 @@ func (c *core) cancelUpstream(ctx context.Context, run *model.NodeRun, why strin
 	}
 }
 
-// reclaimQueuedCalls 排队超时 / 画布已删的 gateway run：此前提交过（attempt>0）但 backend_ref 没写上时，
-// 用同一幂等键再提交一次取回调用 id（同键同体返回原调用，没有则新建），随即取消，避免孤儿调用继续烧钱。
+// reclaimQueuedCalls 运营强制失败（先结束退款）的 gateway run：此前提交过（attempt>0）但 backend_ref 没写上时，
+// 按幂等键取回调用 id 随即取消，避免孤儿调用继续烧钱（用户取消 / 排队超时 / 画布已删 / 提交失败改走 abortUnsent：先确认再退款）。
 func (c *core) reclaimQueuedCalls(ctx context.Context, run *model.NodeRun, why string) {
 	if run.Backend != model.BackendGateway || run.Attempt <= 0 || !c.s.Gateway.Enabled() {
 		return
 	}
-	sp, err := c.specFromRun(ctx, run)
-	if err != nil {
-		return
-	}
-	bctx, cancel := detached(ctx)
-	defer cancel()
-	reqs, err := c.gatewayRequests(bctx, run, sp)
-	if err != nil {
-		logx.WithContext(ctx).Infof("canvas: run %d %s，重建请求失败，无法回收可能的孤儿调用: %v", run.ID, why, err)
-		return
-	}
-	var ids []string
-	for i, r := range reqs {
-		key, err := gatewayIdem(run, i)
-		if err != nil {
-			return
-		}
-		call, err := c.s.Gateway.Submit(bctx, r, aigateway.SubmitOptions{IdempotencyKey: key, TraceID: c.traceIDOf(run.ID)})
-		if err != nil {
-			logx.WithContext(ctx).Infof("canvas: run %d %s，按幂等键 %s 取回调用失败: %v", run.ID, why, key, err)
-			continue
-		}
-		ids = append(ids, call.ID)
-	}
+	ids, _ := c.reclaimIDs(ctx, run, why)
 	if refused := c.cancelCalls(ctx, run.ID, ids, why); len(refused) > 0 {
-		// 调用方都已先结束 run 并退款（用户取消 / 运营强制失败 / 排队超时 / 画布已删 / 提交失败），而按幂等键取回的调用
-		// 已发给供应商、网关拒绝取消：供应商会扣费、产物不交付，只记这笔成本待核对（与 cancelUnrecordedCalls 一致）。
+		// run 已先结束并退款（运营强制失败），而按幂等键取回的调用已发给供应商、网关拒绝取消：供应商会扣费、产物不交付，
+		// 只记这笔成本待核对（与 cancelUnrecordedCalls 一致）。
 		logx.WithContext(ctx).Errorw(fmt.Sprintf("canvas: run %d %s，run 已结束（状态 %d）但按幂等键取回的调用已发给供应商、网关拒绝取消，供应商成本由平台承担 (check=canvas.orphan_call_vendor_sent)", run.ID, why, run.Status),
 			logx.Field("calls", strings.Join(refused, ",")), logx.Field("gateway_check", aigateway.CheckCancelVendorSent))
 	}
+}
+
+// reclaimIDs 按幂等键（canvas:<task_id>:<i>）只查不建地取回本 run 在网关上已建的调用（GET /v1/calls?idempotency_key=），
+// 按下标顺序。绝不用 Submit 同键重放「找回」：网关上没有时那会新建并立即派发，取消流程自己制造一次供应商调用，
+// 之后取消被拒就把成本转给了用户。
+//   - 404 → 该键在网关上不存在（没建过单），跳过；
+//   - 其它错误（网络 / 5xx / 鉴权 / 冲突）→ ok=false：暂时无法确认，调用方不能据此退款，保持原状态等下一轮。
+//
+// 调用个数与提交一致：image 每张一个调用（requested_count 张），其余一个。
+func (c *core) reclaimIDs(ctx context.Context, run *model.NodeRun, why string) (ids []string, ok bool) {
+	if run.Backend != model.BackendGateway {
+		return nil, true
+	}
+	log := logx.WithContext(ctx)
+	if !c.s.Gateway.Enabled() {
+		log.Errorf("canvas: run %d %s，网关未配置，无法确认此前的提交有没有建单 (check=canvas.reclaim_lookup)", run.ID, why)
+		return nil, false
+	}
+	n := 1
+	if run.Kind == model.KindImage {
+		n = max(1, int(run.RequestedCount))
+	}
+	bctx, cancel := detached(ctx)
+	defer cancel()
+	for i := range n {
+		key, err := gatewayIdem(run, i)
+		if err != nil {
+			return ids, true // 没有 task_id 就生成不了幂等键，也就从没提交过
+		}
+		call, err := c.s.Gateway.GetByKey(bctx, key)
+		switch {
+		case err == nil:
+			ids = append(ids, call.ID)
+		case errors.Is(err, aigateway.ErrNotFound):
+			// 没建过单
+		default:
+			log.Infof("canvas: run %d %s，按幂等键 %s 查调用失败，暂时无法确认，不退款、下一轮重试 (check=canvas.reclaim_lookup): %v", run.ID, why, key, err)
+			return nil, false
+		}
+	}
+	return ids, true
+}
+
+// runEnd abortUnsent 确认没发出去之后的结局。
+type runEnd struct {
+	to        int8
+	code, msg string
+	why       string // 日志用
+	user      bool   // 用户取消：有调用已发出时把取消标记改成「被拒」（cancel_request=2）
+}
+
+// submitUnconfirmed 提交中 run 的 error_code 前缀：提交以永久错误结束但有提交结局未知，待兜底确认网关有无建单后再收尾
+// （后接最终失败码，error_reason 为最终文案；提交中不对外展示 error_code）。
+const submitUnconfirmed = "SUBMIT_UNCONFIRMED:"
+
+// msgUserCanceled 用户取消的 error_reason。
+const msgUserCanceled = "已取消执行"
+
+var userCancelEnd = runEnd{to: model.RunCanceled, code: "CANCELED", msg: msgUserCanceled, why: "用户取消", user: true}
+
+// abortUnsent 不再继续一个还没转运行中的 run（排队 / 提交中；调用方持有它：行租约 + 本次抢 run 的 CAS，或已请求取消）：
+// 用户取消 / 排队超时 / 画布已删 / 提交失败。产品决策：退款只有一个主人，且只在确认网关上没有已发出的调用之后。
+//
+// known 是本次提交拿到的调用；reclaim=true 表示此前（或本次结局未知的）提交可能已建了没记下来的调用，按幂等键取回。然后：
+//   - 全部确认没发出（已取消 / 不存在 / 从没提交）→ CAS from→to 并退款；
+//   - 有调用已发给供应商（网关拒绝取消）→ 不退款，CAS from→运行中、backend_ref 记下全部调用，由轮询器按实际用量收尾
+//     （ClassifyGateway 的部分成功语义）；用户取消时 cancel_request=2（接口 cancel_state=refused）；
+//   - 暂时无法确认（网关不可用）→ 什么都不改，返回 false，由下一轮重试（排队推进 / 提交中兜底退回排队后再来）。
+//
+// 非 gateway 后端没有网关调用，直接 CAS from→to（Go 侧冻结的退款；Java / studio 自行计费）。
+// 返回 run 是否已离开 from（已结束或已转运行中）。
+func (c *core) abortUnsent(ctx context.Context, run *model.NodeRun, from int8, end runEnd, known []string, reclaim bool) bool {
+	if run.Backend != model.BackendGateway {
+		return c.endRun(ctx, run, from, end.to, end.code, end.msg, true, false)
+	}
+	log := logx.WithContext(ctx)
+	if from == model.RunSubmitting {
+		// 派发器提交得太久（行租约过期、兜底已退回排队）时 run 可能已被别的实例重新抢到（attempt 又 +1）在用同一幂等键提交：
+		// 先确认仍归本方（状态 + attempt 与本方抢到时一致），否则只按 cancelUnrecordedCalls 口径处理本次拿到的调用
+		rctx, cancel := detached(ctx)
+		cur, err := c.s.Repo.Run.Get(rctx, run.ID)
+		cancel()
+		if err != nil || cur == nil || cur.Status != from || cur.Attempt != run.Attempt {
+			c.cancelUnrecordedCallsOf(ctx, run.ID, cur, err, known, end.why)
+			return false
+		}
+		run.CancelRequest = cur.CancelRequest
+	}
+	ids := known
+	if reclaim {
+		got, ok := c.reclaimIDs(ctx, run, end.why)
+		if !ok {
+			log.Infof("canvas: run %d %s，暂时无法确认网关上有没有已发出的调用，不结束、不退款，下一轮重试 (check=canvas.abort_unconfirmed)", run.ID, end.why)
+			return false
+		}
+		ids = mergeIDs(got, known)
+	}
+	v, _ := c.cancelUnsent(ctx, run, ids, end.why)
+	switch v {
+	case unsentUnknown:
+		log.Infof("canvas: run %d %s，暂时无法确认调用 %s 是否已发出，不结束、不退款，下一轮重试 (check=canvas.abort_unconfirmed)", run.ID, end.why, strings.Join(ids, ","))
+		return false
+	case unsentSent:
+		// 清掉可能残留的待确认失败原因（SUBMIT_UNCONFIRMED:…）：run 接着按运行中跟踪
+		set := map[string]any{"backend_ref": strings.Join(ids, ","), "progress": 5, "error_code": nil, "error_reason": nil}
+		if end.user {
+			set["cancel_request"] = model.CancelRefused
+		} else {
+			// 系统路径（提交失败 / 排队超时 / 画布已删）收尾时 run 若带着用户的取消标记，同样改成「被拒」，否则前端一直显示「取消中」
+			set["cancel_request"] = bun.Safe(fmt.Sprintf("IF(cancel_request = %d, %d, cancel_request)", model.CancelRequested, model.CancelRefused))
+		}
+		bctx, cancel := detached(ctx)
+		ok, err := c.s.Repo.Run.Transit(bctx, run.ID, from, model.RunRunning, set)
+		cancel()
+		if err != nil || !ok {
+			// 写库失败（下一轮再来：同键取回同一批调用，仍被拒就再转）或 run 已被别处结束（运营强制失败，已退款）：
+			// 后者已发出的调用成本由平台承担，只记这笔成本待核对
+			log.Errorw(fmt.Sprintf("canvas: run %d %s，有调用已发给供应商（网关拒绝取消），转运行中跟踪失败 (check=canvas.orphan_call_vendor_sent)", run.ID, end.why),
+				logx.Field("calls", strings.Join(ids, ",")), logx.Field("gateway_check", aigateway.CheckCancelVendorSent), logx.Field("err", fmt.Sprint(err)))
+			return ok
+		}
+		log.Infof("canvas: run %d %s，有调用已发给供应商、网关拒绝取消：不退款，转运行中照常完成、按实际用量结算 (check=%s)", run.ID, end.why, aigateway.CheckCancelVendorSent)
+		run.Status, run.BackendRef.String, run.BackendRef.Valid, run.Progress = model.RunRunning, strings.Join(ids, ","), true, 5
+		if end.user || run.CancelRequest == model.CancelRequested {
+			run.CancelRequest = model.CancelRefused
+		}
+		c.traceRunning(ctx, run, 0, len(ids))
+		c.publishRun(ctx, run)
+		return true
+	}
+	return c.endRun(ctx, run, from, end.to, end.code, end.msg, true, false)
+}
+
+// mergeIDs a 后接 b 里 a 没有的（保序去重）。
+func mergeIDs(a, b []string) []string {
+	out := append([]string(nil), a...)
+	seen := make(map[string]bool, len(a))
+	for _, id := range a {
+		seen[id] = true
+	}
+	for _, id := range b {
+		if id != "" && !seen[id] {
+			seen[id] = true
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// closeQueuedCancel 排队中、用户已请求取消的 run（调用方持有租约）按取消收尾：发过请求、可按幂等键找回的 Java 任务走 stopJava
+// （由 Java 判断能否取消、由 Java 退款）；其余走 abortUnsent（gateway 先确认网关无已发出调用再退款）。
+func (c *core) closeQueuedCancel(ctx context.Context, run *model.NodeRun, bearer string) {
+	if javaLive(run) {
+		c.stopJava(ctx, run, stopUser, msgUserCanceled, bearer, 0)
+		return
+	}
+	c.abortUnsent(ctx, run, model.RunQueued, userCancelEnd, nil, run.Attempt > 0)
 }
 
 // reclaimUnrefCalls 取消 / 强制失败的 gateway run 提交过（attempt>0）但没有 backend_ref：此前的提交可能已建调用，
@@ -458,6 +691,9 @@ func (c *core) settle(ctx context.Context, run *model.NodeRun, actual int, calls
 	}
 	if err := c.s.Repo.Run.Update(bctx, run.ID, set); err != nil {
 		logx.WithContext(ctx).Errorf("canvas: run %d 写计费状态 %s 失败: %v", run.ID, bill, err)
+	} else if _, ok := set["points"]; ok {
+		// 按实际用量结算改了点数：成功事件在结算前已推出（credits 还是冻结额），补推一次（失败只记日志）
+		c.publishRunID(bctx, run.ID)
 	}
 	run.BillingStatus = bill
 }

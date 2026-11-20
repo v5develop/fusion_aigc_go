@@ -169,14 +169,15 @@ func (c *core) applyGatewayTimeout(ctx context.Context, run *model.NodeRun, ids 
 		if toCancel == nil { // 判定没给（老调用方 / 测试直接构造）：按全部调用
 			toCancel = ids
 		}
-		if refused := c.cancelCalls(ctx, run.ID, toCancel, "生成超时"); len(refused) > 0 {
+		// 取消出错（网关暂时不可用，不知道调用是否已取消）同样不能当「已取消」退款：与被拒一样等，下一轮再取消
+		if refused, failed := c.cancelCallsVerdict(ctx, run.ID, toCancel, "生成超时"); len(refused)+len(failed) > 0 {
 			until := c.vendorSentWaitUntil(run)
 			if !c.now().After(until) {
 				c.applyGatewayTimeout(ctx, run, ids, timeoutVerdict{extend: true, reason: "vendor_sent_wait", attrs: v.attrs})
 				return false
 			}
-			logx.WithContext(ctx).Errorf("canvas: run %d 超时取消被网关拒绝的调用 %s 等到 %s 仍未终态，按超时失败退款（供应商可能已扣费，产物若晚到由网关记账） (check=canvas.vendor_sent_wait_exceeded)",
-				run.ID, strings.Join(refused, ","), until.Format(time.RFC3339))
+			logx.WithContext(ctx).Errorf("canvas: run %d 超时取消被网关拒绝 / 取消失败的调用 %s 等到 %s 仍未确认，按超时失败退款（供应商可能已扣费，产物若晚到由网关记账） (check=canvas.vendor_sent_wait_exceeded)",
+				run.ID, strings.Join(append(refused, failed...), ","), until.Format(time.RFC3339))
 			attrs["reason"] = "vendor_sent_wait_exceeded"
 		}
 		c.evStart(ctx, run, stTimeout, timeoutFailSeq, attrs)

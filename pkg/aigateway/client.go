@@ -190,6 +190,21 @@ func (c *Client) Get(ctx context.Context, id string, wait time.Duration) (*Call,
 	return &out, nil
 }
 
+// GetByKey 按幂等键读取调用记录（只查不建）。GET /v1/calls?idempotency_key=…，scope=calls。
+// 网关上没有这个键的调用 → 404（errors.Is(err, ErrNotFound)）；与 Submit 同键重放不同，绝不会新建或派发调用，
+// 用于「确认此前的提交有没有在网关上建单」（取消 / 回收时不能自己制造一次供应商调用）。
+func (c *Client) GetByKey(ctx context.Context, idempotencyKey string) (*Call, error) {
+	if !idempotencyKeyRe.MatchString(idempotencyKey) {
+		return nil, fmt.Errorf("aigateway: 幂等键非法 %q (check=aig.idempotency_key)", idempotencyKey)
+	}
+	q := url.Values{"idempotency_key": {idempotencyKey}}
+	var out Call
+	if err := c.do(ctx, PurposeCalls, http.MethodGet, "/v1/calls", q, nil, nil, 0, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // BatchGet 批量读取（≤200）。POST /v1/calls:batchGet，scope=calls。
 // 不存在或不属于本调用方的 id 不在结果里（网关在 missing 中列出，这里不返回，调用方按 id 比对即可）。
 func (c *Client) BatchGet(ctx context.Context, ids []string) ([]Call, error) {
@@ -225,6 +240,52 @@ func (c *Client) Cancel(ctx context.Context, id string) (*Call, error) {
 		return nil, err
 	}
 	return &out, nil
+}
+
+// MaxPrewarmInputs 单次预上传最多几个输入（网关契约 PrewarmRequest.inputs 上限）。
+const MaxPrewarmInputs = 16
+
+// 预上传结果状态（PrewarmItem.Status）。未知的新值按 skipped 看待。
+const (
+	PrewarmQueued  = "queued"
+	PrewarmCached  = "cached"
+	PrewarmSkipped = "skipped"
+)
+
+// PrewarmRequest 参考图预上传请求（POST /v1/media:prewarm）。Inputs 与提交时的 MediaRef 同形，传同一份（mr://{rid}+sha256）才能命中同一缓存。
+type PrewarmRequest struct {
+	ModelGroup string     `json:"model_group"`
+	Operation  string     `json:"operation"`
+	Inputs     []MediaRef `json:"inputs"`
+}
+
+// PrewarmItem 每个输入的受理结果（宽容读：只取用到的字段）。
+type PrewarmItem struct {
+	URI    string `json:"uri"`
+	Status string `json:"status"`
+	Reason string `json:"reason,omitempty"`
+}
+
+// Prewarm 把参考图提前上传到供应商（只为提速：不建调用、不计费，失败不影响之后的提交）。POST /v1/media:prewarm，scope=calls。
+// 网关立即返回 202，实际上传在网关后台执行。旧版网关没有该接口 → 404（errors.Is(err, ErrNotFound)），调用方应关闭此功能。
+func (c *Client) Prewarm(ctx context.Context, req PrewarmRequest) ([]PrewarmItem, error) {
+	if len(req.Inputs) == 0 {
+		return nil, nil
+	}
+	if len(req.Inputs) > MaxPrewarmInputs {
+		return nil, fmt.Errorf("aigateway: prewarm 最多 %d 个输入，实际 %d (check=aig.prewarm_size)", MaxPrewarmInputs, len(req.Inputs))
+	}
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+	var out struct {
+		Items []PrewarmItem `json:"items"`
+	}
+	if err := c.do(ctx, PurposeCalls, http.MethodPost, "/v1/media:prewarm", nil, body, nil, 0, &out); err != nil {
+		return nil, err
+	}
+	return out.Items, nil
 }
 
 // ModelGroups 当前发布配置的模型组。GET /v1/catalog/model-groups，scope=catalog。

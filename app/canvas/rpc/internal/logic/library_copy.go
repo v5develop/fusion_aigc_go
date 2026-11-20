@@ -575,6 +575,7 @@ func (c *core) runCopyJob(ctx context.Context, j *model.CopyJob) {
 				finish(model.CopyVoid, "run 已不是成功态", "void")
 				return
 			}
+			c.publishRunID(wctx, run.ID) // 产物换成长期地址（library_status pending → 空）：编辑器据此换掉现签地址
 		}
 		cands, video = nc, nv
 	}
@@ -603,6 +604,7 @@ func (c *core) copyGiveUp(ctx context.Context, j *model.CopyJob, attempt int32, 
 		return
 	}
 	copyJobs.Inc("failed")
+	c.publishRunID(ctx, j.RunPK) // library_status → failed
 	log.Errorw(fmt.Sprintf("canvas: run %d 产物转存素材库永久失败（第 %d 次），产物仍以私有引用可看可下载，未进素材库 (check=%s)",
 		j.RunPK, repo.CopyRound(attempt), copyFailedCheck), logx.Field("task_id", j.TaskID), logx.Field("user_id", j.UserID), logx.Field("err", errText(err)))
 	if !c.autoRequeueLeft(attempt) {

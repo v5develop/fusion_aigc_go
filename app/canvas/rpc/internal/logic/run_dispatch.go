@@ -935,10 +935,22 @@ func (c *core) specFromRun(ctx context.Context, run *model.NodeRun) (*runSpec, e
 	return sp, nil
 }
 
-// dispatch 把排队的 run 交给后端：成功提交 → 运行中（media 直接到终态）；暂时性错误 → 留在排队，attempt+1；
-// 其它错误 → 失败（gateway 后端退款），并把错误返回给调用方（RunNode 内联提交时直接回给前端）。
+// dispatch 把排队的 run 交给后端（调用方持有行租约）：
+//
+//	抢 run：一条 CAS 排队 → 提交中（attempt+1），条件含「未请求取消」。没抢到且已请求取消 → 本方按取消收尾（closeQueuedCancel：
+//	        确认网关无已发出调用后退款）；状态已变 → 不动。
+//	提交：成功 → 运行中（CAS 同样带「未请求取消」；没抢到说明提交期间用户请求了取消 → cancelAfterSubmit：gateway 取消本次拿到的
+//	      调用，全部取消成功才退款，有被拒的转运行中按实际结算）；media 同步完成直接到终态；
+//	      暂时性错误 → 退回排队，稍后按同一幂等键重提；其它错误 → gateway 确认网关无已发出调用后失败退款（abortUnsent），
+//	      别的后端失败（Java 可能已建任务的按幂等键找回并取消）。错误返回给调用方（RunNode 内联提交时直接回给前端）。
 func (c *core) dispatch(ctx context.Context, run *model.NodeRun, sp *runSpec, bearer string) error {
+	// 抢到 run 之后的提交与状态写入都不随调用方取消：RunNode 内联提交时客户端断开 / RPC 超时会取消请求 ctx，
+	// 若因此写不进「转运行中 / 退回排队」，run 会停在提交中至少 submittingTTL，已发出的调用也没人跟踪
+	ctx = context.WithoutCancel(ctx)
 	log := logx.WithContext(ctx)
+	if !c.claimDispatch(ctx, run, bearer) {
+		return nil
+	}
 	var (
 		ref   string
 		cands []model.Candidate
@@ -969,8 +981,8 @@ func (c *core) dispatch(ctx context.Context, run *model.NodeRun, sp *runSpec, be
 		c.evEnd(ctx, run, stDispatch, dn, taskevent.StatusFailed, dispatchFail(err), runAttrs(run, taskevent.Attrs{"temporary": isTemporary(err)}))
 		if isTemporary(err) && int(run.Attempt)+1 < c.s.Config.Poll.MaxSubmitAttempts {
 			log.Infof("canvas: run %d 提交暂时失败（第 %d 次），稍后重试: %v", run.ID, run.Attempt+1, err)
-			_ = c.s.Repo.Run.Update(ctx, run.ID, map[string]any{"attempt": run.Attempt + 1})
-			run.Attempt++
+			run.Attempt++ // 抢 run 时库里已 +1
+			c.releaseClaim(ctx, run, bearer)
 			return nil
 		}
 		code, msg, ok := xerr.Parse(err)
@@ -982,60 +994,86 @@ func (c *core) dispatch(ctx context.Context, run *model.NodeRun, sp *runSpec, be
 		if code == xerr.ParamError {
 			ecode = "PARAM_INVALID"
 		}
-		if c.javaMaybeSubmitted(run, err) {
+		if run.Backend == model.BackendGateway {
+			// 已拿到的调用 + 此前（或这次结局未知的）提交可能已建、没拿到号的调用：先确认都没发出去再失败退款；
+			// 有已发出的转运行中按实际结算；暂时确认不了就留在提交中，由兜底退回排队后再来
+			if submitMaybeCreated(err) {
+				// 本次有提交结局未知（超时 / 5xx）：网关可能还没把调用落库，此刻按幂等键查到 404 不能当「没建单」退款（之后网关建出
+				// 孤儿调用）。run 留在提交中、不退款，记下待确认的失败原因；已拿到号的调用先尽力取消（未发出的零成本）；
+				// 由提交中兜底过 submittingTTL 后再按幂等键确认（那时 404 才算没建单）并收尾（advanceStaleDispatching）
+				c.cancelCalls(ctx, run.ID, acquired, "提交失败（待确认）")
+				if ok, merr := c.s.Repo.Run.MarkSubmitUnconfirmed(ctx, run.ID, run.Attempt+1, submitUnconfirmed+ecode, msg); merr != nil || !ok {
+					log.Errorf("canvas: run %d 记待确认的提交失败没成功（兜底将退回排队重提）: ok=%v err=%v", run.ID, ok, merr)
+				} else {
+					log.Infof("canvas: run %d 提交失败但有提交结局未知，留在提交中待兜底过 %s 后确认网关有无建单再收尾 (check=canvas.submit_unconfirmed)", run.ID, submittingTTL)
+				}
+				run.Attempt++
+				return xerr.New(code, msg)
+			}
+			reclaim := run.Attempt > 0
+			r := *run
+			r.Attempt++ // 与库里一致（抢 run 时已 +1）：按幂等键取回时 attempt>0
+			if c.abortUnsent(ctx, &r, model.RunSubmitting, runEnd{to: model.RunFailed, code: ecode, msg: msg, why: "提交失败"}, acquired, reclaim) {
+				*run = r
+			}
+			return xerr.New(code, msg)
+		}
+		// 别的后端：先退回排队（attempt 已 +1），再按原先的口径收尾（「Java 可能已建任务」按本次之前的提交次数判断）
+		maybeJava := c.javaMaybeSubmitted(run, err)
+		run.Attempt++
+		if ok, terr := c.s.Repo.Run.Transit(ctx, run.ID, model.RunSubmitting, model.RunQueued, nil); terr != nil || !ok {
+			log.Errorf("canvas: run %d 提交失败后退回排队没成功（run 已被别处推进 / 写库失败，交给兜底）: %v", run.ID, terr)
+			return xerr.New(code, msg)
+		}
+		run.Status = model.RunQueued
+		if maybeJava {
+			c.publishRun(ctx, run) // 提交中 → 退回排队，接着停止可能已建的 Java 任务
 			// 已落 backend_request、此前（或这次）的请求结局未知：Java 可能已建任务并冻结点数，不能直接置失败留下孤儿。
 			// 走 stopJava：同键重放找回任务号再取消；找不回 / 被拒按退化告警计数；暂时失败登记待取消由 Poller 退避重试。
-			log.Errorf("canvas: run %d Java 提交失败（第 %d 次，%v），按幂等键找回并取消可能已建的任务", run.ID, run.Attempt+1, err)
+			log.Errorf("canvas: run %d Java 提交失败（第 %d 次，%v），按幂等键找回并取消可能已建的任务", run.ID, run.Attempt, err)
 			c.stopJava(ctx, run, stopSubmit, msg, bearer, 0)
 			return xerr.New(code, msg)
 		}
-		failed := c.failRun(ctx, run, model.RunQueued, ecode, msg, true)
-		if failed {
-			// 抢到失败（已退款）：已拿到的调用都是孤儿，一律取消
-			c.cancelCalls(ctx, run.ID, acquired, "提交失败")
-		} else {
-			// 没抢到：run 已被别处推进——取消 / 强制失败 / 超时（钱已由那条路径处理），或提交太久、行租约过期后被别的实例
-			// 接手并以同一幂等键重提拿回了同一批调用、正在跟踪。只取消 run 行没记录的（见 cancelUnrecordedCalls）
-			c.cancelUnrecordedCalls(ctx, run.ID, acquired, "提交失败")
-		}
-		if failed {
-			if run.Backend == model.BackendGateway && (run.Attempt > 0 || submitMaybeCreated(err)) {
-				// 此前（或这次超时的）提交可能已在 gateway 建了调用但 backend_ref 没写上：按幂等键取回并取消
-				r := *run
-				r.Attempt = max(r.Attempt, 1)
-				c.reclaimQueuedCalls(ctx, &r, "提交失败")
-			}
-		}
+		c.failRun(ctx, run, model.RunQueued, ecode, msg, true)
 		return xerr.New(code, msg)
 	}
 	if run.Backend == model.BackendMedia {
-		if ok, err := c.s.Repo.Run.Transit(ctx, run.ID, model.RunQueued, model.RunRunning, map[string]any{"attempt": run.Attempt + 1}); err != nil || !ok {
+		if ok, err := c.s.Repo.Run.Transit(ctx, run.ID, model.RunSubmitting, model.RunRunning, map[string]any{"attempt": run.Attempt + 1}); err != nil || !ok {
 			c.evEnd(ctx, run, stDispatch, dn, taskevent.StatusFailed, taskevent.Fail{Class: "LOCAL", Code: "STATE_CHANGED", Check: "canvas.dispatch_cas", Message: traceErrMsg(err)}, runAttrs(run, nil))
 			return err
 		}
-		run.Status = model.RunRunning
+		run.Status, run.Attempt = model.RunRunning, run.Attempt+1
 		c.traceRunning(ctx, run, dn, 1)
 		c.succeed(ctx, run, outcome{done: true, ok: true}, cands)
 		return nil
 	}
-	ok, err := c.s.Repo.Run.Transit(ctx, run.ID, model.RunQueued, model.RunRunning, map[string]any{
+	ok, err := c.s.Repo.Run.TransitUncanceled(ctx, run.ID, model.RunSubmitting, model.RunRunning, run.Attempt+1, map[string]any{
 		"backend_ref": ref, "attempt": run.Attempt + 1, "progress": 5,
 	})
 	if err != nil {
-		// 写库失败：run 仍在排队，下一轮用同一幂等键重提会拿回同一批调用，不取消
-		log.Errorf("canvas: run %d 提交成功但转运行中写库失败（下轮按幂等键重提）: %v", run.ID, err)
-		_ = c.s.Repo.Run.Update(ctx, run.ID, map[string]any{"attempt": run.Attempt + 1})
+		// 写库失败：run 留在提交中（attempt 已 +1），兜底超过 submittingTTL 退回排队，再按同一幂等键重提拿回同一批调用，不取消
+		log.Errorf("canvas: run %d 提交成功但转运行中写库失败（交给提交中兜底退回排队重提）: %v", run.ID, err)
 		run.Attempt++
 		c.evEnd(ctx, run, stDispatch, dn, taskevent.StatusFailed, taskevent.Fail{Class: "LOCAL", Code: "DISPATCH_WRITE", Check: "canvas.dispatch_write", Message: traceErrMsg(err)}, runAttrs(run, nil))
 		return nil
 	}
 	if !ok {
-		c.evEnd(ctx, run, stDispatch, dn, taskevent.StatusSkipped, taskevent.Fail{Class: "LOCAL", Code: "STATE_CHANGED", Check: "canvas.dispatch_cas", Message: "提交期间已被取消 / 强制失败 / 超时"}, runAttrs(run, nil))
-		// 提交期间 run 已被取消 / 强制失败 / 超时：刚拿到的上游调用成了孤儿，取消掉
+		rctx, cancel := detached(ctx)
+		cur, rerr := c.s.Repo.Run.Get(rctx, run.ID)
+		cancel()
+		if rerr == nil && cur != nil && cur.Status == model.RunSubmitting && cur.CancelRequest == model.CancelRequested {
+			// 提交期间用户请求了取消：由本方（派发器）收尾
+			c.evEnd(ctx, run, stDispatch, dn, taskevent.StatusSkipped, taskevent.Fail{Class: "LOCAL", Code: "CANCEL_REQUESTED", Check: "canvas.dispatch_cas", Message: "提交期间用户已请求取消"}, runAttrs(run, nil))
+			run.Attempt++
+			c.cancelAfterSubmit(ctx, run, ref, acquired, bearer)
+			return nil
+		}
+		c.evEnd(ctx, run, stDispatch, dn, taskevent.StatusSkipped, taskevent.Fail{Class: "LOCAL", Code: "STATE_CHANGED", Check: "canvas.dispatch_cas", Message: "提交期间已被强制失败 / 超时"}, runAttrs(run, nil))
+		// 提交期间 run 已被强制失败 / 兜底退回排队后被别的实例接手：刚拿到的上游调用可能成了孤儿，取消掉
 		switch run.Backend {
 		case model.BackendGateway:
 			// 同一批调用可能已被接手本 run 的别的实例（同幂等键）记进 backend_ref 在跟踪：只取消没记录的
-			c.cancelUnrecordedCalls(ctx, run.ID, acquired, "提交期间已结束")
+			c.cancelUnrecordedCallsOf(ctx, run.ID, cur, rerr, acquired, "提交期间已结束")
 		case model.BackendStudio:
 			c.cancelStudio(ctx, run, ref, "提交期间已结束")
 		case model.BackendJava:
@@ -1043,12 +1081,103 @@ func (c *core) dispatch(ctx context.Context, run *model.NodeRun, sp *runSpec, be
 		}
 		return nil
 	}
-	run.Status, run.BackendRef.String, run.BackendRef.Valid = model.RunRunning, ref, true
+	run.Status, run.BackendRef.String, run.BackendRef.Valid, run.Attempt = model.RunRunning, ref, true, run.Attempt+1
 	c.traceRunning(ctx, run, dn, len(acquired))
+	c.publishRun(ctx, run) // 提交中 → 运行中
 	if run.Backend == model.BackendGateway {
 		c.reportGatewayCalls(ctx, run, acquired, bearer)
 	}
 	return nil
+}
+
+// claimDispatch 发请求前抢 run（排队 → 提交中，attempt+1，条件含「未请求取消」）。没抢到：重读，排队中且已请求取消 →
+// 本方持有租约，按取消收尾（closeQueuedCancel，结果写回 run）；否则（被别处推进 / attempt 已变）什么都不做。返回是否抢到。
+// 抢到后内存里的 run.Status=提交中，run.Attempt 仍是抢之前的值（与原先「提交结束才 +1」的计数口径一致，收尾时再 +1）。
+func (c *core) claimDispatch(ctx context.Context, run *model.NodeRun, bearer string) bool {
+	ok, err := c.s.Repo.Run.ClaimDispatch(ctx, run.ID, run.Attempt)
+	if err != nil {
+		logx.WithContext(ctx).Errorf("canvas: run %d 提交前抢 run 写库失败，留在排队稍后重试: %v", run.ID, err)
+		return false
+	}
+	if ok {
+		run.Status = model.RunSubmitting
+		c.publishRun(ctx, run) // 排队 → 提交中
+		return true
+	}
+	cur, err := c.s.Repo.Run.Get(ctx, run.ID)
+	if err != nil || cur == nil {
+		return false
+	}
+	if cur.Status == model.RunQueued && cur.CancelRequest == model.CancelRequested {
+		logx.WithContext(ctx).Infof("canvas: run %d 提交前发现用户已请求取消，不提交，确认没有已发出的调用后结束", run.ID)
+		c.closeQueuedCancel(ctx, cur, bearer)
+	}
+	*run = *cur
+	return false
+}
+
+// releaseClaim 本轮没提交成功（暂时性错误）：提交中退回排队，稍后按同一幂等键重提（CAS 带「未请求取消」与本方的 attempt；
+// 调用方已把 run.Attempt 加到与库里一致）。写库不随调用方取消。
+// 期间用户已请求取消 → 退回排队后就地按取消收尾（本方仍持有租约；attempt>0，gateway 按幂等键取回调用确认没发出）。
+func (c *core) releaseClaim(ctx context.Context, run *model.NodeRun, bearer string) {
+	ctx = context.WithoutCancel(ctx)
+	log := logx.WithContext(ctx)
+	ok, err := c.s.Repo.Run.TransitUncanceled(ctx, run.ID, model.RunSubmitting, model.RunQueued, run.Attempt, nil)
+	if err != nil {
+		log.Errorf("canvas: run %d 退回排队写库失败（交给提交中兜底）: %v", run.ID, err)
+		return
+	}
+	if ok {
+		run.Status = model.RunQueued
+		c.publishRun(ctx, run) // 提交中 → 退回排队
+		return
+	}
+	cur, err := c.s.Repo.Run.Get(ctx, run.ID)
+	if err != nil || cur == nil || cur.Status != model.RunSubmitting || cur.Attempt != run.Attempt || cur.CancelRequest != model.CancelRequested {
+		return // 已被别处推进（运营强制失败 / 兜底退回排队后被别的实例重新抢到，attempt 已变）
+	}
+	// 带本方 attempt 的 CAS；退回排队后带着取消标记，任何派发器都抢不到它（抢 run 的 CAS 要求未请求取消），由本方就地收尾
+	if ok, err := c.s.Repo.Run.TransitAttempt(ctx, run.ID, model.RunSubmitting, model.RunQueued, run.Attempt, nil); err != nil || !ok {
+		log.Errorf("canvas: run %d 已请求取消，退回排队没成功（交给提交中兜底）: %v", run.ID, err)
+		return
+	}
+	cur.Status = model.RunQueued
+	c.closeQueuedCancel(ctx, cur, bearer)
+	*run = *cur
+}
+
+// cancelAfterSubmit 提交成功、转运行中前发现用户已请求取消（run 仍在提交中，本方持有）。
+//   - gateway：取消本次拿到的调用——全部取消成功（没发出去）才失败退款；有被拒（已发给供应商）的转运行中照常完成、按实际结算，
+//     cancel_request=2（接口 cancel_state=refused）；暂时确认不了留在提交中，由兜底退回排队后再按幂等键取回确认（abortUnsent）。
+//   - Java / studio：先转运行中记下任务号 / 批次号，再走各自的运行中取消（Java 由 Java 判断能否取消、由 Java 退款；studio 取消批次）。
+func (c *core) cancelAfterSubmit(ctx context.Context, run *model.NodeRun, ref string, acquired []string, bearer string) {
+	if run.Backend == model.BackendGateway {
+		c.abortUnsent(ctx, run, model.RunSubmitting, userCancelEnd, acquired, false)
+		if run.Status == model.RunRunning {
+			c.reportGatewayCalls(ctx, run, acquired, bearer)
+		}
+		return
+	}
+	ok, err := c.s.Repo.Run.Transit(ctx, run.ID, model.RunSubmitting, model.RunRunning, map[string]any{"backend_ref": ref, "progress": 5})
+	if err != nil || !ok {
+		logx.WithContext(ctx).Errorf("canvas: run %d 已请求取消，提交后转运行中没成功（已被别处推进 / 写库失败），取消刚拿到的任务: %v", run.ID, err)
+		if run.Backend == model.BackendStudio {
+			c.cancelStudio(ctx, run, ref, "提交期间已结束")
+		} else {
+			c.cancelJavaOrphan(ctx, run, ref, bearer)
+		}
+		return
+	}
+	run.Status, run.BackendRef.String, run.BackendRef.Valid = model.RunRunning, ref, true
+	c.traceRunning(ctx, run, 0, 1)
+	c.publishRun(ctx, run)
+	if run.Backend == model.BackendJava {
+		c.stopJava(ctx, run, stopUser, msgUserCanceled, bearer, 0)
+		return
+	}
+	if c.endRun(ctx, run, model.RunRunning, model.RunCanceled, "CANCELED", msgUserCanceled, true, false) {
+		c.cancelStudio(ctx, run, ref, "用户取消")
+	}
 }
 
 // reportGatewayCalls 把画布直接调网关得到的调用号回报给 Java 创作任务（非工作流任务的链路据此补网关阶段）。

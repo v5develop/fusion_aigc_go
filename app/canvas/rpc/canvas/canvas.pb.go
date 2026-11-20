@@ -1348,6 +1348,9 @@ type RunResult struct {
 	// 产物是否已进素材库（只增）：空=已在素材库或不适用；pending=已交付（地址是 10 分钟现签），后台转存素材库中；
 	// failed=转存永久失败，产物仍可看可下载，但不在素材库
 	LibraryStatus string `protobuf:"bytes,21,opt,name=library_status,json=libraryStatus,proto3" json:"library_status,omitempty"`
+	// 用户取消请求（只增）：空=没有；requested=排队 / 提交中已请求取消、待确认没发给供应商（前端显示「取消中」，继续轮询，
+	// 很快到 cancelled 或回到 running）；refused=取消被拒：已发给供应商，照常完成、按实际用量结算（提示同 reason CANCEL_VENDOR_SENT）
+	CancelState   string `protobuf:"bytes,22,opt,name=cancel_state,json=cancelState,proto3" json:"cancel_state,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1525,6 +1528,13 @@ func (x *RunResult) GetTaskId() string {
 func (x *RunResult) GetLibraryStatus() string {
 	if x != nil {
 		return x.LibraryStatus
+	}
+	return ""
+}
+
+func (x *RunResult) GetCancelState() string {
+	if x != nil {
+		return x.CancelState
 	}
 	return ""
 }
@@ -5629,7 +5639,7 @@ const file_canvas_proto_rawDesc = "" +
 	"\x03url\x18\x01 \x01(\tR\x03url\x12\x14\n" +
 	"\x05width\x18\x02 \x01(\x05R\x05width\x12\x16\n" +
 	"\x06height\x18\x03 \x01(\x05R\x06height\x12\x1b\n" +
-	"\tthumb_url\x18\x04 \x01(\tR\bthumbUrl\"\xf6\x04\n" +
+	"\tthumb_url\x18\x04 \x01(\tR\bthumbUrl\"\x99\x05\n" +
 	"\tRunResult\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x15\n" +
@@ -5658,7 +5668,8 @@ const file_canvas_proto_rawDesc = "" +
 	"\vfinished_at\x18\x13 \x01(\x03R\n" +
 	"finishedAt\x12\x17\n" +
 	"\atask_id\x18\x14 \x01(\tR\x06taskId\x12%\n" +
-	"\x0elibrary_status\x18\x15 \x01(\tR\rlibraryStatus\"3\n" +
+	"\x0elibrary_status\x18\x15 \x01(\tR\rlibraryStatus\x12!\n" +
+	"\fcancel_state\x18\x16 \x01(\tR\vcancelState\"3\n" +
 	"\bRunIdReq\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\x03R\x02id\"\x90\x01\n" +

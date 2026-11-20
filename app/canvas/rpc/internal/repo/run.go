@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sort"
 	"strings"
 	"time"
 
@@ -117,14 +118,6 @@ func (r *RunRepo) SetSelected(ctx context.Context, id int64, index int32) error 
 	return err
 }
 
-// ListStale 某状态下创建早于 before 的 run（提交中兜底用），按 id 升序。
-func (r *RunRepo) ListStale(ctx context.Context, status int8, before time.Time, limit int) ([]*model.NodeRun, error) {
-	var list []*model.NodeRun
-	err := r.db.NewSelect().Model(&list).Where("r.status = ?", status).Where("r.created_at < ?", before).
-		OrderExpr("r.id ASC").Limit(int64(limit)).Scan(ctx)
-	return list, err
-}
-
 // Touch 把仍停在 status 的这些 run 的 updated_at 刷成现在：ListByStatus 按 updated_at 升序取前 N 条，
 // 处理过的排到队尾，避免长时间在途（或在等 Bearer）的 run 一直占着队头。
 func (r *RunRepo) Touch(ctx context.Context, ids []int64, status int8) error {
@@ -206,11 +199,11 @@ func (r *RunRepo) ListByStatus(ctx context.Context, status int8, limit int) ([]*
 	return list, err
 }
 
-// ListHeldActive 需要续期预留单的 run：排队 / 运行中、gateway 后端、计费镜像 held、有计费请求号。按 id 升序，最多 limit 条。
+// ListHeldActive 需要续期预留单的 run：排队 / 提交中（派发阶段）/ 运行中、gateway 后端、计费镜像 held、有计费请求号。按 id 升序，最多 limit 条。
 func (r *RunRepo) ListHeldActive(ctx context.Context, limit int) ([]*model.NodeRun, error) {
 	var list []*model.NodeRun
 	err := r.db.NewSelect().Model(&list).Column("r.id", "r.user_id", "r.billing_request_id", "r.billing_status").
-		Where("r.status IN (?)", bun.In([]int8{model.RunQueued, model.RunRunning})).
+		Where("r.status IN (?)", bun.In([]int8{model.RunQueued, model.RunSubmitting, model.RunRunning})).
 		Where("r.backend = ?", model.BackendGateway).
 		Where("r.billing_status = ?", model.BillHeld).
 		Where("r.billing_request_id IS NOT NULL AND r.billing_request_id <> ''").
@@ -284,6 +277,88 @@ func (r *RunRepo) Transit(ctx context.Context, id int64, from, to int8, extra ma
 		set["error_reason"] = Trunc(s, 255)
 	}
 	return bundb.TransitStatus(ctx, r.db, TableRun, id, int(from), int(to), set)
+}
+
+// TransitUncanceled 同 Transit，但只在没有用户取消请求（cancel_request=0）且 attempt 仍是本方抢 run 时写下的值时迁移：
+// 派发器提交后「转运行中」/「退回排队」都用它。与 RequestCancel 互斥——标记先落则迁移不到，由持有方按取消收尾；迁移先落则标记打不上，
+// 取消走运行中路径。attempt 条件防旧持有方（提交太久、兜底退回排队后已被别的实例重新抢到）误改新持有方的 run。
+func (r *RunRepo) TransitUncanceled(ctx context.Context, id int64, from, to int8, attempt int32, extra map[string]any) (bool, error) {
+	return r.transitAttempt(ctx, id, from, to, attempt, true, extra)
+}
+
+// TransitAttempt 同 Transit，另加 attempt 条件（不看取消标记）：派发器 / 兜底在提交中收尾时用，防旧持有方误改新持有方的 run。
+func (r *RunRepo) TransitAttempt(ctx context.Context, id int64, from, to int8, attempt int32, extra map[string]any) (bool, error) {
+	return r.transitAttempt(ctx, id, from, to, attempt, false, extra)
+}
+
+// MarkSubmitUnconfirmed 提交以永久错误结束、但有提交结局未知（网关可能还没落库）：run 留在提交中，只记下待确认的失败原因
+// （error_code = prefix + 失败码，error_reason = 文案），由提交中兜底过 submittingTTL 后按幂等键确认再收尾。条件含本方 attempt。
+func (r *RunRepo) MarkSubmitUnconfirmed(ctx context.Context, id int64, attempt int32, code, reason string) (bool, error) {
+	n, err := affected(r.db.NewUpdate().Table(TableRun).Set("error_code = ?", code).Set("error_reason = ?", Trunc(reason, 255)).
+		Set("updated_at = NOW(3)").
+		Where("id = ?", id).Where("status = ?", model.RunSubmitting).Where("attempt = ?", attempt).Exec(ctx))
+	return n > 0, err
+}
+
+func (r *RunRepo) transitAttempt(ctx context.Context, id int64, from, to int8, attempt int32, uncanceled bool, extra map[string]any) (bool, error) {
+	q := r.db.NewUpdate().Table(TableRun).Set("status = ?", to).Set("updated_at = NOW(3)")
+	keys := make([]string, 0, len(extra))
+	for k := range extra {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		v := extra[k]
+		if s, ok := v.(string); ok && k == "error_reason" {
+			v = Trunc(s, 255)
+		}
+		q = q.Set("? = ?", bun.Ident(k), v)
+	}
+	if _, ok := extra["started_at"]; !ok && to == model.RunRunning {
+		q = q.Set("started_at = NOW(3)")
+	}
+	q = q.Where("id = ?", id).Where("status = ?", from)
+	if uncanceled {
+		q = q.Where("cancel_request = ?", model.CancelNone)
+	}
+	n, err := affected(q.Where("attempt = ?", attempt).Exec(ctx))
+	return n > 0, err
+}
+
+// ClaimDispatch 派发器发请求前抢 run：排队 → 提交中，attempt+1（attempt>0 即「可能已向后端提交过」），条件是仍在排队、
+// 没有用户取消请求、attempt 未被别处改过。返回是否抢到；没抢到由调用方重读区分「已请求取消」与「状态已变」。
+func (r *RunRepo) ClaimDispatch(ctx context.Context, id int64, attempt int32) (bool, error) {
+	n, err := affected(r.db.NewUpdate().Table(TableRun).Set("status = ?", model.RunSubmitting).Set("attempt = ?", attempt+1).
+		Set("updated_at = NOW(3)").
+		Where("id = ?", id).Where("status = ?", model.RunQueued).Where("cancel_request = ?", model.CancelNone).
+		Where("attempt = ?", attempt).Exec(ctx))
+	return n > 0, err
+}
+
+// RequestCancel 用户在排队 / 提交中取消：只打「已请求取消」标记，不改状态、不退款。只对仍在排队 / 提交中、还没有标记的行生效；
+// 返回是否打上（已打过 / 状态已变返回 false，由调用方重读判断）。
+func (r *RunRepo) RequestCancel(ctx context.Context, id int64) (bool, error) {
+	n, err := affected(r.db.NewUpdate().Table(TableRun).Set("cancel_request = ?", model.CancelRequested).
+		Where("id = ?", id).Where("status IN (?)", bun.In([]int8{model.RunQueued, model.RunSubmitting})).
+		Where("cancel_request = ?", model.CancelNone).Exec(ctx))
+	return n > 0, err
+}
+
+// ListStaleHolding 冻结阶段卡住的提交中 run（attempt=0、创建早于 before），按 id 升序。
+func (r *RunRepo) ListStaleHolding(ctx context.Context, before time.Time, limit int) ([]*model.NodeRun, error) {
+	var list []*model.NodeRun
+	err := r.db.NewSelect().Model(&list).Where("r.status = ?", model.RunSubmitting).Where("r.created_at < ?", before).
+		Where("r.attempt = 0").OrderExpr("r.id ASC").Limit(int64(limit)).Scan(ctx)
+	return list, err
+}
+
+// ListStaleDispatching 派发阶段卡住的提交中 run（attempt>0、updated_at 早于 before、没有租约或租约已过期：派发器宕机 / 早已放手），
+// 按 id 升序。
+func (r *RunRepo) ListStaleDispatching(ctx context.Context, before time.Time, limit int) ([]*model.NodeRun, error) {
+	var list []*model.NodeRun
+	err := r.db.NewSelect().Model(&list).Where("r.status = ?", model.RunSubmitting).Where("r.attempt > 0").
+		Where("r.updated_at < ?", before).Where(lease.FreeCond("r")).OrderExpr("r.id ASC").Limit(int64(limit)).Scan(ctx)
+	return list, err
 }
 
 // Update 不改状态地更新若干列（如 attempt / progress / backend_ref）。

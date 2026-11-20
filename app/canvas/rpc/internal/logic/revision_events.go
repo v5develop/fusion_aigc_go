@@ -66,6 +66,7 @@ const ClientSvc = "svc"
 
 // afterWrite revision 已变（CAS 保存成功 / 新建落库）后的收尾：记历史 + 发事件。
 func (c *core) afterWrite(ctx context.Context, canvasID string, userID int64, rev string, snapshot []byte, nodeCount int32, changed []string) {
+	c.schedulePrewarm(canvasID, snapshot) // 参考图预上传：后台协程，立即返回（prewarm.go）
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), afterWriteTimeout)
 	defer cancel()
 	source, actor := actorOf(ctx, userID)
@@ -107,12 +108,26 @@ func (c *core) recordRevision(ctx context.Context, canvasID string, userID int64
 }
 
 // publishRun run 状态变化事件（revision 取画布当前值）。没配事件 Redis 时不查库。
+// 调用方手里的 run 常常只改了部分字段（状态改了、错误原因没回填），所以先按 id 重读库再出载荷（见 run_event_view.go）。
 func (c *core) publishRun(ctx context.Context, run *model.NodeRun) {
 	if run == nil || !c.s.CanvasEvents.Enabled() {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), afterWriteTimeout)
 	defer cancel()
+	cur, err := c.s.Repo.Run.Get(ctx, run.ID)
+	if err != nil {
+		logx.WithContext(ctx).Errorf("canvas: run %d 发事件前读库失败，事件不带结果（check=canvas.run_event_reload）: %v", run.ID, err)
+		cur = nil
+	}
+	c.emitRun(ctx, run, cur)
+}
+
+// emitRun 发 run 事件：fresh 是刚从库里读到的 run（nil = 没读到，只发状态提示，不带结果）。
+func (c *core) emitRun(ctx context.Context, run, fresh *model.NodeRun) {
+	if fresh != nil {
+		run = fresh
+	}
 	rev, err := c.s.Repo.Canvas.RevisionOf(ctx, run.CanvasID)
 	if err != nil {
 		logx.WithContext(ctx).Errorf("canvas: run %d 事件取 revision 失败: %v", run.ID, err)
@@ -122,10 +137,14 @@ func (c *core) publishRun(ctx context.Context, run *model.NodeRun) {
 		return // 画布已不存在
 	}
 	reqID := strconv.FormatInt(run.ID, 10)
-	if err := c.s.CanvasEvents.Publish(ctx, canvasevent.Event{
+	ev := canvasevent.Event{
 		CanvasID: run.CanvasID, Revision: rev, Source: canvasevent.SourceRun, Actor: "run:" + reqID,
 		ChangedNodeIDs: []string{run.NodeID}, At: c.now().UnixMilli(), RequestID: reqID, RunStatus: model.StatusText(run.Status),
-	}); err != nil {
+	}
+	if fresh != nil {
+		ev.Run = c.runView(ctx, fresh)
+	}
+	if err := c.s.CanvasEvents.Publish(ctx, ev); err != nil {
 		logx.WithContext(ctx).Errorf("canvas: 发 run 事件失败 run=%d（check=canvas.event_publish）: %v", run.ID, err)
 	}
 }

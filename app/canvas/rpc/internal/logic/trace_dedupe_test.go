@@ -106,10 +106,10 @@ func TestTraceTimeoutFailBranchStatusInDedupe(t *testing.T) {
 	run := timedRun(901, callA)
 	// 第一次 CAS 没抢到
 	mock.ExpectExec("UPDATE `afv_canvas_node_run` SET `status` = 3, .*").WillReturnResult(sqlmock.NewResult(0, 0))
-	c.applyGatewayTimeout(context.Background(), run, []string{"call_a"}, timeoutVerdict{fail: true, reason: "hard_cap"})
+	c.applyGatewayTimeout(context.Background(), run, []string{callA}, timeoutVerdict{fail: true, reason: "hard_cap"})
 	// 第二次抢到
 	mock.ExpectExec("UPDATE `afv_canvas_node_run` SET `status` = 3, .*").WillReturnResult(sqlmock.NewResult(0, 1))
-	c.applyGatewayTimeout(context.Background(), run, []string{"call_a"}, timeoutVerdict{fail: true, reason: "hard_cap"})
+	c.applyGatewayTimeout(context.Background(), run, []string{callA}, timeoutVerdict{fail: true, reason: "hard_cap"})
 	ends := ev.find(taskevent.KindSpanEnd, stTimeout)
 	if len(ends) != 2 || !distinct(dedupes(ends)) {
 		t.Fatalf("skipped / timeout 应各记一条: %v", dedupes(ends))
